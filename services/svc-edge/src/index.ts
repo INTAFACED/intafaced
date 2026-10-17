@@ -195,6 +195,8 @@ const admin = createAdminApi(killSwitches, {
   // here: the edge forwards the operator's own token and holds no credential of
   // the ledger's.
   ledger: env.LEDGER_URL ? httpLedgerOperator(env.LEDGER_URL, env.UPSTREAM_TIMEOUT_MS) : null,
+  complianceQueuePath: env.EDGE_COMPLIANCE_QUEUE_PATH,
+  reconcileLastPath: env.EDGE_RECONCILE_LAST_PATH,
   approvals: createHttpEdgeApprovalConsumer({
     identityUrl: env.IDENTITY_URL,
     edgeSecret: env.EDGE_PRINCIPAL_SECRET,

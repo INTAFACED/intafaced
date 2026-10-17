@@ -100,6 +100,11 @@ export interface FreezeSnapshot {
   readonly reason: string | null;
   readonly actor: string | null;
   readonly changedAt: string;
+  /**
+   * The row's `changedAtPrecise`. Freeze and unfreeze approvals are bound to
+   * this version. Absent only when the store did not return one — never guessed.
+   */
+  readonly version?: string;
 }
 
 /**
@@ -182,11 +187,18 @@ export function registerOperatorHttp(
       }
     };
 
-  const shape = (state: { frozen: boolean; reason: string | null; actor: string | null; changedAt: Date }): FreezeSnapshot => ({
+  const shape = (state: {
+    frozen: boolean;
+    reason: string | null;
+    actor: string | null;
+    changedAt: Date;
+    changedAtPrecise?: string;
+  }): FreezeSnapshot => ({
     frozen: state.frozen,
     reason: state.reason,
     actor: state.actor,
     changedAt: state.changedAt.toISOString(),
+    ...(typeof state.changedAtPrecise === 'string' && state.changedAtPrecise.length > 0 ? { version: state.changedAtPrecise } : {}),
   });
 
   /**

@@ -134,6 +134,10 @@ export interface SupportStore {
    * Writes an `assigned` audit row in the same transaction as a winning claim.
    */
   claimTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult>;
+  /** The current assignee returns the ticket to the queue. Anyone else is refused. */
+  releaseTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult>;
+  /** A lead moves the ticket onto a staff member. The service has already checked the role. */
+  assignTicket(input: { ticketId: string; operatorId: string; assigneeId: string }): Promise<ClaimResult>;
   /** Non-state-change trail row for a pure read: `grounding_read` only. */
   appendEvent(input: AppendEventInput): Promise<SupportTicketEvent>;
   /** The trail, oldest first. Omit `limit` for the full trail (tests / internal dumps). */
@@ -608,6 +612,47 @@ export class MemorySupportStore implements SupportStore {
     return result;
   }
 
+  async releaseTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult> {
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (ticket.status !== 'open' && ticket.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
+    if (ticket.assigneeId !== input.operatorId) return { status: 'refuse', reason: 'not_assignee' };
+    const updated = { ...ticket, assigneeId: null, updatedAt: new Date().toISOString() };
+    this.tickets.set(ticket.id, updated);
+    this.record({
+      ticketId: ticket.id,
+      kind: 'assigned',
+      actorId: input.operatorId,
+      actorRole: 'operator',
+      note: 'unclaim',
+      at: updated.updatedAt,
+    });
+    return { status: 'ok', ticket: updated };
+  }
+
+  async assignTicket(input: { ticketId: string; operatorId: string; assigneeId: string }): Promise<ClaimResult> {
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (ticket.status !== 'open' && ticket.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
+    if (ticket.assigneeId === input.assigneeId) return { status: 'ok', ticket };
+    const updated = {
+      ...ticket,
+      assigneeId: input.assigneeId,
+      status: ticket.status === 'open' ? 'pending' : ticket.status,
+      updatedAt: new Date().toISOString(),
+    };
+    this.tickets.set(ticket.id, updated);
+    this.record({
+      ticketId: ticket.id,
+      kind: 'assigned',
+      actorId: input.operatorId,
+      actorRole: 'operator',
+      note: `assign:${input.assigneeId}`,
+      at: updated.updatedAt,
+    });
+    return { status: 'ok', ticket: updated };
+  }
+
   async appendEvent(input: AppendEventInput): Promise<SupportTicketEvent> {
     if (!this.tickets.has(input.ticketId)) throw new Error('ticket not found for event');
     return this.record({
@@ -1006,6 +1051,69 @@ export class PostgresSupportStore implements SupportStore {
         });
       }
       return { status: 'ok', ticket: ticketFromPg(claimed[0]!) };
+    });
+  }
+
+  async releaseTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult> {
+    const operatorId = input.operatorId?.trim() ?? '';
+    if (!operatorId) return { status: 'refuse', reason: 'invalid_operator' };
+    return this.sql.begin(async (tx): Promise<ClaimResult> => {
+      const locked = await tx<PgTicket[]>`
+        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      `;
+      if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
+      const existing = ticketFromPg(locked[0]);
+      if (existing.status !== 'open' && existing.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
+      if (existing.assigneeId !== operatorId) return { status: 'refuse', reason: 'not_assignee' };
+      const released = await tx<PgTicket[]>`
+        UPDATE support.tickets
+        SET assignee_id = NULL, updated_at = now()
+        WHERE id = ${input.ticketId} AND assignee_id = ${operatorId}
+        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+      `;
+      if (!released[0]) return { status: 'refuse', reason: 'not_assignee' };
+      await insertEvent(tx, {
+        ticketId: input.ticketId,
+        kind: 'assigned',
+        actorId: operatorId,
+        actorRole: 'operator',
+        note: 'unclaim',
+      });
+      return { status: 'ok', ticket: ticketFromPg(released[0]) };
+    });
+  }
+
+  async assignTicket(input: { ticketId: string; operatorId: string; assigneeId: string }): Promise<ClaimResult> {
+    const operatorId = input.operatorId?.trim() ?? '';
+    const assigneeId = input.assigneeId?.trim() ?? '';
+    if (!operatorId || !assigneeId) return { status: 'refuse', reason: 'invalid_operator' };
+    return this.sql.begin(async (tx): Promise<ClaimResult> => {
+      const locked = await tx<PgTicket[]>`
+        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      `;
+      if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
+      const existing = ticketFromPg(locked[0]);
+      if (existing.status !== 'open' && existing.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
+      if (existing.assigneeId === assigneeId) return { status: 'ok', ticket: existing };
+      const assigned = await tx<PgTicket[]>`
+        UPDATE support.tickets
+        SET assignee_id = ${assigneeId},
+            status = CASE WHEN status = 'open' THEN 'pending' ELSE status END,
+            updated_at = now()
+        WHERE id = ${input.ticketId}
+        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+      `;
+      if (!assigned[0]) return { status: 'refuse', reason: 'not_found' };
+      await insertEvent(tx, {
+        ticketId: input.ticketId,
+        kind: 'assigned',
+        actorId: operatorId,
+        actorRole: 'operator',
+        note: `assign:${assigneeId}`,
+      });
+      return { status: 'ok', ticket: ticketFromPg(assigned[0]) };
     });
   }
 

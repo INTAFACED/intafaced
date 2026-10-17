@@ -235,6 +235,51 @@ export class ActionApprovalService {
   }
 
   /**
+   * Pending approvals this caller may decide, or the caller's own rows.
+   * `pending` is empty of founder-only rows unless the caller is a live founder,
+   * and empty of operator rows unless the caller is an operator. The router
+   * refuses the pending view entirely when the caller is neither.
+   */
+  async listForCaller(
+    callerId: string,
+    view: 'pending' | 'mine',
+    limit: number,
+    access: { readonly operator: boolean; readonly founder: boolean },
+  ): Promise<{ readonly approvals: ActionApproval[]; readonly pageFull: boolean }> {
+    if (view === 'mine') {
+      const rows = await this.store.listByRequester(callerId, limit);
+      return { approvals: rows.map(toActionApproval), pageFull: rows.length === limit };
+    }
+    const rows = await this.store.listPendingExcept(callerId, limit);
+    const visible = [];
+    for (const row of rows) {
+      const audience = audienceOfApproval(row);
+      if (audience === 'self') continue;
+      if (audience === 'founder' && access.founder) visible.push(toActionApproval(row));
+      else if (audience === 'operator' && access.operator) visible.push(toActionApproval(row));
+    }
+    return { approvals: visible, pageFull: rows.length === limit };
+  }
+
+  /**
+   * One approval the caller may read: their own row, or a pending/decided row
+   * whose audience they belong to. Anyone else is refused. Missing is not found.
+   */
+  async getForCaller(
+    callerId: string,
+    approvalId: string,
+    access: { readonly operator: boolean; readonly founder: boolean },
+  ): Promise<ActionApproval> {
+    const row = await this.store.get(approvalId);
+    if (!row) throw new ActionApprovalError('approval not found', 'action_approval.not_found');
+    if (row.requesterId === callerId) return toActionApproval(row);
+    const audience = audienceOfApproval(row);
+    const allowed = audience === 'founder' ? access.founder : audience === 'operator' ? access.operator : false;
+    if (!allowed) throw new ActionApprovalError('this approval is not visible to this session', 'action_approval.not_requester');
+    return toActionApproval(row);
+  }
+
+  /**
    * The audience-relevant fields of a stored approval, or null. Lets a door classify it before acting on it.
    * Only the request's own type, target service, target id and kind: nothing else is disclosed.
    */

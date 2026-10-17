@@ -3,6 +3,7 @@ import { createEdgeContext } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createSupportHttpApp } from './http-app.js';
+import { SqlStaffBook } from './desk-staff.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
@@ -46,10 +47,14 @@ await sql`SELECT 1 FROM support.kb_articles LIMIT 1`.catch(() => {
   throw new Error('support.kb_articles is missing — apply migration 0003 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.staff LIMIT 1`.catch(() => {
+  throw new Error('support.staff is missing — apply migration 0012 before starting svc-support');
+});
+
 const store = new PostgresSupportStore(sql);
 // Account state is READ from svc-identity per request, never cached here.
 const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const support = new SupportService(store, accounts);
+const support = new SupportService(store, accounts, new SqlStaffBook(sql));
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({

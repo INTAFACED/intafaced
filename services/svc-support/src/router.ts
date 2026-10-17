@@ -71,9 +71,21 @@ function mapError(err: unknown): never {
       err.code === 'support.list_mine_limit_unset' ||
       err.code === 'support.list_comments_limit_unset' ||
       err.code === 'support.list_events_limit_unset' ||
-      err.code === 'support.list_kb_limit_unset'
+      err.code === 'support.list_kb_limit_unset' ||
+      err.code === 'support.staff_bootstrap' ||
+      err.code === 'support.release.not_queueable' ||
+      err.code === 'support.assign.not_queueable'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
+    }
+    if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
+      throw new TRPCError({ code: 'FORBIDDEN', message });
+    }
+    if (err.code === 'support.idempotency_conflict') {
+      throw new TRPCError({ code: 'CONFLICT', message });
+    }
+    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found') {
+      throw new TRPCError({ code: 'NOT_FOUND', message });
     }
     throw new TRPCError({ code: 'BAD_REQUEST', message });
   }
@@ -497,6 +509,90 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             operatorId: ctx.principal!.userId,
             ticketId: input.ticketId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Counts across the whole queue, not one page. */
+    queueMetrics: scopedProcedure('support:ops')
+      .output(
+        z.object({
+          asOf: z.string(),
+          total: z.number().int(),
+          open: z.number().int(),
+          pending: z.number().int(),
+          resolved: z.number().int(),
+          closed: z.number().int(),
+          unassigned: z.number().int(),
+          claimed: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.queueMetrics();
+      }),
+
+    staffList: scopedProcedure('support:ops')
+      .output(
+        z.array(
+          z.object({
+            userId: z.string(),
+            role: z.enum(['agent', 'lead']),
+            appointedBy: z.string(),
+            appointedAt: z.string(),
+          }),
+        ),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.listStaff();
+      }),
+
+    staffAppoint: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          userId: z.string().uuid(),
+          role: z.enum(['agent', 'lead']),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The current assignee returns the ticket to the queue. */
+    unclaim: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), idempotencyKey: z.string().min(8).max(200) }))
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A lead assigns or reassigns a ticket to another staff member. */
+    assign: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          assigneeId: z.string().uuid(),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.assignTo({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

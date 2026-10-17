@@ -189,6 +189,7 @@ const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
 const founderControls = new FounderControls(sql, founderPair);
 await founderControls.bootstrap();
+auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);

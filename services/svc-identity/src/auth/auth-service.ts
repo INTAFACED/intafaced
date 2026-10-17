@@ -1,7 +1,14 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
-import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
+import {
+  assertDelegatableScopes,
+  issueAccessToken,
+  scopesForFounderSession,
+  SESSION_SCOPES,
+  type Scope,
+  type TokenConfig,
+} from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import {
   assertPasswordShape,
@@ -336,6 +343,8 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetNow: () => Date = () => new Date();
+  /** Live founder directory. Unset means no founder desk scopes (fail closed). */
+  private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -378,6 +387,22 @@ export class AuthService {
   /** Test clock. Production uses the real clock. */
   usePasswordResetClock(now: () => Date): void {
     this.passwordResetNow = now;
+  }
+
+  /** Founder desk scopes are added only when this directory says the user is a live founder. */
+  useFounderDirectory(directory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined): void {
+    this.founderDirectory = directory;
+  }
+
+  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    const base = [...this.defaultScopes(), ...extra];
+    let founder = false;
+    try {
+      founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
+    } catch {
+      founder = false;
+    }
+    return scopesForFounderSession(base, { founder, mfa });
   }
 
   private resetDeps() {
@@ -628,8 +653,9 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
+    const scopes = await this.scopesFor(userId, options.mfa);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa },
+      { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -665,8 +691,9 @@ export class AuthService {
       >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       const tier = await this.kycTier(session.user_id, tx);
+      const scopes = await this.scopesFor(session.user_id, session.mfa, [], tx);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes: this.defaultScopes(), tier, mfa: session.mfa },
+        { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
       );
       return {
@@ -1460,7 +1487,7 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
+    const scopes = await this.scopesFor(input.userId, true, STEP_UP_SCOPES);
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },

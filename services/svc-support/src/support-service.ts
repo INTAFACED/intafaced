@@ -13,6 +13,7 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
+import { MemoryStaffBook, type StaffBook, type StaffMember, type StaffRole } from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
 import { assertKbArticle, getKb, KbCatalogError, searchKb, toPublicKb } from './kb-catalog.js';
@@ -169,7 +170,28 @@ export class SupportService implements SupportContract {
      * without svc-identity reports "not read" rather than nothing at all.
      */
     private readonly accounts: AccountStateSource = new DarkAccountState(),
+    private readonly staff: StaffBook = new MemoryStaffBook(),
   ) {}
+
+  private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
+    let phase: 'new' | 'replay';
+    try {
+      phase = await this.staff.begin(key, fingerprint);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+        throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+      }
+      throw err;
+    }
+    if (phase === 'replay') {
+      const prior = await this.staff.read<T>(key);
+      if (!prior) throw new SupportError('that command is still in progress', 'support.idempotency_conflict');
+      return prior;
+    }
+    const value = await run();
+    await this.staff.save(key, value);
+    return value;
+  }
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
@@ -580,6 +602,69 @@ export class SupportService implements SupportContract {
       }
       span.setAttribute('intafaced.support.ticket_id', result.ticket.id);
       span.setAttribute('intafaced.support.assignee_id', input.operatorId);
+      return result.ticket;
+    });
+  }
+
+  /** Whole-queue counts. Zero means the desk has that many rows, not a missing read. */
+  async queueMetrics(): Promise<{
+    asOf: string;
+    total: number;
+    open: number;
+    pending: number;
+    resolved: number;
+    closed: number;
+    unassigned: number;
+    claimed: number;
+  }> {
+    const tickets = await this.store.listAll();
+    const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
+    for (const ticket of tickets) {
+      counts[ticket.status] += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId === null) counts.unassigned += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId !== null) counts.claimed += 1;
+    }
+    return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
+  }
+
+  async listStaff(): Promise<StaffMember[]> {
+    return this.staff.list();
+  }
+
+  async appointStaff(input: { actorId: string; userId: string; role: StaffRole; idempotencyKey: string }): Promise<StaffMember> {
+    return this.withIdempotency(`appoint:${input.idempotencyKey}`, `${input.actorId}:${input.userId}:${input.role}`, async () => {
+      const existing = await this.staff.list();
+      const actor = await this.staff.get(input.actorId);
+      if (existing.length === 0) {
+        if (input.role !== 'lead') throw new SupportError('the first staff appointment must be a lead', 'support.staff_bootstrap');
+      } else if (actor?.role !== 'lead') {
+        throw new SupportError('only a lead can appoint staff', 'support.not_lead');
+      }
+      return this.staff.appoint({ userId: input.userId, role: input.role, by: input.actorId, at: new Date().toISOString() });
+    });
+  }
+
+  async unclaim(input: { operatorId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`unclaim:${input.idempotencyKey}`, `${input.operatorId}:${input.ticketId}`, async () => {
+      const result = await this.store.releaseTicket({ ticketId: input.ticketId, operatorId: input.operatorId });
+      if (result.status === 'refuse') throw new SupportError(`unclaim refused: ${result.reason}`, `support.release.${result.reason}`);
+      return result.ticket;
+    });
+  }
+
+  /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
+  async assignTo(input: { operatorId: string; assigneeId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
+      const actor = await this.staff.get(input.operatorId);
+      if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      const target = await this.staff.get(input.assigneeId);
+      if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
+      const result = await this.store.assignTicket({
+        ticketId: input.ticketId,
+        operatorId: input.operatorId,
+        assigneeId: input.assigneeId,
+      });
+      if (result.status === 'refuse') throw new SupportError(`assign refused: ${result.reason}`, `support.assign.${result.reason}`);
       return result.ticket;
     });
   }
