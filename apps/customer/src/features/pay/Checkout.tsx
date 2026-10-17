@@ -1,13 +1,88 @@
 import { payCopy, PayCopy, payRefusal } from './copy';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
+import { defineCopy } from '../../shared/i18n';
 import { displayAmount } from '../../shared/money';
 import { Button, Field, Page } from '@intafaced/ui';
 import { createCheckoutApi } from './pay-api';
 import { PayDetails, PayNotice, PaySection, PayState, ReviewedAction, Status, PayTime } from './components';
 import type { checkoutSchema, resolvedLinkSchema } from './schemas';
 import type { z } from 'zod';
+
+const checkoutReadCopy = defineCopy(
+  'pay.checkoutRead',
+  {
+    linkMissing: 'Payment link not found',
+    linkHelp: 'Check the full payment link or ask the merchant to send it again.',
+    sessionMissing: 'Payment session not found',
+    sessionHelp:
+      'This does not confirm whether a payment completed. Check the original payment link or contact the merchant before trying another payment.',
+    retry: 'Try again',
+    details: 'Service details',
+  },
+  {
+    es: {
+      linkMissing: 'Enlace de pago no encontrado',
+      linkHelp: 'Comprueba el enlace de pago completo o pide al comercio que lo envíe de nuevo.',
+      sessionMissing: 'Sesión de pago no encontrada',
+      sessionHelp:
+        'Esto no confirma si el pago se completó. Comprueba el enlace de pago original o contacta con el comercio antes de intentar otro pago.',
+      retry: 'Intentar de nuevo',
+      details: 'Detalles del servicio',
+    },
+    fr: {
+      linkMissing: 'Lien de paiement introuvable',
+      linkHelp: 'Vérifiez le lien de paiement complet ou demandez au marchand de le renvoyer.',
+      sessionMissing: 'Session de paiement introuvable',
+      sessionHelp:
+        'Cela ne confirme pas si le paiement a abouti. Vérifiez le lien de paiement initial ou contactez le marchand avant de tenter un autre paiement.',
+      retry: 'Réessayer',
+      details: 'Détails du service',
+    },
+  },
+);
+
+function CheckoutReadState<T>({
+  kind,
+  resource,
+  retry,
+  children,
+}: {
+  kind: 'link' | 'session';
+  resource: Resource<T>;
+  retry: () => void;
+  children: (data: T) => ReactNode;
+}) {
+  const { t } = checkoutReadCopy.useCopy();
+  const failure = resource.status === 'failed' ? resource.failure : undefined;
+  const missingCode = kind === 'link' ? 'pay.link_not_found' : 'pay.checkout_session_not_found';
+  // Only a domain-specific missing resource gets this presentation. An absent
+  // endpoint, denied read or unavailable service keeps its original refusal.
+  if (
+    failure?.status === 404 &&
+    (failure.code === missingCode || (failure.code === 'NOT_FOUND' && failure.message.startsWith(`${missingCode}:`)))
+  ) {
+    return (
+      <div className="failure" role="status">
+        <h3>{t(kind === 'link' ? 'linkMissing' : 'sessionMissing')}</h3>
+        <p>{t(kind === 'link' ? 'linkHelp' : 'sessionHelp')}</p>
+        <Button variant="secondary" onClick={retry}>
+          {t('retry')}
+        </Button>
+        <details>
+          <summary>{t('details')}</summary>
+          <p lang="und">{failure.message}</p>
+        </details>
+      </div>
+    );
+  }
+  return (
+    <PayState resource={resource} retry={retry}>
+      {children}
+    </PayState>
+  );
+}
 
 export function Checkout({ path }: { path: string }) {
   const { api } = useSession();
@@ -49,9 +124,9 @@ export function Checkout({ path }: { path: string }) {
             </Button>
           }
         >
-          <PayState resource={status.resource} retry={status.reload}>
+          <CheckoutReadState kind="session" resource={status.resource} retry={status.reload}>
             {(data) => <CheckoutStatus session={data} />}
-          </PayState>
+          </CheckoutReadState>
           {active && status.resource.status === 'failed' && (
             <PayNotice title={payCopy.t('showingTheOriginalSession')}>
               <PayCopy k="currentPaymentStatusIsUnavailableTheOriginal" /> {session?.status ?? payCopy.t('opened')}
@@ -60,7 +135,7 @@ export function Checkout({ path }: { path: string }) {
           )}
         </PaySection>
       ) : token ? (
-        <PayState resource={resolved.resource} retry={resolved.reload}>
+        <CheckoutReadState kind="link" resource={resolved.resource} retry={resolved.reload}>
           {(link) => (
             <CheckoutForm
               key={token}
@@ -76,7 +151,7 @@ export function Checkout({ path }: { path: string }) {
               }}
             />
           )}
-        </PayState>
+        </CheckoutReadState>
       ) : (
         <PaySection title={payCopy.t('openYourPaymentLink')}>
           <form

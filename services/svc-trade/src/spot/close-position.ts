@@ -1,7 +1,7 @@
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
@@ -61,6 +61,31 @@ function asHost(svc: object): CloseHost {
   return svc as unknown as CloseHost;
 }
 
+/** Sum of ceil(price × qty) across buy fills. Not the first price times the total qty. */
+export function sumBuyFillNotional(fills: readonly { readonly price: string; readonly qty: string }[]): Amount {
+  return fills.reduce((n, fill) => n + mul(parseAmount(fill.price), parseAmount(fill.qty), 'ceil'), 0n) as Amount;
+}
+
+/**
+ * A definite ledger refusal deletes the intent row. A timeout or any other
+ * unknown reply keeps the row and the hold for recovery. S02 owns the sweep.
+ * #4832's classifyHoldPostError replaces this function once both are on main.
+ */
+const DEFINITE_HOLD_REFUSAL_CODES = new Set([
+  'ledger.insufficient_funds',
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.frozen',
+  'ledger.unauthenticated',
+  'ledger.freeze_attributed',
+]);
+
+export function closeHoldFailureAction(err: unknown): 'keep_recovery' | 'delete_intent' {
+  if (err instanceof LedgerError && DEFINITE_HOLD_REFUSAL_CODES.has(err.code)) return 'delete_intent';
+  return 'keep_recovery';
+}
+
 function flattenFromResult(result: EngineSubmitResult): { side: OrderSide; qty: Amount; price: Amount } {
   const fillQty = result.fills.reduce((n, f) => n + parseAmount(f.qty), 0n);
   const cancelQty = result.cancellations.reduce((n, c) => n + parseAmount(c.remainingQty), 0n);
@@ -116,7 +141,7 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
 
   const flatten = flattenFromResult(result);
   // A BUY flatten can sweep several levels: hold the exact executed notional, not first price x qty (#4591).
-  const buyNotional = result.fills.reduce((n, f) => n + mul(parseAmount(f.price), parseAmount(f.qty), 'ceil'), 0n) as Amount;
+  const buyNotional = sumBuyFillNotional(result.fills);
   const hold =
     flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
   const perks = await host.perks.perksOf(userId);
@@ -152,7 +177,11 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+      if (closeHoldFailureAction(err) === 'delete_intent') {
+        await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+      } else {
+        await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+      }
       throw err;
     }
   }

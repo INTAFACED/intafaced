@@ -24,12 +24,20 @@ import { P2POrder } from './P2POrder';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
+import { defineCopy } from '../../shared/i18n';
+
+const offerAvailabilityCopy = defineCopy(
+  'pay.offerAvailability',
+  { edit: 'Edit an offer' },
+  { es: { edit: 'Editar una oferta' }, fr: { edit: 'Modifier une offre' } },
+);
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
   return <P2PCurrent key={view.epoch} path={path} view={view} />;
 }
 function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
+  const { t: availabilityText } = offerAvailabilityCopy.useCopy();
   const { api, userId } = view;
   const pay = useMemo(() => createPersonalPayApi(api, userId, undefined, view.current), [view]);
   const params = new URLSearchParams(
@@ -57,7 +65,9 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           : current === '/checkuser'
             ? payCopy.t('counterparty')
             : publish
-              ? payCopy.t('createAnOffer')
+              ? current === '/uc/ad/update'
+                ? availabilityText('edit')
+                : payCopy.t('createAnOffer')
               : payCopy.t('personToPerson')
       }
       description={
