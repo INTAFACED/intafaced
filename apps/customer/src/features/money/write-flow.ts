@@ -29,6 +29,6 @@ export async function sendReviewed(
     input,
     bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
   );
-  const settled = settleRefusal(sent);
+  const settled = settleRefusal(sent, spec.procedure);
   return { input, outcome: settled.outcome, refusedFirst: settled.refusedFirst };
 }

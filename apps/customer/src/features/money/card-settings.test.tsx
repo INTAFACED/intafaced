@@ -134,7 +134,11 @@ describe('switching a channel', () => {
     expect(turnOn.title).toBe('Contactless: turn on');
     expect(turnOn.facts).toContainEqual(['Now', 'Off → On']);
     expect(turnOff.title).toBe('Online payments: turn off');
-    expect(turnOff.facts).toContainEqual(['Now', 'On → Off']);
+    // Turning off only protects the card, so its confirmation is short.
+    expect(turnOff.facts).toEqual([['Where', 'Online payments']]);
+    expect(turnOff.submit).toBe('Turn off');
+    expect(turnOn.submit).toBe('Confirm');
+    expect(turnOn.facts).toHaveLength(3);
     expect(turnOff.notes[0]).toContain('declined once you confirm');
     expect(turnOn.notes[0]).toContain('accepted again once you confirm');
   });

@@ -234,6 +234,10 @@ describe('a note and a payment reference travel with a transfer', () => {
     const base = { transferId, fromSpaceId: from.id, toUserId: person, amount: '5' };
     const long = await client.transfer([from, to], { ...base, note: 'x'.repeat(141) });
     expect(long).toMatchObject({ ok: false, code: 'money.invalid_transfer', message: 'Keep the note to 140 characters or fewer.' });
+    // Counted in UTF-16 units, as the bank counts them: 71 emoji are 142 units, one more than the limit allows.
+    const emoji = await client.transfer([from, to], { ...base, note: '😀'.repeat(71) });
+    expect(emoji).toMatchObject({ ok: false, message: 'Keep the note to 140 characters or fewer.' });
+    expect((await client.transfer([from, to], { ...base, note: 'x\u007Fy' })).ok).toBe(false);
     const control = await client.transfer([from, to], { ...base, note: 'two\nlines' });
     expect(control).toMatchObject({ ok: false, message: 'A note is plain text. Remove line breaks and other control characters.' });
     const accent = await client.transfer([from, to], { ...base, reference: 'Café' });

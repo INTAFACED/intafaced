@@ -6,7 +6,17 @@ import { DepthPanel, DisabledAction } from './DepthParts';
 import { RecipientPicker } from './RecipientPicker';
 import type { Payee } from './payees';
 import { businessCopy } from './business-copy';
-import { canSend, proposalMatches, proposalOutcome, recipientQuery, ROLE_KEY, ROLES, type Role } from './business-model';
+import {
+  canSend,
+  proposalMatches,
+  proposalOutcome,
+  recipientQuery,
+  removalMatches,
+  roleChangeMatches,
+  ROLE_KEY,
+  ROLES,
+  type Role,
+} from './business-model';
 import { funds, positiveMoney, ResourceView, useBankRead, type ActionSpec } from './components';
 import { bankReads, type businessSchema } from './contracts';
 import { moneyRefusalWords, withPlainRefusal } from './money-refusal-copy';
@@ -53,27 +63,32 @@ export function PersonFinder({
     const mine = ++run.current;
     setBusy(true);
     setProblem(null);
-    const answer = await api.query(
-      'bank',
-      'business.resolveRecipientSpace',
-      { accountId, assetId, ...query },
-      bankReads['business.resolveRecipientSpace'],
-    );
-    if (run.current !== mine) return;
-    setBusy(false);
-    if (!answer.ok) {
-      setProblem(moneyRefusalWords(answer.code) ?? t('sendLookupFailed'));
-      return;
+    try {
+      const answer = await api.query(
+        'bank',
+        'business.resolveRecipientSpace',
+        { accountId, assetId, ...query },
+        bankReads['business.resolveRecipientSpace'],
+      );
+      if (run.current !== mine) return;
+      if (!answer.ok) {
+        setProblem(moneyRefusalWords(answer.code) ?? t('sendLookupFailed'));
+        return;
+      }
+      if (!answer.data.found) {
+        setProblem(t('sendNotFound'));
+        return;
+      }
+      if (answer.data.spaceId === null) {
+        setProblem(t('sendNoAccount', { handle: answer.data.handle, asset: assetId }));
+        return;
+      }
+      onChange({ handle: answer.data.handle, spaceId: answer.data.spaceId });
+    } catch {
+      if (run.current === mine) setProblem(t('sendLookupFailed'));
+    } finally {
+      if (run.current === mine) setBusy(false);
     }
-    if (!answer.data.found) {
-      setProblem(t('sendNotFound'));
-      return;
-    }
-    if (answer.data.spaceId === null) {
-      setProblem(t('sendNoAccount', { handle: answer.data.handle, asset: assetId }));
-      return;
-    }
-    onChange({ handle: answer.data.handle, spaceId: answer.data.spaceId });
   }
   if (person)
     return (
@@ -211,7 +226,18 @@ export function PayPerson({
 type Member = { userId: string; handle: string; role: Role };
 
 /** The people on a team, each with their role and what that role can do. The customer is marked. */
-export function TeamList({ members, me }: { members: readonly Member[]; me: string | null }) {
+export function TeamList({
+  members,
+  me,
+  onChangeRole,
+  onRemove,
+}: {
+  members: readonly Member[];
+  me: string | null;
+  /** Given only to an administrator. Never offered for the person themselves. */
+  onChangeRole?: (member: Member) => void;
+  onRemove?: (member: Member) => void;
+}) {
   const { t } = businessCopy.useCopy();
   if (members.length === 0) return <p className="money-caption">{t('teamEmpty')}</p>;
   return (
@@ -232,6 +258,20 @@ export function TeamList({ members, me }: { members: readonly Member[]; me: stri
                 {t(member.role === 'admin' ? 'roleAdminBody' : member.role === 'maker' ? 'roleMakerBody' : 'roleCheckerBody')}
               </small>
             </div>
+            {(onChangeRole || onRemove) && !(me !== null && member.userId.toLowerCase() === me.toLowerCase()) && (
+              <div className="actions" role="group" aria-label={t('memberActionsLabel', { handle: member.handle })}>
+                {onChangeRole && (
+                  <Button variant="secondary" onClick={() => onChangeRole(member)}>
+                    {t('changeRole')}
+                  </Button>
+                )}
+                {onRemove && (
+                  <Button variant="ghost" onClick={() => onRemove(member)}>
+                    {t('removeMember')}
+                  </Button>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -239,9 +279,55 @@ export function TeamList({ members, me }: { members: readonly Member[]; me: stri
   );
 }
 
+/** The confirmation for giving a teammate a different role. The request id is the command id, so a resend applies once. */
+export function changeRoleSpec(copy: BusinessCopy, account: Business, member: Member): ActionSpec {
+  const { t } = copy;
+  return {
+    title: t('changeRoleTitle', { handle: member.handle }),
+    procedure: 'business.setMemberRole',
+    fields: [
+      {
+        name: 'role',
+        label: t('addMemberRole'),
+        options: ROLES.map((each) => ({
+          value: each,
+          label: each === 'admin' ? t('addMemberRoleAdmin') : each === 'maker' ? t('addMemberRoleMaker') : t('addMemberRoleChecker'),
+        })),
+      },
+    ],
+    facts: [
+      [t('membersTitle'), `@${member.handle}`],
+      [t('roleCurrent'), t(ROLE_KEY[member.role])],
+    ],
+    notes: [t('changeRoleNote'), t('needsSecondStep')],
+    submit: t('changeRoleSubmit'),
+    validate: (input) => (input.role === member.role ? t('changeRoleSame') : null),
+    input: (values, requestId) => ({ accountId: account.id, userId: member.userId, role: values.role as Role, requestId }),
+    verifyOutcome: roleChangeMatches,
+  };
+}
+
+/** The confirmation for removing a teammate. The bank refuses the last administrator and anyone with a payment waiting. */
+export function removeMemberSpec(copy: BusinessCopy, account: Business, member: Member): ActionSpec {
+  const { t } = copy;
+  return {
+    title: t('removeMemberTitle', { handle: member.handle }),
+    procedure: 'business.removeMember',
+    facts: [
+      [t('membersTitle'), `@${member.handle}`],
+      [t('roleCurrent'), t(ROLE_KEY[member.role])],
+    ],
+    notes: [t('removeMemberNote'), t('needsSecondStep')],
+    submit: t('removeMemberSubmit'),
+    input: (_values, requestId) => ({ accountId: account.id, userId: member.userId, requestId }),
+    verifyOutcome: removalMatches,
+  };
+}
+
 /** Everyone on the team and what they can do, read from the bank; adding a teammate sits beneath. */
 export function TeamPanel({ account, role, open }: { account: Business; role: RoleState; open: (spec: ActionSpec) => void }) {
-  const { t } = businessCopy.useCopy();
+  const copy = businessCopy.useCopy();
+  const { t } = copy;
   const { userId } = useSession();
   const team = useBankRead('business.members', { accountId: account.id });
   const [person, setPerson] = useState<Payee | null>(null);
@@ -279,7 +365,18 @@ export function TeamPanel({ account, role, open }: { account: Business; role: Ro
         <Failure result={withPlainRefusal(team.resource.failure)} retry={team.reload} />
       ) : (
         <ResourceView resource={team.resource} reload={team.reload}>
-          {({ members }) => <TeamList members={members} me={userId ?? null} />}
+          {({ members }) => (
+            <TeamList
+              members={members}
+              me={userId ?? null}
+              {...(known === 'admin'
+                ? {
+                    onChangeRole: (member: Member) => open(changeRoleSpec(copy, account, member)),
+                    onRemove: (member: Member) => open(removeMemberSpec(copy, account, member)),
+                  }
+                : {})}
+            />
+          )}
         </ResourceView>
       )}
       <h4 className="bd-subhead">{t('addMember')}</h4>

@@ -268,6 +268,10 @@ function Outcome({ data, unit }: { data: unknown; unit?: string }) {
     );
   return <span>{data === null ? copyText('components.none') : String(data)}</span>;
 }
+/** Is a request built after an edit different from the one that was sent? Compared field by field, the reference included. */
+export function editedRequestChanged(sent: Record<string, unknown>, edited: Record<string, unknown>): boolean {
+  return JSON.stringify(sent) !== JSON.stringify(edited);
+}
 export function MutationDialog({
   spec,
   context,
@@ -291,7 +295,9 @@ export function MutationDialog({
   actor.current = { api, userId, token };
   const [clearFailure, setClearFailure] = useState(false);
   const [values, setValues] = useState(spec.initial ?? {});
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  // The request that was last sent to the bank. A different request after it never reuses its reference.
+  const lastSent = useRef<Record<string, unknown> | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
@@ -358,7 +364,15 @@ export function MutationDialog({
       setErrors(next);
       return;
     }
-    const input = spec.input(values, requestId);
+    let input = spec.input(values, requestId);
+    // After a refusal, an unchanged request may be sent again under the same reference. A changed one is a new request:
+    // the bank may have kept the first one's reference, and would answer the new terms with the old ones.
+    if (lastSent.current && editedRequestChanged(lastSent.current, input)) {
+      const fresh = crypto.randomUUID();
+      input = spec.input(values, fresh);
+      setRequestId(fresh);
+      lastSent.current = null;
+    }
     const error = spec.validate?.(input);
     if (error) {
       setErrors({ form: error });
@@ -438,7 +452,7 @@ export function MutationDialog({
       // Local transfer validation precedes HTTP dispatch. Auth refusals occur
       // before the Bank handler. Other failures cannot prove non-settlement.
       // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
-      const settled = settleRefusal(outcome);
+      const settled = settleRefusal(outcome, spec.procedure);
       outcome = settled.outcome;
       const definitive =
         outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
@@ -476,6 +490,7 @@ export function MutationDialog({
     if (!currentRun()) return;
     sending.current = null;
     setResult(outcome);
+    lastSent.current = input;
     setStage('outcome');
     if (outcome.ok) onDone();
   }

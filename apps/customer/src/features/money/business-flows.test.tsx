@@ -18,7 +18,7 @@ vi.mock('../session/session', async (original) => {
 import { businessCopy } from './business-copy';
 import { ApprovalRow } from './BusinessBank';
 import { PayrollRun, payrollSpec } from './BusinessPayroll';
-import { PayPerson, personPaymentSpec, TeamList } from './BusinessPeople';
+import { changeRoleSpec, PayPerson, personPaymentSpec, removeMemberSpec, TeamList } from './BusinessPeople';
 import type { pendingApprovalSchema } from './contracts';
 import { refusal, sendReviewed, wire } from './write-flow';
 
@@ -71,6 +71,71 @@ describe('the team list', () => {
   });
 });
 
+describe('managing the team', () => {
+  const members = [
+    { userId: 'user-1', handle: 'ada', role: 'admin' as const },
+    { userId: 'user-2', handle: 'bob', role: 'maker' as const },
+  ];
+  const bob = members[1]!;
+  it('offers change role and remove to an administrator, for others and never for themselves', () => {
+    const html = renderToStaticMarkup(<TeamList me="user-1" members={members} onChangeRole={() => undefined} onRemove={() => undefined} />);
+    expect(html.match(/>Change role</g)).toHaveLength(1);
+    expect(html.match(/>Remove</g)).toHaveLength(1);
+    expect(html).toContain('Actions for @bob');
+    expect(html).not.toContain('Actions for @ada');
+  });
+  it('offers nothing to change a team to anyone else', () => {
+    const html = renderToStaticMarkup(<TeamList me="user-1" members={members} />);
+    expect(html).not.toContain('Change role');
+    expect(html).not.toContain('>Remove<');
+  });
+  const roleSpec = changeRoleSpec(copy, account, bob);
+  it('confirms a role change by naming the person and the current role, and refuses an unchanged role', () => {
+    expect(roleSpec.procedure).toBe('business.setMemberRole');
+    expect(roleSpec.facts).toEqual([
+      ['Team', '@bob'],
+      ['Current role', 'Maker'],
+    ]);
+    expect(roleSpec.validate?.(roleSpec.input({ role: 'maker' }, requestId))).toBe('Choose a role different from the current one.');
+    expect(roleSpec.validate?.(roleSpec.input({ role: 'checker' }, requestId))).toBeNull();
+    expect(roleSpec.input({ role: 'checker' }, requestId)).toEqual({ accountId: account.id, userId: 'user-2', role: 'checker', requestId });
+  });
+  it('sends the same bytes on a resend and confirms only that person with that role', async () => {
+    const bodies: string[] = [];
+    const ok: typeof fetch = async (_url, init) => {
+      bodies.push(String(init?.body));
+      return wire({ accountId: account.id, userId: 'user-2', role: 'checker' });
+    };
+    const first = await sendReviewed(roleSpec, { role: 'checker' }, requestId, ok);
+    await sendReviewed(roleSpec, { role: 'checker' }, requestId, ok);
+    expect(first.outcome.ok).toBe(true);
+    expect(bodies[0]).toBe(bodies[1]);
+    const wrong = await sendReviewed(roleSpec, { role: 'checker' }, requestId, async () =>
+      wire({ accountId: account.id, userId: 'user-2', role: 'admin' }),
+    );
+    expect(wrong.outcome).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+  const removeSpec = removeMemberSpec(copy, account, bob);
+  it('confirms a removal, sends it once, and says the last administrator cannot go', async () => {
+    expect(removeSpec.notes.join(' ')).toContain('The last administrator cannot be removed.');
+    expect(removeSpec.input({}, requestId)).toEqual({ accountId: account.id, userId: 'user-2', requestId });
+    const done = await sendReviewed(removeSpec, {}, requestId, async () =>
+      wire({ accountId: account.id, userId: 'user-2', removed: true }),
+    );
+    expect(done.outcome.ok).toBe(true);
+    const other = await sendReviewed(removeSpec, {}, requestId, async () =>
+      wire({ accountId: account.id, userId: 'user-3', removed: true }),
+    );
+    expect(other.outcome).toMatchObject({ ok: false, reason: 'uncertain' });
+    const last = await sendReviewed(removeSpec, {}, requestId, async () => refusal(412, 'bank.business_last_admin'));
+    expect(last.refusedFirst).toBe(true);
+    expect((last.outcome as { message: string }).message).toContain('last administrator');
+    const waiting = await sendReviewed(removeSpec, {}, requestId, async () => refusal(409, 'bank.business_member_has_pending'));
+    expect(waiting.refusedFirst).toBe(true);
+    expect((waiting.outcome as { message: string }).message).toContain('payment waiting');
+  });
+});
+
 describe('paying a person by handle or email', () => {
   const person = { handle: 'zed', spaceId: '55555555-5555-4555-8555-555555555555' };
   const own = [source];
@@ -96,12 +161,12 @@ describe('paying a person by handle or email', () => {
     expect(first.outcome.ok).toBe(true);
     expect(bodies[0]).toBe(bodies[1]);
   });
-  it('turns a recipient who cannot receive into plain words', async () => {
+  it('leaves a refused payment unconfirmed: proposing a payment can leave a stored claim, so a refusal is not a clean no', async () => {
     const done = await sendReviewed(spec, { fromSpaceId: source.id, amount: '12.5' }, requestId, async () =>
       refusal(400, 'bank.recipient_cannot_receive'),
     );
-    expect(done.refusedFirst).toBe(true);
-    expect(done.outcome).toMatchObject({ ok: false, message: 'That person cannot receive this right now. Nothing was sent.' });
+    expect(done.refusedFirst).toBe(false);
+    expect(done.outcome).toMatchObject({ ok: false, message: 'operator text' });
   });
   it('is off for a checker, and says why', () => {
     const html = renderToStaticMarkup(
@@ -135,7 +200,7 @@ describe('payroll', () => {
   });
   it('tells the person it goes out in one step and that a repeat is recognised', () => {
     expect(spec.notes).toContain('This moves money out of the source account in one step. Check every person and amount.');
-    expect(spec.notes.join(' ')).toContain('If the same payroll is sent again it is recognised and not paid twice.');
+    expect(spec.notes.join(' ')).toContain('A payroll you build again is a new payment.');
   });
   it('uses the request id as the payroll id and builds the same request each time', () => {
     const first = spec.input({}, requestId);
@@ -188,13 +253,11 @@ describe('payroll', () => {
       ['Total', '300.5 USDT'],
     ]);
   });
-  it('maps the bank’s payroll refusals to plain words, each one a definite no', async () => {
+  it('maps the bank’s payroll refusals that were made before posting to plain words, each one a definite no', async () => {
     const cases: Array<[number, string, string]> = [
-      [400, 'bank.business_self_approve', 'second person must decide'],
+      [400, 'bank.business_self_approve', 'must stay below the approval limit'],
       [400, 'bank.business_payroll_rate_unset', 'same currency'],
-      [409, 'bank.business_payroll_conflict', 'different people or amounts'],
       [400, 'bank.business_payroll_empty', 'Add at least one person'],
-      [409, 'bank.business_request_conflict', 'different details'],
       [400, 'bank.business_role_forbidden', 'does not allow that'],
       [400, 'bank.business_not_member', 'not a member'],
       [400, 'bank.same_space', 'cannot go to the account it comes from'],
@@ -204,6 +267,14 @@ describe('payroll', () => {
       const done = await sendReviewed(spec, {}, requestId, async () => refusal(status, code));
       expect(done.refusedFirst, code).toBe(true);
       expect((done.outcome as { message: string }).message, code).toContain(words);
+    }
+  });
+  it('never calls a payroll conflict a clean refusal: the bank can throw it after the money has moved', async () => {
+    for (const code of ['bank.business_payroll_conflict', 'bank.business_request_conflict']) {
+      const done = await sendReviewed(spec, {}, requestId, async () => refusal(409, code));
+      expect(done.refusedFirst, code).toBe(false);
+      expect(done.outcome, code).toMatchObject({ ok: false, reason: 'uncertain', message: expect.stringContaining('may already') });
+      expect((done.outcome as { message: string }).message).not.toMatch(/start a new/i);
     }
   });
   it('treats a lost ledger answer as unconfirmed, never as a refusal that can be resent', async () => {
@@ -243,7 +314,7 @@ describe('payroll', () => {
         open={open}
       />,
     );
-    expect(html).toContain('Your role on this team could not be read, so the actions that depend on it are off.');
+    expect(html).toContain('Every action stays offered and the bank decides what your role allows.');
   });
 });
 

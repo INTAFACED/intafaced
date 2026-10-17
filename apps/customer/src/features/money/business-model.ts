@@ -14,8 +14,8 @@ export type ApprovalAction = 'approve' | 'reject' | 'cancel';
 
 /**
  * What this person may try on an approval. Approving and rejecting are for administrators and checkers; cancelling
- * someone else's proposal is for administrators. The app cannot read members yet, so with the role unknown every
- * action is offered and the service decides. A known role removes the buttons it can never use.
+ * someone else's proposal is for administrators. With the role unreadable every action is offered and the service
+ * decides. A known role removes the buttons it can never use.
  */
 export function approvalActions(
   approval: Pick<ApprovalLike, 'status' | 'makerUserId'>,
@@ -201,3 +201,17 @@ export const ROLE_KEY: Record<Role, 'roleAdmin' | 'roleMaker' | 'roleChecker'> =
   maker: 'roleMaker',
   checker: 'roleChecker',
 };
+
+/** The reply to a role change must name that person with the role that was reviewed. */
+export function roleChangeMatches(data: unknown, input: Record<string, unknown>): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const reply = data as Record<string, unknown>;
+  return reply.accountId === input.accountId && reply.userId === input.userId && reply.role === input.role;
+}
+
+/** The reply to a removal must say that person was removed from that team. */
+export function removalMatches(data: unknown, input: Record<string, unknown>): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const reply = data as Record<string, unknown>;
+  return reply.accountId === input.accountId && reply.userId === input.userId && reply.removed === true;
+}

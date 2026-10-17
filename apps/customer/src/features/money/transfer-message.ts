@@ -16,7 +16,8 @@ export function cleanText(value: string | undefined | null): string | undefined 
 export function noteProblem(value: string | undefined | null): 'tooLong' | 'control' | null {
   const note = cleanText(value);
   if (note === undefined) return null;
-  if ([...note].length > NOTE_MAX) return 'tooLong';
+  // Counted in UTF-16 units, as the bank's own check counts them, so an accepted note is never refused later.
+  if (note.length > NOTE_MAX) return 'tooLong';
   return /[\u0000-\u001F\u007F]/.test(note) ? 'control' : null;
 }
 

@@ -13,8 +13,10 @@ const en = {
   cardNotActive: 'This card is not active. A closed card cannot be reopened.',
   cardLimitInvalid: 'A card limit must be more than zero.',
   cardAddressRequired: 'A physical card needs a full delivery address: name, street, city, postal code and a two-letter country code.',
-  cardIssueConflict: 'This order was already placed as a different card or to a different address. Start a new order.',
-  cardCommandConflict: 'That change was already made with different values. Refresh your cards and try again.',
+  cardIssueConflict:
+    'The bank already holds a card order under this reference, so it may already be placed. Check your cards before ordering again.',
+  cardCommandConflict:
+    'The bank already holds a change to this card under this reference, so it may already be applied. Refresh your cards and check.',
   cardOperatorFrozen: 'Our team froze this card, so you cannot unfreeze it. Contact support.',
   cardsOff: 'Cards are switched off right now. Nothing was changed.',
   noIssuer: 'No card issuer is connected, so cards cannot be ordered.',
@@ -29,10 +31,12 @@ const en = {
   roleForbidden: 'Your role on this team does not allow that. Ask an administrator.',
   payrollEmpty: 'Add at least one person to pay.',
   payrollCurrency: 'Everyone must be paid in the same currency as the account the money comes from.',
-  payrollConflict: 'This payroll was already sent with different people or amounts. Start a new payroll.',
-  requestConflict: 'This request was already sent with different details. Start a new one.',
-  needsSecondPerson:
-    'At or above the approval limit a second person must decide. A payroll cannot be approved by the person who runs it, and nobody approves their own payment.',
+  payrollConflict:
+    'The bank already holds a payroll under this reference, so it may already have been paid. Check your records before sending another.',
+  requestConflict:
+    'The bank already holds a request under this reference, so it may already be done. Check your records before sending anything again.',
+  payrollOverLimit:
+    'A payroll goes out in one step with no second approver, so its total must stay below the approval limit. Split it, or send the larger amounts as payments a teammate approves.',
   directoryOff: 'People lookup is not set up on this service, so teammates and recipients cannot be named.',
   directoryDown: 'The people directory did not answer. Try again in a moment.',
   directoryIncomplete:
@@ -51,11 +55,17 @@ const en = {
   notEnough: 'There is not enough available to cover this. Lower the amount.',
   noteInvalid: 'A note is plain text up to 140 characters, with no line breaks.',
   referenceInvalid: 'A reference is 1 to 64 letters, numbers or keyboard symbols, with no accents or emoji.',
-  transferConflict: 'This transfer was already sent with a different note, reference, person or amount. Start a new transfer.',
+  transferConflict:
+    'The bank already holds a transfer under this reference, so it may already be sent. Check your activity before sending again.',
   sendLimit: 'That is above the limit for a single transfer.',
   dailyLimit: 'That would go over today’s sending limit.',
   termsUnset: 'Sending limits and fees for this currency are not published, so this transfer is refused. Nothing was sent.',
   feeUnwired: 'A fee applies to this currency and cannot be charged on this transfer, so it was refused. Nothing was sent.',
+  cardNotIssued: 'The bank could not confirm that this card was issued. Check your cards before ordering again.',
+  rampConflict:
+    'The bank already holds a cash-out under this reference, so it may already be done. Check your records before sending again.',
+  lastAdmin: 'The last administrator cannot be removed or demoted. Make someone else an administrator first.',
+  memberHasPending: 'This person still has a payment waiting. Decide or cancel it before removing them.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -63,8 +73,10 @@ const es = {
   cardLimitInvalid: 'El límite de una tarjeta debe ser mayor que cero.',
   cardAddressRequired:
     'Una tarjeta física necesita una dirección de envío completa: nombre, calle, ciudad, código postal y un código de país de dos letras.',
-  cardIssueConflict: 'Este pedido ya se hizo como otra tarjeta o a otra dirección. Empieza un pedido nuevo.',
-  cardCommandConflict: 'Ese cambio ya se hizo con valores distintos. Actualiza tus tarjetas e inténtalo de nuevo.',
+  cardIssueConflict:
+    'El banco ya tiene un pedido de tarjeta con esta referencia, así que puede que ya esté hecho. Revisa tus tarjetas antes de volver a pedir.',
+  cardCommandConflict:
+    'El banco ya tiene un cambio de esta tarjeta con esta referencia, así que puede que ya esté aplicado. Actualiza tus tarjetas y compruébalo.',
   cardOperatorFrozen: 'Nuestro equipo congeló esta tarjeta, así que no puedes descongelarla. Contacta con soporte.',
   cardsOff: 'Las tarjetas están desactivadas en este momento. No se cambió nada.',
   noIssuer: 'No hay ningún emisor de tarjetas conectado, así que no se pueden pedir tarjetas.',
@@ -80,10 +92,12 @@ const es = {
   roleForbidden: 'Tu rol en este equipo no lo permite. Consulta a un administrador.',
   payrollEmpty: 'Añade al menos una persona a la que pagar.',
   payrollCurrency: 'Todas las personas deben cobrar en la misma moneda que la cuenta de la que sale el dinero.',
-  payrollConflict: 'Esta nómina ya se envió con otras personas o importes. Empieza una nómina nueva.',
-  requestConflict: 'Esta solicitud ya se envió con otros datos. Empieza una nueva.',
-  needsSecondPerson:
-    'Desde el límite de aprobación debe decidir una segunda persona. Una nómina no la puede aprobar quien la ejecuta, y nadie aprueba su propio pago.',
+  payrollConflict:
+    'El banco ya tiene una nómina con esta referencia, así que puede que ya se haya pagado. Revisa tus registros antes de enviar otra.',
+  requestConflict:
+    'El banco ya tiene una solicitud con esta referencia, así que puede que ya esté hecha. Revisa tus registros antes de volver a enviar nada.',
+  payrollOverLimit:
+    'Una nómina sale en un solo paso y sin segundo aprobador, así que su total debe quedar por debajo del límite de aprobación. Divídela, o manda los importes mayores como pagos que apruebe un compañero.',
   directoryOff: 'La búsqueda de personas no está configurada en este servicio, así que no se puede nombrar a compañeros ni destinatarios.',
   directoryDown: 'El directorio de personas no respondió. Inténtalo de nuevo en un momento.',
   directoryIncomplete:
@@ -102,12 +116,18 @@ const es = {
   notEnough: 'No hay saldo disponible suficiente para cubrirlo. Reduce el importe.',
   noteInvalid: 'Una nota es texto sencillo de hasta 140 caracteres, sin saltos de línea.',
   referenceInvalid: 'Una referencia tiene de 1 a 64 letras, números o símbolos del teclado, sin acentos ni emojis.',
-  transferConflict: 'Esta transferencia ya se envió con otra nota, referencia, persona o importe. Empieza una transferencia nueva.',
+  transferConflict:
+    'El banco ya tiene una transferencia con esta referencia, así que puede que ya esté enviada. Revisa tu actividad antes de volver a enviar.',
   sendLimit: 'Eso supera el límite de una sola transferencia.',
   dailyLimit: 'Eso superaría el límite de envío de hoy.',
   termsUnset:
     'Los límites y comisiones de envío de esta moneda no están publicados, así que se rechazó la transferencia. No se envió nada.',
   feeUnwired: 'Esta moneda tiene una comisión que no se puede cobrar en esta transferencia, así que se rechazó. No se envió nada.',
+  cardNotIssued: 'El banco no pudo confirmar que esta tarjeta se emitió. Revisa tus tarjetas antes de volver a pedir.',
+  rampConflict:
+    'El banco ya tiene una retirada con esta referencia, así que puede que ya esté hecha. Revisa tus registros antes de volver a enviar.',
+  lastAdmin: 'No se puede quitar ni bajar de rol al último administrador. Nombra antes a otra persona administradora.',
+  memberHasPending: 'Esta persona aún tiene un pago esperando. Decide o cancela esos pagos antes de quitarla.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -115,8 +135,10 @@ const fr = {
   cardLimitInvalid: 'Le plafond d’une carte doit être supérieur à zéro.',
   cardAddressRequired:
     'Une carte physique demande une adresse de livraison complète : nom, rue, ville, code postal et un code pays à deux lettres.',
-  cardIssueConflict: 'Cette commande a déjà été passée pour une autre carte ou une autre adresse. Passez une nouvelle commande.',
-  cardCommandConflict: 'Ce changement a déjà été fait avec d’autres valeurs. Actualisez vos cartes et réessayez.',
+  cardIssueConflict:
+    'La banque détient déjà une commande de carte sous cette référence : elle est peut-être déjà passée. Vérifiez vos cartes avant de recommander.',
+  cardCommandConflict:
+    'La banque détient déjà un changement de cette carte sous cette référence : il est peut-être déjà appliqué. Actualisez vos cartes et vérifiez.',
   cardOperatorFrozen: 'Notre équipe a gelé cette carte, vous ne pouvez donc pas la dégeler. Contactez le support.',
   cardsOff: 'Les cartes sont désactivées pour le moment. Rien n’a été modifié.',
   noIssuer: 'Aucun émetteur de cartes n’est connecté : les cartes ne peuvent pas être commandées.',
@@ -133,10 +155,12 @@ const fr = {
   roleForbidden: 'Votre rôle dans cette équipe ne le permet pas. Demandez à un administrateur.',
   payrollEmpty: 'Ajoutez au moins une personne à payer.',
   payrollCurrency: 'Chacun doit être payé dans la même devise que le compte d’où part l’argent.',
-  payrollConflict: 'Cette paie a déjà été envoyée avec d’autres personnes ou montants. Lancez une nouvelle paie.',
-  requestConflict: 'Cette demande a déjà été envoyée avec d’autres informations. Faites-en une nouvelle.',
-  needsSecondPerson:
-    'À partir du plafond d’approbation, une deuxième personne doit décider. Une paie ne peut pas être approuvée par celui qui la lance, et personne n’approuve son propre paiement.',
+  payrollConflict:
+    'La banque détient déjà une paie sous cette référence : elle est peut-être déjà payée. Vérifiez vos relevés avant d’en envoyer une autre.',
+  requestConflict:
+    'La banque détient déjà une demande sous cette référence : elle est peut-être déjà traitée. Vérifiez vos relevés avant de renvoyer quoi que ce soit.',
+  payrollOverLimit:
+    'Une paie part en une seule étape, sans second approbateur : son total doit rester sous le plafond d’approbation. Scindez-la, ou envoyez les montants plus élevés comme des paiements qu’un collègue approuve.',
   directoryOff: 'La recherche de personnes n’est pas configurée sur ce service : on ne peut pas nommer les collègues ni les destinataires.',
   directoryDown: 'L’annuaire des personnes n’a pas répondu. Réessayez dans un instant.',
   directoryIncomplete:
@@ -156,16 +180,23 @@ const fr = {
   notEnough: 'Le solde disponible ne suffit pas. Réduisez le montant.',
   noteInvalid: 'Une note est du texte simple, jusqu’à 140 caractères, sans saut de ligne.',
   referenceInvalid: 'Une référence compte de 1 à 64 lettres, chiffres ou symboles du clavier, sans accents ni émojis.',
-  transferConflict: 'Ce virement a déjà été envoyé avec une autre note, référence, personne ou un autre montant. Faites-en un nouveau.',
+  transferConflict:
+    'La banque détient déjà un virement sous cette référence : il est peut-être déjà envoyé. Vérifiez votre activité avant de renvoyer.',
   sendLimit: 'Cela dépasse le plafond d’un seul virement.',
   dailyLimit: 'Cela dépasserait le plafond d’envoi du jour.',
   termsUnset: 'Les plafonds et frais d’envoi de cette devise ne sont pas publiés : le virement est refusé. Rien n’a été envoyé.',
   feeUnwired: 'Cette devise a des frais qui ne peuvent pas être prélevés sur ce virement : il est refusé. Rien n’a été envoyé.',
+  cardNotIssued: 'La banque n’a pas pu confirmer que cette carte a été émise. Vérifiez vos cartes avant de recommander.',
+  rampConflict:
+    'La banque détient déjà un retrait sous cette référence : il est peut-être déjà fait. Vérifiez vos relevés avant de renvoyer.',
+  lastAdmin: 'Le dernier administrateur ne peut être ni retiré ni rétrogradé. Nommez d’abord un autre administrateur.',
+  memberHasPending: 'Cette personne a encore un paiement en attente. Décidez-en ou annulez-le avant de la retirer.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
 
-const WORDS: Readonly<Record<string, keyof typeof en>> = {
+type Key = keyof typeof en;
+const WORDS: Readonly<Record<string, Key>> = {
   'bank.card_not_found': 'cardNotFound',
   'bank.card_not_active': 'cardNotActive',
   'bank.card_limit_exceeded': 'cardLimitInvalid',
@@ -188,7 +219,9 @@ const WORDS: Readonly<Record<string, keyof typeof en>> = {
   'bank.business_payroll_rate_unset': 'payrollCurrency',
   'bank.business_payroll_conflict': 'payrollConflict',
   'bank.business_request_conflict': 'requestConflict',
-  'bank.business_self_approve': 'needsSecondPerson',
+  'bank.business_self_approve': 'payrollOverLimit',
+  'bank.business_last_admin': 'lastAdmin',
+  'bank.business_member_has_pending': 'memberHasPending',
   'bank.business_directory_unset': 'directoryOff',
   'bank.business_directory_unavailable': 'directoryDown',
   'bank.business_directory_incomplete': 'directoryIncomplete',
@@ -214,32 +247,84 @@ const WORDS: Readonly<Record<string, keyof typeof en>> = {
   'bank.personal_transfer_daily_limit_exceeded': 'dailyLimit',
   'bank.personal_transfer_terms_unset': 'termsUnset',
   'bank.personal_transfer_fee_unwired': 'feeUnwired',
+  'bank.ramp_conflict': 'rampConflict',
 };
 
-/** The codes this file has words for. Each is a refusal made before anything was posted or changed. */
-export const REFUSED_BEFORE_POSTING: ReadonlySet<string> = new Set(Object.keys(WORDS));
+/**
+ * A conflict says the bank already holds a record under this reference, which proves something may have been committed:
+ * the bank throws some of them after the ledger has posted. They get words, never a "nothing was sent" answer.
+ */
+const CONFLICTS: ReadonlySet<string> = new Set([
+  'bank.card_issue_conflict',
+  'bank.card_command_conflict',
+  'bank.business_payroll_conflict',
+  'bank.business_request_conflict',
+  'bank.personal_transfer_conflict',
+  'bank.transfer_message_conflict',
+  'bank.ramp_conflict',
+]);
+
+/**
+ * The writes whose refusal paths were read in svc-bank, code by code. Only on these is a typed refusal treated as
+ * "nothing was posted or changed". Every other write (loans, earn, ramps, auto-invest, proposing a business payment...)
+ * keeps the earlier rule: a refusal is an unconfirmed request, because some of them leave a stored claim behind.
+ */
+export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
+  'cards.setLimits',
+  'cards.setChannels',
+  'cards.issue',
+  'cards.setStatus',
+  'business.runPayroll',
+  'business.setMemberRole',
+  'business.removeMember',
+  'transfers.create',
+  'transfers.toUser',
+]);
+
+/** The code's sentence key. A few sentences depend on which write was refused. */
+function keyFor(code: string, procedure?: string): Key | undefined {
+  const normal = code.trim().toLowerCase();
+  // Only a payroll can be refused this way for being over the limit; for a payment it means a different thing.
+  if (normal === 'bank.business_self_approve')
+    return procedure === undefined || procedure === 'business.runPayroll' ? 'payrollOverLimit' : undefined;
+  if (normal === 'bank.card_not_found' && procedure === 'cards.issue') return 'cardNotIssued';
+  return WORDS[normal];
+}
+
+/** Every code with plain words that is a clean refusal on a checked write: not a conflict, not a "could not be issued". */
+export const REFUSED_BEFORE_POSTING: ReadonlySet<string> = new Set(Object.keys(WORDS).filter((code) => !CONFLICTS.has(code)));
 
 /** The plain sentence for a typed refusal, in the customer's language, or null when this file has none. */
-export function moneyRefusalWords(code: string | undefined | null, locale?: UiLocale): string | null {
-  const key = code ? WORDS[code.trim().toLowerCase()] : undefined;
+export function moneyRefusalWords(code: string | undefined | null, locale?: UiLocale, procedure?: string): string | null {
+  const key = code ? keyFor(code, procedure) : undefined;
   if (!key) return null;
   return locale ? moneyRefusalCopy.forLocale(locale).t(key) : moneyRefusalCopy.t(key);
 }
 
-/** A failed answer with the bank's typed refusal put into plain words, when this file has words for it. */
+/** A failed read with the bank's typed refusal put into plain words, when this file has words for it. */
 export function withPlainRefusal<T extends { code?: string; message: string; messageCopy?: unknown }>(failure: T): T {
   const words = moneyRefusalWords(failure.code);
   return words ? { ...failure, message: words, messageCopy: undefined } : failure;
 }
 
 /**
- * Read a failed write once it has come back. A typed refusal the bank makes before it posts or changes anything is a
- * definite "no": it gets plain words and may be corrected and sent again. Anything else, including a refusal that carries
- * no code, a lost answer or a ledger answer that is not known, stays an unconfirmed request.
+ * Read a failed write once it has come back.
+ *
+ * On a write whose refusals were checked (`REFUSAL_CHECKED_WRITES`), a typed refusal made before the bank posts or
+ * changes anything is a definite "no": plain words, and the request may be corrected. A conflict gets plain words but
+ * stays unconfirmed, because it proves the bank already holds something under that reference. Everything else, including
+ * a refusal with no code, a lost answer, an unknown ledger answer, or any write outside the checked list, is unchanged.
  */
-export function settleRefusal(outcome: ApiResult<unknown>): { outcome: ApiResult<unknown>; refusedFirst: boolean } {
-  if (outcome.ok) return { outcome, refusedFirst: false };
-  const refusedFirst = outcome.status !== undefined && outcome.code !== undefined && REFUSED_BEFORE_POSTING.has(outcome.code.toLowerCase());
-  const words = refusedFirst ? moneyRefusalWords(outcome.code) : null;
-  return { outcome: words ? { ...outcome, reason: 'error', message: words, messageCopy: undefined } : outcome, refusedFirst };
+export function settleRefusal(outcome: ApiResult<unknown>, procedure: string): { outcome: ApiResult<unknown>; refusedFirst: boolean } {
+  if (outcome.ok || outcome.status === undefined || outcome.code === undefined) return { outcome, refusedFirst: false };
+  const code = outcome.code.trim().toLowerCase();
+  const words = moneyRefusalWords(code, undefined, procedure);
+  if (!words) return { outcome, refusedFirst: false };
+  const checked = REFUSAL_CHECKED_WRITES.has(procedure);
+  const clean = checked && !CONFLICTS.has(code) && keyFor(code, procedure) !== 'cardNotIssued';
+  if (clean) return { outcome: { ...outcome, reason: 'error', message: words, messageCopy: undefined }, refusedFirst: true };
+  // Words, but the request stays unconfirmed. Only where the code proves something may exist, or on a checked write.
+  if (CONFLICTS.has(code) || checked)
+    return { outcome: { ...outcome, reason: 'uncertain', message: words, messageCopy: undefined }, refusedFirst: false };
+  return { outcome, refusedFirst: false };
 }

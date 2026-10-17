@@ -169,16 +169,17 @@ export function channelSpec(card: CardRecord, key: ChannelKey, copy: CardCopy, f
   return {
     title: turningOn ? t('channelTurnOnTitle', { channel: name }) : t('channelTurnOffTitle', { channel: name }),
     procedure: 'cards.setChannels',
-    facts: [
-      [copyText('rooms.card'), maskedPan(card.panTail)],
-      [t('channelFactLabel'), name],
-      [
-        t('channelFactState'),
-        `${card[key] ? t('channelStateOn') : t('channelStateOff')} → ${turningOn ? t('channelStateOn') : t('channelStateOff')}`,
-      ],
-    ],
+    // Turning a channel off only protects the card, so its confirmation is short: one row and one line, one button.
+    // Turning one on loosens the card, so it keeps the full confirmation.
+    facts: turningOn
+      ? [
+          [copyText('rooms.card'), maskedPan(card.panTail)],
+          [t('channelFactLabel'), name],
+          [t('channelFactState'), `${t('channelStateOff')} → ${t('channelStateOn')}`],
+        ]
+      : [[t('channelFactLabel'), name]],
     notes: [turningOn ? t('channelOnNote') : t('channelOffNote')],
-    submit: t('channelsConfirm'),
+    submit: turningOn ? t('channelsConfirm') : t('channelTurnOffSubmit'),
     // All four switches are sent together, so the card is read again first: a change made elsewhere is never overwritten.
     preflight: () => freshCard(CHANNEL_KEYS),
     // The request id is the command id, so sending this same change again is recognised and applied once.

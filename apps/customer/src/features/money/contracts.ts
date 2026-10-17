@@ -269,6 +269,8 @@ export const bankWrites = {
     z.object({ kind: z.literal('pending'), approval: approvalSchema }),
   ]),
   'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
+  'business.setMemberRole': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
+  'business.removeMember': z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }),
   'business.reject': z.object({ ok: z.literal(true) }),
   'business.cancel': z.object({ ok: z.literal(true) }),
   'business.runPayroll': z.object({
