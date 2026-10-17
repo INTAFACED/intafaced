@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CHARGEBACK_LEDGER_SOCKET_ID, DisputeCaseError, MemoryDisputeCaseStore } from './dispute-case.js';
+import {
+  CHARGEBACK_LEDGER_SOCKET_ID,
+  DisputeCaseError,
+  isTerminalDisputeStatus,
+  MemoryDisputeCaseStore,
+  railOutcomeConflicts,
+} from './dispute-case.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -85,6 +91,34 @@ describe('D26-P1-P5 chargeback dispute case mechanism', () => {
     expect(opened.ledgerTxId).toBe('tx-chargeback-1');
     expect(opened.ledgerRefuse).toBeNull();
     expect(store.markWon('dsp-posted').ledgerTxId).toBe('tx-chargeback-1');
+  });
+
+  it('applies a rail outcome once per event id', () => {
+    const store = new MemoryDisputeCaseStore();
+    store.open({ disputeId: 'dsp-rail', paymentId: 'p', merchantId: 'm', amount: '1', assetId: 'USDT' });
+    const won = store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:1', outcome: 'won' });
+    expect(won?.status).toBe('won');
+    const again = store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:1', outcome: 'won' });
+    expect(again?.status).toBe('won');
+    expect(again?.closedAt).toBe(won?.closedAt);
+    expect(() => store.applyRailResolution({ disputeId: 'dsp-rail', railEventId: 'rail:2', outcome: 'lost' })).toThrow(DisputeCaseError);
+    expect(store.applyRailResolution({ disputeId: 'missing', railEventId: 'rail:3', outcome: 'lost' })).toBeNull();
+  });
+
+  it('treats only a different close of an already-closed dispute as a conflicting outcome', () => {
+    expect(isTerminalDisputeStatus('won')).toBe(true);
+    expect(isTerminalDisputeStatus('lost')).toBe(true);
+    expect(isTerminalDisputeStatus('accepted')).toBe(true);
+    expect(isTerminalDisputeStatus('open')).toBe(false);
+    expect(isTerminalDisputeStatus('contested')).toBe(false);
+    expect(railOutcomeConflicts('won', 'lost')).toBe(true);
+    expect(railOutcomeConflicts('won', 'closed')).toBe(true);
+    expect(railOutcomeConflicts('lost', 'won')).toBe(true);
+    expect(railOutcomeConflicts('accepted', 'won')).toBe(true);
+    expect(railOutcomeConflicts('won', 'won')).toBe(false);
+    expect(railOutcomeConflicts('accepted', 'closed')).toBe(false);
+    expect(railOutcomeConflicts('open', 'lost')).toBe(false);
+    expect(railOutcomeConflicts('contested', 'won')).toBe(false);
   });
 
   it('refuses invalid transitions and blank dispute ids', () => {

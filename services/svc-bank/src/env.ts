@@ -215,6 +215,18 @@ const schema = serviceEnvSchema
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
 
       /**
+       * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.
+       *
+       * `off` (default) leaves every door as it was. `required` makes sends to other users, standing
+       * orders to other people, business payments and membership, and card unfreeze/issue demand
+       * `stepUpApprovalId`: a same-person approval from svc-identity, bound to that exact payload.
+       * Flip to `required` only once the customer app can show the step-up sheet, or every send
+       * to another person fails. Any other value (including blank) refuses boot: a typo must never
+       * read as "off".
+       */
+      BANK_STEP_UP_MONEY_OUT: z.enum(['off', 'required']).default('off'),
+
+      /**
        * Owner-set offramp cooling window in hours (PTX-M17-R03).
        *
        * No default. Blank / unset / non-integer / negative → offramp refuses

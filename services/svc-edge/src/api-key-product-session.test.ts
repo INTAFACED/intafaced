@@ -30,7 +30,9 @@ async function accessToken(): Promise<string> {
   return issued.token;
 }
 
-function fetchWith(opts: { productScopes?: string[]; expectPath?: string; expectProduct?: string } = {}): typeof fetch {
+function fetchWith(
+  opts: { productScopes?: string[]; expectPath?: string; expectProduct?: string; extra?: Record<string, unknown> } = {},
+): typeof fetch {
   return async (input, init) => {
     const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
     if (authority) return authority;
@@ -38,7 +40,7 @@ function fetchWith(opts: { productScopes?: string[]; expectPath?: string; expect
     const body = JSON.parse(String(init?.body)) as { json?: { key?: string; product?: string } };
     if (opts.expectProduct !== undefined) expect(body.json?.product).toBe(opts.expectProduct);
     const token = await accessToken();
-    const json: Record<string, unknown> = { accessToken: token };
+    const json: Record<string, unknown> = { accessToken: token, ...opts.extra };
     if (opts.productScopes !== undefined) json.productScopes = opts.productScopes;
     return new Response(JSON.stringify({ result: { data: { json } } }), {
       status: 200,
@@ -64,6 +66,39 @@ describe('API key product/module scope at the session door', () => {
     expect(foreign.rejected).toBe('invalid');
     expect(foreign.principal).toBeNull();
     expect(foreign.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
+  });
+
+  it('refuses the product exchange when the key requires a signature or a catch-all is the only allowlist entry', async () => {
+    const unsigned = await exchangePrincipal(
+      { authorization: 'Bearer ifc_signed', 'x-product': LISTED },
+      {
+        ...options,
+        fetch: fetchWith({
+          productScopes: [LISTED],
+          expectPath: '/trpc/exchangeApiKeyForProduct',
+          expectProduct: LISTED,
+          extra: { requireSignature: true },
+        }),
+      },
+    );
+    expect(unsigned.rejected).toBe('invalid');
+    expect(unsigned.principal).toBeNull();
+
+    const catchAll = await exchangePrincipal(
+      { authorization: 'Bearer ifc_open', 'x-product': LISTED },
+      {
+        ...options,
+        clientIp: '203.0.113.10',
+        fetch: fetchWith({
+          productScopes: [LISTED],
+          expectPath: '/trpc/exchangeApiKeyForProduct',
+          expectProduct: LISTED,
+          extra: { requireNonEmptyIpAllowlist: true, ipAllowlist: ['0.0.0.0/0'] },
+        }),
+      },
+    );
+    expect(catchAll.rejected).toBe('invalid');
+    expect(catchAll.principal).toBeNull();
   });
 
   it('empty list stays grantor intersection (no invented default product)', async () => {

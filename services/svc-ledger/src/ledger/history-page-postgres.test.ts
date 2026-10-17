@@ -14,6 +14,7 @@ import {
   serializeHistoryPage,
   type HistoryPageInput,
 } from './history.js';
+import { disableBalanceTrigger } from '../db/journal-guards.testkit.js';
 
 /**
  * U5a: `historyPage` against a real book. Same PG-hard rules as
@@ -80,6 +81,9 @@ describe('PostgresLedger.historyPage', () => {
     const admin = await openAdmin();
     adminStop = admin.stop;
     db = await createTestDb({ service: 'ledger_history_page', url: admin.url, migrations });
+    // Raw fixtures below insert one-sided entries on purpose (they test other guards).
+    // 0023's balance-at-commit trigger has its own file: journal-immutable.db.test.ts.
+    await disableBalanceTrigger(db.sql);
     engine = new PostgresLedger(db.sql);
 
     // Two real posted movements per asset (distinct, later timestamps).

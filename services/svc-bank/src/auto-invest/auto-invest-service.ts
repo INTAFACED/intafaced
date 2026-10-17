@@ -1,7 +1,8 @@
 import type { Sql } from 'postgres';
-import { InsufficientFundsError, formatAmount, parseAmount, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { LedgerError, formatAmount, parseAmount, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertAutoInvestBatchLimit } from '../job-batch-limit.js';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertAutoInvestListLimit } from '../owner-list-limit.js';
 import type { EarnService } from '../earn/earn-service.js';
 import type { SpaceService } from '../spaces/space-service.js';
@@ -70,6 +71,25 @@ export function spareChange(captured: Amount, granularity: Amount): Amount {
   if (granularity <= 0n || captured <= 0n) return 0n;
   const rem = captured % granularity;
   return rem === 0n ? 0n : granularity - rem;
+}
+
+/**
+ * Did this failure prove that nothing moved? Only then may a run be `rejected`.
+ *
+ * A typed BankError is raised before any post. A definite ledger refusal
+ * (`isDefiniteLedgerRefusal`) proves nothing committed under the key. Anything
+ * else (a transport error, a 5xx, an untyped body) can follow a commit whose
+ * reply was lost, so the run stays `pending` and the same key is re-driven.
+ * A durable `rejected` for a committed post would be a false statement.
+ */
+function isDefiniteRunRefusal(err: unknown): boolean {
+  return err instanceof BankError || isDefiniteLedgerRefusal(err);
+}
+
+function runRefusalCode(err: unknown): string {
+  if (err instanceof BankError) return err.code;
+  if (err instanceof LedgerError) return err.code;
+  return 'bank.auto_invest_run_failed';
 }
 
 export type RoundUpOutcome =
@@ -430,12 +450,12 @@ export class AutoInvestService {
           `;
           return { status: 'settled', amount: spare, positionId: position.id };
         } catch (err) {
-          const code =
-            err instanceof BankError
-              ? err.code
-              : err instanceof InsufficientFundsError
-                ? 'ledger.insufficient_funds'
-                : 'bank.auto_invest_run_failed';
+          if (!isDefiniteRunRefusal(err)) {
+            // Unknown outcome: the deposit may have committed. The run stays
+            // `pending`; the same capture re-drives it on the same run id.
+            return { status: 'refused', amount: spare, reason: 'bank.ledger_outcome_unknown' };
+          }
+          const code = runRefusalCode(err);
           await this.sql`
             UPDATE bank.auto_invest_runs
                SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
@@ -636,19 +656,15 @@ export class AutoInvestService {
           `;
           return 'settled';
         } catch (err) {
-          const code =
-            err instanceof BankError
-              ? err.code
-              : err instanceof InsufficientFundsError
-                ? 'ledger.insufficient_funds'
-                : 'bank.auto_invest_run_failed';
+          // Unknown outcome: leave the run `pending` and surface the failure.
+          if (!isDefiniteRunRefusal(err)) throw err;
+          const code = runRefusalCode(err);
           await this.sql`
             UPDATE bank.auto_invest_runs
                SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
              WHERE id = ${runId}::uuid AND status = 'pending'
           `;
-          if (err instanceof BankError || err instanceof InsufficientFundsError) return 'rejected';
-          throw err;
+          return 'rejected';
         }
       },
     );
@@ -716,19 +732,15 @@ export class AutoInvestService {
       `;
       return 'settled';
     } catch (err) {
-      const code =
-        err instanceof BankError
-          ? err.code
-          : err instanceof InsufficientFundsError
-            ? 'ledger.insufficient_funds'
-            : 'bank.auto_invest_run_failed';
+      // Unknown outcome: leave the run `pending` and surface the failure.
+      if (!isDefiniteRunRefusal(err)) throw err;
+      const code = runRefusalCode(err);
       await this.sql`
         UPDATE bank.auto_invest_runs
            SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
          WHERE id = ${runId}::uuid AND status = 'pending'
       `;
-      if (err instanceof BankError || err instanceof InsufficientFundsError) return 'rejected';
-      throw err;
+      return 'rejected';
     }
   }
 

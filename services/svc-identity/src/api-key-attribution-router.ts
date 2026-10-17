@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { userCopy } from './user-copy.js';
 
 const stampView = z.object({
@@ -25,7 +26,15 @@ function mapAttributionErr(err: unknown): never {
   }
   if (err instanceof AuthError) {
     const message = userCopy(err.code);
-    if (err.code === 'auth.invalid_credentials' || err.code === 'auth.domain_not_allowed') {
+    if (
+      err.code === 'auth.invalid_credentials' ||
+      err.code === 'auth.domain_not_allowed' ||
+      err.code === 'auth.request_unsigned' ||
+      err.code === 'auth.request_stale' ||
+      err.code === 'auth.request_tampered' ||
+      err.code === 'auth.request_replay' ||
+      err.code === 'auth.ip_allowlist_required'
+    ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     }
     if (err.code === 'auth.account_frozen' || err.code === 'auth.delegate_cannot_grant') {
@@ -112,7 +121,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         }),
 
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200) }))
+        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -126,8 +135,9 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         )
         .mutation(async ({ input, ctx }) => {
           try {
+            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             const stamp = requireAttribution({ apiKeyId: result.keyId });
             return {
               accessToken: result.accessToken,

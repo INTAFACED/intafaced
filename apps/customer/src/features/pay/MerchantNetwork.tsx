@@ -1,3 +1,5 @@
+import { useUnsavedForm } from './portal/useUnsavedForm';
+import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -354,10 +356,11 @@ export function MerchantDeveloper({ pay }: { pay: BusinessPayApi }) {
     </div>
   );
 }
-function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
+export function SandboxKeys({ pay, formOnly = false }: { pay: BusinessPayApi; formOnly?: boolean }) {
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<string[]>([]);
   const [secret, setSecret] = useState('');
+  useUnsavedForm(Boolean(name || scopes.length), extensionCopy.t('draftWarning'));
   const keys = useResource((signal) => pay.keys(signal), `pay:sandbox-keys:${pay.authority!.userId}`);
   const permitted = ['pay:read', 'pay:write', 'pay:refund'].filter((scope) => pay.authority!.scopes.includes(scope));
   return (
@@ -399,6 +402,8 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
             disabled={!name.trim() || !scopes.length || Boolean(pay.guard.status(`${pay.authority!.userId}:sandbox-key-create`))}
             onConfirmed={(data) => {
               setSecret(data.key);
+              setName('');
+              setScopes([]);
               keys.reload();
             }}
           />
@@ -412,53 +417,55 @@ function SandboxKeys({ pay }: { pay: BusinessPayApi }) {
           )}
         </div>
       </PaySection>
-      <PaySection title={payCopy.t('yourSandboxPayKeys')}>
-        <PayState resource={keys.resource} retry={keys.reload} empty={payCopy.t('noKeysReturned')}>
-          {(rows) => {
-            const sandbox = rows.filter((key) => key.mode === 'sandbox' && key.scopes.some((scope) => scope.startsWith('pay:')));
-            return (
-              <>
-                {sandbox.length ? (
-                  <DataTable
-                    label={payCopy.t('sandboxPayKeys')}
-                    headers={[payCopy.t('namePrefix'), payCopy.t('modeScopes'), payCopy.t('lastUsed'), payCopy.t('state'), '']}
-                  >
-                    {sandbox.map((key) => (
-                      <tr key={key.id}>
-                        <td>
-                          {key.name}
-                          <small className="pay-cell-note">{key.prefix}</small>
-                        </td>
-                        <td>
-                          <PayCopy k="sandbox2" />
-                          <small className="pay-cell-note">{key.scopes.join(', ')}</small>
-                        </td>
-                        <td>{key.lastUsedAt ?? payCopy.t('notUsed')}</td>
-                        <td>{key.revoked ? payCopy.t('revoked') : payCopy.t('active')}</td>
-                        <td>
-                          {!key.revoked && (
-                            <ReviewedAction
-                              title={payCopy.t('revokeSandboxKey')}
-                              description={payCopy.t('revokeThisSandboxCredentialExistingLiveKeys')}
-                              perform={() => pay.revokeKey(key.id)}
-                              onConfirmed={keys.reload}
-                            />
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </DataTable>
-                ) : (
-                  <p className="muted">
-                    <PayCopy k="noSandboxPayKeysInTheReturned" />
-                  </p>
-                )}
-                <PayPagination count={rows.length} limit={200} setLimit={() => {}} />
-              </>
-            );
-          }}
-        </PayState>
-      </PaySection>
+      {!formOnly && (
+        <PaySection title={payCopy.t('yourSandboxPayKeys')}>
+          <PayState resource={keys.resource} retry={keys.reload} empty={payCopy.t('noKeysReturned')}>
+            {(rows) => {
+              const sandbox = rows.filter((key) => key.mode === 'sandbox' && key.scopes.some((scope) => scope.startsWith('pay:')));
+              return (
+                <>
+                  {sandbox.length ? (
+                    <DataTable
+                      label={payCopy.t('sandboxPayKeys')}
+                      headers={[payCopy.t('namePrefix'), payCopy.t('modeScopes'), payCopy.t('lastUsed'), payCopy.t('state'), '']}
+                    >
+                      {sandbox.map((key) => (
+                        <tr key={key.id}>
+                          <td>
+                            {key.name}
+                            <small className="pay-cell-note">{key.prefix}</small>
+                          </td>
+                          <td>
+                            <PayCopy k="sandbox2" />
+                            <small className="pay-cell-note">{key.scopes.join(', ')}</small>
+                          </td>
+                          <td>{key.lastUsedAt ?? payCopy.t('notUsed')}</td>
+                          <td>{key.revoked ? payCopy.t('revoked') : payCopy.t('active')}</td>
+                          <td>
+                            {!key.revoked && (
+                              <ReviewedAction
+                                title={payCopy.t('revokeSandboxKey')}
+                                description={payCopy.t('revokeThisSandboxCredentialExistingLiveKeys')}
+                                perform={() => pay.revokeKey(key.id)}
+                                onConfirmed={keys.reload}
+                              />
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </DataTable>
+                  ) : (
+                    <p className="muted">
+                      <PayCopy k="noSandboxPayKeysInTheReturned" />
+                    </p>
+                  )}
+                  <PayPagination count={rows.length} limit={200} setLimit={() => {}} />
+                </>
+              );
+            }}
+          </PayState>
+        </PaySection>
+      )}
     </div>
   );
 }
@@ -537,8 +544,9 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
     </div>
   );
 }
-function CreateWebhook({ pay, reload }: { pay: BusinessPayApi; reload: () => void }) {
+export function CreateWebhook({ pay, reload }: { pay: BusinessPayApi; reload: () => void }) {
   const [url, setUrl] = useState('');
+  useUnsavedForm(Boolean(url), extensionCopy.t('draftWarning'));
   const [idempotencyKey, setIdempotencyKey] = useState(() => `webhook-register:${crypto.randomUUID()}`);
   const [secret, setSecret] = useState('');
   return (
@@ -583,7 +591,15 @@ function CreateWebhook({ pay, reload }: { pay: BusinessPayApi; reload: () => voi
     </PaySection>
   );
 }
-function WebhookToggle({ endpoint, pay, reload }: { endpoint: z.infer<typeof s.webhookSchema>; pay: BusinessPayApi; reload: () => void }) {
+export function WebhookToggle({
+  endpoint,
+  pay,
+  reload,
+}: {
+  endpoint: z.infer<typeof s.webhookSchema>;
+  pay: BusinessPayApi;
+  reload: () => void;
+}) {
   const [key, setKey] = useState(() => `webhook-change:${endpoint.id}:${crypto.randomUUID()}`);
   const action = endpoint.status === 'active' ? 'disable' : 'enable';
   return (

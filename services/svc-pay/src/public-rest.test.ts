@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -87,7 +88,7 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
       if (id !== PAYMENT) throw new PayError(`payment ${id} not found`, 'pay.payment_not_found');
       return paymentRow as never;
     }),
-    listPayments: record('listPayments', async () => [paymentRow] as never),
+    listPayments: record('listPayments', async () => ({ items: [paymentRow], nextCursor: null }) as never),
     clearingBalance: record('clearingBalance', async () => parseAmount('2.5')),
     merchantBalance: record('merchantBalance', async () => parseAmount('7.25')),
     createPayment: record('createPayment', async (input: { railAdapter?: string }) => ({
@@ -117,20 +118,23 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
       expiresAt: new Date('2026-09-07T10:00:00.000Z'),
       maxUses: input.maxUses ?? null,
     })),
-    listPaymentLinks: record('listPaymentLinks', async () => [
-      {
-        id: LINK,
-        prefix: 'pl_testtoke',
-        label: 'Invoice',
-        amount: '10',
-        currency: 'USDT',
-        active: true,
-        expiresAt: '2026-09-07T10:00:00.000Z',
-        maxUses: 1,
-        uses: 0,
-        createdAt: '2026-08-07T10:00:00.000Z',
-      },
-    ]),
+    listPaymentLinks: record('listPaymentLinks', async () => ({
+      items: [
+        {
+          id: LINK,
+          prefix: 'pl_testtoke',
+          label: 'Invoice',
+          amount: '10',
+          currency: 'USDT',
+          active: true,
+          expiresAt: '2026-09-07T10:00:00.000Z',
+          maxUses: 1,
+          uses: 0,
+          createdAt: '2026-08-07T10:00:00.000Z',
+        },
+      ],
+      nextCursor: null,
+    })),
     deactivatePaymentLink: record('deactivatePaymentLink', async () => ({ deactivated: true })),
     ...over,
   } as unknown as PayService & { calls: Call[] };
@@ -141,7 +145,7 @@ async function build(
   idempotency = new MemoryRestIdempotencyStore(),
   webhooks?: MerchantWebhookService,
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, genReqId: () => randomUUID() });
   await registerPublicPayRest(app, {
     edgeSecret: SECRET,
     serviceName: 'svc-pay',
@@ -169,8 +173,8 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.payment_not_found');
     expect(res.body).not.toContain(MERCHANT);
     expect(res.body).not.toContain('1.10');
   });
@@ -184,8 +188,8 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.merchant_not_found');
   });
 
   it('REFUSES a balance for a merchant the caller does not own', async () => {
@@ -197,7 +201,7 @@ describe('ownership — the only thing standing between a query string and anoth
       headers: signed(principal({ sub: STRANGER, userId: STRANGER })),
     });
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(404);
     expect(res.body).not.toContain('7.25');
   });
 
@@ -455,6 +459,7 @@ describe('the spec is served, and describes what the routes actually do', () => 
     expect(desc).toContain('ifc_test_');
     expect(desc).toContain('pay.sandbox_rail_refused');
     expect(desc).toContain('mode: "sandbox" | "live"');
+    expect(desc).toContain('{ items, nextCursor }');
     expect(desc).toContain('Idempotency-Key');
     expect(desc).toMatch(/decimal string/i);
   });
@@ -553,7 +558,7 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:create' },
       payload: createBody,
     });
-    expect(create.statusCode).toBe(403);
+    expect(create.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'createPayment')).toHaveLength(0);
 
     const capture = await app.inject({
@@ -562,7 +567,7 @@ describe('step 2 — mutating paths + Idempotency-Key (ADR §2.2)', () => {
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:capture' },
       payload: {},
     });
-    expect(capture.statusCode).toBe(403);
+    expect(capture.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'capture')).toHaveLength(0);
   });
 
@@ -708,8 +713,8 @@ describe('webhooks step 3 — register + ownership + dashboard', () => {
       payload: { merchantId: MERCHANT, url: 'https://evil.example/x' },
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error.code).toBe('pay.merchant_forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('pay.merchant_not_found');
   });
 
   it('lists deliveries for the failure dashboard under pay:read', async () => {
@@ -875,7 +880,7 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     const pay = stubPay({
       listPayments: async (input: { limit?: number }) => {
         assertPaymentListLimit(input.limit);
-        return [paymentRow] as never;
+        return { items: [paymentRow], nextCursor: null } as never;
       },
     });
     app = await build(pay);
@@ -894,16 +899,19 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
       headers: signed(),
     });
     expect(explicit.statusCode).toBe(200);
-    expect(explicit.json()).toHaveLength(1);
+    expect(explicit.json().items).toHaveLength(1);
   });
 
-  it('sandbox list omits live-rail rows rather than painting them live', async () => {
+  it('sandbox list scopes rails before the cursor and echoes that cursor', async () => {
+    const liveId = '55555555-5555-4555-8555-555555555555';
     const pay = stubPay({
-      listPayments: async () =>
-        [
-          { ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' },
-          { ...paymentRow, id: '55555555-5555-4555-8555-555555555555', railAdapter: 'crypto-native' },
-        ] as never,
+      listPayments: async (input: { railMode?: string }) => {
+        expect(input.railMode).toBe('sandbox');
+        return {
+          items: [{ ...paymentRow, id: PAYMENT, railAdapter: 'card-sandbox' }],
+          nextCursor: 'sandbox-page',
+        } as never;
+      },
     });
     app = await build(pay);
 
@@ -914,10 +922,12 @@ describe('step 4 — sandbox keys route to sandbox rail (ADR §2.5)', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const rows = res.json() as Array<{ railAdapter: string; mode: string }>;
+    const rows = res.json().items as Array<{ railAdapter: string; mode: string }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.railAdapter).toBe('card-sandbox');
     expect(rows[0]!.mode).toBe('sandbox');
+    expect(res.json().nextCursor).toBe('sandbox-page');
+    expect(res.body).not.toContain(liveId);
   });
 
   it('sandbox create that the core echoes as live is refused, not returned as live', async () => {
@@ -1131,8 +1141,8 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       headers: { ...stranger, 'content-type': 'application/json', 'idempotency-key': 'stranger:link' },
       payload: linkBody,
     });
-    expect(create.statusCode).toBe(403);
-    expect(create.json().error.code).toBe('pay.merchant_forbidden');
+    expect(create.statusCode).toBe(404);
+    expect(create.json().error.code).toBe('pay.merchant_not_found');
     expect(pay.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(0);
 
     const list = await app.inject({
@@ -1140,7 +1150,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       url: `/v1/payment-links?merchantId=${MERCHANT}`,
       headers: stranger,
     });
-    expect(list.statusCode).toBe(403);
+    expect(list.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(0);
 
     const deactivate = await app.inject({
@@ -1148,7 +1158,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       url: `/v1/payment-links/${LINK}?merchantId=${MERCHANT}`,
       headers: stranger,
     });
-    expect(deactivate.statusCode).toBe(403);
+    expect(deactivate.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'deactivatePaymentLink')).toHaveLength(0);
   });
 
@@ -1163,43 +1173,50 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([
-      {
-        id: LINK,
-        prefix: 'pl_testtoke',
-        label: 'Invoice',
-        amount: '10',
-        currency: 'USDT',
-        active: true,
-        expiresAt: '2026-09-07T10:00:00.000Z',
-        maxUses: 1,
-        uses: 0,
-        createdAt: '2026-08-07T10:00:00.000Z',
-      },
-    ]);
-    expect(res.json()[0]).not.toHaveProperty('token');
+    expect(res.json()).toEqual({
+      items: [
+        {
+          id: LINK,
+          prefix: 'pl_testtoke',
+          label: 'Invoice',
+          amount: '10',
+          currency: 'USDT',
+          active: true,
+          expiresAt: '2026-09-07T10:00:00.000Z',
+          maxUses: 1,
+          uses: 0,
+          createdAt: '2026-08-07T10:00:00.000Z',
+        },
+      ],
+      nextCursor: null,
+    });
+    expect(res.json().items[0]).not.toHaveProperty('token');
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(1);
-    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args).toEqual([MERCHANT, 50]);
+    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[0]).toBe(MERCHANT);
+    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[1]).toMatchObject({ limit: 50 });
   });
 
   it('REFUSES payment-link list when limit is omitted — never invents 50; owner may pass 50', async () => {
     const pay = stubPay({
-      listPaymentLinks: async (_merchantId: string, limit?: number) => {
-        assertPaymentLinkListLimit(limit);
-        return [
-          {
-            id: LINK,
-            prefix: 'pl_testtoke',
-            label: 'Invoice',
-            amount: '10',
-            currency: 'USDT',
-            active: true,
-            expiresAt: '2026-09-07T10:00:00.000Z',
-            maxUses: 1,
-            uses: 0,
-            createdAt: '2026-08-07T10:00:00.000Z',
-          },
-        ];
+      listPaymentLinks: async (_merchantId: string, query?: { limit?: number }) => {
+        assertPaymentLinkListLimit(query?.limit);
+        return {
+          items: [
+            {
+              id: LINK,
+              prefix: 'pl_testtoke',
+              label: 'Invoice',
+              amount: '10',
+              currency: 'USDT',
+              active: true,
+              expiresAt: '2026-09-07T10:00:00.000Z',
+              maxUses: 1,
+              uses: 0,
+              createdAt: '2026-08-07T10:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+        };
       },
     });
     app = await build(pay);
@@ -1218,7 +1235,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       headers: signed(),
     });
     expect(explicit.statusCode).toBe(200);
-    expect(explicit.json()).toHaveLength(1);
+    expect(explicit.json().items).toHaveLength(1);
   });
 
   it('deactivates through deactivatePaymentLink', async () => {
@@ -1234,5 +1251,20 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ deactivated: true });
     expect(pay.calls.find((c) => c.method === 'deactivatePaymentLink')!.args).toEqual([MERCHANT, LINK]);
+  });
+
+  it('puts the request id on the error header and body', async () => {
+    app = await build(stubPay());
+    const res = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
+    expect(res.statusCode).toBe(401);
+    const requestId = res.headers['x-request-id'];
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(String(requestId).startsWith('req-')).toBe(false);
+    expect(res.json().error.requestId).toBe(requestId);
+    expect(res.json().error.code).toBe('pay.unauthorized');
+    const again = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
+    expect(again.headers['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(again.headers['x-request-id']).not.toBe(requestId);
+    expect(again.json().error.requestId).toBe(again.headers['x-request-id']);
   });
 });

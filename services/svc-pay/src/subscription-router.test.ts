@@ -136,11 +136,11 @@ describe('subscription merchant surface', () => {
       },
       listMandates: async () => {
         calls.push('listMandates');
-        return [mandateRecord()];
+        return { items: [mandateRecord()], nextCursor: null };
       },
       listSubscriptions: async () => {
         calls.push('listSubscriptions');
-        return [subRecord()];
+        return { items: [subRecord()], nextCursor: null };
       },
     } as unknown as SubscriptionService;
 
@@ -167,7 +167,7 @@ describe('subscription merchant surface', () => {
   it('stranger cannot get a mandate', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.mandate.get({ mandateId: MANDATE })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.mandate.get({ mandateId: MANDATE })).rejects.toThrow(/mandate_not_found/);
   });
 
   it('owner can create, get, and cancel a subscription', async () => {
@@ -208,39 +208,39 @@ describe('subscription merchant surface', () => {
   it('stranger cannot list executions', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.subscription.listExecutions({ subscriptionId: SUB })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.subscription.listExecutions({ subscriptionId: SUB })).rejects.toThrow(/subscription_not_found/);
     expect(calls).not.toContain('listExecutions');
   });
 
   it('owner can list mandates for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.mandate.list({ merchantId: MERCHANT });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe(MANDATE);
-    expect(rows[0]!.amount).toBe('10');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.id).toBe(MANDATE);
+    expect(rows.items[0]!.amount).toBe('10');
     expect(calls).toContain('listMandates');
   });
 
   it('stranger cannot list mandates', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.mandate.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.mandate.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_not_found/);
     expect(calls).not.toContain('listMandates');
   });
 
   it('owner can list subscriptions for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.subscription.list({ merchantId: MERCHANT, status: 'active' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe(SUB);
-    expect(rows[0]!.path).toBe('crypto_invoice');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.id).toBe(SUB);
+    expect(rows.items[0]!.path).toBe('crypto_invoice');
     expect(calls).toContain('listSubscriptions');
   });
 
   it('stranger cannot list subscriptions', async () => {
     owner = OTHER;
     const api = await caller(['pay:read'], USER);
-    await expect(api.subscription.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_forbidden|FORBIDDEN/i);
+    await expect(api.subscription.list({ merchantId: MERCHANT })).rejects.toThrow(/merchant_not_found/);
     expect(calls).not.toContain('listSubscriptions');
   });
 
@@ -262,5 +262,42 @@ describe('subscription merchant surface', () => {
     const api = fenced.createCaller(await ctx(['pay:write'], USER));
     await expect(api.subscription.cancel({ subscriptionId: SUB })).rejects.toThrow(/submerchant_permission_denied|FORBIDDEN/i);
     expect(calls).not.toContain('cancelSubscription');
+  });
+
+  it('forwards Idempotency-Key to createSubscription', async () => {
+    let seen: string | undefined;
+    subs.createSubscription = async (input: { idempotencyKey?: string }) => {
+      seen = input.idempotencyKey;
+      calls.push('createSubscription');
+      return subRecord();
+    };
+    router = createSubscriptionRouter(subs, pay, null);
+    const api = await caller(['pay:write']);
+    await api.subscription.create({ mandateId: MANDATE, idempotencyKey: 'sub-create-1' });
+    expect(seen).toBe('sub-create-1');
+  });
+
+  it('refuses a blank Idempotency-Key before creating', async () => {
+    const api = await caller(['pay:write']);
+    await expect(api.subscription.create({ mandateId: MANDATE, idempotencyKey: '   ' })).rejects.toMatchObject({
+      message: expect.stringContaining('pay.idempotency_required'),
+      cause: expect.objectContaining({ code: 'pay.idempotency_required' }),
+    });
+    expect(calls).not.toContain('createSubscription');
+  });
+
+  it('maps an open mandate and an idempotency conflict to CONFLICT', async () => {
+    const apiFor = async (code: 'pay.subscription_mandate_open' | 'pay.idempotency_conflict') => {
+      subs.createSubscription = async () => {
+        throw new PayError(code, code);
+      };
+      return createSubscriptionRouter(subs, pay, null).createCaller(await ctx(['pay:write']));
+    };
+    const open = await apiFor('pay.subscription_mandate_open');
+    await expect(open.subscription.create({ mandateId: MANDATE })).rejects.toMatchObject({ code: 'CONFLICT' });
+    const conflict = await apiFor('pay.idempotency_conflict');
+    await expect(conflict.subscription.create({ mandateId: MANDATE, idempotencyKey: 'k' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
   });
 });
