@@ -50,7 +50,17 @@ export function mapRefreshResult(result: ApiResult<Session>): RefreshOutcome {
     return Number.isFinite(Date.parse(result.data.expiresAt)) ? { kind: 'session', session: result.data } : { kind: 'unavailable' };
   if (result.reason === 'unauthorized' || result.reason === 'forbidden')
     return { kind: 'signed_out', ...(result.code ? { code: result.code } : {}) };
+  // Any other definite answer from the server (400, 404, 501 …) will not become a session on retry: an identity
+  // service older than the cookie refresh answers 400 "refreshToken required". Treat it as signed out, so a
+  // visitor reaches sign-in instead of an endless "could not check your sign-in". 408 and 429 stay retryable.
+  if (definiteRefusal(result)) return { kind: 'signed_out', ...(result.code ? { code: result.code } : {}) };
   return { kind: 'unavailable' };
+}
+
+function definiteRefusal(result: Extract<ApiResult<Session>, { ok: false }>): boolean {
+  if (result.reason === 'not_mounted' || result.reason === 'not_supported') return true;
+  const status = result.status;
+  return result.reason === 'error' && status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 function browserLocks(): LockManagerLike | undefined {
