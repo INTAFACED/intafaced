@@ -477,7 +477,7 @@ test('safe sign-in return opens the actual Bank room without persisting credenti
   expect(JSON.stringify(storage)).not.toContain(session.refreshToken);
 });
 
-test('search is keyboard reachable and excludes Business, Team and parked chain rooms', async ({ page }) => {
+test('search is keyboard reachable, lists the parked Chain room, and excludes Business and Team rooms', async ({ page }) => {
   await setup(page);
   await signIn(page, '/uc/safe');
   await page.keyboard.press('Control+k');
@@ -487,7 +487,9 @@ test('search is keyboard reachable and excludes Business, Team and parked chain 
   await dialog.getByLabel('Find a room or action').fill('ledger');
   await expect(dialog.getByRole('link', { name: /Operator|Ledger ops|Business bank|Merchant/ })).toHaveCount(0);
   await dialog.getByLabel('Find a room or action').fill('chain');
-  await expect(dialog.getByRole('link')).toHaveCount(0);
+  // Parked rooms are searchable (founder order 2026-10-17); they still never become a sign-in return target.
+  await expect(dialog.getByRole('link')).toHaveCount(1);
+  await expect(dialog.getByRole('link').first()).toHaveAttribute('href', '/chain');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 });

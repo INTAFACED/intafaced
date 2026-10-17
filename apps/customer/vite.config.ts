@@ -2,10 +2,12 @@ import { defineConfig, loadEnv } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
 /**
- * Production guard. `VITE_LOCAL_TEST=1` turns on dev-only screens (the hidden-path ribbon) in a build.
+ * Production guard. `VITE_LOCAL_TEST=1` turns on the dev-only screens (`/dev/features`) in a build. It no longer changes
+ * which customer rooms open: no build hides or redirects a room, so the Docker image, `pnpm local:stack` and `vite dev` agree.
  * A build in production mode refuses it unless `INTAFACED_LOCAL_STACK_BUILD=1` is also set, so a stray
  * variable (CI, a Dockerfile, a .env file) can never ship those screens to customers.
- * Local test stack build: `INTAFACED_LOCAL_STACK_BUILD=1 VITE_LOCAL_TEST=1 vite build --outDir <dir>`.
+ * A bundle that wants the dev screens: `INTAFACED_LOCAL_STACK_BUILD=1 VITE_LOCAL_TEST=1 vite build --outDir <dir>`
+ * (`pnpm local:stack` does not set either variable today).
  */
 export function assertLocalTestBuildAllowed(mode: string, env: Record<string, string | undefined>): void {
   if (mode !== 'production') return;
