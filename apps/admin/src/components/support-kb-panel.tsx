@@ -7,6 +7,7 @@ import { fetchKb, postSupportAction, type ActionReply } from '@/lib/support/brow
 import type { SupportActionRequest } from '@/lib/support/model';
 import type { SupportKbView } from '@/lib/support/types';
 import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * HELP ARTICLES — publish and unpublish.
@@ -101,7 +102,7 @@ export function KbPanelView(p: KbPanelViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loading || p.busy}>
           {p.loading ? 'Reading…' : 'Refresh articles'}
         </button>
-        <span className="dk-asof">{p.kb ? `As of ${p.kb.asOf}` : 'No read yet'}</span>
+        <span className="dk-asof">{p.kb ? `As of ${formatAsOf(p.kb.asOf)}` : 'No read yet'}</span>
       </div>
       {!p.kb && <p className="dk-why">svc-support could not be read. Nothing is shown rather than a guess.</p>}
       {articles && articles.kind === 'failed' && <Failed name="Help articles" part={articles} />}

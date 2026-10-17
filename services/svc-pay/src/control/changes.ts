@@ -7,6 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';
+import { assertReserveMayBeConfigured } from './reserve.js';
 import { closePendingForCapChange, closePendingForTierChange } from './limit-requests.js';
 import { assertValidRule, PricingConfigError, type PricingBand, type PricingRule } from './pricing.js';
 import { pricingRuleBodySchema, tierDefinitionSchema, type PricingRuleBody, type TierDefinitionInput } from './schemas.js';
@@ -230,6 +231,9 @@ export class ChangeService {
       const { rollingReserveBps, holdDays } = change.reserve;
       if ((rollingReserveBps === null) !== (holdDays === null))
         throw new Refused('a reserve needs both a percentage and a hold period, or neither');
+      // Fail closed: a percentage would be shown as held, and nothing books it.
+      // Thrown (not Refused) so the transaction rolls back and no change row is written.
+      assertReserveMayBeConfigured(change.reserve);
       const before = cur?.reserve_override ?? null;
       const after = { rollingReserveBps, holdDays };
       return {

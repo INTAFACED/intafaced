@@ -1,3 +1,4 @@
+import { SubNav } from '@intafaced/ui';
 import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -131,20 +132,18 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
   return (
     <div className="more-grid">
-      <div className="more-toolbar">
-        <a className="text-link" href={preservePaperHref('/quant', paper)}>
-          <Text k="quant.sandbox" />
-        </a>
-        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
-          <Text k="quant.studio" />
-        </a>
-        <a className="text-link" href={preservePaperHref('/quant/backtest', paper)}>
-          <Text k="quant.backtest" />
-        </a>
-        <a className="text-link" href={preservePaperHref('/execution', paper)}>
-          <Text k="quant.execution" />
-        </a>
-      </div>
+      {/* The same room switch Trade uses, so moving between Quant rooms looks and behaves the same everywhere. */}
+      <SubNav
+        aria-label={copyText('quant.rooms')}
+        active={mode}
+        className="px-0"
+        items={[
+          { id: 'sandbox', label: copyText('quant.sandbox'), href: preservePaperHref('/quant', paper) },
+          { id: 'studio', label: copyText('quant.studio'), href: preservePaperHref('/quant/studio', paper) },
+          { id: 'backtest', label: copyText('quant.backtest'), href: preservePaperHref('/quant/backtest', paper) },
+          { id: 'execution', label: copyText('quant.execution'), href: preservePaperHref('/execution', paper) },
+        ]}
+      />
       {mode !== 'sandbox' && <QuantMemoryNotice />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />

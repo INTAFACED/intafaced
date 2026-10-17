@@ -63,6 +63,7 @@ import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-le
 import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
 import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
+import { assertPayoutReserveWired } from './control/reserve.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
 import {
   finalizePayoutIdentity,
@@ -4668,6 +4669,12 @@ export class PayService {
           // has that row; its book is read below, once, for the plan.
           let payoutBook: 'legacy' | 'proceeds' | undefined;
           if (!admission) {
+            // A resumed admission finishes under the net it was admitted with.
+            // A fresh payout for a reserved merchant is refused before any admission:
+            // a percentage already on the merchant (tier, or an override written before
+            // set_reserve refused) must not leave as the full net. No recipe can hold
+            // the reserved part, so nothing is admitted and no hold is posted.
+            await assertPayoutReserveWired(connection, settlement.merchantId);
             const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
             if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
               throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');

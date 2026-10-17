@@ -89,22 +89,31 @@ export function sessionIdFromToken(token: string | null | undefined): string | n
   }
 }
 
-export const RECENT_SESSION_MS = 24 * 60 * 60 * 1000;
+/** How many of the newest sessions stay in view before "Show N more". */
+export const VISIBLE_SESSIONS = 5;
 
 /**
- * Sessions started in the last 24 hours (and this device's own, whatever its age) stay in view; the rest fold behind
- * "Show N more". Order is kept. A start time that cannot be read counts as older, never as recent.
+ * The newest five sessions (and this device's own, whatever its age) stay in view; the rest fold behind "Show N more".
+ * Order is kept. A start time that cannot be read counts as oldest, never as newest.
  */
 export function splitSessions<T extends { id: string; createdAt: string }>(
   seats: readonly T[],
   currentId: string | null,
-  now: number,
+  visible: number = VISIBLE_SESSIONS,
 ): { recent: T[]; older: T[] } {
+  const time = (seat: T) => {
+    const at = Date.parse(seat.createdAt);
+    return Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY;
+  };
+  const newest = new Set(
+    seats
+      .map((seat, index) => ({ seat, index }))
+      .sort((left, right) => time(right.seat) - time(left.seat) || left.index - right.index)
+      .slice(0, visible)
+      .map(({ seat }) => seat),
+  );
   const recent: T[] = [];
   const older: T[] = [];
-  for (const seat of seats) {
-    const at = Date.parse(seat.createdAt);
-    (seat.id.toLowerCase() === currentId || (Number.isFinite(at) && now - at <= RECENT_SESSION_MS) ? recent : older).push(seat);
-  }
+  for (const seat of seats) (newest.has(seat) || seat.id.toLowerCase() === currentId ? recent : older).push(seat);
   return { recent, older };
 }

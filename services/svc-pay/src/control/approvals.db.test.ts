@@ -14,7 +14,7 @@ import { REFERENCE_RAIL_ROUTING_PROFILES } from '../routing/decide.js';
 import postgres from 'postgres';
 import { composeGuards, FRESH, settleGuardRefusal } from '../seams/guards.js';
 import { teamAccessPorts, type ControlAccessPorts } from './access.js';
-import { ApprovalService, toContractApproval } from './approvals.js';
+import { ApprovalService, setBeforePayoutApprovalRequestLock, toContractApproval } from './approvals.js';
 import { maskDestination } from './mask-destination.js';
 import { ChangeService } from './changes.js';
 import { createControlGuards } from './guards.js';
@@ -81,6 +81,7 @@ describe('payout maker-checker', () => {
       new BankPayoutAbsentAdapter(),
     ]);
     clock = new Date();
+    setBeforePayoutApprovalRequestLock(undefined);
     pay = new PayService(sql, ledger, rails, {
       payoutDestinations: new MerchantPayoutDestinationStore(sql),
       guards: composeGuards(createControlGuards({ sql, mode: 'required' })),
@@ -105,6 +106,13 @@ describe('payout maker-checker', () => {
         scope: 'merchant',
         merchantId: id,
         change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
+      });
+      // TEST_TIER stores a rolling reserve. payoutSettlement refuses that until a
+      // ledger recipe exists, so these maker-checker cases clear it first.
+      await applyChange(changes, sql, {
+        scope: 'merchant',
+        merchantId: id,
+        change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } },
       });
       await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at) VALUES (${id}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref}, true, now())`;
     }
@@ -433,6 +441,101 @@ describe('payout maker-checker', () => {
     await expect(
       sql`UPDATE pay.control_payout_approvals SET founder_first_user_id = ${FOUNDER_1}, founder_second_user_id = ${FOUNDER_1} WHERE id = ${req.approvalId}`,
     ).rejects.toThrow(/founders_distinct/);
+  });
+
+  describe('asking again after a same-payload request expires', () => {
+    const ask = (settlementId: string) => approvals.request(maker(), { merchantId, settlementId, railId: 'crypto-native' });
+    const advancePastTtl = () => {
+      clock = new Date(clock.getTime() + (TEST_TIER.approvalTtlSeconds + 5) * 1000);
+    };
+    const rowsFor = (settlementId: string) =>
+      sql<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM pay.control_payout_approvals WHERE settlement_id = ${settlementId} ORDER BY seq
+      `;
+
+    it('an expired pending request is settled and a fresh pending row is stored', async () => {
+      const s = await settled(merchantId, ['60'], 'w-reask');
+      const first = await ask(s.id);
+      advancePastTtl();
+      const again = await ask(s.id);
+      expect(again.approvalId).not.toBe(first.approvalId);
+      expect(again.status).toBe('pending');
+      expect((await ask(s.id)).approvalId).toBe(again.approvalId);
+      expect(await rowsFor(s.id)).toEqual([
+        { id: first.approvalId, status: 'expired' },
+        { id: again.approvalId, status: 'pending' },
+      ]);
+      const listed = (await approvals.list(maker(), { merchantId, limit: 20, status: 'expired' })).items.find(
+        (item) => item.approvalId === first.approvalId,
+      );
+      expect(listed?.status).toBe('expired');
+      expect(await auditKinds(first.approvalId)).toContain('payout.approval_expired');
+      expect((await approvals.decide(finance(), decideInput(again))).status).toBe('approved');
+      expect((await payout(s.id)).status).toBe('paid_out');
+    });
+
+    it('a live pending request returns the same row', async () => {
+      const s = await settled(merchantId, ['60'], 'w-reask-live');
+      const first = await ask(s.id);
+      const again = await ask(s.id);
+      expect(again.approvalId).toBe(first.approvalId);
+      expect(again.status).toBe('pending');
+      expect(await rowsFor(s.id)).toEqual([{ id: first.approvalId, status: 'pending' }]);
+    });
+
+    it('an approved request that has not expired returns the same row', async () => {
+      const s = await settled(merchantId, ['60'], 'w-reask-approved');
+      const first = await ask(s.id);
+      expect((await approvals.decide(finance(), decideInput(first))).status).toBe('approved');
+      const again = await ask(s.id);
+      expect(again.approvalId).toBe(first.approvalId);
+      expect(again.status).toBe('approved');
+      expect(await rowsFor(s.id)).toEqual([{ id: first.approvalId, status: 'approved' }]);
+    });
+
+    it('an approved request that has expired is settled and a fresh pending row is stored', async () => {
+      const s = await settled(merchantId, ['60'], 'w-reask-approved-expired');
+      const first = await ask(s.id);
+      expect((await approvals.decide(finance(), decideInput(first))).status).toBe('approved');
+      advancePastTtl();
+      const again = await ask(s.id);
+      expect(again.approvalId).not.toBe(first.approvalId);
+      expect(again.status).toBe('pending');
+      expect(await rowsFor(s.id)).toEqual([
+        { id: first.approvalId, status: 'expired' },
+        { id: again.approvalId, status: 'pending' },
+      ]);
+    });
+
+    it('two asks after expiry store one new pending row', async () => {
+      const s = await settled(merchantId, ['60'], 'w-reask-race');
+      const first = await ask(s.id);
+      advancePastTtl();
+      let arrived = 0;
+      let open!: () => void;
+      const bothArrived = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      setBeforePayoutApprovalRequestLock(async () => {
+        arrived += 1;
+        if (arrived === 2) open();
+        await bothArrived;
+      });
+      try {
+        const [a, b] = await Promise.all([ask(s.id), ask(s.id)]);
+        expect(arrived).toBe(2);
+        expect(a.status).toBe('pending');
+        expect(b.status).toBe('pending');
+        expect(a.approvalId).toBe(b.approvalId);
+        expect(a.approvalId).not.toBe(first.approvalId);
+        expect(await rowsFor(s.id)).toEqual([
+          { id: first.approvalId, status: 'expired' },
+          { id: a.approvalId, status: 'pending' },
+        ]);
+      } finally {
+        setBeforePayoutApprovalRequestLock(undefined);
+      }
+    }, 30_000);
   });
 
   it('without a configured threshold or destination the request is refused, not defaulted', async () => {

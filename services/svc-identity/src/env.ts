@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 
@@ -231,6 +232,24 @@ const schema = serviceEnvSchema
        * does not start requiring two people, and does not apply trading restrictions.
        * Any other string refuses boot. This ships off. Turning it on is a lead decision.
        */
+      /**
+       * Operator scopes added to a live founder's interactive MFA session.
+       * Comma-separated allowlist. Blank or unset grants nothing — which
+       * founder holds which scope is the lead's decision, not a default here.
+       * A name outside the allowlist, or any unknown scope, refuses boot
+       * (`identity.founder_scope_invalid`). Do not set this in compose.
+       */
+      IDENTITY_FOUNDER_SESSION_SCOPES: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return founderSessionScopesFromEnv(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'identity.founder_scope_invalid' });
+            return z.NEVER;
+          }
+        }),
       IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v !== 'string') return v;

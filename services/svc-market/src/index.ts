@@ -9,6 +9,7 @@ import { createStakeSource } from './stake-source.js';
 import { createMarketRouter, type MarketRouter } from './router.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { CommerceService } from './commerce/commerce-service.js';
+import { ReviewsService } from './reviews/reviews-service.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
@@ -64,6 +65,12 @@ await sql`SELECT 1 FROM market.perp_proposals LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM market.perp_proposal_status_events LIMIT 1`.catch(() => {
   throw new Error('market.perp_proposal_status_events is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.listing_takedowns LIMIT 1`.catch(() => {
+  throw new Error('market.listing_takedowns is missing — run migrations before starting svc-market');
+});
+await sql`SELECT 1 FROM market.reviews LIMIT 1`.catch(() => {
+  throw new Error('market.reviews is missing — run migrations before starting svc-market');
+});
 
 const vendors = new VendorService(sql, createStakeSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET));
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
@@ -76,7 +83,8 @@ const perpProposals = new PerpProposalService(sql, vendors);
 const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
-const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals);
+const reviews = new ReviewsService(sql);
+const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews);
 
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 

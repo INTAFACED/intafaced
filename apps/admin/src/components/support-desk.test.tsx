@@ -99,7 +99,7 @@ describe('the queue', () => {
     expect(html).toContain('Cannot sign in &lt;script&gt;x&lt;/script&gt;');
     expect(html).not.toContain('<script>x');
     expect(html).toContain('3 h 0 min');
-    expect(html).toContain('As of 2026-10-17T03:00:00.000Z');
+    expect(html).toContain('As of 03:00:00 UTC');
   });
   it('metrics are of the page given, and say the score is not a promise', () => {
     const html = render();

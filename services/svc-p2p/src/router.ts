@@ -5,11 +5,13 @@ import { enabledFiat } from '@intafaced/config';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   ActionApprovalConsumeError,
+  consumeDisputeResolveApproval,
   p2pActionPayloadHash,
   readApprovalIds,
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { OpsReads } from './ops/ops-reads.js';
 import type { P2pErasure } from './erasure.js';
 import {
   MAX_EVIDENCE_PER_CALL,
@@ -70,6 +72,14 @@ export type P2pRouterOptions = {
   chatNotify?: {
     messageSent(input: { tradeId: string; messageId: string; senderId: string; recipientIds: string[] }): Promise<void>;
   };
+  /** Operator offer and trade reads. Unset → those procedures refuse rather than reading nothing and calling it empty. */
+  opsReads?: OpsReads;
+  /**
+   * When true, disputes.resolve consumes a p2p.dispute_resolve approval in the
+   * ruling transaction. Default false: one moderator, fourEyes false on the row.
+   * Turning this on is a lead policy decision. This service does not turn it on.
+   */
+  disputeResolveRequiresApproval?: boolean;
 };
 
 /**
@@ -227,6 +237,9 @@ const disputeOutput = z.object({
   overdue: z.boolean(),
   escalatedAt: z.string().nullable(),
   escalations: z.number().int(),
+  escalatedBy: z.string().nullable(),
+  escalationReason: z.string().nullable(),
+  fourEyes: z.boolean().nullable(),
   /** Null until a moderator has actually been served this row. */
   lastSeenByModeratorAt: z.string().nullable(),
 });
@@ -371,6 +384,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_list_limit_unset':
       case 'p2p.late_settlements_list_limit_unset':
       case 'p2p.trade_list_limit_unset':
+      case 'p2p.ops_offers_limit_unset':
+      case 'p2p.ops_trades_limit_unset':
+      case 'p2p.ops_count_invalid':
+      case 'p2p.dispute_resolve_no_four_eyes':
+      case 'p2p.dispute_resolve_approval_mismatch':
       case 'p2p.sweep_settlements_limit_unset':
       case 'p2p.sweep_deadlines_limit_unset':
       case 'p2p.merchant_history_limit_unset':
@@ -397,6 +415,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.dispute_already_open':
       case 'p2p.dispute_already_resolved':
+      case 'p2p.dispute_resolve_approval_consumed':
       case 'p2p.trade_exists':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
@@ -409,6 +428,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
       case 'p2p.offer_method_unsupported':
@@ -542,6 +562,30 @@ export function createP2pRouter(
   const publicProfile = options.publicProfile;
   const chatNotify = options.chatNotify;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const opsReads = options.opsReads;
+  const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
+
+  const requireOpsReads = (): OpsReads => {
+    if (!opsReads) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'p2p.ops_reads_unwired' });
+    }
+    return opsReads;
+  };
+
+  const mapDisputeApprovalError = (err: unknown): never => {
+    if (err instanceof P2pError) throw err;
+    if (err instanceof ActionApprovalConsumeError) {
+      const message = err.message.toLowerCase();
+      if (message.includes('already consumed') || message.includes('action_approval.consumed')) {
+        throw new P2pError(`p2p.dispute_resolve_approval_consumed — ${err.message}`, 'p2p.dispute_resolve_approval_consumed');
+      }
+      if (message.includes('payload') || message.includes('target_mismatch') || message.includes('not p2p.dispute_resolve')) {
+        throw new P2pError(`p2p.dispute_resolve_approval_mismatch — ${err.message}`, 'p2p.dispute_resolve_approval_mismatch');
+      }
+      throw new P2pError(`p2p.dispute_resolve_no_four_eyes — ${err.message}`, 'p2p.dispute_resolve_no_four_eyes');
+    }
+    throw err;
+  };
 
   const consumeOperatorApproval = async (
     cmd: { readonly approvalId?: string | null; readonly operationId?: string | null },
@@ -1691,23 +1735,104 @@ export function createP2pRouter(
        * escalates and re-arms; the database refuses a terminal write on a
        * disputed trade without an attributed human ruling behind it.
        */
+      /**
+       * A moderator re-arms an open dispute the way the timeout sweep does.
+       * No escrow movement. The same clientRequestId returns the first result.
+       */
+      escalate: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            disputeId: z.string().uuid(),
+            reason: z.string().min(1).max(2000),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(
+          z.object({
+            disputeId: z.string().uuid(),
+            tradeId: z.string().uuid(),
+            escalatedAt: z.string(),
+            escalations: z.number().int(),
+            deadlineAt: z.string(),
+            actorId: z.string(),
+            reason: z.string(),
+            replay: z.boolean(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            assertModerator(ctx.principal, moderatorUserIds);
+            const row = await p2p.escalateOpenDispute({
+              disputeId: input.disputeId,
+              actorId: ctx.principal.userId,
+              reason: input.reason,
+              clientRequestId: input.clientRequestId,
+            });
+            return {
+              disputeId: row.disputeId,
+              tradeId: row.tradeId,
+              escalatedAt: row.escalatedAt.toISOString(),
+              escalations: row.escalations,
+              deadlineAt: row.deadlineAt.toISOString(),
+              actorId: row.actorId,
+              reason: row.reason,
+              replay: row.replay,
+            };
+          }),
+        ),
+
       resolve: merchantApiProcedure('p2p:read')
         .input(
           z.object({
             tradeId: z.string().uuid(),
             resolution: z.enum(['release', 'refund']),
             notes: z.string().max(2000).optional(),
+            approvalId: z.string().max(128).optional(),
+            operationId: z.string().max(128).optional(),
           }),
         )
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             assertModerator(ctx.principal, moderatorUserIds);
+            const note = input.notes ?? '';
             const trade = await p2p.resolveDispute({
               tradeId: input.tradeId,
               moderatorId: ctx.principal.userId,
               resolution: input.resolution,
               ...(input.notes ? { notes: input.notes } : {}),
+              fourEyes: disputeResolveRequiresApproval,
+              ...(disputeResolveRequiresApproval
+                ? {
+                    consumeApproval: async (binding: { disputeId: string; winner: 'buyer' | 'seller'; note: string }) => {
+                      const approvalId = input.approvalId?.trim() ?? '';
+                      const operationId = input.operationId?.trim() ?? '';
+                      if (!approvalId || !operationId) {
+                        throw new P2pError(
+                          'p2p.dispute_resolve_no_four_eyes — P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL is on and this ruling has no approval',
+                          'p2p.dispute_resolve_no_four_eyes',
+                        );
+                      }
+                      if (binding.note !== note) {
+                        throw new P2pError(
+                          'p2p.dispute_resolve_approval_mismatch — payload hash does not match the approved action',
+                          'p2p.dispute_resolve_approval_mismatch',
+                        );
+                      }
+                      try {
+                        await consumeDisputeResolveApproval(approvals, {
+                          approvalId,
+                          operationId,
+                          disputeId: binding.disputeId,
+                          winner: binding.winner,
+                          note: binding.note,
+                        });
+                      } catch (err) {
+                        mapDisputeApprovalError(err);
+                      }
+                    },
+                  }
+                : {}),
             });
 
             /**
@@ -1846,6 +1971,119 @@ export function createP2pRouter(
             };
           }),
         ),
+
+      offers: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z.object({
+            status: z.enum(['active', 'paused', 'closed']),
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(500).nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            offers: z.array(
+              z.object({
+                id: z.string().uuid(),
+                makerId: z.string(),
+                side: z.enum(['buy', 'sell']),
+                asset: z.string(),
+                fiatCurrency: z.string(),
+                price: z.string(),
+                minAmount: z.string(),
+                maxAmount: z.string(),
+                totalAmount: z.string(),
+                remainingAmount: z.string(),
+                status: z.enum(['active', 'paused', 'closed']),
+                methodIds: z.array(z.string()),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) =>
+          guard(async () =>
+            requireOpsReads().offers({
+              status: input.status,
+              ...(input.limit !== undefined ? { limit: input.limit } : {}),
+              ...(input.cursor ? { cursor: input.cursor } : {}),
+            }),
+          ),
+        ),
+
+      trades: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z.object({
+            status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(500).nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            trades: z.array(
+              z.object({
+                id: z.string().uuid(),
+                offerId: z.string().uuid(),
+                makerId: z.string(),
+                takerId: z.string(),
+                buyerId: z.string(),
+                sellerId: z.string(),
+                asset: z.string(),
+                fiatCurrency: z.string(),
+                amount: z.string(),
+                price: z.string(),
+                fiatAmount: z.string(),
+                method: z.string(),
+                feeBps: z.number().int(),
+                status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+                resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) =>
+          guard(async () =>
+            requireOpsReads().trades({
+              status: input.status,
+              ...(input.limit !== undefined ? { limit: input.limit } : {}),
+              ...(input.cursor ? { cursor: input.cursor } : {}),
+            }),
+          ),
+        ),
+
+      counts: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .output(
+          z.object({
+            offers: z.object({
+              active: z.number().int().nonnegative(),
+              paused: z.number().int().nonnegative(),
+              closed: z.number().int().nonnegative(),
+            }),
+            trades: z.object({
+              created: z.number().int().nonnegative(),
+              escrowed: z.number().int().nonnegative(),
+              fiat_sent: z.number().int().nonnegative(),
+              released: z.number().int().nonnegative(),
+              cancelled: z.number().int().nonnegative(),
+              disputed: z.number().int().nonnegative(),
+            }),
+          }),
+        )
+        .query(async () => guard(async () => requireOpsReads().counts())),
+
+      disputeRate24h: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .output(
+          z.object({
+            disputesOpened24h: z.number().int().nonnegative(),
+            tradesCreated24h: z.number().int().nonnegative(),
+            rate: z.string().nullable(),
+          }),
+        )
+        .query(async () => guard(async () => requireOpsReads().disputeRate24h())),
     }),
 
     /**
@@ -2437,6 +2675,9 @@ function toDisputeOut(d: DisputeRecord, viewerId: string | null): z.infer<typeof
     overdue: d.status === 'open' && d.deadlineAt.getTime() <= Date.now(),
     escalatedAt: d.escalatedAt?.toISOString() ?? null,
     escalations: d.escalations,
+    escalatedBy: d.escalatedBy ?? null,
+    escalationReason: d.escalationReason ?? null,
+    fourEyes: d.fourEyes ?? null,
     lastSeenByModeratorAt: d.lastSeenByModeratorAt?.toISOString() ?? null,
   };
 }

@@ -80,7 +80,7 @@ const submit = (html: string) => /<button type="submit"[^>]*>[^<]*<\/button>/.ex
 describe('the halts and their time', () => {
   it('lists each halt with who set it and since when, and states the read time', () => {
     const html = render();
-    expect(html).toContain('As of 2026-10-17T03:00:00.000Z');
+    expect(html).toContain('As of 03:00:00 UTC');
     expect(html).toContain('HALTED');
     expect(html).toContain('rail incident');
     expect(html).toContain('Paying out');

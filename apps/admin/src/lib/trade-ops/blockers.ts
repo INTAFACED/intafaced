@@ -8,18 +8,6 @@ import type { Blocker } from './outcome';
 const b = (key: string, owner: string, text: string, need: string): Blocker => ({ key, owner, text, need });
 
 export const BLOCKERS = {
-  matching_not_routed: b(
-    'matching_not_routed',
-    'svc-edge → svc-matching',
-    'Halt, resume, reduce-only, post-only and delist exist on svc-matching but only for service-to-service calls; svc-edge has no route an operator session can use.',
-    'TRD-0043, TRD-0180, TRD-0182',
-  ),
-  matching_health_not_routed: b(
-    'matching_health_not_routed',
-    'svc-edge → svc-matching',
-    'Matching health (venue halted, resting orders, journal records) is on svc-matching /health, which svc-edge does not proxy to operators.',
-    'TRD-0056, TRD-0089',
-  ),
   mass_cancel_operator_missing: b(
     'mass_cancel_operator_missing',
     'svc-trade',
@@ -56,10 +44,10 @@ export const BLOCKERS = {
     'Audit exists per user (restriction history) and for kill switches, but there is no combined operator audit feed.',
     'TRD-0055, TRD-0205',
   ),
-  surveillance_not_routed: b(
-    'surveillance_not_routed',
-    'svc-edge → svc-matching',
-    'Surveillance cases (spoofing, layering) are on svc-matching and not routed to operators. Adjudication and fines are refused by design: no automatic sanction.',
+  surveillance_adjudicate_not_exposed: b(
+    'surveillance_adjudicate_not_exposed',
+    'svc-edge',
+    'Reading cases works. Recording a decision or a fine is not exposed to operators: svc-edge registers no adjudicate or fine route, by design, so no sanction can be set from this desk.',
     'TRD-0049',
   ),
   mm_seed_setter_missing: b(
@@ -73,12 +61,6 @@ export const BLOCKERS = {
     'svc-identity / svc-trade',
     'A trading restriction is applied by one operator. There is no two-person action type for it yet, so this desk will not apply it from a single click here.',
     'TRD-0036, TRD-0117',
-  ),
-  approvals_list_missing: b(
-    'approvals_list_missing',
-    'svc-identity',
-    'Two-person approvals can be proposed, approved, rejected and revoked by id, but there is no procedure that lists pending approvals or reads one back.',
-    'TRD-0036, ACC-0056',
   ),
   reconcile_route_missing: b(
     'reconcile_route_missing',

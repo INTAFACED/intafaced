@@ -36,7 +36,7 @@ describe('Protocol rooms speak plainly', () => {
     const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
     const sources = new Set<string>();
     for (const action of ['swap', 'addLiquidity', 'smartAccount', 'stake'] as const)
-      for (const found of blockersFor(action, snapshot)) if (found.code === 'source_down') sources.add(found.params.source!);
+      for (const found of blockersFor(action, snapshot)) if (found.code === 'source_no_reply') sources.add(found.params.source!);
     expect([...sources].sort()).toEqual(['DEX status', 'network status', 'service health', 'indexer status'].sort());
   });
 
@@ -53,6 +53,10 @@ describe('Protocol rooms speak plainly', () => {
     );
     // A 502 or 504 is a crash, a restart or a timeout: a second attempt can help, so Retry stays.
     expect(render(failed({ reason: 'unreachable', status: 502, code: 'edge.upstream_unavailable' }))).toMatch(/Try again|Retry/);
+    // ...and it says so honestly: the service did not answer, not "can't connect" and not "not connected".
+    const crashed = render(failed({ reason: 'unreachable', status: 502, code: 'edge.upstream_unavailable' }));
+    expect(crashed).toContain('The Protocol service didn’t answer.');
+    expect(crashed).not.toMatch(/not connected|Can’t connect/);
     expect(render(failed({ reason: 'unreachable', status: 504 }))).toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'unreachable', message: 'The service could not be reached.' }))).toContain('Try again');
     expect(render(failed({ reason: 'error', code: 'protocol.chain_unset' }))).not.toMatch(/Try again|Retry/);
@@ -117,7 +121,7 @@ describe('Protocol rooms speak plainly', () => {
       code: 'edge.upstream_unavailable',
     };
     const crashedSnapshot = { ...snapshot, chain: crashed } as unknown as ProtocolSnapshot;
-    expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_down');
+    expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_no_reply');
   });
 
   it('never prints the chain status reason: no address, no spec text', () => {

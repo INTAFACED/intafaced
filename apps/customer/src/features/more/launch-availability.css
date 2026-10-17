@@ -3,27 +3,6 @@
   flex-direction: column;
   gap: 24px;
 }
-.launch-room-tabs {
-  display: flex;
-  gap: 8px;
-  max-width: 480px;
-  border-bottom: 1px solid var(--color-divider);
-}
-.launch-room-tabs a {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-width: 0;
-  min-height: 44px;
-  padding: 10px 8px;
-  color: var(--color-muted);
-  font-size: 14px;
-  line-height: 20px;
-}
-.launch-room-tabs a[aria-current='page'] {
-  color: var(--color-accent);
-}
 .launch-room-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

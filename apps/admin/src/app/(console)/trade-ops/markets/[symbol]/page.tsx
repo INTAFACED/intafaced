@@ -6,7 +6,7 @@ import { ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { HaltVsDelist } from '@/components/trade-ops/markets-explainer';
 import { LifecyclePanel } from '@/components/trade-ops/markets-lifecycle-panel';
-import { MarketActions } from '@/components/trade-ops/markets-actions';
+import { MARKET_CONTROL_ACTIONS, MatchingControls } from '@/components/trade-ops/matching-controls';
 import { MarketOrders } from '@/components/trade-ops/markets-orders';
 import { MarketRules } from '@/components/trade-ops/markets-rules';
 import { lifecycleLook, oldestAsOf } from '@/lib/trade-ops/markets-model';
@@ -102,7 +102,24 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ s
       </PageSection>
 
       <PageSection title="Actions">
-        <MarketActions symbol={symbol} currentState={lifecycle.kind === 'ok' ? lifecycleLook(lifecycle.data.state).word : null} />
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-fg-2">
+            Current lifecycle state:{' '}
+            <span className="font-medium text-fg">{lifecycle.kind === 'ok' ? lifecycleLook(lifecycle.data.state).word : 'not known'}</span>.
+            Every control needs a two-person approval: you propose, a different operator approves, then you run it.
+          </p>
+          {market ? (
+            <MatchingControls actions={MARKET_CONTROL_ACTIONS} marketId={market.id} symbol={symbol} />
+          ) : (
+            <EmptyState
+              variant="refused"
+              size="panel"
+              title="Controls are off: the market id is not known"
+              reason="svc-matching knows a market by its id, which comes from the market list. That list could not be read, so no control can be sent."
+              code={markets.kind === 'ok' ? 'trade.market_not_found' : markets.kind === 'refused' ? markets.code : 'no answer'}
+            />
+          )}
+        </div>
       </PageSection>
 
       <PageSection title="Halt or delist">

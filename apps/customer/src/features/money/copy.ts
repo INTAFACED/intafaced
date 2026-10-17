@@ -509,7 +509,8 @@ const messages = {
   'rooms.unfreeze': 'Unfreeze',
   'rooms.freeze': 'Freeze',
   'rooms.close.card': 'Close card',
-  'rooms.close.this.card.this.action.does.not': 'Close this card. This action does not reverse existing posted transactions.',
+  'rooms.close.this.card.this.action.does.not':
+    'Close this card for good. A closed card cannot be reopened, and posted transactions are not reversed.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Issuer actions remain unavailable for this record.',
   'rooms.no.card.records.returned': 'No cards yet',
   'rooms.an.empty.list.does.not.establish.issuer': 'An empty list does not establish issuer connectivity.',
@@ -1200,7 +1201,8 @@ const es = {
   'rooms.unfreeze': 'Desbloquear',
   'rooms.freeze': 'Bloquear',
   'rooms.close.card': 'Cerrar tarjeta',
-  'rooms.close.this.card.this.action.does.not': 'Cierra esta tarjeta. Esta acción no revierte las transacciones ya contabilizadas.',
+  'rooms.close.this.card.this.action.does.not':
+    'Cierra esta tarjeta de forma definitiva. Una tarjeta cerrada no se puede reabrir y las transacciones ya contabilizadas no se revierten.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Las acciones del emisor siguen sin estar disponibles para este registro.',
   'rooms.no.card.records.returned': 'Aún no hay tarjetas',
   'rooms.an.empty.list.does.not.establish.issuer': 'Una lista vacía no demuestra la conexión con el emisor.',
@@ -1893,7 +1895,8 @@ const fr = {
   'rooms.unfreeze': 'Débloquer',
   'rooms.freeze': 'Bloquer',
   'rooms.close.card': 'Clore la carte',
-  'rooms.close.this.card.this.action.does.not': 'Clos cette carte. Cette action ne revient pas sur les transactions déjà comptabilisées.',
+  'rooms.close.this.card.this.action.does.not':
+    'Clos cette carte définitivement. Une carte close ne peut pas être rouverte et les transactions déjà comptabilisées ne sont pas annulées.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Les actions de l’émetteur restent indisponibles pour cet enregistrement.',
   'rooms.no.card.records.returned': 'Aucune carte pour l’instant',
   'rooms.an.empty.list.does.not.establish.issuer': 'Une liste vide ne démontre pas la connexion à l’émetteur.',
