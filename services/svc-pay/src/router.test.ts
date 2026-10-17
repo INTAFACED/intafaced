@@ -52,7 +52,14 @@ const SETTLEMENT = '33333333-3333-4333-8333-333333333333';
  */
 async function ctx(
   scopes: string[],
-  opts: { tier?: 'none' | 'basic' | 'full'; region?: string; mfa?: boolean; userId?: string } = {},
+  opts: {
+    tier?: 'none' | 'basic' | 'full';
+    region?: string;
+    mfa?: boolean;
+    userId?: string;
+    apiKeyId?: string;
+    stepUpScopes?: string[];
+  } = {},
 ): Promise<Context> {
   const region = opts.region ?? 'DE';
   if (scopes.length === 0) return { principal: null, region, requestId: 'req-1' };
@@ -64,6 +71,8 @@ async function ctx(
       scopes,
       tier: opts.tier ?? 'full',
       mfa: opts.mfa ?? true,
+      ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
+      ...(opts.stepUpScopes ? { stepUpScopes: opts.stepUpScopes } : {}),
     },
     authConfig,
   );
@@ -657,9 +666,8 @@ describe('authority', () => {
     ).rejects.toThrow(/pay:payout/);
   });
 
-  it('REQUIRES MFA on settlement.payout — pay:payout is INTERACTIVE_ONLY', async () => {
-    // Engine C: the scope table marks pay:payout interactive-only; until this
-    // endpoint is pinned, a stolen single-factor session could drain settlements.
+  it('a pay:payout caller still cannot name a destination', async () => {
+    // D-142. The scope is no longer interactive-only (D-145). Naming a destination stays refused.
     const api = await caller(['pay:payout'], { mfa: false });
     const err = await api.settlement
       .payout({
@@ -669,11 +677,26 @@ describe('authority', () => {
       })
       .catch((e: unknown) => e);
 
-    expect((err as { code?: string }).code).toBe('UNAUTHORIZED');
-    expect((err as Error).message).toMatch(/two-factor/i);
+    expect((err as Error).message).toMatch(/cannot name a destination/i);
     expect(stub.calls.filter((c) => c.method === 'payoutSettlement')).toHaveLength(0);
-    expect(INTERACTIVE_ONLY_SCOPES).toContain('pay:payout');
-    expect(() => assertKeyScopesAllowed(['pay:payout'])).toThrow(/interactive/i);
+    expect(INTERACTIVE_ONLY_SCOPES).not.toContain('pay:payout');
+    expect(() => assertKeyScopesAllowed(['pay:payout'])).not.toThrow();
+  });
+
+  it('a step-up refund token refunds, and a plain session or a key without the scope cannot', async () => {
+    const stepped = await caller(['pay:read', 'pay:refund'], { mfa: true, stepUpScopes: ['pay:refund'] });
+    await stepped.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-step' });
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(1);
+
+    const plain = await caller([...SESSION_SCOPES]);
+    await expect(plain.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-plain' })).rejects.toThrow(/pay:refund/);
+
+    const key = await caller(['pay:read', 'pay:write'], { mfa: false, apiKeyId: '88888888-8888-4888-8888-888888888888' });
+    await expect(key.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-key' })).rejects.toThrow(/pay:refund/);
+
+    const explicit = await caller(['pay:read', 'pay:refund'], { mfa: false, apiKeyId: '99999999-9999-4999-8999-999999999999' });
+    await explicit.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-explicit' });
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(2);
   });
 
   it('REFUSES default SESSION_SCOPES on merchant money procedures', async () => {

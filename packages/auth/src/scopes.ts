@@ -133,8 +133,9 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  * Three membership tests, all closed:
  *
  *   1. Moves value OFF the platform (`trade:withdraw`, `admin:treasury`,
- *      `bank:card`, `pay:payout`). A leaked key must not be able to do that on
- *      its own (§9). These also require 2FA on the session (`SESSION_MFA_SCOPES`).
+ *      `bank:card`). A leaked key must not be able to do that on its own (§9).
+ *      These also require 2FA on the session (`SESSION_MFA_SCOPES`).
+ *      Merchant refund and payout are D-145, not this list.
  *   2. Founder or operator desk authority (`admin:read`, `admin:write`,
  *      `admin:compliance`, `admin:treasury`, `support:ops`, `market:ops`).
  *      A founder session used to be able to copy `admin:write`, `admin:read`
@@ -149,15 +150,16 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  *      member of this list as the 2FA gate, and a login token is issued with
  *      `mfa: false`, so it stays in `SESSION_MFA_SCOPES` too.
  *
- * `pay:payout` was the value-movement miss: it sends a merchant's settled
- * balance out through a rail, the same class as `trade:withdraw`. Found by the
- * agent building svc-pay.
+ * `pay:refund` and `pay:payout` are not on this list (D-145). An ordinary
+ * session never carries them. A key carries one only when `apiKeys.create`
+ * asked for it under `auth.stepUpPay` (`assertDelegatableScopes` with
+ * `payStepUp`). `pay:payout` on a key still pays only to a stored verified
+ * destination (D-142). `pay:onboard` stays interactive-only.
  */
 export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
   'trade:withdraw',
   'admin:treasury',
   'bank:card',
-  'pay:payout',
   'pay:onboard',
   'admin:read',
   'admin:write',
@@ -165,6 +167,20 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
   'support:ops',
   'market:ops',
 ];
+
+/** Scopes `auth.stepUpPay` may add, and only those. */
+export const PAY_STEP_UP_SCOPES = ['pay:refund', 'pay:payout'] as const;
+export type PayStepUpScope = (typeof PAY_STEP_UP_SCOPES)[number];
+
+/** Step-up access token lifetime. Ten minutes. Refresh does not reissue it. */
+export const PAY_STEP_UP_ACCESS_TTL_SECONDS = 600;
+
+/** Factor proof lifetime. Five minutes, the same window as STEPUP #4880. */
+export const PAY_STEP_UP_FACTOR_TTL_SECONDS = 300;
+
+export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
+  return (PAY_STEP_UP_SCOPES as readonly string[]).includes(scope);
+}
 
 /**
  * Interactive-only scopes that also require a second factor on the session.
@@ -176,7 +192,7 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
  * `pay:onboard` is in this list because #4897 put it on the list `requireScope`
  * used as the 2FA gate.
  */
-export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout', 'pay:onboard'];
+export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:onboard'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
@@ -425,8 +441,8 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // sessions. Layer B (`pay.kyb_required`) is a separate money gate.
   'pay:read': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
-  'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',
-  'pay:payout': 'Merchant acquiring surface, and interactive-only (§9)',
+  'pay:refund': 'Merchant acquiring surface — refunds another party’s payment; issued only by auth.stepUpPay',
+  'pay:payout': 'Merchant acquiring surface — issued only by auth.stepUpPay step-up, for at most ten minutes',
   'pay:onboard': 'Opens one root merchant account. Interactive only, so it can never sit on an API key. Not issued on an ordinary session.',
 
   // §18 card issuance. In INTERACTIVE_ONLY_SCOPES: it authorises spend from a
@@ -483,7 +499,11 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
  * has either a bug or an intent behind it, and storing it silently leaves an
  * audit trail claiming the key holds a scope no guard will ever recognise.
  */
-export function assertDelegatableScopes(requested: readonly string[], grantorScopes: readonly string[]): void {
+export function assertDelegatableScopes(
+  requested: readonly string[],
+  grantorScopes: readonly string[],
+  options?: { readonly payStepUp?: boolean },
+): void {
   const unknown = requested.filter((s) => !isScope(s));
   if (unknown.length > 0) {
     throw new Error(`Unknown scopes: ${unknown.join(', ')}`);
@@ -492,6 +512,13 @@ export function assertDelegatableScopes(requested: readonly string[], grantorSco
   // Checked first: a long-lived credential may never carry these even from a
   // session that legitimately holds them, and that message is the clearer one.
   assertKeyScopesAllowed(requested);
+
+  // D-145. Owner grants never imply these. A key gets one only when this call
+  // says the creator asked for it under step-up, and the granting token holds it.
+  const stepUp = requested.filter((s) => isPayStepUpScope(s));
+  if (stepUp.length > 0 && options?.payStepUp !== true) {
+    throw new Error(`Scopes ${stepUp.join(', ')} can be granted to an API key only when explicitly requested under step-up`);
+  }
 
   const held = expandScopes(grantorScopes);
   const notHeld = requested.filter((s) => !held.has(s as Scope));

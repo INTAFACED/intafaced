@@ -10,6 +10,7 @@ import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { selectOnboardingUser } from './auth/onboarding-user.js';
 import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
+import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -249,6 +250,18 @@ if (env.PAY_URL) {
       userId,
       ...(user ? { user } : {}),
     });
+  });
+  auth.usePayStepUpRoleSource(async ({ userId, merchantId }) => {
+    const grant = await fetchPayStepUpGrant({
+      payUrl,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      userId,
+      merchantId,
+    });
+    return {
+      refundsCreate: grant.permissions['refunds.create'] === true,
+      payoutSend: grant.permissions['payout.send'] === true,
+    };
   });
 }
 // Lifetime can be published without a mail port. With either one missing, every
