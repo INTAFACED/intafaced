@@ -4,6 +4,12 @@ import { AuthError, requireMfa } from '@intafaced/auth';
 import {
   payCheckoutSettingsGetInputSchema,
   payCheckoutSettingsSchema,
+  payCreateLinkInputSchema,
+  payCreateLinkOutputSchema,
+  payGetLinkInputSchema,
+  payLinkListInputSchema,
+  payLinkListItemSchema,
+  payLinkListPageSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
@@ -20,8 +26,10 @@ import {
   paySettlementListInputSchema,
   payStatementListInputSchema,
   payStatementPageSchema,
+  merchantStarterFeeSchema,
   router,
   scopedProcedure,
+  anyScopeProcedure,
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
@@ -38,6 +46,7 @@ import {
 } from './action-approval-consume.js';
 import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
+import type { MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -224,6 +233,8 @@ export function createPayRouter(
   disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
   /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
   portalSql: Sql | null = null,
+  /** Local-test starter fee. Null means the product fee is not set yet. */
+  starterFee: MerchantStarterFee | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -448,8 +459,10 @@ export function createPayRouter(
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
        * another account (full audit L2-1).
+       * Door is pay:onboard. Client mode and pricing are ignored: the server
+       * starter fee and gateway mode are the only account this door opens.
        */
-      create: scopedProcedure('pay:write', { module: 'pay' })
+      create: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(
           z.object({
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
@@ -465,7 +478,20 @@ export function createPayRouter(
           wrap(async () => {
             const userId = ctx.principal?.userId;
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-            const merchant = await pay.createMerchant({ ...input, userId });
+            if (!starterFee) {
+              throw new PayError(
+                'The starter fee is not published. An account cannot be opened until it is.',
+                'pay.starter_fee_unpublished',
+              );
+            }
+            const merchant = await pay.createMerchant({
+              userId,
+              mode: 'gateway',
+              pricing: { feeBps: starterFee.bps },
+              settlementPrefs: input.settlementPrefs,
+              displayName: input.displayName,
+              legalName: input.legalName,
+            });
             return { id: merchant.id, userId: merchant.userId, mode: merchant.mode, feeBps: merchant.pricing.feeBps ?? null };
           }),
         ),
@@ -493,7 +519,7 @@ export function createPayRouter(
         ),
 
       /** Current merchant for the principal — null when not yet onboarded. */
-      me: scopedProcedure('pay:read', { module: 'pay' })
+      me: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
         .output(
           z
             .object({
@@ -504,6 +530,8 @@ export function createPayRouter(
               kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
               kybRef: z.string().nullable(),
               feeBps: z.number().nullable(),
+              /** Null when the starter fee is not set. `local_test` is not INTAFACED pricing. */
+              starterFee: merchantStarterFeeSchema.nullable(),
             })
             .nullable(),
         )
@@ -521,15 +549,24 @@ export function createPayRouter(
               kybStatus: merchant.kybStatus,
               kybRef: merchant.kybRef,
               feeBps: merchant.pricing.feeBps ?? null,
+              starterFee,
             };
           }),
         ),
 
       /**
+       * The published starter fee, including for a caller who has no merchant yet.
+       * Null means the fee is not configured.
+       */
+      starterFee: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+        .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
+        .query(() => ({ starterFee })),
+
+      /**
        * KYB stub submit — dossier reference only. Does not invent a partner decision.
        * Digital KYB vendors are `pay.psp`.
        */
-      submitKyb: scopedProcedure('pay:write', { module: 'pay' })
+      submitKyb: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(z.object({ merchantId: z.string().uuid(), kybRef: z.string().min(1).max(128) }))
         .output(
           z.object({
@@ -672,35 +709,23 @@ export function createPayRouter(
           ),
       }),
 
-      /** Hosted checkout pointer — token returned once. */
+      /**
+       * Hosted checkout pointer. The token is the checkout credential.
+       * Same key and same body returns the original link, including that token.
+       * Same key and a different body is `pay.idempotency_conflict`.
+       */
       createLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            label: z.string().min(1).max(120),
-            profileId: z.string().uuid().nullish(),
-            amount: amountSchema.optional(),
-            currency: assetIdSchema.optional(),
-            /** Omit for the service default. A link with no expiry cannot be created. */
-            expiresAt: z.string().datetime({ offset: true }).optional(),
-            /** Completed payments this link may take. Omit for unbounded. */
-            maxUses: z.number().int().min(1).max(1_000_000).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            id: z.string().uuid(),
-            token: z.string(),
-            prefix: z.string(),
-            label: z.string(),
-            /** Always a date. The service defaults and caps it; it is never null. */
-            expiresAt: z.string().datetime({ offset: true }),
-            maxUses: z.number().int().nullable(),
-          }),
-        )
+        .input(payCreateLinkInputSchema)
+        .output(payCreateLinkOutputSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.createLink');
+            if (input.idempotencyKey !== undefined) {
+              const key = input.idempotencyKey.trim();
+              if (!key || key.length > 255) {
+                throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
+              }
+            }
             const link = await pay.createPaymentLink({
               merchantId: input.merchantId,
               label: input.label,
@@ -714,51 +739,34 @@ export function createPayRouter(
               // rather than forever.
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
               maxUses: input.maxUses,
+              idempotencyKey: input.idempotencyKey,
             });
             return { ...link, expiresAt: link.expiresAt.toISOString() };
           }),
         ),
 
       listLinks: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            /**
-             * Page size. Optional so omit reaches `pay.payment_link_list_limit_unset`
-             * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-            cursor: z.string().min(1).max(300).optional(),
-            search: z.string().trim().min(1).max(200).optional(),
-            assetId: z.string().trim().min(1).max(16).optional(),
-            from: z.string().datetime({ offset: true }).optional(),
-            to: z.string().datetime({ offset: true }).optional(),
-            active: z.boolean().optional(),
-          }),
-        )
-        .output(
-          z.object({
-            items: z.array(
-              z.object({
-                id: z.string().uuid(),
-                prefix: z.string(),
-                label: z.string(),
-                amount: amountSchema.nullable(),
-                currency: z.string().nullable(),
-                active: z.boolean(),
-                expiresAt: z.string().nullable(),
-                maxUses: z.number().int().nullable(),
-                uses: z.number().int(),
-                createdAt: z.string(),
-              }),
-            ),
-            nextCursor: z.string().nullable(),
-          }),
-        )
+        .input(payLinkListInputSchema)
+        .output(payLinkListPageSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.listLinks');
             return pay.listPaymentLinks(input.merchantId, input);
+          }),
+        ),
+
+      /**
+       * One link, including its checkout path when the credential was stored.
+       * Same gate as listLinks: the owner, or a PayFac grant of `payment.link`.
+       * The team role table has no link permission, so a stored role is not the owner.
+       */
+      getLink: scopedProcedure('pay:read', { module: 'pay' })
+        .input(payGetLinkInputSchema)
+        .output(payLinkListItemSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.getLink');
+            return pay.getPaymentLink(input.merchantId, input.linkId);
           }),
         ),
 
@@ -793,10 +801,10 @@ export function createPayRouter(
         ),
 
       /**
-       * Saved destinations for this merchant. Masked. Screening and a default
-       * flag are not stored, so those fields are the literals `not_recorded`
-       * and `unset`. There is no set-default and no remove: changing a
-       * destination is still the owner's direct overwrite.
+       * Saved destinations for this merchant. Masked. Screening is not stored,
+       * so that field stays `not_recorded`. set-default and remove are owner
+       * writes, the same door as `setPayoutDestination`: no second approval.
+       * Remove refuses while a payout that names the destination is in flight.
        */
       payoutDestinations: router({
         list: scopedProcedure('pay:read', { module: 'pay' })
@@ -806,6 +814,24 @@ export function createPayRouter(
             wrap(async () => {
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
               return pay.listPayoutDestinations(input);
+            }),
+          ),
+        setDefault: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .output(payPayoutDestinationItemSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.setDefault');
+              return pay.setDefaultPayoutDestination(input);
+            }),
+          ),
+        remove: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .output(z.object({ removed: z.literal(true) }))
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.remove');
+              return pay.removePayoutDestination(input);
             }),
           ),
       }),
@@ -1405,41 +1431,44 @@ export function createPayRouter(
               .optional(),
           }),
         )
-        .mutation(({ input }) => {
-          try {
-            const decision = evaluateFraud({
-              merchantId: input.merchantId,
-              amount: input.amount,
-              assetId: input.assetId,
-              recentPaymentCount: input.recentPaymentCount,
-              recentVolume: input.recentVolume,
-              baselineAmount: input.baselineAmount,
-              thresholds: input.thresholds,
-              blocklists: input.blocklists,
-              enabled: input.enabled,
-            });
-            const c = defaultFraudReviewQueue.enqueue({
-              id: input.id,
-              merchantId: input.merchantId,
-              amount: input.amount,
-              assetId: input.assetId,
-              paymentId: input.paymentId ?? null,
-              decision,
-            });
-            return {
-              id: c.id,
-              status: c.status,
-              merchantId: c.merchantId,
-              paymentId: c.paymentId,
-              reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
-            };
-          } catch (e) {
-            if (e instanceof FraudReviewError) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.fraud.enqueueReview');
+            try {
+              const decision = evaluateFraud({
+                merchantId: input.merchantId,
+                amount: input.amount,
+                assetId: input.assetId,
+                recentPaymentCount: input.recentPaymentCount,
+                recentVolume: input.recentVolume,
+                baselineAmount: input.baselineAmount,
+                thresholds: input.thresholds,
+                blocklists: input.blocklists,
+                enabled: input.enabled,
+              });
+              const c = defaultFraudReviewQueue.enqueue({
+                id: input.id,
+                merchantId: input.merchantId,
+                amount: input.amount,
+                assetId: input.assetId,
+                paymentId: input.paymentId ?? null,
+                decision,
+              });
+              return {
+                id: c.id,
+                status: c.status,
+                merchantId: c.merchantId,
+                paymentId: c.paymentId,
+                reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
+              };
+            } catch (e) {
+              if (e instanceof FraudReviewError) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+              }
+              throw e;
             }
-            throw e;
-          }
-        }),
+          }),
+        ),
 
       listOpenReviews: scopedProcedure('admin:treasury', { module: 'pay' })
         .input(
@@ -1606,7 +1635,14 @@ export function createPayRouter(
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
             // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
-            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
+            if (
+              e instanceof PayError &&
+              (e.code === 'pay.chargeback_plan_conflict' ||
+                e.code === 'pay.chargeback_shortfall_unfunded' ||
+                e.code === 'pay.chargeback_ledger_failed')
+            ) {
+              throw toTrpcError(e);
+            }
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
@@ -1655,27 +1691,29 @@ export function createPayRouter(
 
       getDispute: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ disputeId: z.string().min(1) }))
-        .query(async ({ input }) => {
-          const c = await disputeCases.get(input.disputeId);
-          if (!c) {
-            throw new TRPCError({ code: 'NOT_FOUND', message: `pay.dispute_not_found: ${input.disputeId}` });
-          }
-          return {
-            disputeId: c.disputeId,
-            paymentId: c.paymentId,
-            merchantId: c.merchantId,
-            amount: c.amount,
-            assetId: c.assetId,
-            reasonCode: c.reasonCode,
-            status: c.status,
-            ledgerWire: c.ledgerWire,
-            ledgerTxId: c.ledgerTxId,
-            ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
-            ledgerSocket: c.ledgerRefuse?.socket ?? null,
-            openedAt: c.openedAt,
-            closedAt: c.closedAt,
-          };
-        }),
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const missing = () => new PayError('Dispute not found', 'pay.dispute_not_found');
+            const c = await disputeCases.get(input.disputeId);
+            if (!c) throw missing();
+            await refuseAsMissing(assertRead(ctx.principal?.userId, c.merchantId, 'trpc.fraud.getDispute', 'payments.read'), missing);
+            return {
+              disputeId: c.disputeId,
+              paymentId: c.paymentId,
+              merchantId: c.merchantId,
+              amount: c.amount,
+              assetId: c.assetId,
+              reasonCode: c.reasonCode,
+              status: c.status,
+              ledgerWire: c.ledgerWire,
+              ledgerTxId: c.ledgerTxId,
+              ledgerRefuseCode: c.ledgerRefuse?.code ?? null,
+              ledgerSocket: c.ledgerRefuse?.socket ?? null,
+              openedAt: c.openedAt,
+              closedAt: c.closedAt,
+            };
+          }),
+        ),
     }),
 
     /**
@@ -2089,8 +2127,10 @@ function toTrpcError(err: unknown): unknown {
   const code = (() => {
     switch (err.code) {
       case 'pay.merchant_not_found':
+      case 'pay.payout_destination_not_found':
       case 'pay.payment_not_found':
       case 'pay.profile_not_found':
+      case 'pay.dispute_not_found':
       case 'pay.link_not_found':
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
@@ -2108,6 +2148,7 @@ function toTrpcError(err: unknown): unknown {
        */
       case 'pay.link_exhausted':
       case 'pay.checkout_session_closed':
+      case 'pay.merchant_parent_present':
         return 'CONFLICT' as const;
       /** The caller is anonymous and opening rows in our database. */
       case 'pay.checkout_busy':
@@ -2124,6 +2165,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.payout_destination_missing':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
       case 'pay.link_max_ttl_unset':
       case 'pay.checkout_session_ttl_unset':
@@ -2150,6 +2192,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.capture_reconcile_disabled':
       case 'pay.capture_reconcile_batch_limit_unset':
       case 'pay.kyb_profile_unbound':
+      case 'pay.chargeback_shortfall_unfunded':
+      case 'pay.chargeback_ledger_failed':
+      case 'pay.chargeback_outcome_busy':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -2162,6 +2207,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.refund_id_conflict':
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
+      case 'pay.payout_destination_in_flight':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
@@ -2170,6 +2216,7 @@ function toTrpcError(err: unknown): unknown {
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
+      case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for
         // different numbers; retrying repeats it. Nothing they can resend fixes
         // this, and telling them to try again is how a deposit gets credited

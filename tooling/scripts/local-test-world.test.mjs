@@ -63,6 +63,9 @@ import {
   summarizeResults,
   toScaled,
   welcomeRef,
+  localEmailOutboxPath,
+  planEmailConfirm,
+  readLatestEmailConfirmToken,
 } from './local-test-world.mjs';
 
 delete process.env.LOCAL_STACK_STATE; // the checks below assume the default state folder unless they pass an env
@@ -360,6 +363,7 @@ try {
   assert.equal(publishedStarterFeeBps({ PAY_DEFAULT_FEE_BPS: '150' }), null);
   assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: 'nope' }), null);
   assert.equal(isPayScopeRefusal('Scope "pay:read" is required [FORBIDDEN]'), true);
+  assert.equal(isPayScopeRefusal('Scope "pay:onboard" is required [FORBIDDEN]'), true);
   assert.equal(isPayScopeRefusal('starter fee is not configured'), false);
   assert.equal(merchantPaymentId(userId, 1), merchantPaymentId(userId, 1));
   assert.notEqual(merchantPaymentId(userId, 1), merchantPaymentId(userId, 2));
@@ -575,6 +579,41 @@ try {
   assert.ok(kybFn.indexOf('KYB_FOUNDERS_MISSING') < kybFn.indexOf('actionApproval.propose'));
   assert.equal(worldSrc.includes('bps (published)'), false);
   assert.ok(worldSrc.includes('bps from PAY_MERCHANT_STARTER_FEE_BPS'));
+
+  const line =
+    'LOCAL-TEST purpose=email-confirm email=Owner@Example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=abc%2Bdef\n' +
+    'LOCAL-TEST purpose=password-reset email=owner@example.com expires=2026-10-17T00:00:00.000Z link=completePasswordReset?code=nope\n' +
+    'LOCAL-TEST purpose=email-confirm email=other@example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=other\n';
+  assert.equal(readLatestEmailConfirmToken(line, 'owner@example.com'), 'abc+def');
+  assert.equal(readLatestEmailConfirmToken(line, 'other@example.com'), 'other');
+  assert.equal(readLatestEmailConfirmToken('no link here', 'owner@example.com'), null);
+  assert.deepEqual(planEmailConfirm({ emailVerified: true, outboxText: line, email: 'owner@example.com' }), {
+    action: 'already-confirmed',
+    token: null,
+  });
+  assert.deepEqual(planEmailConfirm({ emailVerified: false, outboxText: line, email: 'owner@example.com' }), {
+    action: 'confirm',
+    token: 'abc+def',
+  });
+  assert.equal(planEmailConfirm({ emailVerified: false, outboxText: '', email: 'owner@example.com' }).token, null);
+  assert.equal(localEmailOutboxPath({ LOCAL_STACK_STATE: '/tmp/stack-state' }, '/tmp/home'), '/tmp/stack-state/email-outbox.log');
+  const confirmFn = worldSrc.slice(
+    worldSrc.indexOf('async function confirmSeededOwnerEmail'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(confirmFn, /auth\.requestEmailConfirmation/);
+  assert.match(confirmFn, /auth\.confirmEmail/);
+  assert.equal(confirmFn.includes('email_verified_at'), false);
+  assert.equal(confirmFn.includes('UPDATE'), false);
+  assert.equal(worldSrc.includes('grant law unpublished'), false);
+  const merchantFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(merchantFn.indexOf('confirmSeededOwnerEmail') < merchantFn.indexOf('resignInForMerchantScopes'));
+  assert.match(merchantFn, /pay:onboard/);
+  const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
+  assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
 
   console.log('local-test-world: all checks passed');
 } finally {

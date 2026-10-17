@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { Principal, Scope } from '@intafaced/auth';
-import { requireScope, requireTier, AuthError } from '@intafaced/auth';
+import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { requireServiceCaller } from './service-auth.js';
@@ -51,11 +51,34 @@ export interface Context {
    * Null when the caller did not present service credentials.
    */
   service: string | null;
+  /**
+   * How `service` was authenticated, when the verifier can tell.
+   *
+   * `dedicated` means the HMAC matched that service's own secret, so the name
+   * is a verified key id. `shared` means only the fleet-wide internal secret
+   * matched, so the header name is a claim. Omit when the context was not
+   * produced by a verifier that distinguishes them. svc-ledger post treats
+   * anything other than `dedicated` as a claim.
+   */
+  serviceAuth?: 'dedicated' | 'shared';
   /** Resolved at the edge from IP / account region. Drives the matrix. */
   region: string;
   /** W3C traceparent so a call keeps its trace across services (§9). */
   traceparent?: string;
   requestId: string;
+  /**
+   * Optional recheck of an owner's `pay:read` / `pay:write` against the live
+   * merchant grant. Installed only by svc-pay production context. Callers who
+   * own no merchant (team members) are not refused here.
+   */
+  ownerPayGrant?: OwnerPayGrantRecheck;
+}
+
+/** The two acquiring scopes an API key can carry and a grant can later withdraw. */
+export type OwnerPayScope = 'pay:read' | 'pay:write';
+
+export interface OwnerPayGrantRecheck {
+  assertStillGranted(principal: Principal, scope: OwnerPayScope): Promise<void>;
 }
 
 function causeCode(cause: unknown): string | undefined {
@@ -139,34 +162,103 @@ export interface GuardOptions {
  * Throws FORBIDDEN, or UNAUTHORIZED when the real problem is a missing second
  * factor: the client needs to tell "you may not" apart from "prove it again".
  */
+function isOwnerGrantWithdrawn(err: unknown): err is TRPCError {
+  return err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn';
+}
+
+async function assertLiveOwnerPayScope(ctx: Context & { principal: Principal }, scope: Scope): Promise<void> {
+  if (scope !== 'pay:read' && scope !== 'pay:write') return;
+  if (!ctx.ownerPayGrant) return;
+  await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
+}
+
+function refuseGuard(err: unknown): never {
+  if (err instanceof AuthError && err.code === 'mfa.required') {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+  }
+  throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+}
+
+function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
+  if (!guards.module) return;
+  const decision = checkAccess({
+    module: guards.module,
+    plane: guards.plane ?? 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) {
+    const cause = new JurisdictionError(decision);
+    throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause });
+  }
+}
+
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
-  return protectedProcedure.use(({ ctx, next }) => {
+  return protectedProcedure.use(async ({ ctx, next }) => {
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
     } catch (err) {
-      if (err instanceof AuthError && err.code === 'mfa.required') {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-      }
-      throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+      refuseGuard(err);
     }
 
-    if (guards.module) {
-      const decision = checkAccess({
-        module: guards.module,
-        plane: guards.plane ?? 'fiat',
-        region: ctx.region,
-        kycTier: ctx.principal.tier,
-      });
-      if (!decision.allowed) {
-        // Thrown WITH a cause, so the decision's own code reaches the client.
-        // The scope check above already passed here: whatever this caller is
-        // short of, it is not authority.
-        const cause = new JurisdictionError(decision);
-        throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause });
-      }
-    }
+    await assertLiveOwnerPayScope(ctx, scope);
+    refuseJurisdiction(ctx, guards);
 
+    return next({ ctx });
+  });
+}
+
+/**
+ * Accepts the first scope the caller still holds. `pay:read` and `pay:write`
+ * are rechecked against the live owner grant when the context installs one;
+ * a withdrawn grant tries the next scope instead of failing the call.
+ * List `pay:onboard` before `pay:read` so a stale read does not hide a live
+ * onboarding session.
+ */
+export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
+  return protectedProcedure.use(async ({ ctx, next }) => {
+    let accepted = false;
+    let sawMfa = false;
+    let withdrawn: TRPCError | null = null;
+    for (const scope of scopes) {
+      if (!hasScope(ctx.principal.scopes, scope)) continue;
+      try {
+        requireScope(ctx.principal, scope);
+      } catch (err) {
+        if (err instanceof AuthError && err.code === 'mfa.required') {
+          sawMfa = true;
+          continue;
+        }
+        continue;
+      }
+      try {
+        await assertLiveOwnerPayScope(ctx, scope);
+      } catch (err) {
+        if (isOwnerGrantWithdrawn(err)) {
+          withdrawn = err;
+          continue;
+        }
+        throw err;
+      }
+      accepted = true;
+      if (guards.tier) {
+        try {
+          requireTier(ctx.principal, guards.tier);
+        } catch (err) {
+          refuseGuard(err);
+        }
+      }
+      break;
+    }
+    if (!accepted) {
+      if (withdrawn) throw withdrawn;
+      if (sawMfa) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'A second factor is required' });
+      }
+      throw new TRPCError({ code: 'FORBIDDEN', message: `One of ${scopes.join(', ')} is required` });
+    }
+    refuseJurisdiction(ctx, guards);
     return next({ ctx });
   });
 }

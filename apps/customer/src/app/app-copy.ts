@@ -14,6 +14,9 @@ const messages = {
   'Separate team desk': 'Separate team desk',
   'Open the operator console': 'Open the operator console',
   'Open Team': 'Open Team',
+  'Back to home': 'Back to home',
+  'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.':
+    'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.',
   'The team desk uses separate operator authentication.': 'The team desk uses separate operator authentication.',
   'The Team deployment address is not configured. Ask your operator for the verified console address.':
     'The Team deployment address is not configured. Ask your operator for the verified console address.',
@@ -55,6 +58,9 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Separate team desk': 'Mesa independiente del equipo',
     'Open the operator console': 'Abrir la consola del operador',
     'Open Team': 'Abrir Team',
+    'Back to home': 'Volver al inicio',
+    'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.':
+      'Los fundadores y operadores trabajan en una consola aparte, con su propio inicio de sesión. Esta app no tiene herramientas de operador, y nada de esta página muestra ni cambia datos de la empresa.',
     'The team desk uses separate operator authentication.': 'La mesa del equipo usa una autenticación independiente para operadores.',
     'The Team deployment address is not configured. Ask your operator for the verified console address.':
       'La dirección de Team no está configurada. Pide al operador la dirección verificada de la consola.',
@@ -90,6 +96,9 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Separate team desk': 'Console séparée de l’équipe',
     'Open the operator console': 'Ouvrir la console opérateur',
     'Open Team': 'Ouvrir Team',
+    'Back to home': 'Retour à l’accueil',
+    'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.':
+      'Les fondateurs et les opérateurs travaillent dans une console séparée, avec sa propre connexion. Cette application n’a aucun outil d’opérateur, et rien sur cette page n’affiche ni ne modifie les données de l’entreprise.',
     'The team desk uses separate operator authentication.': 'La console de l’équipe utilise une authentification opérateur séparée.',
     'The Team deployment address is not configured. Ask your operator for the verified console address.':
       'L’adresse de déploiement de Team n’est pas configurée. Demandez à votre opérateur l’adresse vérifiée de la console.',

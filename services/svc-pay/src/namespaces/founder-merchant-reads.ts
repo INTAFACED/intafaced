@@ -8,6 +8,7 @@ import type {
   PayMetricWindow,
 } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
+import { loadChargebackLedgerEffects, type ChargebackLedgerEffect } from '../chargeback-ledger-effect.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import { defaultDisputeCaseStore } from '../fraud/dispute-case.js';
 import { ActivityFeed } from '../merchant-ops/activity.js';
@@ -183,9 +184,16 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
             dueBefore: filters.dueBefore,
             deadline: filters.deadline,
           });
+          const effects = await loadChargebackLedgerEffects(
+            sql,
+            page.items.map((row) => row.disputeId),
+          );
           return {
             section: 'disputes',
-            items: page.items.map((row) => ({ merchantId: input.merchantId, ...disputeWire(row) })),
+            items: page.items.map((row) => ({
+              merchantId: input.merchantId,
+              ...disputeWire(row, effects.get(row.disputeId) ?? null),
+            })),
             nextCursor: page.nextCursor,
           };
         }
@@ -261,7 +269,18 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
           });
           return {
             section: 'links',
-            items: page.items.map((row) => ({ ...row, amount: amountText(row.amount) })),
+            items: page.items.map((row) => ({
+              id: row.id,
+              prefix: row.prefix,
+              label: row.label,
+              amount: amountText(row.amount),
+              currency: row.currency,
+              active: row.active,
+              expiresAt: row.expiresAt,
+              maxUses: row.maxUses,
+              uses: row.uses,
+              createdAt: row.createdAt,
+            })),
             nextCursor: page.nextCursor,
           };
         }
@@ -506,7 +525,17 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
 
     async disputeList(input: FounderDisputeListInput) {
       const page = await disputes.listAcross(input);
-      return { items: page.items.map((row) => ({ merchantId: row.merchantId, ...disputeWire(row) })), nextCursor: page.nextCursor };
+      const effects = await loadChargebackLedgerEffects(
+        sql,
+        page.items.map((row) => row.disputeId),
+      );
+      return {
+        items: page.items.map((row) => ({
+          merchantId: row.merchantId,
+          ...disputeWire(row, effects.get(row.disputeId) ?? null),
+        })),
+        nextCursor: page.nextCursor,
+      };
     },
 
     async live(now = new Date()) {
@@ -651,21 +680,24 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
   };
 }
 
-function disputeWire(row: {
-  disputeId: string;
-  paymentId: string;
-  amount: string;
-  assetId: string;
-  reasonCode: string | null;
-  status: 'open' | 'contested' | 'accepted' | 'won' | 'lost';
-  openedAt: string;
-  contestedAt: string | null;
-  closedAt: string | null;
-  responseDueAt: string | null;
-  responseDueSource: 'rail_event' | null;
-  ledgerWire: 'posted' | 'refused';
-  ledgerRefuseCode: string | null;
-}) {
+function disputeWire(
+  row: {
+    disputeId: string;
+    paymentId: string;
+    amount: string;
+    assetId: string;
+    reasonCode: string | null;
+    status: 'open' | 'contested' | 'accepted' | 'won' | 'lost';
+    openedAt: string;
+    contestedAt: string | null;
+    closedAt: string | null;
+    responseDueAt: string | null;
+    responseDueSource: 'rail_event' | null;
+    ledgerWire: 'posted' | 'refused';
+    ledgerRefuseCode: string | null;
+  },
+  effect: ChargebackLedgerEffect | null,
+) {
   return {
     disputeId: row.disputeId,
     paymentId: row.paymentId,
@@ -680,5 +712,6 @@ function disputeWire(row: {
     responseDueSource: row.responseDueSource,
     ledgerWire: row.ledgerWire,
     ledgerRefuseCode: row.ledgerRefuseCode,
+    ledgerEffect: effect,
   };
 }

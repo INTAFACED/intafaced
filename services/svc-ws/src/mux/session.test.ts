@@ -95,11 +95,19 @@ interface Rig {
 }
 
 function rig(overrides: Partial<MuxSessionDeps> = {}, hubMax = 50, source: DepthSource = new StubSource()): Rig {
-  const depth = new DepthHub(source, { depthLimit: 50, highWaterBytes: 1000, maxLagTicks: 3, maxConnections: hubMax, marketsRefreshMs: 0 });
+  const depth = new DepthHub(source, {
+    depthLimit: 50,
+    highWaterBytes: 1000,
+    maxLagTicks: 3,
+    maxConnections: hubMax,
+    muxMaxConnections: hubMax,
+    marketsRefreshMs: 0,
+  });
   const trades = new TradeHub({
     highWaterBytes: 1000,
     maxLagTicks: 3,
     maxConnections: hubMax,
+    muxMaxConnections: hubMax,
     recentLimit: 10,
     ensureKnownMarket: (id) => depth.ensureKnownMarket(id),
   });
@@ -589,5 +597,35 @@ describe('backpressure — slow clients are dropped with a clear close code', ()
     expect(r.socket.closed).toBeNull();
     expect(r.socket.errors().at(-1)).toMatchObject({ op: 'error', code: 'unavailable', ch: 'trades', market: ETH });
     expect(r.session.subscriptions).toBe(1);
+  });
+});
+
+describe('idle multiplexed sessions', () => {
+  it('closes 1008 mux_idle after unsubscribe-all once the timeout elapses, and stays open while a subscription is held', async () => {
+    const held = rig({ idleMs: 1_000 });
+    await held.depth.refreshMarkets();
+    held.session.start();
+    await held.send({ op: 'subscribe', channels: [{ ch: 'ticker' }] });
+    held.clock.now += 10_000;
+    expect(held.session.idleExpired(held.clock.now)).toBe(false);
+    expect(held.socket.closed).toBeNull();
+
+    await held.send({ op: 'unsubscribe', channels: [{ ch: 'ticker' }] });
+    expect(held.session.idleExpired(held.clock.now)).toBe(false);
+    held.clock.now += 999;
+    expect(held.session.idleExpired(held.clock.now)).toBe(false);
+    held.clock.now += 1;
+    expect(held.session.idleExpired(held.clock.now)).toBe(true);
+    held.session.closeIdle();
+    expect(held.socket.closed).toMatchObject({ code: 1008 });
+    expect(held.socket.closed?.reason).toContain('mux_idle');
+    expect(held.tickers.connections).toBe(0);
+  });
+
+  it('closes a connection that never subscribed once idle elapses', () => {
+    const idle = rig({ idleMs: 1_000 });
+    idle.session.start();
+    expect(idle.session.idleExpired(idle.clock.now + 999)).toBe(false);
+    expect(idle.session.idleExpired(idle.clock.now + 1_000)).toBe(true);
   });
 });

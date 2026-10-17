@@ -189,21 +189,21 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
     const kyb = stubKyb();
     const api = createKybPspRouter(kyb, stubPsp(), stubApprovalConsumer(CONFIRM), {
       getMerchant: async () => ({ userId: 'another-owner' }),
-    }).createCaller(await ctx(['pay:write']));
+    }).createCaller(await ctx(['pay:onboard']));
     await expect(api.kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-other' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(await kyb.history(MERCHANT, 50)).toHaveLength(0);
   });
 
   it('KYB submission refuses when its ownership lookup is unavailable', async () => {
     const kyb = stubKyb();
-    const api = createKybPspRouter(kyb, stubPsp(), stubApprovalConsumer(CONFIRM)).createCaller(await ctx(['pay:write']));
+    const api = createKybPspRouter(kyb, stubPsp(), stubApprovalConsumer(CONFIRM)).createCaller(await ctx(['pay:onboard']));
     await expect(api.kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-unavailable' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(await kyb.history(MERCHANT, 50)).toHaveLength(0);
   });
 
   it('kyb.submit → kyb.decide is reachable on the live operator door', async () => {
     const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), { getMerchant: async () => ({ userId: USER }) });
-    const merchant = await router.createCaller(await ctx(['pay:write'])).kyb.submit({
+    const merchant = await router.createCaller(await ctx(['pay:onboard'])).kyb.submit({
       merchantId: MERCHANT,
       kybRef: 'dossier-acme',
     });
@@ -278,7 +278,7 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
 
   it('kyb.decide / psp.setPricing / enableMode refuse missing approval ids and no MFA without writing', async () => {
     const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), { getMerchant: async () => ({ userId: USER }) });
-    await router.createCaller(await ctx(['pay:write'])).kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-acme' });
+    await router.createCaller(await ctx(['pay:onboard'])).kyb.submit({ merchantId: MERCHANT, kybRef: 'dossier-acme' });
 
     const compliance = router.createCaller(await ctx(['admin:compliance']));
     await expect(

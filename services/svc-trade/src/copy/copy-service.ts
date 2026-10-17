@@ -39,7 +39,13 @@ import {
   type CopyFeeShareLaw,
   type CopyJurisdictionLaw,
 } from './fee-share-law.js';
-import { applyCopyFlatten, flattenFollowerCopyPosition, presentCopyFlattenAck, type FlattenCopyPositionPort } from './copy-flatten.js';
+import {
+  applyCopyFlatten,
+  COPY_FLATTEN_REFUSED_RESIDUAL,
+  flattenFollowerCopyPosition,
+  presentCopyFlattenAck,
+  type FlattenCopyPositionPort,
+} from './copy-flatten.js';
 import {
   applyCopyDetach,
   applyCopyPause,
@@ -591,6 +597,14 @@ export class CopyService {
   async flatten(principal: Principal, input: FollowRef) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      // Flag off or place port unwired: refuse and leave the follow attached (TRD-0723).
+      if (!this.placeMirrorEnabled || !this.placeFollowerOrder || !this.flattenCopyPosition) {
+        throw new CopyError(
+          'copy.flatten is refuse-closed until the follower flatten port is wired — never invent a close',
+          'trade.copy_flatten_refused',
+          COPY_FLATTEN_REFUSED_RESIDUAL,
+        );
+      }
       const closed = await flattenFollowerCopyPosition(principal, follow, this.flattenCopyPosition);
       const next = applyCopyFlatten(follow);
       await store.saveFollow(next);

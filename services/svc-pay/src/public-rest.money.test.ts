@@ -82,6 +82,8 @@ const MIGRATIONS = [
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
   // GET /v1/payments reads the stored pricing row. The table is empty here.
   '0050_pay_control_tiers.sql',
   '0051_pay_control_pricing.sql',

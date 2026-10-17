@@ -282,18 +282,23 @@ describe('founder merchant names', () => {
     const configured = merchantTierListSchema.parse({ status: 'configured', ownTierId: 'test-tier', tiers: [own] });
     if (configured.status !== 'configured') throw new Error('expected the merchant’s own tier');
     expect(configured.tiers).toHaveLength(1);
+    const other = { ...own, id: 'other-tier', name: 'Other' };
+    const ladder = merchantTierListSchema.parse({ status: 'configured', ownTierId: 'test-tier', tiers: [own, other] });
+    if (ladder.status !== 'configured') throw new Error('expected the ladder');
+    expect(ladder.tiers.map((tier) => tier.id)).toEqual(['test-tier', 'other-tier']);
+    expect(merchantTierListSchema.parse({ status: 'configured', ownTierId: null, tiers: [own, other] }).status).toBe('configured');
     expect(
       merchantTierListSchema.safeParse({
         status: 'configured',
-        ownTierId: 'test-tier',
-        tiers: [own, { ...own, id: 'other-tier', name: 'Other' }],
+        ownTierId: 'missing-tier',
+        tiers: [own],
       }).success,
     ).toBe(false);
     expect(
       merchantTierListSchema.safeParse({
         status: 'configured',
-        ownTierId: 'other-tier',
-        tiers: [own],
+        ownTierId: 'test-tier',
+        tiers: [own, { ...own, founderThresholds: [{ assetCode: 'USDT', amount: '150' }] }],
       }).success,
     ).toBe(false);
   });

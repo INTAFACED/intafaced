@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack } from './local-test-state.mjs';
+import { assertActiveLocalStack, localStackState } from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -865,7 +865,7 @@ export function publishedStarterFeeBps(env = process.env) {
 
 /** The service refusal that means this session was not granted merchant pay scopes. */
 export function isPayScopeRefusal(refusal) {
-  return /Scope "pay:(read|write|refund|payout)" is required|merchant_pay_scope_grant_unpublished/i.test(String(refusal ?? ''));
+  return /Scope "pay:(onboard|read|write|refund|payout)" is required|merchant_pay_scope_grant_unpublished/i.test(String(refusal ?? ''));
 }
 
 const customerRef = (key) => MERCHANT_CUSTOMERS.find((c) => c.key === key)?.ref ?? null;
@@ -1694,18 +1694,19 @@ const MERCHANT_MONEY = new Set([
  * 1. svc-identity AuthService.defaultScopes() issues SESSION_SCOPES only.
  *    pay:read, pay:write, pay:refund, and pay:payout are WITHHELD_FROM_SESSION
  *    ("granted by merchant onboarding") in packages/auth/src/scopes.ts.
- * 2. The only named grant is issueMerchantPayScopes (packages/auth
- *    merchant-pay-scope-grant.ts), reached from svc-pay
- *    issueMerchantPayScopesViaGrantPath. Both refuse
- *    auth.merchant_pay_scope_grant_unpublished until the owner publishes grant
- *    law (docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md and
- *    2026-08-15). Approving KYB does not grant scopes. An API key cannot carry
- *    pay:* the session does not hold (assertDelegatableScopes).
- * 3. The product door is pay.merchant.create (scopedProcedure pay:write),
+ * 2. Owner pay:read and pay:write come from issueMerchantPayScopes (published
+ *    2026-10-17): the owner of one KYB-approved merchant, attached on the next
+ *    sign-in. Refund and payout stay withheld. Approving KYB does not rewrite
+ *    the current access token. An API key cannot carry pay:* the session does
+ *    not hold (assertDelegatableScopes).
+ * 3. The product door is pay.merchant.create (scopedProcedure pay:onboard),
  *    bound to the signed-in user, with a published feeBps plus displayName and
  *    legalName. The portal sends starterFeeBps and refuses while that prop is
  *    null. This step reads PAY_MERCHANT_STARTER_FEE_BPS and does the same.
- * 4. KYB is pay.merchant.submitKyb (pay:write), then pay.merchant.decideKybStub
+ *    pay:onboard is issued on the next sign-in after the account is active,
+ *    the email is confirmed, and a second factor is enrolled. This step
+ *    confirms the email, then signs in again, and does not enrol a factor.
+ * 4. KYB is pay.merchant.submitKyb (pay:onboard), then pay.merchant.decideKybStub
  *    while value movement is allow-sandbox. Under live-only the stub returns
  *    pay.kyb_operator_required and the step uses the two local test founders
  *    seeded by `pnpm local:stack` (local_test_founder_a and local_test_founder_b,
@@ -1715,28 +1716,128 @@ const MERCHANT_MONEY = new Set([
  *    (admin:compliance, MFA). The hash is the live kyb.decisionBinding
  *    identity, the same fields svc-pay consumes. If the founders are not
  *    enrolled, the step stops at KYB pending and does not file a proposal.
- * 5. With the scopes, the same session calls payment.create / authorize /
+ * 5. The session signed in after approval calls payment.create / authorize /
  *    capture, payment.refund, merchant.createLink, merchantOps.invoices.create,
  *    mandate.create + subscription.create (crypto_invoice), and
  *    merchantOps.team.invite. Customers are the customerRef values on those
  *    payments (merchantOps.customers has no create).
  *
  * The merchant session never calls issueAccessToken and this step never writes
- * a pay table except through those procedures. A missing pay scope or a missing
- * starter fee is a refusal, not a fallback. The live KYB path mints one
- * short-lived admin:compliance token for a founder who already signed in,
+ * a pay table except through those procedures. After the email is confirmed,
+ * and again after KYB is approved, it signs in through auth.login so the new
+ * access token can carry pay:onboard and then the owner pay scopes. A missing
+ * pay scope or a missing starter fee is a refusal, not a fallback. The live
+ * KYB path mints one short-lived admin:compliance token for a founder who already signed in,
  * because that scope is withheld from every session (the same local stand-in
  * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
+/** Same file the local stack's identity process writes. */
+export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
+  return path.join(localStackState(home, env), 'email-outbox.log');
+}
+
+/**
+ * Newest LOCAL-TEST confirm link for this address, or null.
+ * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
+ */
+export function readLatestEmailConfirmToken(text, email) {
+  const want = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  let token = null;
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
+    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
+    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
+    if (!emailMatch || !linkMatch) continue;
+    if (emailMatch[1].toLowerCase() !== want) continue;
+    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
+    if (!q?.[1]) continue;
+    try {
+      token = decodeURIComponent(q[1]);
+    } catch {
+      token = null;
+    }
+  }
+  return token;
+}
+
+/** What the merchant step does with a session and an outbox. No database write. */
+export function planEmailConfirm({ emailVerified, outboxText, email }) {
+  if (emailVerified === true) return { action: 'already-confirmed', token: null };
+  const token = typeof outboxText === 'string' ? readLatestEmailConfirmToken(outboxText, email) : null;
+  return { action: 'confirm', token };
+}
+
+/**
+ * Confirm the seeded owner's email through auth.requestEmailConfirmation and
+ * auth.confirmEmail. The link is read from the local outbox. This never writes
+ * email_verified_at itself. True when the address is confirmed, including when
+ * it already was, so the caller can sign in again.
+ */
+async function confirmSeededOwnerEmail(user, record, outboxPath = localEmailOutboxPath()) {
+  const me = await call(user, 'q', 'identity', 'me');
+  if (!me.ok) {
+    record('merchant', 'email confirmation', 'refused', me.refusal);
+    return false;
+  }
+  if (me.data?.emailVerified === true) {
+    record('merchant', 'email confirmation', 'exists', 'already confirmed');
+    return true;
+  }
+  const requested = await call(user, 'm', 'identity', 'auth.requestEmailConfirmation');
+  if (!requested.ok) {
+    record('merchant', 'email confirmation', 'refused', requested.refusal);
+    return false;
+  }
+  let text = '';
+  try {
+    text = fs.readFileSync(outboxPath, 'utf8');
+  } catch {
+    record('merchant', 'email confirmation', 'refused', 'LOCAL-TEST outbox has no confirm link for this account');
+    return false;
+  }
+  const plan = planEmailConfirm({ emailVerified: false, outboxText: text, email: user.account.email });
+  if (!plan.token) {
+    record('merchant', 'email confirmation', 'refused', 'LOCAL-TEST outbox has no confirm link for this account');
+    return false;
+  }
+  const confirmed = await call(user, 'm', 'identity', 'auth.confirmEmail', { token: plan.token });
+  record(
+    'merchant',
+    'email confirmation',
+    confirmed.ok ? 'created' : 'refused',
+    confirmed.ok ? 'confirmed through auth.confirmEmail' : confirmed.refusal,
+  );
+  return confirmed.ok;
+}
+
+/** pay:onboard and the owner pay scopes are attached when the access token is issued. */
+async function resignInForMerchantScopes(user, record, why) {
+  try {
+    await user.login();
+    record('merchant', why, 'created', 'signed in again so the new access token can carry the pay scopes');
+    return true;
+  } catch (err) {
+    record('merchant', why, 'refused', oneLine(err instanceof Error ? err.message : String(err), 240));
+    return false;
+  }
+}
+
 async function populateMerchantStep(ctx) {
   const { user, record, secrets, log } = ctx;
+  const confirmed = await confirmSeededOwnerEmail(user, record);
+  if (confirmed) {
+    const signed = await resignInForMerchantScopes(user, record, 'sign-in after email confirmation');
+    if (!signed) return;
+  }
   const me = await call(user, 'q', 'pay', 'merchant.me');
   if (!me.ok && isPayScopeRefusal(me.refusal)) {
     record(
       'merchant',
       'TEST DATA merchant, payments, links, customers, invoices, refund, subscription, invite',
       'refused',
-      `${me.refusal}. issueMerchantPayScopes refuses (grant law unpublished); merchant.create needs pay:write. Nothing minted. Starter fee ${publishedStarterFeeBps() == null ? 'not configured' : 'published'}.`,
+      `${me.refusal}. merchant.create and merchant.submitKyb need pay:onboard (active account, confirmed email, second factor). Nothing minted. Starter fee ${publishedStarterFeeBps() == null ? 'not configured' : 'published'}.`,
     );
     return;
   }
@@ -2047,7 +2148,8 @@ async function runMerchantAction(ctx, action, merchantId) {
     const stub = await call(user, 'm', 'pay', 'merchant.decideKybStub', { merchantId: merchant, decision: 'approved' });
     if (stub.ok) {
       record('merchant', 'KYB decision', 'created', `sandbox stub ${stub.data.kybStatus}`);
-      return {};
+      const signed = await resignInForMerchantScopes(user, record, 'sign-in after KYB approval');
+      return signed ? {} : { moneyClosed: true };
     }
     if (!/kyb_operator_required/.test(stub.refusal)) {
       record('merchant', 'KYB decision', 'refused', stub.refusal);
@@ -2059,7 +2161,8 @@ async function runMerchantAction(ctx, action, merchantId) {
       return { moneyClosed: true };
     }
     record('merchant', 'KYB decision', 'created', `founder pair ${founders.kybStatus}`);
-    return {};
+    const signed = await resignInForMerchantScopes(user, record, 'sign-in after KYB approval');
+    return signed ? {} : { moneyClosed: true };
   }
   if (action.kind === 'create-payment') {
     const out = await call(user, 'm', 'pay', 'payment.create', {

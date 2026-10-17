@@ -1,0 +1,93 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import postgres from 'postgres';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { SqlStaffBook } from './desk-staff.js';
+import { PostgresSupportStore } from './store.js';
+
+/**
+ * Staff, unclaim and assign against Postgres.
+ *
+ * The shared test server's database is named `test`, and the suite guard only
+ * accepts a name ending in `_test`. This file creates `adminops_harness_test`
+ * on that server when the role can, then isolates the run with createTestDatabase.
+ */
+
+const here = dirname(fileURLToPath(import.meta.url));
+const drizzleDir = join(here, '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
+  .sort()
+  .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
+
+const USER = '11111111-1111-4111-8111-111111111111';
+const LEAD = '33333333-3333-4333-8333-333333333333';
+const AGENT = '44444444-4444-4444-8444-444444444444';
+
+async function harnessUrl(): Promise<string | null> {
+  const raw = process.env.TEST_DATABASE_URL;
+  if (!raw || !(await postgresAvailable(raw))) return null;
+  const name = new URL(raw).pathname.replace(/^\//, '').split('/')[0] ?? '';
+  if (name.endsWith('_test')) return raw;
+  const admin = postgres(raw, { max: 1, onnotice: () => undefined });
+  try {
+    await admin.unsafe('CREATE DATABASE adminops_harness_test');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/already exists/i.test(message)) throw err;
+  } finally {
+    await admin.end({ timeout: 5 });
+  }
+  const url = new URL(raw);
+  url.pathname = '/adminops_harness_test';
+  return url.toString();
+}
+
+const url = await harnessUrl();
+
+if (!url) {
+  describe.skip('support desk staff (Postgres unavailable)', () => {
+    it('skipped', () => undefined);
+  });
+} else {
+  const db: TestDatabase = await createTestDatabase({ service: 'support', url, migrations });
+
+  afterAll(async () => {
+    await db.drop();
+  });
+
+  beforeEach(async () => {
+    await db.truncateAll();
+  });
+
+  describe('SqlStaffBook and ticket assignment', () => {
+    it('appoints a lead, replays the same command, and refuses a different fingerprint', async () => {
+      const staff = new SqlStaffBook(db.sql);
+      const at = '2026-10-17T00:00:00.000Z';
+      const member = await staff.appoint({ userId: LEAD, role: 'lead', by: LEAD, at });
+      expect(member.role).toBe('lead');
+      expect(await staff.begin('appoint:k1', 'lead')).toBe('new');
+      await staff.save('appoint:k1', member);
+      expect(await staff.begin('appoint:k1', 'lead')).toBe('replay');
+      expect(await staff.read('appoint:k1')).toMatchObject({ userId: LEAD, role: 'lead' });
+      await expect(staff.begin('appoint:k1', 'agent')).rejects.toThrow(/idempotency_conflict/);
+    });
+
+    it('unclaims only the assignee and lets a lead assign the ticket to another staff id', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Stuck', body: 'Please look' });
+      const claimed = await store.claimTicket({ ticketId: ticket.id, operatorId: AGENT });
+      expect(claimed.status).toBe('ok');
+      const stolen = await store.releaseTicket({ ticketId: ticket.id, operatorId: LEAD });
+      expect(stolen).toMatchObject({ status: 'refuse', reason: 'not_assignee' });
+      const released = await store.releaseTicket({ ticketId: ticket.id, operatorId: AGENT });
+      expect(released.status).toBe('ok');
+      if (released.status === 'ok') expect(released.ticket.assigneeId).toBeNull();
+      const assigned = await store.assignTicket({ ticketId: ticket.id, operatorId: LEAD, assigneeId: LEAD });
+      expect(assigned.status).toBe('ok');
+      if (assigned.status === 'ok') expect(assigned.ticket.assigneeId).toBe(LEAD);
+    });
+  });
+}

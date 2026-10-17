@@ -70,6 +70,23 @@ describe('customer transport boundary', () => {
     });
     expect(await api.query('bank', 'read', {}, z.unknown())).toMatchObject({ ok: false, code: 'denied.kyc_required' });
   });
+  it('reads the specific reason from a market route refusal instead of its broad class', async () => {
+    // Observed from the public ticker of a listed market that has no live book: the class sits in `code`, the reason beside it.
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({ code: 'ExchangeError', message: 'matching holds no book for a market', intafacedCode: 'trade.no_book' }),
+          { status: 404 },
+        ),
+    });
+    expect(await api.rest('/ticker/ETH%2FUSDT', z.unknown())).toMatchObject({ ok: false, status: 404, code: 'trade.no_book' });
+  });
+  it('still falls back to the broad class when a market route sends no specific reason', async () => {
+    const api = createApiClient({
+      fetch: async () => new Response(JSON.stringify({ code: 'ExchangeError', message: 'x' }), { status: 400 }),
+    });
+    expect(await api.rest('/ticker/ETH%2FUSDT', z.unknown())).toMatchObject({ ok: false, code: 'ExchangeError' });
+  });
   it('refuses to dispatch a write after its account context has changed', async () => {
     const sent: string[] = [];
     const api = createApiClient({

@@ -1,10 +1,11 @@
 import { dec, str, type ActivityItem, type ActivityKind } from './deps';
 
 /**
- * The tabs of Activity (UI-SPEC 5.4): Trades (fills) first, Orders (open orders and order history), then the
- * ledger-based All, Deposits and Transfers. Trades and Orders read the trade service; the rest read `bank.activity.list`.
+ * The tabs of Activity (UI-SPEC 5.4): All first (every money movement on the ledger, which is what a person opening
+ * Activity wants to see), then Trades (fills), Orders (open orders and order history), Deposits and Transfers. Trades and
+ * Orders read the trade service; the rest read `bank.activity.list`.
  */
-export const TABS = ['trades', 'orders', 'all', 'deposits', 'transfers'] as const;
+export const TABS = ['all', 'trades', 'orders', 'deposits', 'transfers'] as const;
 export type Tab = (typeof TABS)[number];
 export type LedgerTab = 'all' | 'deposits' | 'transfers';
 
@@ -15,10 +16,13 @@ const KINDS: Readonly<Record<Exclude<LedgerTab, 'all'>, ReadonlySet<ActivityKind
   transfers: new Set<ActivityKind>(['transfer_in', 'transfer_out', 'space_move']),
 };
 
-/** `?tab=orders`. Nothing, or anything unknown, reads as Trades (the first tab). */
+/** The tab Activity opens on when the address names none, or names one that does not exist. */
+export const DEFAULT_TAB: Tab = 'all';
+
+/** `?tab=orders`. Nothing, or anything unknown, reads as All (the first tab). */
 export function tabFromSearch(search: string): Tab {
   const value = new URLSearchParams(search).get('tab');
-  return (TABS as readonly string[]).includes(value ?? '') ? (value as Tab) : 'trades';
+  return (TABS as readonly string[]).includes(value ?? '') ? (value as Tab) : DEFAULT_TAB;
 }
 
 /** `?asset=BTC`: show only this coin. Empty or missing reads as no filter; the symbol is upper-cased like the coins are. */
@@ -29,7 +33,7 @@ export function assetFromSearch(search: string): string | null {
 
 /** The Activity link for a tab, keeping the coin filter when there is one. */
 export function tabHref(tab: Tab, asset: string | null = null): string {
-  const query = [tab === 'trades' ? null : `tab=${tab}`, asset ? `asset=${encodeURIComponent(asset)}` : null].filter(Boolean).join('&');
+  const query = [tab === DEFAULT_TAB ? null : `tab=${tab}`, asset ? `asset=${encodeURIComponent(asset)}` : null].filter(Boolean).join('&');
   return query ? `/money/activity?${query}` : '/money/activity';
 }
 

@@ -98,6 +98,8 @@ import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
+import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
@@ -226,29 +228,44 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
+const copyStore = new SqlCopyFollowStore(sql);
+const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
+  if (!input.followId) throw new TradingControlError('auth.credential_denied');
+  const order = await trade.placeCopyMirror(
+    principal,
+    {
+      symbol: input.symbol,
+      marketId: input.marketId,
+      side: input.side,
+      type: 'limit',
+      qty: input.qty,
+      price: input.price,
+      tif: 'GTC',
+      clientOrderId: input.clientOrderId,
+    },
+    input.followId,
+  );
+  return { orderId: order.id };
+};
 const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
-  store: new SqlCopyFollowStore(sql),
-  placeFollowerOrder: async (principal, input) => {
-    if (!input.followId) throw new TradingControlError('auth.credential_denied');
-    const order = await trade.placeCopyMirror(
-      principal,
-      {
-        symbol: input.symbol,
-        marketId: input.marketId,
-        side: input.side,
-        type: 'limit',
-        qty: input.qty,
-        price: input.price,
-        tif: 'GTC',
-        clientOrderId: input.clientOrderId,
-      },
-      input.followId,
-    );
-    return { orderId: order.id };
-  },
+  store: copyStore,
+  placeFollowerOrder,
+  flattenCopyPosition: createFollowerFlattenPort({
+    sql,
+    ledger,
+    store: copyStore,
+    placeFollowerOrder,
+    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+    bestBid: async (marketId) => {
+      const depth = await matching.depth(marketId, 1);
+      const best = depth.bids[0];
+      return best ? parseAmount(best[0]) : null;
+    },
+  }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
     return market ? { paper: market.paper } : null;

@@ -117,5 +117,21 @@ if (!available) {
         }),
       ).toBeNull();
     });
+
+    it('lists a requester’s rows and other people’s pending rows, newest first', async () => {
+      await store.insert(row({ approvalId: 'older', requesterId: 'user-a', operationId: 'op-old', createdAt: NOW }));
+      await store.insert(
+        row({
+          approvalId: 'newer',
+          requesterId: 'user-a',
+          operationId: 'op-new',
+          createdAt: LATER,
+          expiresAt: new Date('2026-09-09T12:04:00.000Z'),
+        }),
+      );
+      await store.insert(row({ approvalId: 'other', requesterId: 'user-b', operationId: 'op-b', createdAt: LATER }));
+      expect((await store.listByRequester('user-a', 10)).map((r) => r.approvalId)).toEqual(['newer', 'older']);
+      expect((await store.listPendingExcept('user-a', 10)).map((r) => r.approvalId)).toEqual(['other']);
+    });
   });
 }

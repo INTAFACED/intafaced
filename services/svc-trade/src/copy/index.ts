@@ -95,6 +95,7 @@ export {
 } from './copy-lifecycle.js';
 export {
   COPY_FLATTEN_DISPOSITION,
+  COPY_FLATTEN_PARTIAL_RESIDUAL,
   COPY_FLATTEN_REFUSED_RESIDUAL,
   applyCopyFlatten,
   flattenFollowerCopyPosition,
@@ -104,6 +105,7 @@ export {
   type FlattenCopyPositionInput,
   type FlattenCopyPositionPort,
 } from './copy-flatten.js';
+export { copyFlattenClientOrderId, createFollowerFlattenPort, type FollowerFlattenPortDeps } from './follower-flatten-port.js';
 export {
   bindCopyFollowerLimits,
   bindEnvelopeLimits,
