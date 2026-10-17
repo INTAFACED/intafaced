@@ -23,8 +23,9 @@ import type { ListedMarket } from '../rooms/api';
 import { Freshness } from '../rooms/RoomNotices';
 import { asOfOf, useNow } from '../rooms/read';
 import { roomWords } from '../rooms/refusals';
-import type { RoomWriter } from '../rooms/write';
+import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';
 import { useDeskApi, useRefreshPrivate } from '../desk/data';
+import { CANCEL_BUCKET_ORDER, cancelCounts, type CancelBucket, type CancelRow } from './cancelAll';
 import { optionsCopy } from './copy';
 import { RefusedRegion } from './shared';
 
@@ -84,9 +85,7 @@ export function OrdersTab({
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
-  const [batch, setBatch] = useState<{ total: number; rows: Array<{ id: string; symbol: string; ok: boolean; text: string }> } | null>(
-    null,
-  );
+  const [batch, setBatch] = useState<{ total: number; rows: CancelRow[] } | null>(null);
 
   const note = (id: string, text: string) => setRowNote((prev) => ({ ...prev, [id]: text }));
 
@@ -102,22 +101,22 @@ export function OrdersTab({
     setCancellingAll(false);
     if (open.status !== 'ready') return;
     const targets = [...open.data];
-    const rows: Array<{ id: string; symbol: string; ok: boolean; text: string }> = [];
+    const rows: CancelRow[] = [];
     setBatch({ total: targets.length, rows });
-    const record = (order: Order, ok: boolean, text: string) => {
+    const record = (order: Order, bucket: CancelBucket, text: string) => {
       note(order.id, text);
-      rows.push({ id: order.id, symbol: order.symbol, ok, text });
+      rows.push({ id: order.id, symbol: order.symbol, bucket, text });
       setBatch({ total: targets.length, rows: [...rows] });
     };
     for (const order of targets) {
       const outcome = await writer.run({ kind: 'cancel', id: order.id, symbol: order.symbol, call: () => api.cancel(order) });
-      if (outcome.kind === 'done') record(order, true, t('Cancelled row'));
-      else if (outcome.kind === 'refused') record(order, false, outcome.words.body);
+      if (outcome.kind === 'done') record(order, 'cancelled', t('Cancelled row'));
+      else if (outcome.kind === 'refused') record(order, 'refused', outcome.words.body);
       else if (outcome.kind === 'blocked') {
-        record(order, false, t('Cancel blocked'));
+        record(order, 'notSent', BLOCK_WORDS[outcome.reason]);
         break;
       } else {
-        if (outcome.kind === 'uncertain') record(order, false, outcome.words.body);
+        if (outcome.kind === 'uncertain') record(order, 'unconfirmed', t('Cancel unconfirmed row'));
         break;
       }
     }
@@ -223,18 +222,24 @@ export function OrdersTab({
           className="flex flex-col gap-1 rounded-sm border border-line bg-panel p-3"
         >
           <h3 className="m-0 text-base font-medium text-fg">{t('Cancel all result title')}</h3>
-          <p className="m-0 text-sm text-fg">
-            {t('Cancel all result summary', {
-              cancelled: String(batch.rows.filter((r) => r.ok).length),
-              refused: String(batch.rows.filter((r) => !r.ok).length),
-              untried: String(batch.total - batch.rows.length),
-              total: String(batch.total),
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-sm text-fg">
+            {CANCEL_BUCKET_ORDER.map((bucket) => {
+              const counts = cancelCounts(batch.rows, batch.total);
+              if (bucket !== 'cancelled' && counts[bucket] === 0) return null;
+              return (
+                <li key={bucket}>
+                  {t(`Cancel all summary ${bucket}` as 'Cancel all summary cancelled', {
+                    count: String(counts[bucket]),
+                    total: String(counts.total),
+                  })}
+                </li>
+              );
             })}
-          </p>
+          </ul>
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-fg-2">
             {batch.rows.map((r) => (
               <li key={r.id}>
-                <span className="font-mono text-fg">{r.symbol}</span> {r.ok ? t('Cancelled row') : r.text}
+                <span className="font-mono text-fg">{r.symbol}</span> {r.text}
               </li>
             ))}
           </ul>
