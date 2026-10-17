@@ -70,6 +70,8 @@ export const COPY_KEYS = [
   'agents.support.comment_refused',
   'agents.support.tier_closed',
   'agents.support.escalated',
+  'agents.refused.cursor_invalid',
+  'agents.refused.fee_asset_unset',
 ] as const;
 
 export type CopyKey = (typeof COPY_KEYS)[number];
@@ -109,6 +111,8 @@ export const EN: Readonly<Record<CopyKey, string>> = {
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
+  'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
+  'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
 
   'agents.error.route_not_found': 'No Sovereign Intelligence route is configured for “{task}”.',

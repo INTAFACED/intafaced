@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import type { ProviderCapability } from '../providers/provider.js';
+import { MockModelProvider } from '../providers/mock.js';
+import { UpstreamModelProvider } from '../providers/upstream.js';
+import type { ModelProvider, ProviderCapability } from '../providers/provider.js';
 
 /**
  * PER-TASK MODEL ROUTING (§8.2).
@@ -140,6 +142,59 @@ export function resolveRoute(table: RoutingTable, task: string): RouteDef {
 
 export function tasksOf(table: RoutingTable): string[] {
   return table.routes.map((r) => r.task);
+}
+
+/**
+ * Which engine is actually wired.
+ *
+ * The class of the adapter decides this. A provider id, an env string, or a
+ * comment that says "live" does not. The deterministic mock is sandbox. The
+ * HTTP upstream adapter is live. Anything else — missing registration, a test
+ * double, a future adapter — is unknown, and the customer app keeps its cost
+ * confirmation.
+ */
+export type RouteEngine = 'sandbox' | 'live' | 'unknown';
+
+export function engineOfAdapter(provider: ModelProvider | undefined): RouteEngine {
+  if (provider instanceof MockModelProvider) return 'sandbox';
+  if (provider instanceof UpstreamModelProvider) return 'live';
+  return 'unknown';
+}
+
+/** A parsed rate is non-blank. A missing price object is blank. Zero is a published rate, not a blank. */
+export function routePriceNonBlank(price: ModelPrice | null | undefined): boolean {
+  if (!price) return false;
+  return typeof price.inputPerMillion === 'bigint' && typeof price.outputPerMillion === 'bigint';
+}
+
+/** True only for a live engine whose route price is non-blank. Sandbox and unknown are never metered. */
+export function routeIsMetered(engine: RouteEngine, price: ModelPrice | null | undefined): boolean {
+  return engine === 'live' && routePriceNonBlank(price);
+}
+
+/**
+ * One engine for an agent: every allowed task must resolve to that same engine.
+ * A missing route, a mixed pair, or an unknown adapter is `unknown`.
+ */
+export function engineForTasks(
+  tasks: readonly string[],
+  resolve: (task: string) => { engine: RouteEngine; priced: boolean } | null,
+): { engine: RouteEngine; metered: boolean } {
+  if (tasks.length === 0) return { engine: 'unknown', metered: false };
+  const engines = new Set<RouteEngine>();
+  let priced = true;
+  for (const task of tasks) {
+    const row = resolve(task);
+    if (!row) {
+      engines.add('unknown');
+      priced = false;
+      continue;
+    }
+    engines.add(row.engine);
+    if (!row.priced) priced = false;
+  }
+  const engine: RouteEngine = engines.size === 1 ? [...engines][0]! : 'unknown';
+  return { engine, metered: engine === 'live' && priced };
 }
 
 /**

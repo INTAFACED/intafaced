@@ -25,6 +25,7 @@ import { createHttpPayMetricsPort } from './merchant/pay-metrics-http-port.js';
 import { createHttpCopyLeaderFixturesPort } from './copy-intel/copy-leader-fixtures-http-port.js';
 import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-port.js';
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
+import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -156,6 +157,11 @@ const navigatorIdentitySessionPort = env.IDENTITY_URL
   ? createHttpNavigatorIdentitySessionPort({ identityUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
   : undefined; // blank / unset IDENTITY_URL → live identity.session.read refuses, never a caller fixture
 
+const portfolioPrices =
+  env.TRADE_URL && env.PORTFOLIO_QUOTE_ASSET
+    ? tradeTickerPrices({ baseUrl: env.TRADE_URL, quoteAssetId: env.PORTFOLIO_QUOTE_ASSET })
+    : undefined;
+
 const appRouter = createAgentsRouter({
   runtime,
   gateway,
@@ -169,6 +175,9 @@ const appRouter = createAgentsRouter({
   ...(env.TRADE_URL ? { navigatorTradeUrl: env.TRADE_URL } : {}),
   ...(navigatorTradeDataPort ? { navigatorTradeDataPort } : {}),
   ...(navigatorIdentitySessionPort ? { navigatorIdentitySessionPort } : {}),
+  sql,
+  portfolioLedger: { balances: (ownerType, ownerId) => ledger.balances(ownerType, ownerId) },
+  ...(portfolioPrices ? { portfolioPrices } : {}),
 });
 
 // Built before the listener opens: a service that cannot authenticate the edge
