@@ -48,7 +48,7 @@ import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } fr
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
-import type { MerchantStarterFee } from './starter-fee.js';
+import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -614,6 +614,7 @@ export function createPayRouter(
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             const merchant = await pay.getMerchantByUserId(userId);
             if (!merchant) return null;
+            const fee = merchantFeeView(merchant.pricing, starterFee);
             return {
               id: merchant.id,
               userId: merchant.userId,
@@ -621,8 +622,8 @@ export function createPayRouter(
               status: merchant.status,
               kybStatus: merchant.kybStatus,
               kybRef: merchant.kybRef,
-              feeBps: merchant.pricing.feeBps ?? null,
-              starterFee,
+              feeBps: fee.feeBps,
+              starterFee: fee.starterFee,
             };
           }),
         ),

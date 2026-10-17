@@ -323,6 +323,8 @@ const profile = {
     mode: 'psp' as const,
     kybStatus: 'approved' as const,
     kybRef: 'KYB-TEST-1',
+    feeBps: null,
+    starterFee: null,
   },
   items: [
     {
