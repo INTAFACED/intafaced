@@ -34,7 +34,6 @@
     "wt:rm": "node tooling/scripts/worktree.mjs remove",
     "tracker": "node tooling/scripts/tracker.mjs",
     "tracker:check": "node tooling/scripts/tracker.mjs --check",
-    "scan:agent-autoload": "node tooling/ci/agent-autoload-scan.mjs",
     "gates": "node tooling/ci/gates.mjs",
     "test:gate-tools": "node tooling/scripts/gate-tools.test.mjs",
     "value-gate:self-test": "node tooling/ci/value-gate.mjs --self-test",
