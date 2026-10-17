@@ -76,10 +76,6 @@ export interface TaxServiceDeps {
   readonly now?: () => Date;
 }
 
-/**
- * Owner-published export history window. Blank / non-integer / out of 1..100
- * refuses. Never invent 10 years. Never clamp.
- */
 function moneyOrNull(value: Amount | null): string | null {
   return value === null ? null : formatAmount(value);
 }
@@ -137,6 +133,10 @@ export function subAccountYear(subAccountId: string, activity: readonly SubAccou
   };
 }
 
+/**
+ * Owner-published export history window. Blank / non-integer / out of 1..100
+ * refuses. Never invent 10 years. Never clamp.
+ */
 export function requirePublishedHistoryYears(years: number | undefined): number {
   if (years === undefined || typeof years !== 'number' || !Number.isInteger(years) || years < 1 || years > 100) {
     throw new TaxError(
