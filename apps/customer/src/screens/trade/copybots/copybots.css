@@ -228,22 +228,23 @@
   }
 
   /*
-   * Phone width. The kit's KeyValue lays its rows on a two-column grid (label | value). In the cost boxes the labels are long
-   * and the values are sentences, so at 390 px the value column shrank to a few letters and was clipped. Stack label over value.
+   * Cost boxes sit in a dialog about 450 px wide on a desktop and the width of the screen on a phone. The kit's KeyValue lays its
+   * rows on a two-column grid (label | value). Here the labels are long and the values are sentences, so the value column shrank to
+   * a few letters (one word per line on a desktop, clipped at 390 px). Stack label over value at every width.
    * The kit sets its grid with utility classes, which sit in a later layer than this file, so these overrides need !important.
    */
+  .cb-cost [data-slot='key-value'] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .cb-cost [data-slot='key-value-row'] {
+    grid-column: 1 / -1 !important;
+    padding-block: 8px;
+  }
+  .cb-cost [data-slot='key-value-row'] dd {
+    text-align: left !important;
+    overflow-wrap: anywhere;
+  }
   @media (max-width: 640px) {
-    .cb-cost [data-slot='key-value'] {
-      grid-template-columns: minmax(0, 1fr) !important;
-    }
-    .cb-cost [data-slot='key-value-row'] {
-      grid-column: 1 / -1 !important;
-      padding-block: 8px;
-    }
-    .cb-cost [data-slot='key-value-row'] dd {
-      text-align: left !important;
-      overflow-wrap: anywhere;
-    }
     /* Notes with an action button (Check what happened, Try again, Dismiss): put the button under the text, not beside a one-word-wide column. */
     .cb-note {
       flex-wrap: wrap;
