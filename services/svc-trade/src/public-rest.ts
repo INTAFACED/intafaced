@@ -594,6 +594,10 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * Same rows as `ccxt-capability-matrix.ts` — claim ≡ wire, discoverable
    * without reading source or probing 501s. Never invents mids/rates.
    */
+  app.get('/api/v1/time', async (_req, reply) => {
+    return reply.code(200).send({ serverTime: now() });
+  });
+
   app.get('/api/v1/capabilities', async (_req, reply) => {
     const { CCXT_CAPABILITY_MATRIX, CCXT_REFUSE_ARMS } = await import('./ccxt-capability-matrix.js');
     return reply.code(200).send({

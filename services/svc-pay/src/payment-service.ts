@@ -16,6 +16,7 @@ import { payoutRailSourceKey, targetKey, type PayHaltStore } from './halts/store
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
+import { kybBindingMatches, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
@@ -85,6 +86,10 @@ import {
 import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { listMerchantPayoutDestinations } from './portal-reads/destinations.js';
+import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
+import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
+import { listMerchantStatement } from './portal-reads/statement.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -153,6 +158,10 @@ export type PayErrorCode =
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
   | 'pay.kyb_invalid'
   | 'pay.kyb_operator_required'
+  /** The approval was reviewed against a different merchant identity. */
+  | 'pay.kyb_identity_changed'
+  /** decideKyb has no database, so it cannot bind the approval to the live identity. */
+  | 'pay.kyb_profile_unbound'
   /**
    * Live acquiring money door — merchant lacks approved KYB (D26-P1-P10 Layer B).
    * Distinct from scope issuance (Layer A); never invents `pay:*`.
@@ -281,10 +290,28 @@ export type PayErrorCode =
   | 'pay.settlement_not_found'
   /** settlement.list page size unpublished. Blank is not 50. */
   | 'pay.settlement_list_limit_unset'
+  /** A refund event id that is missing or not this caller's. Same refusal either way. */
+  | 'pay.refund_not_found'
+  /** Destination inventory page size unpublished. Blank is not 50. */
+  | 'pay.destination_list_limit_unset'
+  /** Refund list page size unpublished. Blank is not 50. */
+  | 'pay.refund_list_limit_unset'
+  /** Statement page size unpublished. Blank is not 50. */
+  | 'pay.statement_list_limit_unset'
+  /** `merchant.statement.list` without both `from` and `to`. A statement is not the whole history. */
+  | 'pay.statement_range_required'
+  /** Statement window longer than the 92-day technical safety bound. */
+  | 'pay.statement_range_too_wide'
+  /** More than 2000 candidate ledger keys in one statement request. */
+  | 'pay.statement_too_large'
+  /** A statement scan for this merchant is still leased, or this process is already running two. */
+  | 'pay.statement_busy'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
   | 'pay.list_range_invalid'
+  /** A stored checkout profile is not an object, or its domain list is not strings. */
+  | 'pay.checkout_settings_unreadable'
   // ── User money in and out (`user-money-service.ts`) ──
   | 'pay.rail_unknown'
   /** The rail exists but does not accept hand-typed operator credits. */
@@ -1030,6 +1057,17 @@ function listFilters(input: { search?: string; assetId?: string; from?: string; 
   }
 }
 
+/** JSON object as stored. An array or a scalar is unreadable, not an empty object. */
+function storedJsonObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function storedDomainList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return null;
+  return value;
+}
+
 /** Which statuses may legally follow which. Anything else is a bug, not an edge case. */
 const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   created: ['authorized', 'failed'],
@@ -1304,18 +1342,33 @@ export class PayService {
     if (!ref || ref.length > 128) {
       throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
     }
-    const merchant = await this.getMerchant(input.merchantId);
-    if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
-      throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
-        kybStatus: merchant.kybStatus,
-      });
-    }
-    await this.sql`
-      UPDATE pay.merchants
-         SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
-       WHERE id = ${input.merchantId}
-    `;
-    return this.getMerchant(input.merchantId);
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<MerchantRow[]>`
+        SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+          FROM pay.merchants WHERE id = ${input.merchantId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+      const merchant = toMerchant(row);
+      if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      const [updated] = await tx<MerchantRow[]>`
+        UPDATE pay.merchants
+           SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
+         WHERE id = ${input.merchantId}
+           AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
+         RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+      `;
+      if (!updated) {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      return toMerchant(updated);
+    });
   }
 
   /**
@@ -1323,8 +1376,21 @@ export class PayService {
    * Writes `merchants.kyb_status` pending → approved|rejected.
    * Does not invent a vendor webhook, fee bps, or `pay:*` scopes (Layer A).
    */
-  async decideKyb(input: { merchantId: string; decision: 'approved' | 'rejected' }): Promise<MerchantRecord> {
-    return this.writeKybDecision(input.merchantId, input.decision);
+  async decideKyb(input: {
+    merchantId: string;
+    decision: 'approved' | 'rejected';
+    identityHash: string;
+    /**
+     * Runs under the merchant row lock after the live identity matches
+     * `identityHash`, and before the status write. The KYB routers consume
+     * the founder approval here so a mismatch refuses without consuming it.
+     */
+    beforeWrite?: () => Promise<void>;
+  }): Promise<MerchantRecord> {
+    return this.writeKybDecision(input.merchantId, input.decision, {
+      identityHash: input.identityHash,
+      beforeWrite: input.beforeWrite,
+    });
   }
 
   /**
@@ -1342,7 +1408,11 @@ export class PayService {
     return this.writeKybDecision(input.merchantId, input.decision);
   }
 
-  private async writeKybDecision(merchantId: string, decision: 'approved' | 'rejected'): Promise<MerchantRecord> {
+  private async writeKybDecision(
+    merchantId: string,
+    decision: 'approved' | 'rejected',
+    binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
+  ): Promise<MerchantRecord> {
     return transaction(this.sql, async (tx) => {
       const rows = await tx<MerchantRow[]>`
         SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
@@ -1356,13 +1426,25 @@ export class PayService {
           kybStatus: merchant.kybStatus,
         });
       }
+      if (binding) {
+        const live = await loadKybDecisionBinding(tx, merchantId);
+        if (!live || !binding.identityHash || !kybBindingMatches(live, { identityHash: binding.identityHash })) {
+          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+        if (binding.beforeWrite) await binding.beforeWrite();
+      }
       const [updated] = await tx<MerchantRow[]>`
         UPDATE pay.merchants
            SET kyb_status = ${decision}, updated_at = now()
          WHERE id = ${merchantId}
+           AND kyb_status = 'pending'::pay.kyb_status
          RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       `;
-      if (!updated) throw new PayError(`Merchant ${merchantId} vanished during KYB decision`, 'pay.merchant_not_found');
+      if (!updated) {
+        throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
       return toMerchant(updated);
     });
   }
@@ -1374,6 +1456,11 @@ export class PayService {
    * Pages are keyset-ordered by `(created_at, id)` descending. Search matches the
    * payment id, the rail reference, or the customer reference stored on the
    * created event. The fee snapshot and failure are the stored rows, or null.
+   *
+   * `linkId` keeps payments whose checkout session names that link. The seek
+   * uses `checkout_sessions_link_status_idx` (`link_id`, `status`). A link that
+   * is missing or belongs to another merchant matches no session of this
+   * merchant, so the page is empty. That is not an error.
    */
   async listPayments(input: {
     merchantId: string;
@@ -1384,6 +1471,7 @@ export class PayService {
     assetId?: string;
     from?: string;
     to?: string;
+    linkId?: string;
     /**
      * Sandbox keys pass `sandbox` so the page and its cursor are chosen from
      * sandbox rails only. Filtering after the page would let `nextCursor`
@@ -1398,11 +1486,23 @@ export class PayService {
     const cursorAt = filters.cursor?.createdAtCursor ?? null;
     const cursorId = filters.cursor?.id ?? null;
     const sandboxOnly = input.railMode === 'sandbox';
+    const linkId = input.linkId ?? null;
+    const linkFilter =
+      linkId === null
+        ? this.sql``
+        : this.sql`AND p.id IN (
+             SELECT s.payment_id
+               FROM pay.checkout_sessions s
+              WHERE s.link_id = ${linkId}
+                AND s.merchant_id = ${input.merchantId}
+                AND s.payment_id IS NOT NULL
+           )`;
     const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
       SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
              to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payments p
        WHERE p.merchant_id = ${input.merchantId}
+         ${linkFilter}
          AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
          AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
          AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
@@ -1493,6 +1593,57 @@ export class PayService {
       RETURNING id
     `;
     return { id: rows[0]!.id, merchantId: input.merchantId };
+  }
+
+  /**
+   * The checkout profile `createProfile` stored most recently for this merchant.
+   * No row is `not_configured`. A row returns the JSON and domains that write
+   * stored, including empty objects. A non-object payload refuses; it is not
+   * rewritten to `{}`.
+   */
+  async getCheckoutSettings(merchantId: string): Promise<
+    | { status: 'not_configured' }
+    | {
+        status: 'configured';
+        profileId: string;
+        checkoutConfig: Record<string, unknown>;
+        feeRouting: Record<string, unknown>;
+        domains: string[];
+        createdAt: string;
+      }
+  > {
+    await this.getMerchant(merchantId);
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        checkout_config: unknown;
+        fee_routing: unknown;
+        domains: unknown;
+        created_at: Date;
+      }>
+    >`
+      SELECT id, checkout_config, fee_routing, domains, created_at
+        FROM pay.payment_profiles
+       WHERE merchant_id = ${merchantId}
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return { status: 'not_configured' };
+    const checkoutConfig = storedJsonObject(row.checkout_config);
+    const feeRouting = storedJsonObject(row.fee_routing);
+    const domains = storedDomainList(row.domains);
+    if (!checkoutConfig || !feeRouting || !domains) {
+      throw new PayError('Stored checkout settings are not a readable object', 'pay.checkout_settings_unreadable');
+    }
+    return {
+      status: 'configured',
+      profileId: row.id,
+      checkoutConfig,
+      feeRouting,
+      domains,
+      createdAt: row.created_at.toISOString(),
+    };
   }
 
   /**
@@ -4663,6 +4814,38 @@ export class PayService {
     if (kybRefuse) {
       throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
     }
+  }
+
+  private portalFail(message: string, code: PayErrorCode): never {
+    throw new PayError(message, code);
+  }
+
+  /** Saved payout destinations, masked. No set-default and no remove: that change flow does not exist. */
+  listPayoutDestinations(input: { merchantId: string; limit?: number; cursor?: string }) {
+    return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code));
+  }
+
+  listRefunds(input: Parameters<typeof listMerchantRefunds>[2]) {
+    return listMerchantRefunds(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Merchant id only. The router fences before any amount parse or ledger read. A miss is `pay.refund_not_found`. */
+  locateRefund(refundEventId: string) {
+    return locateRefundMerchant(this.sql, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  /** The refund projection. Call only after the merchant fence. A miss is `pay.refund_not_found`. */
+  readRefund(refundEventId: string) {
+    return readMerchantRefund(this.sql, this.ledger, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  listStatement(input: Parameters<typeof listMerchantStatement>[2]) {
+    return listMerchantStatement(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
+  readPayoutLifecycle(settlementId: string) {
+    return readPayoutLifecycleProjection(this.sql, settlementId, (message, code) => this.portalFail(message, code));
   }
 }
 

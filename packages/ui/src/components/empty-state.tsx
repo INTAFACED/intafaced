@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Honest state for a region of a screen: nothing here yet (`empty`), the system said no (`refused`),
  * or a part is switched off or unreachable (`unavailable`). Same visual language as StateBlock.

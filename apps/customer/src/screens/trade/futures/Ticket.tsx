@@ -1,0 +1,669 @@
+/**
+ * The Futures ticket (TRFUT-SPEC §2.2). A position opens at the mark the service accepts, so the form is: direction,
+ * size, leverage, Review (the service's own preview), then Open behind a confirm step that re-checks the numbers.
+ * Every control that cannot work says the real reason in one line. Nothing is sent from here except through the
+ * shared writer, and one intent keeps one request id until the numbers change.
+ */
+import { useEffect, useRef, useState } from 'react';
+import type { Position } from '@intafaced/exchange-contract/schemas';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleTrigger,
+  EmptyState,
+  Field,
+  Input,
+  KeyValue,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTrigger,
+  SegmentedControl,
+  Skeleton,
+  StateBlock,
+  StatusChip,
+  Switch,
+  type KeyValueItem,
+} from '@intafaced/ui';
+import { dec, isPositive, str } from '../../../data/decimal';
+import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
+import type { BalanceEntry } from '../../../data/derive';
+import type { Loadable } from '../../../data/types';
+import type { AdlDisclosure, FuturesListing, PositionPreview, TickerStrip } from './api';
+import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh } from './data';
+import { newNonce, useFuturesWriter, type Writer } from './hooks';
+import { allInCost, isStale, leveragePresets, openId, stateOf } from './model';
+import { futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
+import { ticketCopy } from './ticket-copy';
+import {
+  contractsAllowed,
+  openBlock,
+  percentSize,
+  previewLiquidationDistance,
+  previewsEqual,
+  reviewBlock,
+  sameForm,
+  sizeInBase,
+  sizePlaces,
+  type FormKey,
+  type OpenBlock,
+  type ReviewBlock,
+  type Side,
+  type SizeUnit,
+} from './ticket-logic';
+import type { Pending } from '../buy/write-lock';
+import type { WriteOutcome } from './write';
+
+export interface TicketProps {
+  market: FuturesListing;
+  strip: Loadable<TickerStrip>;
+  balances: Loadable<Record<string, BalanceEntry>>;
+  disclosure: Loadable<AdlDisclosure>;
+  /** The futures plane is switched off: the form is replaced by one block naming the switch. */
+  planeOff: boolean;
+  now: number;
+  onOpened(position: Position): void;
+}
+
+type Review =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'refused'; refusal: FuturesRefusal }
+  | { status: 'ready'; form: FormKey; data: PositionPreview; at: number };
+
+interface Confirm {
+  data: PositionPreview;
+  changed: boolean;
+  checking: boolean;
+}
+
+const ORDER_TYPES = [
+  'Type limit',
+  'Type stop market',
+  'Type stop limit',
+  'Type take profit',
+  'Type trailing',
+  'Type post only',
+  'Type ioc fok',
+  'Type scaled',
+  'Type twap',
+] as const;
+const PERCENTS = [25, 50, 75, 100] as const;
+const note = 'text-xs text-fg-2';
+
+export function Ticket(props: TicketProps) {
+  const { market, strip, balances, disclosure, now, onOpened } = props;
+  const { t } = ticketCopy.useCopy();
+  const api = useFuturesApi();
+  const refresh = useFuturesRefresh();
+  const writer = useFuturesWriter(refresh);
+  const asset = market.settle ?? market.quote;
+
+  const [side, setSide] = useState<Side>('long');
+  const [unit, setUnit] = useState<SizeUnit>('base');
+  const [sizeRaw, setSizeRaw] = useState('');
+  const [leverage, setLeverage] = useState('');
+  const [nonce, setNonce] = useState(newNonce);
+  const [review, setReview] = useState<Review>({ status: 'idle' });
+  const [cap, setCap] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [offSeen, setOffSeen] = useState(false);
+  const [acking, setAcking] = useState<'idle' | 'busy' | 'failed'>('idle');
+
+  const size = sizeInBase(sizeRaw, unit, market);
+  const lev = dec(leverage) === null ? '' : str(dec(leverage)!);
+  const form: FormKey | null =
+    size !== null && isPositive(size) && isPositive(lev) ? { symbol: market.symbol, side, size, leverage: lev } : null;
+  const formRef = useRef(form);
+  formRef.current = form;
+  const request = useRef(0);
+
+  /** Any change to the numbers is a new intent: new request id, old review and any open dialog dropped, late answers ignored. */
+  const touch = () => {
+    request.current++;
+    setNonce(newNonce());
+    setReview({ status: 'idle' });
+    setConfirm(null);
+    if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+  };
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    touch();
+    setSizeRaw('');
+    setCap(null);
+    setOffSeen(false);
+    // Only a different contract resets the form; `touch` reads fresh state each call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market.symbol]);
+
+  const signedOut = balances.status === 'refused' && balances.code === 'auth.required';
+  const planeOff = props.planeOff || offSeen;
+  const free = balances.status === 'ready' ? (balances.data[asset]?.free ?? '0') : null; // a ready balance list without the asset holds none of it
+  const markNow = strip.status === 'ready' ? strip.data.markPrice : null;
+  const markAsOf = strip.status === 'ready' ? strip.asOf : null;
+  const markStale = isStale(markAsOf, now, STALE_AFTER_MS.strip);
+  const shown = review.status === 'ready' && form && sameForm(review.form, form) ? review.data : null;
+  const disclosureState =
+    disclosure.status === 'loading'
+      ? 'loading'
+      : disclosure.status === 'ready'
+        ? disclosure.data.acknowledged
+          ? 'acknowledged'
+          : 'unacknowledged'
+        : 'unread';
+  const gate = (preview: PositionPreview | null) =>
+    openBlock({
+      planeOff,
+      signedOut,
+      disclosure: disclosureState,
+      locked: writer.locked,
+      markKnown: markNow !== null,
+      markStale,
+      preview,
+      leverage: lev,
+      free,
+    });
+  const openOff = gate(shown);
+  const reviewOff = reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev });
+
+  if (planeOff)
+    return (
+      <EmptyState
+        variant="unavailable"
+        size="panel"
+        title={t('Plane off title')}
+        reason={t('Plane off reason')}
+        code="trade.futures_disabled"
+      />
+    );
+  if (signedOut)
+    return (
+      <EmptyState
+        variant="refused"
+        size="panel"
+        title={t('Signed out title')}
+        reason={t('Signed out body')}
+        action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(window.location.pathname)}`, variant: 'secondary' }}
+      />
+    );
+  if (balances.status === 'error') return <StateBlock kind="error" thing={t('Balance error')} onRetry={balances.retry} />;
+
+  const settle = (failure: Parameters<typeof futuresRefusal>[0]) => {
+    const refusal = futuresRefusal(failure);
+    if (isPlaneOff(refusal.code)) setOffSeen(true);
+    return refusal;
+  };
+
+  async function runReview() {
+    const asked = formRef.current;
+    if (!asked) return;
+    const id = ++request.current;
+    setReview({ status: 'loading' });
+    const result = await api.preview(asked);
+    // A late answer for numbers the trader has since changed must not show or enable anything.
+    const current = formRef.current;
+    if (id !== request.current || !current || !sameForm(asked, current)) return;
+    if (result.ok) {
+      setCap(result.data.leverageCap);
+      setReview({ status: 'ready', form: asked, data: result.data, at: Date.now() });
+    } else if (result.reason === 'uncertain' || result.reason === 'unreachable' || result.reason === 'error')
+      setReview({ status: 'error' });
+    else setReview({ status: 'refused', refusal: settle(result) });
+  }
+
+  async function confirmOpen() {
+    const asked = formRef.current;
+    if (!confirm || !asked) return;
+    if (!confirm.changed) {
+      // The mark moves: re-ask now and compare with what the trader reviewed. A difference is shown, never sent.
+      setConfirm({ ...confirm, checking: true });
+      const result = await api.preview(asked);
+      const current = formRef.current;
+      if (!current || !sameForm(asked, current)) return;
+      if (!result.ok) {
+        setConfirm(null);
+        setReview(
+          result.reason === 'uncertain' || result.reason === 'unreachable' || result.reason === 'error'
+            ? { status: 'error' }
+            : { status: 'refused', refusal: settle(result) },
+        );
+        return;
+      }
+      if (!previewsEqual(result.data, confirm.data)) {
+        setCap(result.data.leverageCap);
+        setReview({ status: 'ready', form: asked, data: result.data, at: Date.now() });
+        setConfirm({ data: result.data, changed: true, checking: false });
+        return;
+      }
+    }
+    setConfirm(null);
+    finish(await writer.run({ op: 'open', input: { ...asked, clientOpenId: openId(nonce) } }));
+  }
+
+  function finish(outcome: WriteOutcome) {
+    if (outcome.kind === 'done') {
+      // The open is finished: a new request id and a fresh review are needed for another, so a second click cannot re-send this one.
+      request.current++;
+      setNonce(newNonce());
+      setReview({ status: 'idle' });
+      setConfirm(null);
+      onOpened(outcome.position);
+    } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
+  }
+
+  async function acknowledge() {
+    setAcking('busy');
+    const result = await api.adlAcknowledge();
+    setAcking(result.ok ? 'idle' : 'failed');
+    if (result.ok) refresh();
+  }
+
+  const money = (v: string | null) => (v === null ? null : `${fmtAmount(v)} ${asset}`);
+  const price = (v: string | null) => (v === null ? null : fmtPrice(v, market.precision.price));
+  const costItems = (p: PositionPreview, at: number | null): KeyValueItem[] => {
+    const cost = allInCost(p, free);
+    const distance = previewLiquidationDistance(p);
+    const source = typeof p.markSource === 'string' ? t('Mark source', { source: p.markSource }) : undefined;
+    return [
+      { label: t('Mark price'), value: price(p.markPrice), hint: source, asOf: at ?? undefined },
+      { label: t('Order value'), value: money(cost.orderValue) },
+      { label: t('Initial margin'), value: money(cost.initialMargin) },
+      { label: t('Estimated fee'), value: money(cost.estimatedFee) },
+      { label: t('Total to commit'), value: money(cost.totalToCommit), hint: t('Total hint') },
+      { label: t('Free balance'), value: money(free) },
+      { label: t('Free balance after'), value: money(cost.freeAfter) },
+      { label: t('Liquidation price'), value: price(p.liquidationPrice) },
+      {
+        label: t('Distance to liquidation'),
+        value: distance === null ? null : fmtPctPoints(distance, { signed: false }),
+        hint: t('Distance hint'),
+      },
+      { label: t('Leverage cap'), value: p.leverageCap === null ? null : `${fmtAmount(p.leverageCap)}x` },
+    ];
+  };
+
+  const offWords: Record<Exclude<OpenBlock | ReviewBlock, null>, string> = {
+    planeOff: t('Off plane'),
+    signedOut: t('Off signed out'),
+    disclosureLoading: t('Off disclosure loading'),
+    disclosureUnread: t('Off disclosure unread'),
+    disclosureUnacknowledged: t('Off disclosure ack'),
+    locked: t('Off locked'),
+    markUnknown: t('Off mark unknown'),
+    markStale: t('Off mark stale'),
+    noSize: t('Off no size'),
+    noLeverage: t('Off no leverage'),
+    notReviewed: t('Off not reviewed'),
+    notOrderable: t('Off not orderable'),
+    missingFigures: t('Off missing figures'),
+    overCap: t('Off over cap'),
+    balanceUnknown: t('Off balance unknown'),
+    insufficient: t('Off insufficient'),
+  };
+  // Before a review the most useful reason is what is missing from the form, not "review first".
+  const openWhy = openOff === 'notReviewed' && reviewOff ? offWords[reviewOff] : openOff ? offWords[openOff] : null;
+
+  const percentOff = leverage === '' || lev === '' ? t('Percent needs leverage') : null;
+  const percentTo = (pct: number) => percentSize({ free, leverage: lev, mark: markNow, pct, unit, places: sizePlaces(market) }, market);
+  const baseNote = unit === 'contracts' && size !== null ? t('In base', { size: fmtAmount(size), asset: market.base }) : null;
+  const presets = leveragePresets(cap);
+  const sideWord = side === 'long' ? t('Long') : t('Short');
+
+  return (
+    <section aria-label={t('Ticket')} className="flex flex-col gap-3 p-3">
+      <SegmentedControl
+        aria-label={t('Direction')}
+        size={40}
+        fullWidth
+        value={side}
+        onValueChange={(v) => {
+          setSide(v as Side);
+          touch();
+        }}
+        items={[
+          { value: 'long', label: t('Long'), tone: 'up' },
+          { value: 'short', label: t('Short'), tone: 'down' },
+        ]}
+      />
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-fg-2">{t('Margin mode')}</span>
+        <span className="flex items-center gap-2">
+          <Badge>{t('Isolated')}</Badge>
+          <Popover>
+            <PopoverTrigger render={<Button variant="ghost" size={28} />}>{t('Why only isolated')}</PopoverTrigger>
+            <PopoverContent>
+              <PopoverDescription>{t('Isolated rule')}</PopoverDescription>
+            </PopoverContent>
+          </Popover>
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-fg-2">{t('Order type')}</span>
+        <Menu>
+          <MenuContent align="end">
+            <MenuLabel>{t('Order types off')}</MenuLabel>
+            {ORDER_TYPES.map((key) => (
+              <MenuItem key={key} disabled>
+                {t(key)}
+              </MenuItem>
+            ))}
+          </MenuContent>
+          <MenuTrigger render={<Button variant="secondary" size={32} />}>
+            {t('Market at accepted mark')}
+            <span aria-hidden="true"> ▾</span>
+          </MenuTrigger>
+        </Menu>
+      </div>
+
+      <div className="flex items-center justify-between gap-2" aria-live="polite">
+        <span className="text-sm text-fg-2">{t('Mark')}</span>
+        <span className="flex items-center gap-2">
+          <span className="if-num">{markNow === null ? '—' : price(markNow)}</span>
+          <StatusChip
+            kind={markNow === null && strip.status === 'ready' ? 'unknown' : undefined}
+            asOf={markAsOf}
+            now={now}
+            staleAfterMs={STALE_AFTER_MS.strip}
+            refused={strip.status === 'refused'}
+            labels={{ stale: t('Stale mark'), unknown: t('No mark') }}
+            reason={markNow === null ? t('No mark reason') : undefined}
+            density="dense"
+          />
+        </span>
+      </div>
+
+      <Field label={t('Size')} hint={baseNote ?? undefined}>
+        <Input
+          kind="decimal"
+          value={sizeRaw}
+          precision={sizePlaces(market)}
+          onValueChange={(v) => {
+            setSizeRaw(v);
+            touch();
+          }}
+          trailing={unit === 'base' ? market.base : t('Contracts')}
+        />
+      </Field>
+      {contractsAllowed(market) ? (
+        <SegmentedControl
+          aria-label={t('Size unit')}
+          size={28}
+          value={unit}
+          onValueChange={(v) => {
+            // A converted number would need division and could round; starting empty keeps the size exact.
+            setUnit(v as SizeUnit);
+            setSizeRaw('');
+            touch();
+          }}
+          items={[
+            { value: 'base', label: t('Base', { asset: market.base }) },
+            { value: 'contracts', label: t('Contracts') },
+          ]}
+        />
+      ) : (
+        <p className={note}>{t('Contracts off')}</p>
+      )}
+      <div role="group" aria-label={t('Percent of max group')} className="flex flex-wrap gap-2">
+        {PERCENTS.map((pct) => (
+          <Button
+            key={pct}
+            variant="secondary"
+            size={28}
+            disabled={percentTo(pct) === null}
+            onClick={() => {
+              setSizeRaw(percentTo(pct) ?? '');
+              touch();
+            }}
+          >
+            {t('Percent of max', { pct: String(pct) })}
+          </Button>
+        ))}
+      </div>
+      <p className={note}>{percentOff ?? (markNow === null || free === null ? t('Percent needs mark') : t('Percent is estimate'))}</p>
+
+      <Field label={t('Leverage')} hint={t('Leverage hint')}>
+        <Input
+          kind="decimal"
+          value={leverage}
+          precision={2}
+          onValueChange={(v) => {
+            setLeverage(v);
+            touch();
+          }}
+          trailing="x"
+        />
+      </Field>
+      {presets.length > 0 ? (
+        <div role="group" aria-label={t('Leverage presets')} className="flex flex-wrap gap-2">
+          {presets.map((x) => (
+            <Button
+              key={x}
+              variant="secondary"
+              size={28}
+              onClick={() => {
+                setLeverage(x);
+                touch();
+              }}
+            >
+              {t('Leverage preset', { x })}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <span id="ticket-reduce" className="text-sm text-fg-2">
+            {t('Reduce only')}
+          </span>
+          <Switch disabled aria-labelledby="ticket-reduce" aria-describedby="ticket-reduce-why" />
+        </div>
+        <p id="ticket-reduce-why" className={note}>
+          {t('Reduce only off')}
+        </p>
+      </div>
+      <Collapsible disabled>
+        <CollapsibleTrigger aria-describedby="ticket-tpsl-why" className="w-full text-left text-sm text-fg-2">
+          {t('Take profit stop loss')}
+        </CollapsibleTrigger>
+        <p id="ticket-tpsl-why" className={note}>
+          {t('Take profit off')}
+        </p>
+      </Collapsible>
+
+      <Button
+        variant="secondary"
+        fullWidth
+        disabled={reviewOff !== null}
+        loading={review.status === 'loading'}
+        onClick={() => void runReview()}
+      >
+        {review.status === 'loading' ? t('Reviewing') : t('Review')}
+      </Button>
+      {reviewOff !== null ? <p className={note}>{offWords[reviewOff]}</p> : null}
+
+      <h3 className="text-sm font-medium">{t('All in cost')}</h3>
+      {review.status === 'loading' ? <Skeleton className="h-40 w-full" /> : null}
+      {review.status === 'error' ? <StateBlock kind="error" thing={t('Preview error')} onRetry={() => void runReview()} /> : null}
+      {review.status === 'refused' ? (
+        <EmptyState
+          variant="refused"
+          size="inline"
+          title={review.refusal.title}
+          reason={review.refusal.body}
+          code={review.refusal.code ?? undefined}
+        />
+      ) : null}
+      {shown && review.status === 'ready' ? (
+        <>
+          <KeyValue density="dense" items={costItems(shown, review.at)} unknownLabel={t('Unknown figure')} now={now} />
+          {shown.refusals.map((r) => (
+            <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn">
+              {r.message}
+            </p>
+          ))}
+        </>
+      ) : review.status === 'idle' || (review.status === 'ready' && !shown) ? (
+        <p className={note}>{t('Review to see cost')}</p>
+      ) : null}
+
+      {disclosureState === 'unacknowledged' && disclosure.status === 'ready' ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+          <h3 className="text-sm font-medium">{t('ADL title')}</h3>
+          <p className={note}>{disclosure.data.copy}</p>
+          <Button variant="secondary" size={32} loading={acking === 'busy'} onClick={() => void acknowledge()}>
+            {t('Acknowledge')}
+          </Button>
+          {acking === 'failed' ? <p className="text-xs text-warn">{t('Acknowledge failed')}</p> : null}
+        </div>
+      ) : null}
+
+      <Button
+        variant={side === 'long' ? 'buy' : 'sell'}
+        fullWidth
+        disabled={openOff !== null}
+        loading={writer.busy}
+        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false })}
+      >
+        {side === 'long' ? t('Open long') : t('Open short')}
+      </Button>
+      {openWhy !== null ? <p className={note}>{openWhy}</p> : null}
+
+      <Outcome
+        writer={writer}
+        onCheck={(p, resend) => void writer.check(p, { resend }).then(finish)}
+        onAgain={() => {
+          writer.dismiss();
+          touch();
+        }}
+      />
+
+      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && !confirm?.checking && setConfirm(null)}>
+        {confirm ? (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {side === 'long' ? t('Confirm title long', { symbol: market.symbol }) : t('Confirm title short', { symbol: market.symbol })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirm.changed
+                  ? t('Confirm changed')
+                  : allInCost(confirm.data, free).totalToCommit === null
+                    ? t('Confirm body unknown')
+                    : t('Confirm body', { total: fmtAmount(allInCost(confirm.data, free).totalToCommit), asset })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <KeyValue
+              density="dense"
+              unknownLabel={t('Unknown figure')}
+              items={[
+                { label: t('Direction'), value: sideWord },
+                { label: t('Size row'), value: form ? `${fmtAmount(form.size)} ${market.base}` : null },
+                { label: t('Leverage row'), value: form ? `${fmtAmount(form.leverage)}x` : null },
+                ...costItems(confirm.data, null),
+              ]}
+            />
+            <AlertDialogFooter>
+              <Button variant="secondary" disabled={confirm.checking} onClick={() => setConfirm(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                variant={side === 'long' ? 'buy' : 'sell'}
+                loading={confirm.checking}
+                disabled={gate(confirm.data) !== null}
+                onClick={() => void confirmOpen()}
+              >
+                {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
+    </section>
+  );
+}
+
+/** What the last write did, in place. An unconfirmed request keeps the ticket locked until "Check status" gets an answer. */
+function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending: Pending, resend?: boolean): void; onAgain(): void }) {
+  const { t } = ticketCopy.useCopy();
+  const { outcome, note: held } = writer;
+  if (held.state === 'unreadable')
+    return <EmptyState variant="refused" size="inline" title={t('Unknown title')} reason={t('Unreadable body')} />;
+  if (held.state === 'pending' || outcome?.kind === 'uncertain') {
+    const pending = held.state === 'pending' ? held.pending : null;
+    return (
+      <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
+        <h3 className="text-sm font-medium">{t('Unknown title')}</h3>
+        <p className={note}>{t('Unknown body')}</p>
+        <p className="if-mono break-all text-xs text-fg-2">
+          {t('Unknown id', { id: pending?.id ?? (outcome?.kind === 'uncertain' ? outcome.id : '—') })}
+        </p>
+        {pending ? (
+          <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending)}>
+            {t('Check status')}
+          </Button>
+        ) : null}
+        {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
+          <>
+            <p className={note}>{t('Not found body')}</p>
+            <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
+              {t('Send same request again')}
+            </Button>
+          </>
+        ) : null}
+        {outcome?.kind === 'blocked' ? <p className="text-xs text-warn">{t(`Blocked ${outcome.reason}`)}</p> : null}
+      </div>
+    );
+  }
+  if (outcome?.kind === 'done') {
+    const status = stateOf(outcome.position);
+    const word = status === 'unknown' ? t('Status unknown') : status;
+    return (
+      <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
+        <h3 className="text-sm font-medium">{t('Opened title')}</h3>
+        <p className="text-sm">
+          {outcome.position.id ? t('Opened body', { id: outcome.position.id, status: word }) : t('Opened no id', { status: word })}
+        </p>
+        <Button variant="secondary" size={32} onClick={onAgain}>
+          {t('Open another')}
+        </Button>
+      </div>
+    );
+  }
+  if (outcome?.kind === 'refused')
+    return (
+      <EmptyState
+        variant="refused"
+        size="inline"
+        title={outcome.refusal.title}
+        reason={outcome.refusal.body}
+        code={outcome.refusal.code ?? undefined}
+      />
+    );
+  if (outcome?.kind === 'blocked')
+    return (
+      <p role="status" className="text-xs text-warn">
+        {t(`Blocked ${outcome.reason}`)}
+      </p>
+    );
+  return null;
+}

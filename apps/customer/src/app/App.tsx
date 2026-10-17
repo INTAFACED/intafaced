@@ -9,12 +9,13 @@ import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
-import { hiddenFeatureFor, isDevBuild, tabHome, type Feature } from './feature-registry';
+import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
 import { LegacyRoom, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { screens } from './screens';
 import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
+import { ParkedProtocolRoomAt } from '../features/protocol';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -100,15 +101,9 @@ export function App() {
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const hidden = hiddenFeatureFor(path, search);
-  // One redirect rule per render, in this order: a hidden feature in a customer build, an alias row, signed-in `/`.
-  const redirectTo =
-    !devFeatures && hidden && !dev
-      ? tabHome(hidden)
-      : room?.alias
-        ? resolveAlias(room, path, search)
-        : path === '/' && session
-          ? '/home'
-          : undefined;
+  // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
+  // build, so the Docker image opens exactly what `vite dev` opens.
+  const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
@@ -205,13 +200,12 @@ export function App() {
       </Page>
     </div>
   ) : room?.area === 'parked' ? (
-    <div className="legacy-room">
-      <Page title={t('This room is parked')}>
-        <EmptyState title={t('Chain services are not active')}>
-          {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
-        </EmptyState>
-      </Page>
-    </div>
+    // Parked rooms sit in the normal shell (top bar, door "More") but stay out of customerRoomHref, so they are
+    // never a sign-in return target.
+    <Shell door="More" path={path}>
+      {ribbon}
+      <ParkedProtocolRoomAt path={path} />
+    </Shell>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}
