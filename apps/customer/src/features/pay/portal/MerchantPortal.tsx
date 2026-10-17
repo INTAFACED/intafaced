@@ -12,6 +12,7 @@ import { DisabledAction, NoBusiness } from './access/NoBusiness';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import { headerActionReason } from './access/headerActions';
 import { MerchantAccessProvider, useMerchantAccess } from './access/MerchantAccess';
+import { RefusalOnceProvider } from './components';
 import { authorityFromAccess } from './access/authority';
 
 /**
@@ -80,7 +81,7 @@ export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx
       actionOff={noBusiness}
       actionReason={noBusiness ? undefined : headerActionReason(route.room, ctx.access, pay)}
     >
-      {body}
+      <RefusalOnceProvider>{body}</RefusalOnceProvider>
     </PortalFrame>
   );
 }

@@ -69,6 +69,32 @@ describe('business access: the service answers', () => {
   });
 });
 
+describe('business access: a person who may only start a business (pay:onboard, no pay:read)', () => {
+  // merchant.myAccess answers 403, merchant.me answers null, the team read is refused or says "not a member".
+  const onboardOnly = (patch: Partial<AccessInputs> = {}) =>
+    inputs({ myAccess: failure('forbidden') as Resource<MyAccess>, merchant: ready<MerchantRecord | null>(null), ...patch });
+  it('has no business account, not a refusal', () => {
+    for (const team of [failure('forbidden'), failure('forbidden', 'pay.merchant_ops_not_merchant'), failure('forbidden', 'pay.team_member_not_found')]) {
+      expect(resolveAccess(onboardOnly({ team: team as AccessInputs['team'] })).status).toBe('none');
+    }
+  });
+  it('has no business account when the owner record read is refused too', () => {
+    expect(resolveAccess(onboardOnly({ merchant: failure('forbidden') as AccessInputs['merchant'] })).status).toBe('none');
+  });
+  it('waits while the other reads load', () => {
+    expect(resolveAccess(onboardOnly({ team: loading })).status).toBe('loading');
+    expect(resolveAccess(onboardOnly({ merchant: loading })).status).toBe('loading');
+  });
+  it('fails closed when the other reads cannot be reached, because that proves nothing', () => {
+    expect(resolveAccess(onboardOnly({ merchant: failure('unreachable') as AccessInputs['merchant'] })).status).toBe('failed');
+  });
+  it('keeps the refusal for someone who does hold a business', () => {
+    expect(resolveAccess(onboardOnly({ merchant: ready(record()) })).status).toBe('failed');
+    const seat = ready({ merchantId: MERCHANT, userId: ME, role: 'viewer' as const });
+    expect(resolveAccess(onboardOnly({ team: seat as AccessInputs['team'] })).status).toBe('failed');
+  });
+});
+
 describe('business access: the owner fallback (merchant.myAccess not live)', () => {
   it('makes the owner only from a record that names the signed-in user', () => {
     const access = resolveAccess(inputs({ merchant: ready(record()) }));

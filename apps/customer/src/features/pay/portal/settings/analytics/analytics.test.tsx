@@ -164,7 +164,8 @@ describe('volume page', () => {
       <Volume resource={{ status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: '' } as never }} />,
     );
     expect(out).not.toContain('pp-kpi');
-    expect(out).toMatch(/not allowed|allowed/i);
+    expect(out).toContain('Ask the account owner to change your role');
+    expect(out).not.toContain('Try again');
   });
 });
 

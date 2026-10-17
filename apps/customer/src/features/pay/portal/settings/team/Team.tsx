@@ -279,6 +279,9 @@ function Invitations({ portal, invitations, refresh }: { portal: PortalApi; invi
 /** The same invitations for a person with no business account: the one thing on the team page that is theirs. */
 export function InvitationsOnly({ portal }: { portal: PortalApi }) {
   const invitations = useResource((s) => portal.myInvitations(s), 'portal:team-invites');
+  // A person who holds no business permission at all has no invitations to answer: the service refuses the read, and the
+  // page already says "No business account yet", so a second refusal beside it would only repeat itself.
+  if (invitations.resource.status === 'failed' && invitations.resource.failure.reason === 'forbidden') return null;
   return <Invitations portal={portal} invitations={invitations.resource} refresh={invitations.reload} />;
 }
 

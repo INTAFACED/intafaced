@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock, StatusTag } from '@intafaced/ui';
@@ -17,6 +17,24 @@ import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
+/** One page says each refusal once: the first failure to draw a given title and text keeps it, the rest draw nothing. */
+type Once = { claim: (key: string, owner: string) => boolean; release: (key: string, owner: string) => void };
+const RefusalOnce = createContext<Once | null>(null);
+export function RefusalOnceProvider({ children }: { children: ReactNode }) {
+  const owners = useRef(new Map<string, string>());
+  const store = useRef<Once>({
+    claim: (key, owner) => {
+      const held = owners.current.get(key);
+      if (held === undefined) owners.current.set(key, owner);
+      return held === undefined || held === owner;
+    },
+    release: (key, owner) => {
+      if (owners.current.get(key) === owner) owners.current.delete(key);
+    },
+  });
+  return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
@@ -33,7 +51,13 @@ export const NotLive = NotLiveCard;
 export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
+  const once = useContext(RefusalOnce);
+  const id = useId();
+  const key = `${refusalTitle(result)}|${refusalText(result)}`;
+  useEffect(() => () => once?.release(key, id), [once, key, id]);
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
+  // The same refusal, twice on one page, is said once.
+  if (once && !once.claim(key, id)) return null;
   return (
     <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
@@ -51,8 +75,10 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
           {t('signIn')}
         </a>
       ) : (
+        // Asking again never turns a "you may not" into a "yes", so a refusal for permission has no Try again.
         retry &&
-        result.reason !== 'uncertain' && (
+        result.reason !== 'uncertain' &&
+        result.reason !== 'forbidden' && (
           <Button variant="secondary" onClick={retry}>
             {t('tryAgain')}
           </Button>

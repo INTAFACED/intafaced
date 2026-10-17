@@ -66,8 +66,13 @@ export function resolveAccess({ sessionUserId, myAccess, merchant, team }: Acces
     const first = myAccess.data.memberships[0];
     return first ? toReady(first) : { status: 'none' };
   }
-  if (myAccess.status === 'failed' && !isNotLive(myAccess.failure)) return { status: 'failed', failure: myAccess.failure };
+  // A refusal for "you may not read this" from someone who holds no business permission is the same fact as "no business
+  // account": the service gives a person who has only the right to start one a 403 here. It is settled below, from the
+  // two reads that person can make. Every other failure grants nothing.
+  const noPermission = myAccess.status === 'failed' && myAccess.failure.reason === 'forbidden' && !isNotLive(myAccess.failure);
+  if (myAccess.status === 'failed' && !noPermission && !isNotLive(myAccess.failure)) return { status: 'failed', failure: myAccess.failure };
   if (myAccess.status === 'loading' || merchant.status === 'loading') return { status: 'loading' };
+  if (noPermission && myAccess.status === 'failed') return settleWithoutPermission(myAccess.failure, merchant, team, sessionUserId);
   // From here `merchant.myAccess` is not live: work it out from the two reads that are.
   const owner = merchant.status === 'ready' ? ownerFromRecord(merchant.data, sessionUserId) : null;
   if (owner) return fromDerived(owner);
@@ -79,6 +84,28 @@ export function resolveAccess({ sessionUserId, myAccess, merchant, team }: Acces
   // could not be reached proves nothing, so it fails closed instead of sending a real member to set up a business.
   if (merchant.status === 'failed') return { status: 'failed', failure: merchant.failure };
   if (team.status === 'failed' && !isNotAMember(team.failure)) return { status: 'failed', failure: team.failure };
+  return { status: 'none' };
+}
+
+/**
+ * `merchant.myAccess` said 403. A person who holds a business (an owner record, a team seat) and is still refused
+ * keeps that refusal: it grants nothing and says so plainly. A person who holds none is a person with no business
+ * account, whether the other reads said "not a merchant", were refused too, or came back empty. Only a read that
+ * could not be reached (so we cannot tell) fails closed.
+ */
+function settleWithoutPermission(
+  refusal: Failed,
+  merchant: Resource<MerchantRecord | null>,
+  team: Resource<TeamMe>,
+  sessionUserId: string | null,
+): Access {
+  if (team.status === 'loading') return { status: 'loading' };
+  const hasRecord = merchant.status === 'ready' && merchant.data !== null;
+  const hasSeat = team.status === 'ready' && memberFromTeam(team.data, sessionUserId) !== null;
+  if (hasRecord || hasSeat) return { status: 'failed', failure: refusal };
+  const unreadable = (r: Resource<unknown>) => r.status === 'failed' && r.failure.reason !== 'forbidden' && !isNotAMember(r.failure);
+  if (merchant.status === 'failed' && unreadable(merchant)) return { status: 'failed', failure: merchant.failure };
+  if (team.status === 'failed' && unreadable(team)) return { status: 'failed', failure: team.failure };
   return { status: 'none' };
 }
 
