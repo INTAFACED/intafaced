@@ -538,7 +538,14 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
 test('Pro Money: Available + In orders + In spaces add up to Amount (USDT 3,795 + 5 + 300 = 4,100)', async ({ page }) => {
   await mock(page, {
     rest: {
-      balance: () => balances({ USDT: { free: '3795', used: '5', total: '3800.00' }, BTC: { free: '0.06', used: '0', total: '0.06' } }),
+      balance: () =>
+        balances({
+          USDT: { free: '3795', used: '5', total: '3800.00' },
+          BTC: { free: '0.06', used: '0', total: '0.06' },
+          ETH: { free: '0.5', used: '0', total: '0.5' },
+          DOGE: { free: '5', used: '0', total: '5' },
+          ZED: { free: '12', used: '0', total: '12' },
+        }),
     },
   });
   await pro(page);
