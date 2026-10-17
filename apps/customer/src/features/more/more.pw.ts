@@ -20,7 +20,7 @@ test('Quant Studio keeps the draft on this device, closes the shared library, an
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
   expect(saves).toEqual([]);
 });
-test('Quant Backtest closes the shared library in its catalogue and makes no list call', async ({ page }) => {
+test('Quant Backtest lists only local drafts, never reads the shared library, and asks for a Studio strategy first', async ({ page }) => {
   const listed: string[] = [];
   await page.route('**/api/**', async (route) => {
     const proc = new URL(route.request().url()).pathname.split('/').at(-1);
@@ -28,8 +28,9 @@ test('Quant Backtest closes the shared library in its catalogue and makes no lis
     await route.fulfill({ json: { result: { data: { strategies: [] } } } });
   });
   await page.goto('/quant/backtest');
-  await page.locator('details.quant-catalogue > summary').click();
-  await expect(page.getByText('Saved strategies are not private to accounts yet, so the shared library is closed.')).toBeVisible();
+  await expect(page.getByText('Create a strategy in Studio first')).toBeVisible();
+  await expect(page.getByLabel('Your hypothesis')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review historical analysis' })).toBeDisabled();
   expect(listed).toEqual([]);
 });
 test('campaign assessment shows the real warehouse refusal and sends no publication request', async ({ page }) => {
@@ -602,37 +603,20 @@ test('academy deep link loads source learning content and reviews completion wit
   expect(await page.evaluate(() => Reflect.get(window, 'unsafe'))).toBeUndefined();
   expect(writes).toBe(1);
 });
-test('blueprint onboarding sends keyed answers as the signed actor and clears optional birth data', async ({ page }) => {
-  let seen: unknown;
+test('blueprint session stays switched off with the reason and sends no free-text answers', async ({ page }) => {
+  const sent: string[] = [];
   await page.route('**/api/**', async (route) => {
-    const proc = new URL(route.request().url()).pathname.split('/').at(-1);
-    let data: unknown = null;
-    if (proc === 'mentors') data = [];
-    if (proc === 'onboard') {
-      seen = route.request().postDataJSON();
-      await route.fulfill({
-        status: 412,
-        json: { error: { message: 'Neural Engine is unavailable', data: { code: 'PRECONDITION_FAILED' } } },
-      });
-      return;
-    }
-    await route.fulfill({ json: { result: { data } } });
+    const proc = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
+    if (proc === 'onboard') sent.push(proc);
+    await route.fulfill({ json: { result: { data: proc === 'mentors' ? [] : null } } });
   });
   await page.goto('/blueprint');
-  await page.getByLabel('Answer key').fill('learning', { timeout: 3000 });
-  await page.getByLabel('Your answer').fill('I learn by building.');
-  await page.getByLabel('Birth date (optional)').fill('2000-01-01');
-  await page.getByRole('button', { name: 'Review Blueprint session' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Run Blueprint session' }).click();
-  await expect(page.getByText('Neural Engine is unavailable')).toBeVisible();
-  expect(seen).toMatchObject({
-    responses: [{ key: 'learning', value: 'I learn by building.' }],
-    birthData: { date: '2000-01-01' },
-    visibility: 'private',
-    mentorAvailable: false,
-  });
-  expect(seen).not.toHaveProperty('userId');
-  await expect(page.getByLabel('Birth date (optional)')).toHaveValue('');
+  await expect(page.getByText('The Blueprint service does not publish its question list', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create your Blueprint' })).toBeDisabled();
+  await expect(page.getByLabel('Answer key')).toHaveCount(0);
+  await expect(page.getByLabel('Initial visibility')).toBeDisabled();
+  await expect(page.getByLabel('Opt in to mentor availability')).toBeDisabled();
+  expect(sent).toEqual([]);
 });
 test('quant sandbox labels server output simulated and never offers live deployment', async ({ page }) => {
   await page.route('**/api/**', async (route) => {
