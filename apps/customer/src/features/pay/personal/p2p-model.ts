@@ -3,7 +3,7 @@
  * cost before fees, offer filters, and offer-form checks. No React, no network. Money is exact decimals.
  */
 import { dec, str, times } from '../../../data/decimal';
-import type { Offer, Trade } from '../schemas';
+import type { Offer, Reputation, TakeQuote, Trade } from '../schemas';
 
 // ── Orders ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -224,6 +224,235 @@ export function checkTake(
   if (typed > max) return { kind: 'aboveMax' };
   if (typed > remaining) return { kind: 'aboveRemaining' };
   return { kind: 'ok', amount: str(typed), fiatTotal: offer.priceType === 'fixed' ? str(times(typed, price)) : null };
+}
+
+// ── Taking an offer ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** True when the signed-in person made this offer. A maker never gets a take form on their own offer. */
+export const isOwnOffer = (offer: Pick<Offer, 'makerId'>, userId: string | null | undefined): boolean =>
+  Boolean(userId) && offer.makerId.toLowerCase() === userId!.toLowerCase();
+
+/** The offer's side is the maker's. The person taking it is on the other side: a maker who sells means the taker buys. */
+export const takerRole = (offer: Pick<Offer, 'side'>): 'buyer' | 'seller' => (offer.side === 'sell' ? 'buyer' : 'seller');
+
+/** One whole-percent string from basis points, exact: 30 -> "0.3", 125 -> "1.25", 0 -> "0". */
+export function feePercent(feeBps: number): string {
+  const whole = Math.floor(feeBps / 100);
+  const fraction = String(feeBps % 100)
+    .padStart(2, '0')
+    .replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : String(whole);
+}
+
+export type TakeRequest = { offerId: string; amount: string; method: string };
+export type TakeRequestCheck =
+  { ok: true; request: TakeRequest } | { ok: false; kind: Exclude<TakeCheck['kind'], 'ok'> | 'noMethod' | 'inactive' };
+
+/**
+ * The one request a quote and a take are built from. Same amount text, same method, same offer: the reviewed figures
+ * can only ever describe the order that is then placed.
+ */
+export function takeRequest(
+  offer: Pick<Offer, 'id' | 'status' | 'priceType' | 'price' | 'minAmount' | 'maxAmount' | 'remainingAmount' | 'methods'>,
+  amountText: string,
+  method: string,
+): TakeRequestCheck {
+  if (offer.status !== 'active') return { ok: false, kind: 'inactive' };
+  const check = checkTake(offer, amountText);
+  if (check.kind !== 'ok') return { ok: false, kind: check.kind };
+  if (!method || !offerMethodIds(offer).includes(method)) return { ok: false, kind: 'noMethod' };
+  return { ok: true, request: { offerId: offer.id.toLowerCase(), amount: check.amount, method } };
+}
+
+const same = (a: string, b: string) => {
+  const x = dec(a);
+  const y = dec(b);
+  return x !== null && y !== null && x === y;
+};
+
+/**
+ * A quote is only shown when it describes the request that was sent and adds up: the quantity is the one asked for,
+ * the fee is within it and the net is exactly quantity minus fee, and a fixed offer is priced at the offer's price.
+ * A reply that fails any of these is treated as no quote rather than shown.
+ */
+export function quoteIsConsistent(offer: Pick<Offer, 'priceType' | 'price'>, request: TakeRequest, quote: TakeQuote): boolean {
+  const amount = dec(quote.amount);
+  const fee = dec(quote.fee);
+  const net = dec(quote.netAmount);
+  if (amount === null || fee === null || net === null) return false;
+  if (!same(quote.amount, request.amount)) return false;
+  if (fee > amount || net !== amount - fee) return false;
+  if (offer.priceType === 'fixed' && !same(quote.price, offer.price)) return false;
+  return true;
+}
+
+/** Same figures, ignoring when the reservation would end (that moves with every quote). */
+export const sameQuoteFigures = (a: TakeQuote, b: TakeQuote): boolean =>
+  same(a.amount, b.amount) &&
+  same(a.price, b.price) &&
+  same(a.fiatAmount, b.fiatAmount) &&
+  a.feeBps === b.feeBps &&
+  same(a.fee, b.fee) &&
+  same(a.netAmount, b.netAmount);
+
+/** Terms that must not move between review and confirm. The remaining quantity is left out: other people may take some. */
+export const sameTakeTerms = (a: Offer, b: Offer): boolean =>
+  a.id.toLowerCase() === b.id.toLowerCase() &&
+  a.makerId === b.makerId &&
+  a.side === b.side &&
+  a.asset === b.asset &&
+  a.fiatCurrency === b.fiatCurrency &&
+  a.priceType === b.priceType &&
+  same(a.price, b.price) &&
+  same(a.minAmount, b.minAmount) &&
+  same(a.maxAmount, b.maxAmount) &&
+  a.status === b.status &&
+  a.terms === b.terms &&
+  JSON.stringify(a.methods) === JSON.stringify(b.methods);
+
+/** Does a returned order describe exactly the take that was asked for, for this person on the right side? */
+export function tradeMatchesTake(
+  trade: Trade,
+  offer: Pick<Offer, 'id' | 'makerId' | 'side' | 'asset' | 'fiatCurrency'>,
+  userId: string,
+  request: Pick<TakeRequest, 'amount' | 'method'> | null,
+  tradeId: string,
+): boolean {
+  const taker = offer.side === 'sell' ? trade.buyerId : trade.sellerId;
+  const maker = offer.side === 'sell' ? trade.sellerId : trade.buyerId;
+  return (
+    trade.id.toLowerCase() === tradeId.toLowerCase() &&
+    trade.offerId.toLowerCase() === offer.id.toLowerCase() &&
+    taker.toLowerCase() === userId.toLowerCase() &&
+    maker.toLowerCase() === offer.makerId.toLowerCase() &&
+    trade.asset === offer.asset &&
+    trade.fiatCurrency === offer.fiatCurrency &&
+    (request === null || (trade.method === request.method && same(trade.amount, request.amount)))
+  );
+}
+
+export type TakeFailure =
+  | 'unconfirmed'
+  | 'notFound'
+  | 'termsChanged'
+  | 'quoteChanged'
+  | 'ownOffer'
+  | 'unavailable'
+  | 'blocked'
+  | 'methodRefused'
+  | 'tooSmall'
+  | 'outOfBounds'
+  | 'signIn'
+  | 'noRecord'
+  | 'viewChanged'
+  | 'noService'
+  | 'generic';
+
+/** Service refusals that are proof nothing was reserved or locked: they are raised before any inventory moves. */
+export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
+  'p2p.invalid_amount',
+  'p2p.amount_below_min',
+  'p2p.amount_above_max',
+  'p2p.insufficient_offer_liquidity',
+  'p2p.offer_not_active',
+  'p2p.offer_not_found',
+  'p2p.self_trade',
+  'p2p.blocked',
+  'p2p.take_refused',
+  'p2p.release_unpostable',
+  'p2p.trading_disabled',
+  'p2p.fee_bps_unset',
+  'p2p.invalid_fee_bps',
+]);
+/** Replies that can follow a reservation or a lock: the order may exist, so these are never "nothing happened". */
+export const OPEN_TAKE_CODES: ReadonlySet<string> = new Set([
+  'p2p.trade_exists',
+  'p2p.escrow_lock_uncertain',
+  'p2p.escrow_terms_unproven',
+  'p2p.escrow_missing',
+  'p2p.trade_moved',
+]);
+
+/**
+ * Whether a refused take is proof it did not happen. Only a named pre-lock refusal, or a plain request rejection
+ * (bad request, not signed in, not allowed, not found), counts. A conflict, a precondition failure, a server error
+ * or anything unrecognised may follow a reservation, so it is reported as unconfirmed and never retried blind.
+ */
+export function takeRefusalIsDefinite(failure: { reason: string; code?: string; status?: number }): boolean {
+  if (failure.reason === 'uncertain' || failure.reason === 'aborted') return false;
+  if (failure.code && DEFINITE_TAKE_CODES.has(failure.code)) return true;
+  if (failure.code && OPEN_TAKE_CODES.has(failure.code)) return false;
+  return failure.status !== undefined && [400, 401, 403, 404, 422].includes(failure.status);
+}
+
+/** A refusal as one plain kind. The screen turns the kind into words; no service text or code reaches the customer. */
+export function takeFailureKind(failure: { reason: string; code?: string; status?: number }): TakeFailure {
+  switch (failure.code) {
+    case 'pay.take_unconfirmed':
+    case 'pay.operation_unresolved':
+    case 'pay.reconciliation_in_progress':
+      return 'unconfirmed';
+    case 'pay.take_not_found':
+      return 'notFound';
+    case 'pay.take_terms_changed':
+      return 'termsChanged';
+    case 'pay.take_quote_changed':
+      return 'quoteChanged';
+    case 'pay.take_own_offer':
+    case 'p2p.self_trade':
+      return 'ownOffer';
+    case 'pay.take_offer_unavailable':
+    case 'p2p.offer_not_active':
+    case 'p2p.offer_not_found':
+    case 'p2p.trading_disabled':
+      return 'unavailable';
+    case 'p2p.blocked':
+      return 'blocked';
+    case 'p2p.take_refused':
+      return 'methodRefused';
+    case 'p2p.release_unpostable':
+      return 'tooSmall';
+    case 'p2p.invalid_amount':
+    case 'p2p.amount_below_min':
+    case 'p2p.amount_above_max':
+    case 'p2p.insufficient_offer_liquidity':
+      return 'outOfBounds';
+    case 'pay.recovery_journal_unavailable':
+      return 'noRecord';
+    case 'pay.p2p_view_changed':
+    case 'pay.reconciliation_context_changed':
+      return 'viewChanged';
+  }
+  if (failure.reason === 'unauthorized' || failure.code === 'pay.session_required') return 'signIn';
+  if (failure.reason === 'uncertain') return 'unconfirmed';
+  if (failure.reason === 'unreachable' || failure.reason === 'not_supported') return 'noService';
+  return 'generic';
+}
+
+// ── Who is on the other side ────────────────────────────────────────────────────────────────────────────────────
+
+export type MakerSummary = { kind: 'new' } | { kind: 'record'; orders: number; completionRate: number; releaseSecs: number | null };
+
+/** What to say about a maker from the reputation the service returned. Only returned fields; nothing is derived or filled in. */
+export function makerSummary(
+  reputation: Pick<Reputation, 'tradesTotal' | 'completed' | 'completionRate' | 'avgReleaseSecs'>,
+): MakerSummary {
+  if (reputation.tradesTotal === 0) return { kind: 'new' };
+  return {
+    kind: 'record',
+    orders: reputation.tradesTotal,
+    completionRate: reputation.completionRate,
+    // Release time is an average over completed orders; with none completed there is nothing to average.
+    releaseSecs: reputation.completed > 0 ? reputation.avgReleaseSecs : null,
+  };
+}
+
+/** Seconds as the two largest units: 45 -> {s:45}, 190 -> {m:3,s:10}, 7500 -> {h:2,m:5}. */
+export function splitDuration(seconds: number): { unit: 'seconds' | 'minutes' | 'hours'; major: number; minor: number | null } {
+  const total = Math.max(0, Math.floor(seconds));
+  if (total < 60) return { unit: 'seconds', major: total, minor: null };
+  if (total < 3600) return { unit: 'minutes', major: Math.floor(total / 60), minor: total % 60 };
+  return { unit: 'hours', major: Math.floor(total / 3600), minor: Math.floor((total % 3600) / 60) };
 }
 
 // ── Offer form ──────────────────────────────────────────────────────────────────────────────────────────────────

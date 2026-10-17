@@ -148,8 +148,21 @@ export const reputationSchema = z
     avgReleaseSecs: z.number().int().nonnegative().max(2147483647),
     badges: z.array(z.string()),
     merchant: z.boolean().nullable(),
+    /** Public handle from identity. Null or absent when the service has none to give; never guessed. */
+    handle: z.string().min(1).max(64).nullish(),
+    memberSince: z.string().nullish(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
+/** What `trades.quote` returns: exact figures for one take, before anything is locked. */
+export const takeQuoteSchema = z.object({
+  amount: positiveAmount,
+  price: amount,
+  fiatAmount: amount,
+  feeBps: z.number().int().nonnegative().max(9999),
+  fee: amount,
+  netAmount: amount,
+  reservationExpiresAt: z.string().datetime({ offset: true }),
+});
 export const p2pStandingSchema = z.object({
   userId: z.string(),
   status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
@@ -394,5 +407,7 @@ export const webhookDeliverySchema = z.object({
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
+export type TakeQuote = z.infer<typeof takeQuoteSchema>;
+export type Reputation = z.infer<typeof reputationSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
