@@ -395,7 +395,7 @@ export class AuthService {
 
   /**
    * Install the svc-pay owner-grant lookup. Identity does not decide the law;
-   * it only attaches `pay:read` and `pay:write` when pay returns them.
+   * it only attaches `pay:read`, `pay:write`, and `pay:onboard` when pay returns them.
    */
   useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
     this.ownerPayScopeSource = source;
@@ -1724,7 +1724,7 @@ export class AuthService {
 
   /**
    * Scopes for a newly issued access token. Ordinary session scopes, plus
-   * `pay:read` and `pay:write` when the published owner grant says so.
+   * `pay:read`, `pay:write`, and `pay:onboard` when the published grant says so.
    * Refund, payout, and anything else pay might return are dropped.
    * A lookup failure leaves the ordinary session in place.
    */
@@ -1744,6 +1744,7 @@ export class AuthService {
     const extra: Scope[] = [];
     if (granted.includes('pay:read')) extra.push('pay:read');
     if (granted.includes('pay:write')) extra.push('pay:write');
+    if (granted.includes('pay:onboard')) extra.push('pay:onboard');
     return [...base, ...extra];
   }
 }

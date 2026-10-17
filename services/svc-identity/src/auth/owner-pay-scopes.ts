@@ -8,14 +8,24 @@
 
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 
+export type OwnerPayScopeUserSnapshot = {
+  accountStatus: string;
+  emailVerified: boolean;
+  secondFactorEnrolled: boolean;
+};
+
 export async function fetchOwnerPayScopes(input: {
   payUrl: string;
   secret: string;
   userId: string;
+  user?: OwnerPayScopeUserSnapshot | null;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Promise<readonly string[]> {
-  const body = JSON.stringify({ userId: input.userId });
+  const body = JSON.stringify({
+    userId: input.userId,
+    ...(input.user ? { user: input.user } : {}),
+  });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), input.timeoutMs ?? 2_000);
   try {

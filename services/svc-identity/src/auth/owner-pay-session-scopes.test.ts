@@ -35,6 +35,14 @@ describe('scopesForNewAccessToken', () => {
     expect(scopes).toEqual([...SESSION_SCOPES, 'pay:read', 'pay:write']);
     expect(scopes).not.toContain('pay:refund');
     expect(scopes).not.toContain('pay:payout');
+    expect(scopes).not.toContain('pay:onboard');
+  });
+
+  it('attaches pay:onboard when the grant returns it and still drops refund and payout', async () => {
+    const auth = service();
+    auth.useOwnerPayScopeSource(async () => ['pay:onboard', 'pay:refund', 'pay:payout']);
+    const scopes = await auth.scopesForNewAccessToken(USER);
+    expect(scopes).toEqual([...SESSION_SCOPES, 'pay:onboard']);
   });
 
   it('keeps the ordinary session when the grant lookup fails', async () => {

@@ -142,8 +142,8 @@ const schema = serviceEnvSchema
       /**
        * svc-pay base URL for the owner pay-scope grant lookup at session issue.
        * Unset → sessions stay on ordinary scopes (the grant is not consulted).
-       * Set → identity asks pay and attaches only pay:read and pay:write when
-       * the published law allows them.
+       * Set → identity asks pay and attaches pay:read, pay:write, and pay:onboard
+       * when the published law allows them.
        */
       PAY_URL: z.string().url().optional(),
       /**

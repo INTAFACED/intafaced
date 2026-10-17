@@ -28,6 +28,7 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
+import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -570,9 +571,26 @@ registerOwnerPayScopeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   installRawBody: false,
   findOwnedMerchant: async (userId) => {
-    const merchant = await pay.getMerchantByUserId(userId);
-    if (!merchant) return null;
-    return { id: merchant.id, userId: merchant.userId, kybStatus: merchant.kybStatus, status: merchant.status };
+    const rows = await sql<
+      Array<{
+        id: string;
+        user_id: string;
+        parent_merchant_id: string | null;
+        kyb_status: 'none' | 'pending' | 'approved' | 'rejected';
+        status: 'pending' | 'active' | 'suspended' | 'closed';
+      }>
+    >`
+      SELECT id, user_id, parent_merchant_id, kyb_status, status
+        FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      kybStatus: row.kyb_status,
+      status: row.status,
+      parentMerchantId: row.parent_merchant_id,
+    };
   },
 });
 
@@ -620,6 +638,8 @@ await registerPublicPayRest(app, {
   webhooks: merchantWebhooks,
   trees: subMerchants,
   teamReads: teamReadFromSql(sql),
+  recheckOwnerPayScope: (principal, scope) =>
+    assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
@@ -753,7 +773,13 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    createContext: ({ req }) => ({
+      ...edgeContext(req),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
+      },
+    }),
     responseMeta({ ctx }) {
       const requestId = ctx?.requestId;
       if (!requestId) return {};

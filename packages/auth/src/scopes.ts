@@ -28,6 +28,8 @@ export const SCOPES = [
   'pay:write',
   'pay:refund',
   'pay:payout',
+  // Opening a merchant account. Not an acquiring scope: it cannot move money.
+  'pay:onboard',
 
   // P2P
   'p2p:read',
@@ -140,7 +142,7 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  * tests and — correctly — flagged it rather than changing a shared package
  * unilaterally.
  */
-export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
+export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout', 'pay:onboard'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
@@ -309,6 +311,7 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',
   'pay:payout': 'Merchant acquiring surface, and interactive-only (§9)',
+  'pay:onboard': 'Opens one root merchant account. Interactive only, so it can never sit on an API key. Not issued on an ordinary session.',
 
   // §18 card issuance. In INTERACTIVE_ONLY_SCOPES: it authorises spend from a
   // funded card, so it needs a 2FA session and must never sit on a long-lived

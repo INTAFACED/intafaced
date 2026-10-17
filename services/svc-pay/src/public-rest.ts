@@ -10,7 +10,7 @@ import { allowMerchantRead } from './merchant-read-access.js';
 import { projectPricingSnapshot } from './team-read-projection.js';
 import type { MerchantTeamRead } from './merchant-team-read.js';
 import { areaForSurface, isPayfacPermissionPort, resolveActorMerchantId, type PayfacPermissionPort } from './payfac-permissions.js';
-import { PERMISSION_AREAS, SubMerchantError, type PermissionArea } from './submerchants.js';
+import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type PermissionArea } from './submerchants.js';
 import { type MerchantWebhookService, type WebhookDeliveryStatus } from './merchant-webhooks.js';
 import { PayError, type PayService, type PaymentStatus } from './payment-service.js';
 import { SandboxRailRefusal } from './rails/posture.js';
@@ -135,6 +135,11 @@ export interface PublicRestDeps {
   trees?: MerchantAreaFence | PayfacPermissionPort | null;
   /** Active team members may read payments. Absent keeps owner-or-area only. */
   teamReads?: MerchantTeamRead | null;
+  /**
+   * Recheck an owner's pay:read / pay:write against the live grant.
+   * Absent in unit stubs and the isolation fixture.
+   */
+  recheckOwnerPayScope?: (principal: Principal, scope: 'pay:read' | 'pay:write') => Promise<void>;
 }
 
 /**
@@ -331,6 +336,7 @@ function statusFor(code: string): number {
       return 404;
     case 'pay.merchant_forbidden':
     case 'pay.submerchant_permission_denied':
+    case 'pay.submerchant_consent_required':
     case 'pay.submerchant_not_onboarded':
     case 'pay.submerchant_out_of_scope':
     case 'pay.submerchant_grant_lateral':
@@ -504,16 +510,24 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
    * An unsigned or absent principal is anonymous. Missing scope and missing
    * auth both land as 401 — from the caller's side the next action is the same.
    */
-  function principalOf(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
+  async function principalOf(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const ctx = edge({ headers: req.headers } as EdgeRequest);
     try {
       if (!ctx.principal) throw new Error('anonymous');
       requireScope(ctx.principal, scope);
-      return ctx.principal;
     } catch {
       reply.code(401).send(errorBody(reply, 'pay.unauthorized', `A valid API key with the ${scope} scope is required.`));
       return null;
     }
+    if ((scope === 'pay:read' || scope === 'pay:write') && deps.recheckOwnerPayScope) {
+      try {
+        await deps.recheckOwnerPayScope(ctx.principal, scope);
+      } catch {
+        reply.code(403).send(errorBody(reply, 'pay.owner_grant_withdrawn', 'The owner pay grant no longer includes this scope.'));
+        return null;
+      }
+    }
+    return ctx.principal;
   }
 
   function requireIdempotencyKey(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -601,7 +615,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:read');
+      const principal = await principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         const payment = await deps.pay.getPayment(req.params.id);
@@ -671,7 +685,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       }>,
       reply,
     ) => {
-      const principal = principalOf(req, reply, 'pay:read');
+      const principal = await principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         const audience = await allowMerchantRead({
@@ -723,7 +737,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Querystring: { merchantId: string; assetId: string } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:read');
+      const principal = await principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.balances.read'));
@@ -777,7 +791,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Body: CreateBody }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:write');
+      const principal = await principalOf(req, reply, 'pay:write');
       if (!principal) return reply;
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
@@ -835,7 +849,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string }; Body?: Record<string, never> }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:write');
+      const principal = await principalOf(req, reply, 'pay:write');
       if (!principal) return reply;
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
@@ -876,7 +890,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string }; Body: { amount?: unknown } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:write');
+      const principal = await principalOf(req, reply, 'pay:write');
       if (!principal) return reply;
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
@@ -918,7 +932,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string }; Body: { amount: unknown; refundId?: string } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:refund');
+      const principal = await principalOf(req, reply, 'pay:refund');
       if (!principal) return reply;
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
@@ -1043,7 +1057,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Body: CreateLinkBody }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:write');
+      const principal = await principalOf(req, reply, 'pay:write');
       if (!principal) return reply;
       const key = requireIdempotencyKey(req, reply);
       if (!key) return reply;
@@ -1147,7 +1161,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       }>,
       reply,
     ) => {
-      const principal = principalOf(req, reply, 'pay:read');
+      const principal = await principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payment-links.list'));
@@ -1191,7 +1205,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string }; Querystring: { merchantId: string } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:write');
+      const principal = await principalOf(req, reply, 'pay:write');
       if (!principal) return reply;
       try {
         await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payment-links.deactivate'));
@@ -1283,7 +1297,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Body: { merchantId: string; url: string } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:write');
+        const principal = await principalOf(req, reply, 'pay:write');
         if (!principal) return reply;
         try {
           await assertAccess(principal.userId, req.body.merchantId, areaForSurface('rest.webhooks.write'));
@@ -1327,7 +1341,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Querystring: { merchantId: string; limit?: number } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:read');
+        const principal = await principalOf(req, reply, 'pay:read');
         if (!principal) return reply;
         try {
           await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.webhooks.read'));
@@ -1371,7 +1385,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Params: { id: string }; Querystring: { merchantId: string } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:write');
+        const principal = await principalOf(req, reply, 'pay:write');
         if (!principal) return reply;
         try {
           await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.webhooks.read'));
@@ -1401,7 +1415,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Params: { id: string }; Querystring: { merchantId: string } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:write');
+        const principal = await principalOf(req, reply, 'pay:write');
         if (!principal) return reply;
         try {
           await assertAccess(principal.userId, req.query.merchantId, 'webhook');
@@ -1448,7 +1462,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         }>,
         reply,
       ) => {
-        const principal = principalOf(req, reply, 'pay:read');
+        const principal = await principalOf(req, reply, 'pay:read');
         if (!principal) return reply;
         try {
           await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.webhooks.read'));
@@ -1548,7 +1562,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req, reply) => {
-        const principal = principalOf(req, reply, 'pay:read');
+        const principal = await principalOf(req, reply, 'pay:read');
         if (!principal) return reply;
         return reply.send([...PERMISSION_AREAS]);
       },
@@ -1576,7 +1590,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Querystring: { subjectMerchantId: string; limit?: number } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:read');
+        const principal = await principalOf(req, reply, 'pay:read');
         if (!principal) return reply;
         try {
           const actorMerchantId = await resolveActorMerchantId(deps.pay, principal.userId);
@@ -1616,7 +1630,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         },
       },
       async (req: FastifyRequest<{ Querystring: { subjectMerchantId: string; limit?: number } }>, reply) => {
-        const principal = principalOf(req, reply, 'pay:read');
+        const principal = await principalOf(req, reply, 'pay:read');
         if (!principal) return reply;
         try {
           const actorMerchantId = await resolveActorMerchantId(deps.pay, principal.userId);
@@ -1658,32 +1672,10 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         }>,
         reply,
       ) => {
-        const principal = principalOf(req, reply, 'pay:write');
+        const principal = await principalOf(req, reply, 'pay:write');
         if (!principal) return reply;
         try {
-          const actorMerchantId = await resolveActorMerchantId(deps.pay, principal.userId);
-          const event = await permissions.grantPermission({
-            actorMerchantId,
-            granteeMerchantId: req.body.granteeMerchantId,
-            subjectMerchantId: req.body.subjectMerchantId,
-            area: req.body.area,
-            reason: req.body.reason,
-            actorId: principal.userId,
-            actorScope: 'pay:write',
-          });
-          return reply.send({
-            id: event.id,
-            seq: event.seq,
-            granteeMerchantId: event.granteeMerchantId,
-            subjectMerchantId: event.subjectMerchantId,
-            area: event.area,
-            action: event.action,
-            reason: event.reason,
-            actorId: event.actorId,
-            actorMerchantId: event.actorMerchantId,
-            actorScope: event.actorScope,
-            createdAt: event.createdAt.toISOString(),
-          });
+          refuseSubMerchantWithoutConsent();
         } catch (err) {
           return send(reply, err);
         }
@@ -1706,32 +1698,10 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         }>,
         reply,
       ) => {
-        const principal = principalOf(req, reply, 'pay:write');
+        const principal = await principalOf(req, reply, 'pay:write');
         if (!principal) return reply;
         try {
-          const actorMerchantId = await resolveActorMerchantId(deps.pay, principal.userId);
-          const event = await permissions.revokePermission({
-            actorMerchantId,
-            granteeMerchantId: req.body.granteeMerchantId,
-            subjectMerchantId: req.body.subjectMerchantId,
-            area: req.body.area,
-            reason: req.body.reason,
-            actorId: principal.userId,
-            actorScope: 'pay:write',
-          });
-          return reply.send({
-            id: event.id,
-            seq: event.seq,
-            granteeMerchantId: event.granteeMerchantId,
-            subjectMerchantId: event.subjectMerchantId,
-            area: event.area,
-            action: event.action,
-            reason: event.reason,
-            actorId: event.actorId,
-            actorMerchantId: event.actorMerchantId,
-            actorScope: event.actorScope,
-            createdAt: event.createdAt.toISOString(),
-          });
+          refuseSubMerchantWithoutConsent();
         } catch (err) {
           return send(reply, err);
         }

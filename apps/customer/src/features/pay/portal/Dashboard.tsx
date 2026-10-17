@@ -114,7 +114,7 @@ export function DashboardView({
             <div>
               <span className="pp-strip-label">{t('stripFee')}</span>
               <span>{merchant.feeBps === null ? t('feeNotPublished') : t('feeBps', { bps: merchant.feeBps })}</span>
-              {merchant.starterFee?.source === 'local_test' && (
+              {merchant.starterFee?.source === 'local_test' && merchant.feeBps === merchant.starterFee.bps && (
                 <span className="muted">{t('testFeeNotPricing', { bps: merchant.starterFee.bps })}</span>
               )}
             </div>

@@ -47,6 +47,8 @@ export type OwnerPayScopeMerchant = {
   readonly userId: string;
   readonly kybStatus: 'none' | 'pending' | 'approved' | 'rejected';
   readonly status: 'pending' | 'active' | 'suspended' | 'closed';
+  /** Absent means the caller did not load the parent. Onboarding then refuses. */
+  readonly parentMerchantId?: string | null;
 };
 
 /**
