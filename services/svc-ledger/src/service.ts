@@ -21,6 +21,7 @@ import {
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import {
   readLastVerified,
+  countConsecutiveIncompleteRuns,
   runSnapshotReconciliation,
   type LastVerified,
   type ReconciliationReport,
@@ -274,21 +275,20 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /**
-   * Run reconciliation. On a COMPLETED failed proof the ledger freezes itself. A
-   * balance drift also pages — §4.2: "mismatch = page the operator, freeze the
+   * Run reconciliation. A completed mismatch freezes the ledger. A balance
+   * drift also pages — §4.2: "mismatch = page the operator, freeze the
    * module that diverged". A chain break or an unbalanced asset is not that
    * page: freeze, and do not describe a zero drift on an account that does not
-   * exist. Freezing is automatic because a book we cannot verify must not accept
-   * more writes while someone decides what to do about it.
+   * exist. An error that has not proved the book wrong does not freeze here.
    *
    * Same proof as the scheduled job: one REPEATABLE READ snapshot on its own
    * connection, no `chain_tip` lock, per-run `statement_timeout`. Live posts
    * therefore neither wait for it nor make it report a false `ok: false`.
    *
-   * A Postgres error or a lost connection is not a failed proof. It throws
-   * `ledger.reconcile_incomplete` and this call freezes nothing. Any other
-   * error is a failed proof and freezes. The scheduled tick, not this call,
-   * freezes after N consecutive incomplete runs (`reconcile_unproven`).
+   * Anything other than a completed mismatch is incomplete. This call throws
+   * `ledger.reconcile_incomplete` and freezes nothing. The scheduled tick, not
+   * this call, freezes after N consecutive incomplete runs (`reconcile_unproven`),
+   * using the larger of this process's count and the durable streak.
    *
    * The freeze is written BEFORE the page, and awaited. If the bus is down,
    * a real drift's alarm fails to send and this throws — with the book already
@@ -335,8 +335,9 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   /**
    * Announce one incomplete run. The scheduled tick calls this on every
-   * Postgres or connection failure, including the run that then freezes for
-   * `reconcile_unproven`. No subscriber is wired; the event is the record.
+   * unfinished proof, including a TLS failure, a code-less error, and the run
+   * that then freezes for `reconcile_unproven`. No subscriber is wired; the
+   * event is the record.
    */
   async alertReconciliationIncomplete(alert: ReconcileIncompleteAlert): Promise<void> {
     await this.bus.publish(
@@ -356,6 +357,14 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   /** When the book was last proved consistent. Backs `/health`, staleness reporting and the metric. */
   lastVerified(): Promise<LastVerified> {
     return readLastVerified(this.sql);
+  }
+
+  /**
+   * Incomplete runs after the latest ok or mismatch. Survives a process restart.
+   * An operator thaw does not write ok or mismatch, so it does not reset this.
+   */
+  consecutiveIncompleteRuns(): Promise<number> {
+    return countConsecutiveIncompleteRuns(this.sql);
   }
 
   private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {

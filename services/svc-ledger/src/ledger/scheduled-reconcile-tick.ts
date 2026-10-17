@@ -1,5 +1,5 @@
 import { LedgerError } from '@intafaced/ledger-client';
-import { isIncompleteReconcileError, reconcileErrorCode, type LastVerified, type ScheduledReconcileResult } from './reconcile.js';
+import { reconcileErrorCode, type LastVerified, type ScheduledReconcileResult } from './reconcile.js';
 import {
   DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
   RECONCILE_ACTOR,
@@ -12,13 +12,15 @@ import {
  * Hourly timer seam.
  *
  * A completed mismatch freezes as `reconciliation mismatch` (the snapshot runner
- * writes that halt before it returns). A throw that is not a Postgres error and
- * not a connection error is the same failed proof: freeze immediately.
+ * writes that halt before it returns). Any other throw, except
+ * `ledger.reconcile_freeze_failed`, is incomplete (phase `tick` when the runner
+ * itself threw). It alerts and counts toward N. It does not freeze as a mismatch.
  *
- * A Postgres SQLSTATE or a connection error is incomplete (issue #4755). One of
- * those does not freeze. Every incomplete run emits an alert. After
- * `RECONCILE_MAX_CONSECUTIVE_INCOMPLETE` consecutive incomplete runs (default 3,
- * D-128) posting freezes with reason `reconcile_unproven`.
+ * Every incomplete run emits an alert. The streak is the larger of this process's
+ * count and the durable count of incomplete rows after the latest ok or mismatch
+ * (D-128, default N=3). A failed durable read logs fatal and uses the in-memory
+ * count. Backoff uses the in-memory count. At N, posting freezes with reason
+ * `reconcile_unproven`.
  *
  * Staleness is reported on every tick, including backoff. An old or absent
  * proof by itself never changes the posting switch.
@@ -29,6 +31,7 @@ const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT ve
 const UNPROVEN_LOG = 'LEDGER RECONCILIATION UNPROVEN — posting frozen after consecutive incomplete runs, operator attention required';
 const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
 const ALERT_FAILED_LOG = 'LEDGER RECONCILIATION ALERT FAILED — the incomplete run was not announced';
+const STREAK_UNREADABLE_LOG = 'LEDGER RECONCILIATION STREAK UNREADABLE — using the in-memory incomplete count';
 
 /** What an incomplete run announces. No money figures: the proof did not finish. */
 export interface ReconcileIncompleteAlert {
@@ -51,6 +54,11 @@ interface TickLedger {
   lastVerified?(): Promise<LastVerified>;
   /** Present on `LedgerService`. Announces every incomplete run, including the one that freezes. */
   alertReconciliationIncomplete?(alert: ReconcileIncompleteAlert): Promise<void>;
+  /**
+   * Present on `LedgerService`. Incomplete rows after the latest ok or mismatch.
+   * Without it the tick counts only this process.
+   */
+  consecutiveIncompleteRuns?(): Promise<number>;
 }
 
 /** Mutable per-process state. Pass one object for the life of the timer. */
@@ -107,6 +115,21 @@ async function freezeAsReconciliation(ledger: TickLedger, reason: string): Promi
   }
 }
 
+async function announcedStreak(state: ReconcileTickState, ledger: TickLedger, log: ReconcileTickLog): Promise<number> {
+  if (!ledger.consecutiveIncompleteRuns) return state.consecutiveIncomplete;
+  try {
+    const durable = await ledger.consecutiveIncompleteRuns();
+    if (typeof durable !== 'number' || !Number.isInteger(durable) || durable < 0) {
+      log.fatal({ durable }, STREAK_UNREADABLE_LOG);
+      return state.consecutiveIncomplete;
+    }
+    return Math.max(state.consecutiveIncomplete, durable);
+  } catch (err) {
+    log.fatal({ err }, STREAK_UNREADABLE_LOG);
+    return state.consecutiveIncomplete;
+  }
+}
+
 async function noteIncomplete(
   state: ReconcileTickState,
   ledger: TickLedger,
@@ -116,13 +139,14 @@ async function noteIncomplete(
   maxConsecutiveIncomplete: number,
 ): Promise<void> {
   state.consecutiveIncomplete += 1;
-  const announced: ReconcileIncompleteAlert = { ...alert, consecutiveIncomplete: state.consecutiveIncomplete };
+  const streak = await announcedStreak(state, ledger, log);
+  const announced: ReconcileIncompleteAlert = { ...alert, consecutiveIncomplete: streak };
   try {
     await ledger.alertReconciliationIncomplete?.(announced);
   } catch (err) {
     log.fatal({ err }, ALERT_FAILED_LOG);
   }
-  if (state.consecutiveIncomplete >= maxConsecutiveIncomplete) {
+  if (streak >= maxConsecutiveIncomplete) {
     try {
       await freezeAsReconciliation(ledger, RECONCILE_UNPROVEN_REASON);
     } catch (err) {
@@ -130,6 +154,7 @@ async function noteIncomplete(
       state.skipTicks = 0;
       throw err;
     }
+    // Backoff stays on the in-memory count. The alert carries the larger streak.
     state.skipTicks = backoffTicks(state.consecutiveIncomplete);
     log.fatal(
       { ...extra, ...announced, skipNextTicks: state.skipTicks, frozenReason: RECONCILE_UNPROVEN_REASON },
@@ -174,7 +199,7 @@ export async function runScheduledReconciliationTick(
         // throw that must still try to halt posting. Not claiming a freeze unless it lands.
         await freezeAsReconciliation(ledger, RECONCILE_MISMATCH_REASON);
         log.fatal({ err: thrown }, FROZEN_LOG);
-      } else if (isIncompleteReconcileError(thrown)) {
+      } else {
         await noteIncomplete(
           state,
           ledger,
@@ -183,9 +208,6 @@ export async function runScheduledReconciliationTick(
           { outcome: 'incomplete', err: thrown },
           maxConsecutiveIncomplete,
         );
-      } else {
-        await freezeAsReconciliation(ledger, RECONCILE_MISMATCH_REASON);
-        log.fatal({ err: thrown }, FROZEN_LOG);
       }
     } else if (result?.outcome === 'ok') {
       state.consecutiveIncomplete = 0;

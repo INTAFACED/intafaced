@@ -528,9 +528,10 @@ describe('reconciliation source pins', () => {
     expect(reconcile).toContain('BEGIN ISOLATION LEVEL ${isolation} READ WRITE');
     expect(reconcile).toContain('SET LOCAL statement_timeout');
     const tick = strip(read('scheduled-reconcile-tick.ts'));
-    // A proven mismatch (including a freeze that did not land, and a non-Postgres throw) or
-    // reconcile_unproven after N consecutive incomplete runs. A Postgres timeout is not in this list.
+    // A completed mismatch whose freeze did not land, or reconcile_unproven after
+    // N consecutive incomplete runs. An ordinary throw is incomplete, so it is
+    // not a second mismatch freeze. A Postgres timeout is not in this list.
     const reasons = [...tick.matchAll(/freezeAsReconciliation\(ledger, (\w+)\)/g)].map((m) => m[1]);
-    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON', 'RECONCILE_MISMATCH_REASON', 'RECONCILE_UNPROVEN_REASON']);
+    expect(reasons.sort()).toEqual(['RECONCILE_MISMATCH_REASON', 'RECONCILE_UNPROVEN_REASON']);
   });
 });

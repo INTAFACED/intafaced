@@ -19,10 +19,10 @@ import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
  * The hourly timer. A completed mismatch freezes as `reconciliation mismatch`.
- * A Postgres or connection failure is incomplete: it alerts, backs off, and
- * freezes only after N consecutive runs (`reconcile_unproven`, default 3).
- * Any other throw is a failed proof and freezes immediately. Staleness is
- * reported on every tick without changing posting.
+ * Any other throw, except a freeze that did not land after a mismatch, is
+ * incomplete: it alerts, backs off, and freezes only after N consecutive runs
+ * (`reconcile_unproven`, default 3). Staleness is reported on every tick
+ * without changing posting.
  */
 
 const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
@@ -148,7 +148,7 @@ describe('scheduled reconciliation tick — returned result', () => {
     });
   });
 
-  it('a non-Postgres throw is a failed proof and freezes immediately', async () => {
+  it('a non-Postgres throw is incomplete below N and does not freeze', async () => {
     const { log, fatal } = logSink();
     const { ledger, froze, alerted } = recordingLedger();
     const thrown = new Error('scheduled reconciliation threw');
@@ -159,10 +159,51 @@ describe('scheduled reconciliation tick — returned result', () => {
       ledger,
       log,
     );
-    expect(froze).toEqual([['reconciliation mismatch', 'reconciliation']]);
-    expect(alerted).toEqual([]);
-    expect(fatal.map((entry) => entry.msg)).toEqual([FROZEN_LOG]);
-    expect(fatal[0]?.obj).toMatchObject({ err: thrown });
+    expect(froze).toEqual([]);
+    expect(alerted).toEqual([{ errorCode: 'unknown', phase: 'tick', consecutiveIncomplete: 1, runId: null }]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
+    expect(fatal[0]?.obj).toMatchObject({ err: thrown, outcome: 'incomplete' });
+  });
+
+  it('freezes from the durable incomplete streak when it is ahead of this process, and backs off on the in-memory count', async () => {
+    const { log, fatal } = logSink();
+    const { ledger, froze, alerted } = recordingLedger();
+    let durable = 2;
+    const counting = { ...ledger, consecutiveIncompleteRuns: async () => durable };
+    const state = createReconcileTickState();
+    const tick = () =>
+      runScheduledReconciliationTick(async () => incompleteResult('unknown'), counting, log, {
+        state,
+        maxConsecutiveIncomplete: 3,
+      });
+    await tick();
+    expect(froze).toEqual([]);
+    expect(alerted.map((alert) => alert.consecutiveIncomplete)).toEqual([2]);
+    expect(state).toMatchObject({ consecutiveIncomplete: 1, skipTicks: 0 });
+    durable = 3;
+    await tick();
+    expect(froze).toEqual([['reconcile_unproven', 'reconciliation']]);
+    expect(alerted.map((alert) => alert.consecutiveIncomplete)).toEqual([2, 3]);
+    expect(state).toMatchObject({ consecutiveIncomplete: 2, skipTicks: 1 });
+    expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG, UNPROVEN_LOG]);
+  });
+
+  it('uses the in-memory count when the durable streak cannot be read', async () => {
+    const { log, fatal } = logSink();
+    const { ledger, froze, alerted } = recordingLedger();
+    const counting = {
+      ...ledger,
+      consecutiveIncompleteRuns: async () => {
+        throw new Error('streak read failed');
+      },
+    };
+    await runScheduledReconciliationTick(async () => incompleteResult(), counting, log, { maxConsecutiveIncomplete: 3 });
+    expect(froze).toEqual([]);
+    expect(alerted).toEqual([{ errorCode: '57014', phase: 'proof', consecutiveIncomplete: 1, runId: '7' }]);
+    expect(fatal.map((entry) => entry.msg)).toEqual([
+      'LEDGER RECONCILIATION STREAK UNREADABLE — using the in-memory incomplete count',
+      INCOMPLETE_LOG,
+    ]);
   });
 
   it('a connection error stays incomplete below the limit and does not freeze', async () => {

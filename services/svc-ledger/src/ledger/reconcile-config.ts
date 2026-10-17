@@ -24,8 +24,9 @@ export const MIN_RECONCILE_MAX_STALE_HOURS = 1;
 export const MAX_RECONCILE_MAX_STALE_HOURS = 24 * 30;
 
 /**
- * How many Postgres/connection failures in a row may leave posting open.
+ * How many incomplete runs in a row may leave posting open.
  * D-128: the next one freezes with `reconcile_unproven`. Default 3.
+ * The tick takes the larger of its memory and the durable count.
  */
 export const DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE = 3;
 export const MIN_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE = 1;

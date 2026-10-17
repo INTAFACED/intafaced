@@ -12,11 +12,12 @@ import { createReconcileTickState, runScheduledReconciliationTick } from './sche
 import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
 /**
- * Opus review of PR #4819, plus D-128. Real Postgres.
+ * Opus re-review of PR #4819, D-128. Real Postgres.
  *
- * A stored sum that does not fit numeric(38,18), a posted_at of infinity, and a
- * non-Postgres throw freeze posting. A Postgres error stays incomplete until
- * three consecutive runs, then freezes as reconcile_unproven.
+ * A stored sum that does not fit numeric(38,18) and a posted_at of infinity
+ * freeze posting at once. A plain error, a TLS error at reserve, and a snapshot
+ * write after a green proof stay incomplete until three consecutive runs, then
+ * freeze as reconcile_unproven. The streak survives a fresh tick state.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -199,23 +200,138 @@ describe('reconciliation failed proofs — real book', () => {
     }
   });
 
-  it('a non-Postgres error freezes as a failed proof', async () => {
+  it('a plain error from prove() stays incomplete, and the third consecutive one freezes as reconcile_unproven', async () => {
+    const sql = connect();
+    try {
+      const bus = new MemoryEventBus('proof-failure');
+      const { svc } = service(sql, bus);
+      await svc.post(deposit(USER_A));
+      const state = createReconcileTickState();
+      const log = { fatal() {} };
+      const fail = () =>
+        runScheduledReconciliation(sql, svc, {
+          async prove() {
+            throw new Error('proof blew up');
+          },
+        });
+      const tick = () => runScheduledReconciliationTick(fail, svc, log, { state, maxConsecutiveIncomplete: 3 });
+      await tick();
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      expect((await sql`SELECT outcome, error_code FROM reconcile_runs`).map((row) => [row.outcome, row.error_code])).toEqual([
+        ['incomplete', 'unknown'],
+      ]);
+      await tick();
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      expect(await sql`SELECT count(*)::int AS n FROM reconcile_runs WHERE outcome = 'incomplete'`).toEqual([{ n: 2 }]);
+      await tick();
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      expect(await sql`SELECT count(*)::int AS n FROM reconcile_runs WHERE outcome = 'incomplete'`).toEqual([{ n: 2 }]);
+      await tick();
+      await expect(svc.status()).resolves.toMatchObject({
+        postingEnabled: false,
+        frozenReason: 'reconcile_unproven',
+        frozenBy: 'reconciliation',
+      });
+      expect((await sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual([
+        'incomplete',
+        'incomplete',
+        'incomplete',
+      ]);
+      expect((await sql`SELECT outcome FROM reconcile_runs WHERE outcome = 'mismatch'`)).toEqual([]);
+      expect(bus.emitted('ledgerReconciliationRunFailed').map((event) => event.payload.consecutiveIncomplete)).toEqual([1, 2, 3]);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  });
+
+  it('CERT_HAS_EXPIRED at reserve is incomplete and does not freeze below N', async () => {
+    const sql = connect();
+    try {
+      const { svc } = service(sql);
+      await svc.post(deposit(USER_A));
+      const tls = Object.assign(new Error('certificate has expired'), { code: 'CERT_HAS_EXPIRED' });
+      const state = createReconcileTickState();
+      await runScheduledReconciliationTick(
+        () => runScheduledReconciliation(sql, svc, { reserveFailure: tls }),
+        svc,
+        { fatal() {} },
+        { state, maxConsecutiveIncomplete: 3 },
+      );
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      const runs = await sql<Array<{ outcome: string; error_code: string; phase: string }>>`
+        SELECT outcome, error_code, detail->>'phase' AS phase FROM reconcile_runs
+      `;
+      expect(runs).toEqual([{ outcome: 'incomplete', error_code: 'CERT_HAS_EXPIRED', phase: 'start' }]);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  });
+
+  it('a green proof whose snapshot insert throws a code-less error stays incomplete, with no freeze and no mismatch row', async () => {
     const sql = connect();
     try {
       const { svc } = service(sql);
       await svc.post(deposit(USER_A));
       const result = await runScheduledReconciliation(sql, svc, {
-        async prove() {
-          throw new Error('proof blew up');
+        async prove(tx) {
+          const bound = tx.unsafe.bind(tx);
+          (tx as { unsafe: typeof tx.unsafe }).unsafe = ((query: string, parameters?: unknown[]) => {
+            if (query.includes('INSERT INTO balance_snapshots')) throw new Error('snapshot insert blew up');
+            return bound(query, parameters as never);
+          }) as typeof tx.unsafe;
+          return {
+            ok: true,
+            ranAt: new Date(),
+            balances: { ok: true, accountsChecked: 1 },
+            chain: { ok: true, length: 1 },
+            totals: {},
+            unbalancedAssets: [],
+          };
         },
       });
-      expect(result.outcome).toBe('mismatch');
+      expect(result.outcome).toBe('incomplete');
+      if (result.outcome !== 'incomplete') throw new Error('snapshot failure was treated as a mismatch');
+      expect(result.run.phase).toBe('snapshot');
+      expect(result.run.errorCode).toBe('unknown');
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      expect((await sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['incomplete']);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  });
+
+  it('a fresh tick state still freezes when two incomplete runs are already on file', async () => {
+    const sql = connect();
+    try {
+      const bus = new MemoryEventBus('proof-failure');
+      const { svc } = service(sql, bus);
+      await svc.post(deposit(USER_A));
+      const log = { fatal() {} };
+      const fail = () =>
+        runScheduledReconciliation(sql, svc, {
+          async prove() {
+            throw new Error('proof blew up');
+          },
+        });
+      const first = createReconcileTickState();
+      await runScheduledReconciliationTick(fail, svc, log, { state: first, maxConsecutiveIncomplete: 3 });
+      await runScheduledReconciliationTick(fail, svc, log, { state: first, maxConsecutiveIncomplete: 3 });
+      await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });
+      expect(await sql`SELECT count(*)::int AS n FROM reconcile_runs WHERE outcome = 'incomplete'`).toEqual([{ n: 2 }]);
+
+      const restarted = createReconcileTickState();
+      await runScheduledReconciliationTick(fail, svc, log, { state: restarted, maxConsecutiveIncomplete: 3 });
       await expect(svc.status()).resolves.toMatchObject({
         postingEnabled: false,
-        frozenReason: 'reconciliation mismatch',
+        frozenReason: 'reconcile_unproven',
         frozenBy: 'reconciliation',
       });
-      expect((await sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['mismatch']);
+      expect(restarted.consecutiveIncomplete).toBe(1);
+      expect(bus.emitted('ledgerReconciliationRunFailed').map((event) => event.payload)).toEqual([
+        { errorCode: 'unknown', phase: 'proof', consecutiveIncomplete: 1, runId: expect.any(String) },
+        { errorCode: 'unknown', phase: 'proof', consecutiveIncomplete: 2, runId: expect.any(String) },
+        { errorCode: 'unknown', phase: 'proof', consecutiveIncomplete: 3, runId: expect.any(String) },
+      ]);
     } finally {
       await sql.end({ timeout: 5 });
     }

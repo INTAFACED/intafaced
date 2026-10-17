@@ -38,6 +38,13 @@ class CorruptReconcileAmountError extends LedgerError {
   }
 }
 
+/** `chain_tip.seq` or `chain_tip.hash` arrived as something other than text. The shape itself is corrupt. */
+class CorruptChainTipError extends LedgerError {
+  constructor() {
+    super('chain_tip arrived as a non-text value — refusing to anchor a snapshot on it', 'ledger.chain_tip_corrupt');
+  }
+}
+
 function parseReconcileAmount(value: unknown, field: string): ReturnType<typeof parseStoredAmount> {
   try {
     return parseStoredAmount(value, field);
@@ -334,6 +341,11 @@ export interface SnapshotRunOptions {
   readonly statementTimeoutMs?: number;
   /** The proof itself. A seam for tests; production always runs `runReconciliation`. */
   readonly prove?: (tx: ReconciliationDb) => Promise<ReconciliationReport>;
+  /**
+   * Test seam. Thrown from the `reserve()` try, before the proof connection is
+   * reserved, so the failure is phase `start`. Production omits this.
+   */
+  readonly reserveFailure?: unknown;
 }
 
 /**
@@ -348,26 +360,20 @@ export const RECONCILE_LOCK_SQL = "hashtext('ledger.reconcile:' || current_schem
 /** Session-local staging copy of the proof's balances (see `runSnapshotReconciliation`). */
 const STAGING_TABLE = 'reconcile_snapshot_balances';
 
-/** The error code worth keeping on a run row: Postgres SQLSTATE, a LedgerError code, or `unknown`. */
+/** The error code worth keeping on a run row: whatever `code` the error carries, or `unknown`. */
 export function reconcileErrorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' && code.length > 0 ? code.slice(0, 64) : 'unknown';
 }
 
 /**
- * SQLSTATE is five characters (PostgreSQL, including `57014`). Connection failures
- * use the codes postgres.js and Node actually set. Anything else — a bug, a
- * `RangeError`, a money parse that escaped the proof — is a failed proof.
+ * Proven corruption, the only thrown errors that freeze immediately (D-128 / PLT-0001).
+ * A completed report with `ok: false` is the other immediate freeze, and it does not
+ * come through here. Every other throw, including no code, TLS, and unlisted network
+ * codes, is incomplete and counts toward N.
  */
-const POSTGRES_SQLSTATE = /^[0-9A-Z]{5}$/;
-const CONNECTION_ERROR_CODE =
-  /^(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|EHOSTUNREACH|ENETUNREACH|CONNECTION_CLOSED|CONNECTION_ENDED|CONNECTION_DESTROYED|CONNECT_TIMEOUT)$/;
-
-export function isIncompleteReconcileError(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false;
-  const code = (error as { code?: unknown }).code;
-  if (typeof code !== 'string' || code.length === 0) return false;
-  return POSTGRES_SQLSTATE.test(code) || CONNECTION_ERROR_CODE.test(code);
+export function isProvenReconcileCorruption(error: unknown): boolean {
+  return error instanceof CorruptReconcileAmountError || error instanceof CorruptChainTipError;
 }
 
 /** A proof that threw before it could say the book was consistent. Not a numeric drift. */
@@ -450,10 +456,37 @@ async function recordAfterRollback(
   }
 }
 
+/** An unfinished run. One of these does not freeze; N of them in a row do, in the tick. */
+async function recordIncomplete(
+  sql: ReconciliationDb,
+  startedAt: Date,
+  error: unknown,
+  phase: 'start' | 'tip' | 'proof' | 'snapshot',
+  tip: ReconciledTip | null,
+): Promise<Extract<SnapshotRun, { outcome: 'incomplete' }>> {
+  const errorCode = reconcileErrorCode(error);
+  const recorded = await recordAfterRollback(sql, {
+    startedAt,
+    outcome: 'incomplete',
+    tip,
+    errorCode,
+    detail: { phase, message: boundedMessage(error) },
+  });
+  return {
+    outcome: 'incomplete',
+    phase,
+    error,
+    errorCode,
+    runId: recorded.runId,
+    ...(recorded.recordError !== undefined ? { recordError: recorded.recordError } : {}),
+  };
+}
+
 /**
- * Not a Postgres error and not a connection error: the proof failed. Record it
- * on the mismatch path so the halt commits with the row when that insert works,
- * and so the caller still freezes when the insert rolls back.
+ * A thrown `CorruptReconcileAmountError` or `CorruptChainTipError`, and the proof
+ * has not already returned ok. Record it on the mismatch path so the halt commits
+ * with the row when that insert works, and so the caller still freezes when the
+ * insert rolls back. A green proof whose snapshot write then fails must not come here.
  */
 async function recordFailedProof(
   sql: ReconciliationDb,
@@ -502,13 +535,15 @@ async function recordFailedProof(
  *
  * Outcomes:
  *   ok         proof green. Snapshot rows and an `ok` run row are committed.
- *   mismatch   proof finished and failed, or the run threw something that is not
- *              a Postgres error and not a connection error. The `mismatch` run
- *              row and durable halt commit together in a short READ COMMITTED
+ *   mismatch   a completed report with ok:false, or a thrown CorruptReconcileAmountError
+ *              or CorruptChainTipError before that proof returned ok. The `mismatch`
+ *              run row and durable halt commit together in a short READ COMMITTED
  *              transaction (the caller freezes again if that commit rolls back).
- *   incomplete a Postgres SQLSTATE or a connection error, and no completed
- *              mismatch. Rolled back, a best-effort `incomplete` row is written
- *              on a fresh transaction. One incomplete run does not freeze.
+ *   incomplete every other error: no code, TLS (CERT_HAS_EXPIRED), an unlisted
+ *              network code, a Postgres error, or a snapshot write after a green
+ *              proof. errorCode is reconcileErrorCode ('unknown' when it has no
+ *              code). Rolled back, a best-effort `incomplete` row is written on a
+ *              fresh transaction. One incomplete run does not freeze.
  *   skipped    another run holds the advisory lock.
  */
 export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOptions = {}): Promise<SnapshotRun> {
@@ -553,21 +588,14 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
   });
   let conn: postgres.ReservedSql;
   try {
+    if (options.reserveFailure !== undefined) throw options.reserveFailure;
     conn = await proofSql.reserve();
   } catch (error) {
     await proofSql.end({ timeout: 0 });
-    if (!isIncompleteReconcileError(error)) {
+    if (isProvenReconcileCorruption(error)) {
       return recordFailedProof(sql, startedAt, error, 'start', null);
     }
-    const errorCode = reconcileErrorCode(error);
-    const recorded = await recordAfterRollback(sql, {
-      startedAt,
-      outcome: 'incomplete',
-      tip: null,
-      errorCode,
-      detail: { phase: 'start', message: boundedMessage(error) },
-    });
-    return { outcome: 'incomplete', phase: 'start', error, errorCode, ...recorded };
+    return recordIncomplete(sql, startedAt, error, 'start', null);
   }
   let open = false;
   let staged = false;
@@ -628,7 +656,7 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
     `;
     const row = tipRows[0];
     if (row && (typeof row.seq !== 'string' || (row.hash !== null && typeof row.hash !== 'string'))) {
-      throw new LedgerError('chain_tip arrived as a non-text value — refusing to anchor a snapshot on it', 'ledger.uninitialised');
+      throw new CorruptChainTipError();
     }
     const tip: ReconciledTip | null = row
       ? { seq: row.seq, hash: row.hash, throughEntryId: row.through_entry_id, snapshotAt: gate.at }
@@ -695,26 +723,17 @@ export async function runSnapshotReconciliation(sql: Sql, options: SnapshotRunOp
       return { outcome: 'mismatch', report: settled, tip: state.tip, runId: recorded.runId, snapshotted: false, recordError: error };
     }
 
-    if (!isIncompleteReconcileError(error)) {
+    if (settled?.ok === true) {
+      // The proof already returned ok. A later failure, including the snapshot
+      // insert, is unfinished work. It must never be recorded as a mismatch.
+      return recordIncomplete(sql, startedAt, error, state.phase, state.tip);
+    }
+
+    if (isProvenReconcileCorruption(error)) {
       return recordFailedProof(sql, startedAt, error, state.phase, state.tip);
     }
 
-    const errorCode = reconcileErrorCode(error);
-    const recorded = await recordAfterRollback(sql, {
-      startedAt,
-      outcome: 'incomplete',
-      tip: state.tip,
-      errorCode,
-      detail: { phase: state.phase, message: boundedMessage(error) },
-    });
-    return {
-      outcome: 'incomplete',
-      phase: state.phase,
-      error,
-      errorCode,
-      runId: recorded.runId,
-      ...(recorded.recordError !== undefined ? { recordError: recorded.recordError } : {}),
-    };
+    return recordIncomplete(sql, startedAt, error, state.phase, state.tip);
   } finally {
     await cleanup();
   }
@@ -744,6 +763,24 @@ export async function readLastVerified(sql: ReconciliationDb): Promise<LastVerif
   if (row) return { at: row.finished_at, seq: row.through_seq, firstAttemptAt: null };
   const first = await sql<Array<{ first: Date | null }>>`SELECT min(started_at) AS first FROM reconcile_runs`;
   return { at: null, seq: null, firstAttemptAt: first[0]?.first ?? null };
+}
+
+/**
+ * Incomplete runs after the latest ok or mismatch. A restart reads this instead
+ * of starting the streak at zero. An operator thaw writes neither outcome, so
+ * it does not clear the count. A non-integer result throws; the tick then uses
+ * its in-memory count.
+ */
+export async function countConsecutiveIncompleteRuns(sql: ReconciliationDb): Promise<number> {
+  const rows = await sql<Array<{ n: number | string }>>`
+    SELECT count(*)::int AS n
+      FROM reconcile_runs
+     WHERE outcome = 'incomplete'
+       AND id > COALESCE((SELECT max(id) FROM reconcile_runs WHERE outcome IN ('ok', 'mismatch')), 0)
+  `;
+  const n = rows[0]?.n;
+  if (typeof n === 'number' && Number.isInteger(n) && n >= 0) return n;
+  throw new Error('consecutive incomplete run count was not a non-negative integer');
 }
 
 /** Thrown when a mismatch was found and the freeze that must follow it did not land. */
