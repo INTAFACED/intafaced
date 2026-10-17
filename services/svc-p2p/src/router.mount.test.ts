@@ -1333,7 +1333,14 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: false,
       offerLimitsPosture: 'unset',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
+  });
+
+  it('names a local-test key provider without calling it a configured KMS', async () => {
+    await expect(
+      createP2pRouter(stubP2p(), stubInstruments(), undefined, { instrumentKeyProvider: 'local-test' }).createCaller(anonymous()).health(),
+    ).resolves.toMatchObject({ instrumentKmsConfigured: false, instrumentKeyProvider: 'local-test' });
   });
 
   it('discloses moderationConfigured on health when an allowlist is set — never reachable', async () => {
@@ -1350,6 +1357,7 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: false,
       offerLimitsPosture: 'unset',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
   });
 
@@ -1372,6 +1380,7 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: true,
       offerLimitsPosture: 'configured',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
   });
 

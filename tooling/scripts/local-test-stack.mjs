@@ -849,9 +849,14 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_p2p', secrets),
         LEDGER_URL: urlOf('ledger'),
         IDENTITY_URL: urlOf('identity'),
-        // The house fee (P2P_FEE_BPS) and offer caps are owner-unpublished money numbers: left unset, so the
-        // service refuses those steps by name. The clocks below have no default and the service will not boot
-        // without them; they are LOCAL TEST values (the figures the service's own messages name), not owner decisions.
+        // Offer caps stay unset (owner-unpublished). P2P_FEE_BPS=0 is an explicit LOCAL TEST free cut:
+        // parseOwnerIntegerEnv accepts 0, and trades.take posts a 0 bps cut instead of refusing fee_bps_unset.
+        // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
+        // values (the figures the service's own messages name), not owner decisions.
+        // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
+        LOCAL_TEST_KMS: '1',
+        LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
+        P2P_FEE_BPS: '0',
         P2P_ESCROW_DEADLINE_SECONDS: '120',
         P2P_PAYMENT_DEADLINE_SECONDS: '900',
         P2P_RELEASE_DEADLINE_SECONDS: '1800',
@@ -1635,22 +1640,41 @@ async function cmdFund(rawArgs) {
   say(`  available ${bal.amount} ${asset}   (read back from svc-ledger)`);
 }
 
+/** Env each local service would get. Starts nothing. Placeholder secrets only. */
+export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
+  return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
+}
+
+function runningAsCli() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
 // ── Entry ───────────────────────────────────────────────────────────────────
 
-const [cmd = 'start', ...rest] = process.argv.slice(2);
-if (cmd === '__serve-customer')
-  serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
-else if (cmd === 'start' && rest[0] === 'customer-dist')
-  cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
-else if (cmd === 'start') await cmdStart(rest);
-else if (cmd === 'stop') await cmdStop(rest);
-else if (cmd === 'plan') cmdPlan(rest);
-else if (cmd === 'restart') await cmdRestart(rest);
-else if (cmd === 'fund') await cmdFund(rest);
-else if (cmd === 'customer-dist') cmdCustomerDist(rest);
-else if (cmd === 'status') {
-  const ok = await healthTable({ gateMarket: true });
-  say('');
-  say(`  ${describeCustomerDist()}`);
-  process.exit(ok ? 0 : 1);
-} else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+if (runningAsCli()) await runCli();
+
+async function runCli() {
+  const [cmd = 'start', ...rest] = process.argv.slice(2);
+  if (cmd === '__serve-customer')
+    serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === 'start' && rest[0] === 'customer-dist')
+    cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
+  else if (cmd === 'start') await cmdStart(rest);
+  else if (cmd === 'stop') await cmdStop(rest);
+  else if (cmd === 'plan') cmdPlan(rest);
+  else if (cmd === 'restart') await cmdRestart(rest);
+  else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+  else if (cmd === 'status') {
+    const ok = await healthTable({ gateMarket: true });
+    say('');
+    say(`  ${describeCustomerDist()}`);
+    process.exit(ok ? 0 : 1);
+  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+}
