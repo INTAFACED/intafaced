@@ -3,6 +3,8 @@ import { ChevronRight, ArrowDownUp } from 'lucide-react';
 import './buy.css';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
+import { CostBlock } from './CostBlock';
+import { costRows } from './cost';
 import { buyCopy, coinName } from './copy';
 import {
   AmountInput,
@@ -21,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  StatusChip,
   StateBlock,
   useMarkets,
   usePortfolio,
@@ -74,6 +77,9 @@ export interface BuyCardProps {
   /** Called when the customer flips between Buy and Sell, so the page's headline can follow. */
   onSideChange?: (side: 'buy' | 'sell') => void;
 }
+
+/** A price older than this reads Stale (spec section 1). */
+const PRICE_STALE_AFTER_MS = 30_000;
 
 /** Where a finished order is listed. */
 export const ACTIVITY_HREF = '/money/activity?tab=trades';
@@ -499,12 +505,6 @@ function BuyForm({
       : plan.notional !== null
         ? t('About {value}', { value: fmtUsd(plan.notional) })
         : '—';
-  const feeLine =
-    estimate.state === 'ready' && estimate.preview.estimatedFee !== null
-      ? `${fmtAmount(estimate.preview.estimatedFee, { places: 8 })} ${estimate.preview.feeAsset ?? ''}`.trim()
-      : estimate.state === 'loading'
-        ? null
-        : '—';
   const priceLine = price === null ? '—' : `$${fmtPrice(price, market.tickSize)}`;
 
   return (
@@ -629,16 +629,39 @@ function BuyForm({
       </div>
 
       {plan.ok ? (
-        <dl className="buy-form__summary">
-          <div>
-            <dt>{t('Estimated price')}</dt>
-            <dd data-testid="price">{priceLine}</dd>
-          </div>
-          <div>
-            <dt>{t('Fee')}</dt>
-            <dd data-testid="fee">{feeLine === null ? <Skeleton width={72} height={16} className="buy-skel" /> : feeLine}</dd>
-          </div>
-        </dl>
+        <>
+          <dl className="buy-form__summary">
+            <div>
+              <dt>{t('Estimated price')}</dt>
+              <dd data-testid="price">
+                <span>{priceLine}</span>
+                <StatusChip
+                  density="dense"
+                  data-testid="price-freshness"
+                  asOf={ticker.status === 'ready' ? ticker.asOf : null}
+                  staleAfterMs={PRICE_STALE_AFTER_MS}
+                  refused={ticker.status === 'refused'}
+                  reason={
+                    ticker.status === 'refused' ? t('Price refused') : ticker.status === 'ready' ? undefined : t('Price not available')
+                  }
+                />
+              </dd>
+            </div>
+          </dl>
+          <CostBlock
+            rows={costRows({
+              side,
+              base: plan.base,
+              price,
+              baseAsset: market.base,
+              quoteAsset: quote,
+              preview: estimate.state === 'ready' ? estimate.preview : null,
+            })}
+            side={side}
+            baseAsset={market.base}
+            places={lotPlaces}
+          />
+        </>
       ) : null}
 
       {estimate.state === 'refused' ? (

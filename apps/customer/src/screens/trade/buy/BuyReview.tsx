@@ -15,7 +15,8 @@ import {
   type Preview,
 } from './deps';
 import { buyCopy } from './copy';
-import { dec, fractionDigits, mulDown, str } from './trade-math';
+import { aboutValue, afterFee, protectedTotal } from './cost';
+import { fractionDigits } from './trade-math';
 
 export interface ReviewState {
   draft: Draft;
@@ -50,6 +51,7 @@ export function BuyReview({
   const places = fractionDigits(market.lotSize) ?? 8;
   const protection = review?.preview.protectionPrice ?? null;
   const price = review?.price ?? null;
+  const limit = review ? protectedTotal(review.draft.side, review.draft.amount, protection) : null;
   const about = review && price !== null ? aboutValue(review.draft.amount, price) : null;
   // The fee comes out of the coins bought, so say what is left: "about 0.00007992 BTC after the fee" (words only; the order is unchanged).
   const net = review ? afterFee(review.draft.amount, review.preview.estimatedFee, review.preview.feeAsset, market.base) : null;
@@ -100,6 +102,11 @@ export function BuyReview({
               }
               data-testid="review-fee"
             />
+            <Row
+              label={buying ? t('Most you can pay') : t('Least you get')}
+              value={limit === null ? '—' : fmtUsd(limit)}
+              data-testid="review-limit"
+            />
             {protection !== null ? (
               <Row
                 label={t('Price protection')}
@@ -143,19 +150,4 @@ function Row({ label, value, strong, ...rest }: { label: string; value: string; 
       <dd {...rest}>{value}</dd>
     </div>
   );
-}
-
-/** Coin amount times price, rounded down: what the order is worth at the price it was sized from. */
-function aboutValue(base: string, price: string): string | null {
-  const amount = dec(base);
-  const unit = dec(price);
-  return amount === null || unit === null ? null : str(mulDown(amount, unit));
-}
-
-/** The coin amount less a fee taken in that same coin; null when the fee is in something else or unknown. */
-function afterFee(base: string, fee: string | null, feeAsset: string | null, coin: string): string | null {
-  if (fee === null || feeAsset !== coin) return null;
-  const amount = dec(base);
-  const taken = dec(fee);
-  return amount === null || taken === null || taken > amount ? null : str(amount - taken);
 }

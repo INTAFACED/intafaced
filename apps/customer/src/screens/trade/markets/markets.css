@@ -133,6 +133,34 @@
     font: 400 14px/20px var(--if-font-ui);
   }
 
+  /* Page head: the one h1 and the freshness chip */
+  .mkt-page__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .mkt-page__head h1 {
+    font: 600 24px/32px var(--if-font-ui);
+  }
+
+  /* List: the name cell and the "show more" row under the kit table */
+  .mkt-namecell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .mkt-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px 0;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+
   /* Tabs, search, chips */
   .mkt-tabs {
     display: flex;
@@ -152,59 +180,8 @@
     font-weight: 500;
   }
   .mkt-search {
-    display: flex;
-    align-items: center;
-  }
-  .mkt-search__field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 240px;
-    height: 32px;
-    padding: 0 4px 0 12px;
-    border-radius: var(--if-r-pill);
-    background: var(--if-field);
-    color: var(--if-fg-2);
-  }
-  .mkt-search__field:focus-within {
-    outline: 2px solid var(--if-lime);
-    outline-offset: 2px;
-  }
-  .mkt-search__field input {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--if-fg);
-    font: 400 14px/20px var(--if-font-ui);
-  }
-  .mkt-search__field input::placeholder {
-    color: var(--if-fg-3);
-  }
-  .mkt-iconbtn {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--if-r-pill);
-    background: transparent;
-    color: var(--if-fg-2);
-    cursor: pointer;
-    transition: color var(--if-t-fast) var(--if-ease);
-  }
-  .mkt-iconbtn--lg {
-    width: 32px;
-    height: 32px;
-  }
-  .mkt-iconbtn:hover {
-    color: var(--if-fg);
+    width: 320px;
+    max-width: 100%;
   }
   .mkt-chips {
     display: flex;
@@ -212,6 +189,13 @@
     align-items: center;
     gap: 4px;
     margin: 16px 0;
+  }
+  .mkt-chips__end {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
   }
   .mkt-chips__divider {
     width: 1px;
