@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCsv, csvCell } from './csv';
+import { activeHalts, isUuid, matchesSearch, nextLimit, paymentLinks, paymentRefunds, readLimit, spanParts, usagePct } from './model';
 import {
-  activeHalts,
   approvalSummary,
   bpsPercent,
   closestToLimit,
@@ -9,30 +9,17 @@ import {
   decisionBlock,
   decisionLanded,
   isCheckedPending,
-  filterPayments,
   freshnessAt,
   isCalcAmount,
-  isUuid,
   latestApproval,
   limitRows,
-  matchesSearch,
   minReasonOk,
-  nextLimit,
-  paymentLinks,
-  paymentRefunds,
-  paymentSteps,
   payoutRows,
   payoutState,
-  readLimit,
-  readSort,
-  refundable,
   roleMayDecide,
-  sortRows,
-  spanParts,
   statementTies,
-  successRate,
-  usagePct,
-} from './model';
+} from './money/model';
+import { filterPayments, paymentSteps, readSort, refundable, sortRows, successRate } from './payments/model';
 import { paymentEventSchema, type Approval, type PaymentEvent, type Payment, type Settlement } from './schemas';
 
 // TEST DATA only.

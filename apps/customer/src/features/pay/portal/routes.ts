@@ -1,50 +1,53 @@
-export type PortalRoom =
-  | 'conversion'
-  | 'conversion-new'
-  | 'conversion-order'
-  | 'subscriptions'
-  | 'subscription'
-  | 'subscription-new'
-  | 'compliance'
-  | 'settings'
-  | 'settings-team'
-  | 'settings-notifications'
-  | 'developer'
-  | 'developer-keys'
-  | 'developer-signing'
-  | 'developer-webhooks'
-  | 'developer-endpoint'
-  | 'developer-deliveries'
-  | 'invoices'
-  | 'invoice'
-  | 'money'
-  | 'money-activity'
-  | 'reports'
-  | 'report-exports'
-  | 'links'
-  | 'link-new'
-  | 'link'
-  | 'refunds'
-  | 'refund-new'
-  | 'refund'
-  | 'dashboard'
-  | 'onboarding'
-  | 'team'
-  | 'disputes'
-  | 'dispute'
-  | 'customers'
-  | 'customer'
-  | 'exports'
-  | 'notifications'
-  | 'payments'
-  | 'payment'
-  | 'settlements'
-  | 'settlement'
-  | 'payouts'
-  | 'payout'
-  | 'approvals'
-  | 'pricing'
-  | 'limits';
+/** Every page the portal renders. The registry test checks each one has exactly one owner. */
+export const PORTAL_ROOMS = [
+  'conversion',
+  'conversion-new',
+  'conversion-order',
+  'subscriptions',
+  'subscription',
+  'subscription-new',
+  'compliance',
+  'settings',
+  'settings-team',
+  'settings-notifications',
+  'developer',
+  'developer-keys',
+  'developer-signing',
+  'developer-webhooks',
+  'developer-endpoint',
+  'developer-deliveries',
+  'invoices',
+  'invoice',
+  'money',
+  'money-activity',
+  'reports',
+  'report-exports',
+  'links',
+  'link-new',
+  'link',
+  'refunds',
+  'refund-new',
+  'refund',
+  'dashboard',
+  'onboarding',
+  'team',
+  'disputes',
+  'dispute',
+  'customers',
+  'customer',
+  'exports',
+  'notifications',
+  'payments',
+  'payment',
+  'settlements',
+  'settlement',
+  'payouts',
+  'payout',
+  'approvals',
+  'pricing',
+  'limits',
+] as const;
+export type PortalRoom = (typeof PORTAL_ROOMS)[number];
 export type OnboardingStep = 'business' | 'verification' | 'go-live';
 export type PortalRoute = { room: PortalRoom; param?: string; step?: OnboardingStep };
 

@@ -25,21 +25,24 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     expect(offenders).toEqual([]);
   });
   it('calls only merchant-scoped namespaces from the portal', () => {
-    const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => file.endsWith('api.ts'));
-    expect(portal.length).toBe(1);
-    const text = readFileSync(portal[0]!, 'utf8');
+    // The client is the core plus one file per package (api.ts, api-core.ts, money/api.ts, payments/api.ts, settings/api.ts).
+    const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => /[\\/](api|api-core)\.ts$/.test(file));
+    expect(portal.length).toBe(5);
+    const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
     const procedures = [
-      ...text.matchAll(/'((?:merchant|merchantOps|merchantMetrics|merchantControl|payHalts|payment|settlement|railHealth)[A-Za-z.]*)'/g),
+      ...text.matchAll(
+        /'((?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|railHealth)[A-Za-z.]*)'/g,
+      ),
     ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);
     for (const name of procedures)
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantMetrics\\.|merchant\\.(me|create|submitKyb|setPayoutDestination|listLinks)$|railHealth$',
+            '^(merchantOps\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|payoutDestinations\\.list|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
-            'payment\\.(list|get|history)$',
-            'settlement\\.(list|get)$',
+            'payment\\.(list|get|history|refunds\\.(list|get))$',
+            'settlement\\.(list|get|lines|lifecycle)$',
             'payHalts\\.status$',
             'merchantControl\\.(get|usage|pricing\\.preview|approvals\\.(list|decide|cancel))$)',
           ].join('|'),

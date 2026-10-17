@@ -275,8 +275,8 @@ async function developerFixture(page, kind, uncertainAction = false) {
       const { default: ReactDOM } = await import(loadedModule('react-dom_client') ?? '/node_modules/.vite/deps/react-dom_client.js');
       const { createRoot } = ReactDOM;
       await import('/src/features/pay/pay.css');
-      const views = await import('/src/features/pay/portal/Developers.tsx');
-      const billing = await import('/src/features/pay/portal/Subscriptions.tsx');
+      const views = await import('/src/features/pay/portal/settings/Developers.tsx');
+      const billing = await import('/src/features/pay/portal/payments/Subscriptions.tsx');
       const { PortalFrame } = await import('/src/features/pay/portal/MerchantPortal.tsx');
       document.getElementById('root').style.display = 'none';
       const host = document.createElement('div');
@@ -570,7 +570,7 @@ test('subscription recovery: reload locks the stored path and conflict clears th
       async ({ mandate, D }) => {
         const React = (await import('/node_modules/.vite/deps/react.js')).default;
         const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
-        const { CreateSubscriptionView } = await import('/src/features/pay/portal/Subscriptions.tsx');
+        const { CreateSubscriptionView } = await import('/src/features/pay/portal/payments/Subscriptions.tsx');
         const { createApiClient } = await import('/src/shared/api.ts');
         const { createBusinessPayApi, createPayMutationGuard } = await import('/src/features/pay/pay-api.ts');
         await import('/src/features/pay/pay.css');

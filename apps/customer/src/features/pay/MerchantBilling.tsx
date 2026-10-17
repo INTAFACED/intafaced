@@ -1,4 +1,4 @@
-import { createSubscriptionWithRecovery } from './portal/subscription-recovery';
+import { createSubscriptionWithRecovery } from './portal/payments/subscription-recovery';
 import { useUnsavedForm } from './portal/useUnsavedForm';
 import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';

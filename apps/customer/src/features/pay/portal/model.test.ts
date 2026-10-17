@@ -1,23 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { STALE_AFTER_SECONDS, bars, lagParts, newRequestId, staleness } from './model';
 import {
-  STALE_AFTER_SECONDS,
-  bars,
   businessDetails,
   merchantNames,
   destinationShapeOk,
   emptyBusiness,
   grantableRoles,
   isDecimalThreshold,
-  lagParts,
   memberActions,
-  mixShares,
-  newRequestId,
-  nextDueSoonest,
   onboardingSteps,
-  seriesWindow,
-  staleness,
   validateBusiness,
-} from './model';
+} from './settings/model';
+import { mixShares, nextDueSoonest, seriesWindow } from './payments/model';
 import { parsePortalRoute } from './routes';
 import type { Member, MerchantRecord, Series } from './schemas';
 
