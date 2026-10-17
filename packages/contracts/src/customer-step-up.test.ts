@@ -112,6 +112,34 @@ describe('customer step-up binding', () => {
     expect(member.ok).toBe(true);
     if (member.ok) expect(member.amount).toBeNull();
 
+    const removed = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.business.removeMember',
+      purpose: 'business.removeMember',
+      target: 'user-2',
+      fields: { accountId: 'acct-1', userId: 'user-2', requestId: 'req-1' },
+    });
+    expect(removed.ok).toBe(true);
+    if (removed.ok) {
+      expect(removed.amount).toBeNull();
+      expect(removed.payloadHash).toBe(
+        customerStepUpPayloadHash('bank.step_up.business.removeMember', {
+          actor: ACTOR,
+          accountId: 'acct-1',
+          userId: 'user-2',
+          requestId: 'req-1',
+        }),
+      );
+    }
+
+    const role = bindCustomerStepUp(ACTOR, {
+      scope: 'bank.step_up.business.setMemberRole',
+      purpose: 'business.setMemberRole',
+      target: 'user-2',
+      fields: { accountId: 'acct-1', userId: 'user-2', role: 'checker', requestId: 'req-2' },
+    });
+    expect(role.ok).toBe(true);
+    if (role.ok) expect(role.target).toBe('user-2');
+
     const ramp = bindCustomerStepUp(ACTOR, {
       scope: 'bank.step_up.ramps.offramp',
       purpose: 'ramps.offramp',
