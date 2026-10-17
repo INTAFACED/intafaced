@@ -281,7 +281,7 @@ function MemberRow({
   return (
     <tr>
       <th scope="row">
-        <span className="pp-mono">{member.userId}</span>
+        <span className="pp-mono">{member.userId.startsWith('email:') ? member.userId.slice('email:'.length) : member.userId}</span>
         {you && <small className="pay-cell-note">{t('you')}</small>}
         {member.label && <small className="pay-cell-note">{member.label}</small>}
       </th>
@@ -358,7 +358,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
           label={`${t('fUserId')} *`}
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
-          maxLength={128}
+          maxLength={254}
           autoComplete="off"
           spellCheck={false}
           hint={t('hUserId')}
@@ -388,7 +388,11 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
           variant="primary"
           description={t('sendInviteBody')}
           review={<p>{t('inviteReview', { who: userId.trim(), role: t(`role_${chosen}` as 'role_owner') })}</p>}
-          perform={() => portal.invite({ userId: userId.trim(), role: chosen, ...(label.trim() ? { label: label.trim() } : {}) })}
+          perform={() => {
+            const who = userId.trim();
+            const target = who.includes('@') ? { email: who } : { userId: who };
+            return portal.invite({ ...target, role: chosen, ...(label.trim() ? { label: label.trim() } : {}) });
+          }}
           onConfirmed={() => {
             setUserId('');
             setLabel('');

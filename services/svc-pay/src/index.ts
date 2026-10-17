@@ -72,7 +72,10 @@ import { onCapturedOverCap } from './control/over-cap-signal.js';
 import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
+import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
 import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
+import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -433,6 +436,7 @@ export const appRouter = mergeRouters(
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    teamEmailInvite: loadTeamEmailInviteLimit(process.env),
     disputes: disputeCases,
     pay,
     evidence: {
@@ -571,6 +575,12 @@ registerCaptureReconcileRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   pay,
   mode: env.PAY_CAPTURE_RECONCILE,
+  installRawBody: false,
+});
+
+registerMerchantEmailInviteRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  claim: (input) => claimEmailTeamInvites(sql, input),
   installRawBody: false,
 });
 

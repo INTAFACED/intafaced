@@ -16,6 +16,7 @@ import {
 } from './passwords.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
+import type { MerchantEmailInviteClaimer } from './merchant-email-invite-claim.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -340,6 +341,8 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetNow: () => Date = () => new Date();
+  /** Unset: sign-in does not call pay. Email invites stay pending. */
+  private merchantEmailInviteClaimer: MerchantEmailInviteClaimer | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -380,6 +383,11 @@ export class AuthService {
   /** Install the mail handoff. Unset refuses every reset request the same way. */
   usePasswordResetMail(mail: PasswordResetMail | undefined): void {
     this.passwordResetMail = mail;
+  }
+
+  /** Install the pay claim. Unset leaves email invites pending and does not call pay. */
+  useMerchantEmailInviteClaimer(claimer: MerchantEmailInviteClaimer | undefined): void {
+    this.merchantEmailInviteClaimer = claimer;
   }
 
   /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
@@ -639,6 +647,7 @@ export class AuthService {
     );
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
+    await this.claimMerchantEmailInvites(userId);
     const tier = await this.kycTier(userId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa },
@@ -1345,8 +1354,37 @@ export class AuthService {
   async listApiKeys(userId: string, limit: number) {
     const published = publishedApiKeysListLimit(limit);
     return this.sql<
-      Array<{ id: string; name: string; key_prefix: string; scopes: string[]; last_used_at: Date | null; revoked: boolean; mode: string }>
-    >`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+      Array<{
+        id: string;
+        name: string;
+        key_prefix: string;
+        scopes: string[];
+        last_used_at: Date | null;
+        revoked: boolean;
+        mode: string;
+        require_signature: boolean;
+        require_non_empty_ip_allowlist: boolean;
+        ip_allowlist: string[] | null;
+      }>
+    >`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode, require_signature, require_non_empty_ip_allowlist, ip_allowlist FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+  }
+
+  /**
+   * After a session exists. Uses the stored mailbox, not the identifier the
+   * person typed, so a handle login still matches an email invite. A pay
+   * failure is logged and does not undo the session.
+   */
+  private async claimMerchantEmailInvites(userId: string): Promise<void> {
+    const claimer = this.merchantEmailInviteClaimer;
+    if (!claimer) return;
+    try {
+      const rows = await this.sql<Array<{ email: string }>>`SELECT email FROM users WHERE id = ${userId} LIMIT 1`;
+      const email = rows[0]?.email;
+      if (!email) return;
+      await claimer.claim({ userId, email });
+    } catch (err) {
+      this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
+    }
   }
 
   async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {

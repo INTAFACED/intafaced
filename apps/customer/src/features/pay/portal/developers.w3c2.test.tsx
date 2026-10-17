@@ -4,7 +4,7 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { DeveloperUnavailable, KeysView, EndpointsView, DeliveryRows } from './Developers';
+import { DeveloperUnavailable, KeysView, SigningView, EndpointsView, DeliveryRows } from './Developers';
 import { safeEndpointUrl } from './ExtensionTools';
 import { parsePortalRoute } from './routes';
 import type { BusinessPayApi } from '../pay-api';
@@ -59,6 +59,9 @@ it('excludes live and non-Pay keys from metadata tables', () => {
           lastUsedAt: null,
           revoked: false,
           mode: 'sandbox' as const,
+          requireSignature: true,
+          requireNonEmptyIpAllowlist: true,
+          ipAllowlist: ['203.0.113.10'],
         },
         {
           id: '2',
@@ -68,6 +71,9 @@ it('excludes live and non-Pay keys from metadata tables', () => {
           lastUsedAt: null,
           revoked: false,
           mode: 'live' as const,
+          requireSignature: false,
+          requireNonEmptyIpAllowlist: false,
+          ipAllowlist: [],
         },
         {
           id: '3',
@@ -77,6 +83,9 @@ it('excludes live and non-Pay keys from metadata tables', () => {
           lastUsedAt: null,
           revoked: false,
           mode: 'sandbox' as const,
+          requireSignature: false,
+          requireNonEmptyIpAllowlist: false,
+          ipAllowlist: [],
         },
       ])}
       pay={pay}
@@ -88,6 +97,36 @@ it('excludes live and non-Pay keys from metadata tables', () => {
   expect(out).not.toContain('UNRELATED KEY');
   expect(out).toContain('1 records shown');
   expect(out).toContain('IP allowlists');
+  expect(out).toContain('Signing required');
+  expect(out).toContain('203.0.113.10');
+  expect(out).not.toContain('ifs_');
+});
+it('shows each sandbox key signing posture and does not render a signing secret', () => {
+  const out = renderToString(
+    <SigningView
+      resource={ready([
+        {
+          id: '1',
+          name: 'TEST Sandbox',
+          prefix: 'test_',
+          scopes: ['pay:read'],
+          lastUsedAt: null,
+          revoked: false,
+          mode: 'sandbox' as const,
+          requireSignature: true,
+          requireNonEmptyIpAllowlist: false,
+          ipAllowlist: [],
+        },
+      ])}
+      reload={noop}
+    />,
+  );
+  expect(out).toContain('TEST Sandbox');
+  expect(out).toContain('Signing required');
+  expect(out).toContain('IP list not required');
+  expect(out).toContain('None listed');
+  expect(out).toContain('does not show a signing secret');
+  expect(out).not.toContain('ifs_');
 });
 it('redacts URL credentials and never renders raw delivery errors', () => {
   expect(safeEndpointUrl('https://user:secret@receiver.invalid/hook?token=secret#secret')).toBe('https://receiver.invalid/hook?…');

@@ -19,6 +19,9 @@ function mapSignError(err: unknown): never {
   if (err instanceof ApiKeyRequestSignError && (err.reason === 'auth.not_configured' || err.reason === 'auth.signature_not_required')) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
+  if (err instanceof ApiKeyRequestSignError && err.reason === 'auth.signing_change_unset') {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
   throw err;
 }
 
@@ -26,11 +29,13 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
   return router({
     setApiKeyRequestSigning: scopedProcedure('identity:write')
       .input(
-        z.object({
-          keyId: z.string().uuid(),
-          requireSignature: z.boolean(),
-          requireNonEmptyIpAllowlist: z.boolean(),
-        }),
+        z
+          .object({
+            keyId: z.string().uuid(),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+          })
+          .refine((value) => value.requireSignature !== undefined || value.requireNonEmptyIpAllowlist !== undefined),
       )
       .output(
         z.object({

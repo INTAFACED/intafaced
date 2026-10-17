@@ -20,6 +20,8 @@ describe('unbindApiKeyIpAllowlist', () => {
     await expect(unbindApiKeyIpAllowlist(sql, USER, KEY, ` ${LISTED} `)).resolves.toEqual({
       id: KEY,
       ipAllowlist: [KEEP],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
     });
   });
 

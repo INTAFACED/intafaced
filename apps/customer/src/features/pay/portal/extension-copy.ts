@@ -14,7 +14,14 @@ export const extensionCopy = defineCopy('pay.portal.w3c2', {
   keysGap:
     'IP allowlists, signing requirements and the creator identity need key metadata. Their absence does not mean a key is unrestricted. Live key creation stays unavailable here.',
   signingGap:
-    'Per-key signing policy, allowlist enforcement and a signature test tool need the request-signing backend. No signing policy has been changed.',
+    'Current request-signing requirement and IP allowlist for each sandbox key. This page does not change them and does not show a signing secret. A signature test tool is not on this page.',
+  signingRequired: 'Signing required',
+  signingNotRequired: 'Signing not required',
+  ipListRequired: 'IP list required',
+  ipListNotRequired: 'IP list not required',
+  ipNoneListed: 'None listed',
+  signingColumn: 'Request signing',
+  ipColumn: 'IP allowlist',
   endpointGap:
     'Event subscriptions, signing-secret rotation, test events and health charts need endpoint configuration and delivery aggregates. The current read returns endpoint status and consecutive failures only.',
   deliveryGap:

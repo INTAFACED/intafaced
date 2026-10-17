@@ -72,7 +72,11 @@ export function Developers({ route, authority }: { route: PortalRoute; authority
       <PortalBack />
       <DeveloperNav room={route.room} />
       {route.room === 'developer-signing' ? (
-        <Arrives>{c.t('signingGap')}</Arrives>
+        authority ? (
+          <SigningPage pay={pay} />
+        ) : (
+          <DeveloperUnavailable room="developer-signing" />
+        )
       ) : !authority ? (
         <DeveloperUnavailable room={route.room} />
       ) : route.room === 'developer-webhooks' || route.room === 'developer-endpoint' ? (
@@ -108,6 +112,42 @@ export function DeveloperUnavailable({ room }: { room: string }) {
 function KeysPage({ pay }: { pay: BusinessPayApi }) {
   const keys = useResource((signal) => pay.keys(signal), 'portal:developer-keys');
   return <KeysView resource={keys.resource} pay={pay} reload={keys.reload} />;
+}
+function SigningPage({ pay }: { pay: BusinessPayApi }) {
+  const keys = useResource((signal) => pay.keys(signal), 'portal:developer-signing');
+  return <SigningView resource={keys.resource} reload={keys.reload} />;
+}
+export function SigningView({ resource, reload }: { resource: Resource<Key[]>; reload: () => void }) {
+  return (
+    <div className="stack">
+      <PaySection title={c.t('signingTitle')}>
+        <p className="pp-callout">{c.t('signingGap')}</p>
+        <Gate resource={resource} retry={reload}>
+          {(all) => {
+            const keys = all.filter((k) => k.mode === 'sandbox' && k.scopes.some((scope) => scope.startsWith('pay:')));
+            if (!keys.length) return <EmptyState title={c.t('keysTitle')} />;
+            return (
+              <DataTable label={c.t('signingTitle')} headers={[c.t('keysHeader'), c.t('signingColumn'), c.t('ipColumn')]}>
+                {keys.map((key) => (
+                  <tr key={key.id}>
+                    <th scope="row">
+                      {key.name}
+                      <small className="pay-cell-note">{key.prefix}</small>
+                    </th>
+                    <td>{key.requireSignature ? c.t('signingRequired') : c.t('signingNotRequired')}</td>
+                    <td>
+                      {key.requireNonEmptyIpAllowlist ? c.t('ipListRequired') : c.t('ipListNotRequired')}
+                      <small className="pay-cell-note">{key.ipAllowlist.length ? key.ipAllowlist.join(', ') : c.t('ipNoneListed')}</small>
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            );
+          }}
+        </Gate>
+      </PaySection>
+    </div>
+  );
 }
 export function KeysView({ resource, pay, reload }: { resource: Resource<Key[]>; pay: BusinessPayApi; reload: () => void }) {
   const filters = useWindowFilters();
@@ -162,7 +202,15 @@ export function KeysView({ resource, pay, reload }: { resource: Resource<Key[]>;
                 {rows.length ? (
                   <DataTable
                     label={c.t('keysTitle')}
-                    headers={[c.t('keysHeader'), c.t('scopes'), c.t('lastUsed'), c.t('status'), c.t('details')]}
+                    headers={[
+                      c.t('keysHeader'),
+                      c.t('scopes'),
+                      c.t('signingColumn'),
+                      c.t('ipColumn'),
+                      c.t('lastUsed'),
+                      c.t('status'),
+                      c.t('details'),
+                    ]}
                   >
                     {rows.map((key) => (
                       <tr key={key.id}>
@@ -171,6 +219,13 @@ export function KeysView({ resource, pay, reload }: { resource: Resource<Key[]>;
                           <small className="pay-cell-note">{key.prefix}</small>
                         </th>
                         <td>{key.scopes.join(', ')}</td>
+                        <td>{key.requireSignature ? c.t('signingRequired') : c.t('signingNotRequired')}</td>
+                        <td>
+                          {key.requireNonEmptyIpAllowlist ? c.t('ipListRequired') : c.t('ipListNotRequired')}
+                          <small className="pay-cell-note">
+                            {key.ipAllowlist.length ? key.ipAllowlist.join(', ') : c.t('ipNoneListed')}
+                          </small>
+                        </td>
                         <td>{key.lastUsedAt ? <PayTime value={key.lastUsedAt} /> : c.t('neverUsed')}</td>
                         <td>
                           <RecordChip status={key.revoked ? 'revoked' : 'active'} />

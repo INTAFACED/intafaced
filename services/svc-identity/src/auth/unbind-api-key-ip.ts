@@ -11,12 +11,14 @@ export async function unbindApiKeyIpAllowlist(
   userId: string,
   keyId: string,
   rawIp: string,
-): Promise<{ id: string; ipAllowlist: string[] }> {
+): Promise<{ id: string; ipAllowlist: string[]; requireSignature: boolean; requireNonEmptyIpAllowlist: boolean }> {
   const ip = normalizeIp(rawIp);
   if (!ip) throw new ApiKeyIpError('Invalid IP', 'auth.ip_invalid');
 
-  const current = await sql<Array<{ id: string; ip_allowlist: string[] }>>`
-    SELECT id, ip_allowlist FROM api_keys
+  const current = await sql<
+    Array<{ id: string; ip_allowlist: string[]; require_signature: boolean | null; require_non_empty_ip_allowlist: boolean | null }>
+  >`
+    SELECT id, ip_allowlist, require_signature, require_non_empty_ip_allowlist FROM api_keys
     WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
   `;
   const row = current[0];
@@ -28,13 +30,21 @@ export async function unbindApiKeyIpAllowlist(
     throw new ApiKeyIpError('IP is not on the API key', 'auth.not_found');
   }
 
-  const updated = await sql<Array<{ id: string; ip_allowlist: string[] }>>`
+  // SET lists only ip_allowlist. Signing and its secret stay as they are.
+  const updated = await sql<
+    Array<{ id: string; ip_allowlist: string[]; require_signature: boolean | null; require_non_empty_ip_allowlist: boolean | null }>
+  >`
     UPDATE api_keys
     SET ip_allowlist = ${next}
     WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
-    RETURNING id, ip_allowlist
+    RETURNING id, ip_allowlist, require_signature, require_non_empty_ip_allowlist
   `;
   const out = updated[0];
   if (!out) throw new ApiKeyIpError('API key not found', 'auth.not_found');
-  return { id: out.id, ipAllowlist: out.ip_allowlist ?? [] };
+  return {
+    id: out.id,
+    ipAllowlist: out.ip_allowlist ?? [],
+    requireSignature: out.require_signature === true,
+    requireNonEmptyIpAllowlist: out.require_non_empty_ip_allowlist === true,
+  };
 }

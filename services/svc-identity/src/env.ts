@@ -140,6 +140,12 @@ const schema = serviceEnvSchema
        */
       LEDGER_URL: z.string().url().optional(),
       /**
+       * svc-pay base for claiming merchant email invites at sign-in.
+       * Unset: sign-in still works; invites stay pending until a later sign-in
+       * with this set. No localhost default.
+       */
+      PAY_URL: z.string().url().optional(),
+      /**
        * Owner-published max *live* (non-revoked) sub-accounts per identity
        * (SPEC-SUBACCOUNTS §4 / §8). Blank / unset → unpublished; create refuses
        * (`auth.sub_account_cap_unset`). Never git-default 25 — that looks published.

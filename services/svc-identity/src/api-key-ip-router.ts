@@ -14,7 +14,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
   return router({
     bindApiKeyIpAllowlist: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()) }))
-      .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ipAllowlist: z.array(z.string()),
+          requireSignature: z.boolean(),
+          requireNonEmptyIpAllowlist: z.boolean(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -34,7 +41,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
       }),
     unbindApiKeyIpAllowlist: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), ip: z.string() }))
-      .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ipAllowlist: z.array(z.string()),
+          requireSignature: z.boolean(),
+          requireNonEmptyIpAllowlist: z.boolean(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);

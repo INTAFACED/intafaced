@@ -58,6 +58,18 @@ describe('apiKeys.list / listApiKeys limit unset refuse (no invented 50)', () =>
     expect(src).toMatch(/FROM api_keys WHERE user_id = \$\{userId\} ORDER BY created_at DESC LIMIT \$\{published\}/);
   });
 
+  it('list selects signing posture and the IP allowlist, never the secret or the key hash', () => {
+    const src = readFileSync(join(HERE, 'auth-service.ts'), 'utf8');
+    const listFn = src.slice(src.indexOf('async listApiKeys'), src.indexOf('async kycTier'));
+    expect(listFn).toMatch(/require_signature, require_non_empty_ip_allowlist, ip_allowlist/);
+    expect(listFn).not.toMatch(/request_signing_secret/);
+    expect(listFn).not.toMatch(/key_hash/);
+    const router = readFileSync(join(HERE, '../router.ts'), 'utf8');
+    expect(router).toMatch(/requireSignature: k\.require_signature === true/);
+    expect(router).toMatch(/ipAllowlist: k\.ip_allowlist \?\? \[\]/);
+    expect(router).not.toMatch(/signingSecret: k\./);
+  });
+
   it('blank / non-integer / out of 1..200 throws identity.api_keys_list_limit_unset', () => {
     for (const limit of [undefined, null, 0, -1, 201, 1.5, Number.NaN]) {
       try {

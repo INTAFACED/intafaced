@@ -2,6 +2,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage, type Page } from './pagination.js';
 import { assertPermission, type MerchantCaller, type MerchantRole, type TeamRole } from './roles.js';
+import { emailInviteToken, isReservedTeamUserId, normaliseTeamInviteEmail, type TeamEmailInviteLimit } from './team-email.js';
 
 /**
  * Merchant team: members, roles, invitations, and the append-only trail of who
@@ -16,10 +17,13 @@ import { assertPermission, type MerchantCaller, type MerchantRole, type TeamRole
  *   - Nobody changes their own role (self-promotion).
  *   - The owner is never a row, so "cannot remove the last admin" holds by
  *     construction: the owner is always there.
- *   - An invitation only becomes access when the invited person accepts it.
+ *   - An invitation only becomes access when the invited person accepts it,
+ *     or when an email invite is claimed at sign-in and the one-team rule allows it.
  *   - Someone who owns a merchant, or is on another team, cannot JOIN (one
  *     active team per account). That is checked when they accept, never when
  *     they are invited, so an invite reveals nothing about an outside account.
+ *   - An email invite stores `email:<address>` and does not look the address
+ *     up. The reply is the same whether or not an account already exists.
  */
 
 export interface TeamMemberView {
@@ -76,7 +80,10 @@ export interface TeamEventView {
 }
 
 export class TeamService {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly emailInviteLimit?: TeamEmailInviteLimit,
+  ) {}
 
   async list(
     caller: MerchantCaller,
@@ -173,9 +180,16 @@ export class TeamService {
     return rows.map((r) => ({ memberId: r.id, merchantId: r.merchant_id, role: r.role, invitedAt: r.created_at.toISOString() }));
   }
 
-  async invite(caller: MerchantCaller, input: { userId: string; role: TeamRole; label?: string }): Promise<TeamMemberView> {
+  async invite(
+    caller: MerchantCaller,
+    input: { userId?: string; email?: string; role: TeamRole; label?: string },
+  ): Promise<TeamMemberView> {
     this.assertManage(caller, input.role);
-    const userId = input.userId.trim();
+    const userId = input.userId?.trim() ?? '';
+    const emailRaw = input.email?.trim() ?? '';
+    if ((userId === '') === (emailRaw === '')) throw new MerchantOpsError('pay.team_invite_target_invalid', 'bad_request');
+    if (emailRaw) return this.inviteByEmail(caller, emailRaw, input.role, input.label);
+    if (isReservedTeamUserId(userId)) throw new MerchantOpsError('pay.team_user_id_reserved', 'bad_request');
     return this.sql.begin(async (tx) => {
       // One writer per merchant at a time, so two admins cannot race an invite and a role change.
       await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
@@ -206,6 +220,79 @@ export class TeamService {
         VALUES (${caller.merchantId}, ${userId}, 'invited', ${input.role}, ${caller.userId})`;
       return this.memberView(tx, caller.merchantId, id);
     });
+  }
+
+  /**
+   * Invite by mailbox. Never reads an account table, so two addresses — one
+   * registered, one not — take the same path and return the same shape.
+   * The rate window is counted on new invite events only.
+   */
+  private async inviteByEmail(caller: MerchantCaller, rawEmail: string, role: TeamRole, label?: string): Promise<TeamMemberView> {
+    const email = normaliseTeamInviteEmail(rawEmail);
+    if (!email) throw new MerchantOpsError('pay.team_email_invalid', 'bad_request');
+    this.assertEmailInviteConfigured();
+    const token = emailInviteToken(email);
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
+      const existing = await tx<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM pay.merchant_team_members
+         WHERE merchant_id = ${caller.merchantId} AND user_id = ${token}
+         FOR UPDATE`;
+      let id: string;
+      if (existing[0]?.status === 'invited') {
+        id = existing[0].id;
+        await tx`
+          UPDATE pay.merchant_team_members
+             SET role = ${role}, label = ${label ?? null}, invited_by = ${caller.userId}, updated_at = now()
+           WHERE id = ${id}`;
+        return this.memberView(tx, caller.merchantId, id);
+      }
+      await this.assertEmailInviteBudget(tx, caller.merchantId);
+      if (existing[0]) {
+        id = existing[0].id;
+        await tx`
+          UPDATE pay.merchant_team_members
+             SET status = 'invited', role = ${role}, label = ${label ?? null}, invited_by = ${caller.userId},
+                 removed_at = NULL, activated_at = NULL, updated_at = now()
+           WHERE id = ${id}`;
+      } else {
+        const inserted = await tx<Array<{ id: string }>>`
+          INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, label, invited_by)
+          VALUES (${caller.merchantId}, ${token}, ${role}, 'invited', ${label ?? null}, ${caller.userId})
+          RETURNING id`;
+        id = inserted[0]!.id;
+      }
+      await tx`
+        INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, to_role, actor_id)
+        VALUES (${caller.merchantId}, ${token}, 'invited', ${role}, ${caller.userId})`;
+      return this.memberView(tx, caller.merchantId, id);
+    });
+  }
+
+  private assertEmailInviteConfigured(): void {
+    const limit = this.emailInviteLimit;
+    if (
+      !limit ||
+      !Number.isInteger(limit.maxPerWindow) ||
+      limit.maxPerWindow < 1 ||
+      !Number.isInteger(limit.windowMs) ||
+      limit.windowMs < 1
+    ) {
+      throw new MerchantOpsError('pay.team_email_invite_unconfigured', 'precondition');
+    }
+  }
+
+  private async assertEmailInviteBudget(tx: TransactionSql, merchantId: string): Promise<void> {
+    const limit = this.emailInviteLimit;
+    if (!limit) throw new MerchantOpsError('pay.team_email_invite_unconfigured', 'precondition');
+    const windowStart = new Date(Date.now() - limit.windowMs);
+    const counted = await tx<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.merchant_team_events
+       WHERE merchant_id = ${merchantId} AND action = 'invited'
+         AND member_user_id LIKE 'email:%' AND created_at >= ${windowStart}`;
+    if ((counted[0]?.n ?? 0) >= limit.maxPerWindow) {
+      throw new MerchantOpsError('pay.team_email_invite_rate_limited', 'precondition');
+    }
   }
 
   async changeRole(caller: MerchantCaller, input: { memberId: string; role: TeamRole }): Promise<TeamMemberView> {

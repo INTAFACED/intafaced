@@ -5,6 +5,7 @@ import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contra
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
+import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
@@ -191,6 +192,9 @@ const auth = new AuthService(
 // reset request refuses auth.reset_unwired. No mailer is installed in this
 // process: svc-notify is a different module, and this service does not invent one.
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+if (env.PAY_URL) {
+  auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET));
+}
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
