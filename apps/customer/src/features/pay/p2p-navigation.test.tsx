@@ -58,6 +58,8 @@ describe('person-to-person rooms with nothing chosen', () => {
     expect(html).not.toContain('Create an offer');
     expect(html).toContain('Pick an offer to edit');
     expect(html).toMatch(/<a[^>]*href="\/uc\/ad"[^>]*>Go to Your offers<\/a>/);
+    expect(html).not.toContain('<input');
+    expect(html).not.toContain('Service readiness');
   });
 
   it('/uc/ad/create keeps its own heading', () => {

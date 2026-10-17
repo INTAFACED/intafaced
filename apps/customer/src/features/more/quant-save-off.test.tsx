@@ -61,7 +61,7 @@ it('no Quant room reads the shared library until per-account storage ships', () 
   expect(readsSharedLibrary('backtest')).toBe(false);
 });
 
-it('Backtest shows the same closed library in its catalogue and makes no list call', () => {
+it('Backtest has no shared library, asks for a Studio strategy and makes no list call', () => {
   query.mockClear();
   vi.stubGlobal('location', {
     pathname: '/quant/backtest',
@@ -72,7 +72,7 @@ it('Backtest shows the same closed library in its catalogue and makes no list ca
   });
   const html = renderToStaticMarkup(<Quant mode="backtest" />);
   vi.unstubAllGlobals();
-  expect(html).toContain('the shared library is closed');
+  expect(html).toContain('Create a strategy in Studio first');
   expect(html).not.toContain('Use this strategy');
   expect(query.mock.calls.map((call) => (call as unknown[])[1])).not.toContain('studio.list');
 });

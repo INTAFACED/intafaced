@@ -126,7 +126,12 @@ describe('leftover OMS writes require HMAC as svc-execution', () => {
     const oms = src.slice(src.indexOf('oms: router({'), src.indexOf('policy: publicProcedure'));
     expect(oms).not.toMatch(/scopedProcedure\('admin:write'/);
     expect(oms).toMatch(/omsWriteProcedure/);
-    expect(src).not.toMatch(/scopedProcedure\('admin:write'/);
+    // Founder halt is execution.ops, not an OMS write. Session admin:write stays inside that block.
+    const opsStart = src.indexOf('ops: router({');
+    const opsEnd = src.indexOf('oms: router({');
+    const outsideOps = src.slice(0, opsStart) + src.slice(opsEnd);
+    expect(src.slice(opsStart, opsEnd)).toMatch(/scopedProcedure\('admin:write'/);
+    expect(outsideOps).not.toMatch(/scopedProcedure\('admin:write'/);
     expect(src).toMatch(/tenant: router\([\s\S]*omsWriteProcedure/);
     expect(src).toMatch(/arb: router\([\s\S]*omsWriteProcedure/);
     expect(src).toMatch(/mm: router\([\s\S]*omsWriteProcedure/);

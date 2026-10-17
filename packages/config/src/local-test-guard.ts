@@ -12,6 +12,8 @@ import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from 
  *      marker in its source or reasons, and not made up only of user-assigned
  *      codes. `XK` (Kosovo) is a real, counsel-usable code and never counts as
  *      user-assigned.
+ *   3. `LOCAL_TEST_KMS` must not be set. A local-test instrument key is a
+ *      stand-in, and every service that calls this guard refuses it.
  *
  * It does NOT say the list is complete or counsel-approved; that stays with
  * `assertScreeningConfigured` and the owner. It only refuses the stand-ins.
@@ -68,6 +70,10 @@ export function localTestFixtureIssues(env: Record<string, string | undefined> =
     issues.push(`${SCREENING_FAIL_CLOSED_ENV} is set to an explicit off value (screening would let unscreened regions through)`);
   }
   issues.push(...screeningListStandInIssues(envScreeningList(env)));
+  const localTestKms = env.LOCAL_TEST_KMS;
+  if (typeof localTestKms === 'string' && localTestKms.trim() !== '') {
+    issues.push('LOCAL_TEST_KMS is set');
+  }
   return issues;
 }
 

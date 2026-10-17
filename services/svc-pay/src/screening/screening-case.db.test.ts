@@ -1,20 +1,21 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createSqlScreeningCaseStore, screeningSubjectKey } from './store.js';
 
-const migration = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle', '0062_pay_screening_cases.sql'),
-  'utf8',
-);
+const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 describe('screening case row', () => {
   let db: TestDatabase;
 
   beforeAll(async () => {
-    db = await createTestDatabase({ service: 'pay', migrations: [migration] });
+    db = await createTestDatabase({ service: 'pay', migrations });
   }, 60_000);
 
   afterAll(async () => {

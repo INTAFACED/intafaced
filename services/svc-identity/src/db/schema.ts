@@ -477,6 +477,9 @@ export const actionApprovals = identity.table(
     kind: text('kind').notNull().default('four_eyes'),
     /** Session a same_person approval is bound to; null for four_eyes. */
     sessionId: text('session_id'),
+    consumedByService: text('consumed_by_service'),
+    consumedByPrincipal: text('consumed_by_principal'),
+    consumedRequestId: text('consumed_request_id'),
   },
   (t) => [
     uniqueIndex('action_approvals_operation_idx').on(t.operationId),

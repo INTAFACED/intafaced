@@ -307,6 +307,35 @@ export type BankErrorCode =
    */
   | 'bank.no_fiat_rail'
   | 'bank.fiat_ramp_socket'
+  /**
+   * On-ramp quote has no rate/fee source. A pay amount, fee, or FX rate is not invented.
+   * The missing piece is socket.psp-partners plus a published price.
+   */
+  | 'bank.onramp_rate_unset'
+  /** No quote row for this caller. */
+  | 'bank.onramp_quote_missing'
+  /** The quote's published expiry has passed. Nothing is charged. */
+  | 'bank.onramp_quote_expired'
+  /** The partner answered without a hosted URL or bank-transfer instruction. None is invented. */
+  | 'bank.onramp_instruction_missing'
+  /**
+   * Crypto off-ramp has no published fee schedule. Zero is not assumed.
+   * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
+   */
+  | 'bank.offramp_fee_unset'
+  /** Fee plus net does not equal the amount. The service does not adjust either figure. */
+  | 'bank.offramp_fee_inconsistent'
+  /**
+   * Crypto custody is not connected. No asset list, minimum, address, or
+   * incoming deposit is invented.
+   */
+  | 'bank.deposit_custody_unset'
+  /** Custody published a catalogue or address this service will not repeat. */
+  | 'bank.deposit_catalogue_invalid'
+  /** The asset or network is not in the published catalogue. */
+  | 'bank.deposit_asset_unpublished'
+  /** Custody returned more incoming deposits than this door will publish. None are dropped. */
+  | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
@@ -506,10 +535,12 @@ export type BankErrorCode =
   | 'bank.personal_transfer_fee_unwired'
   | 'bank.personal_transfer_limit_exceeded'
   | 'bank.personal_transfer_daily_limit_exceeded'
-  /** Same transfer id, different note, payee, amount, or request. */
+  /** Same transfer id, different note, payee, amount, request, or reference. */
   | 'bank.personal_transfer_conflict'
   | 'bank.personal_transfer_not_found'
   | 'bank.personal_note_invalid'
+  /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
+  | 'bank.personal_reference_invalid'
   | 'bank.personal_request_not_found'
   | 'bank.personal_request_closed'
   | 'bank.personal_request_expired'
@@ -527,7 +558,29 @@ export type BankErrorCode =
   /** IDENTITY_URL is unset, so a request cannot name either person. */
   | 'bank.party_handles_unset'
   /** Identity did not answer a handle lookup. Nothing was created. */
-  | 'bank.party_handles_unavailable';
+  | 'bank.party_handles_unavailable'
+  /** A transfer id was reused with a different note or reference. */
+  | 'bank.transfer_message_conflict'
+  /** The activity id is not in this customer's history. */
+  | 'bank.activity_not_found'
+  /** Lookup stopped before history ended, so absence is not proven. */
+  | 'bank.activity_lookup_bounded'
+  /** A from/to or amount range is backwards. */
+  | 'bank.activity_range'
+  /** A note command id was reused with different text. */
+  | 'bank.activity_note_conflict'
+  /** A dispute id was reused with a different reason or transaction. */
+  | 'bank.activity_dispute_conflict'
+  /** This customer already has an open dispute on that transaction. */
+  | 'bank.activity_dispute_exists'
+  /** Statement dates are backwards or longer than 366 days. */
+  | 'bank.statement_range'
+  /** PDF statements are one UTC calendar month. */
+  | 'bank.statement_pdf_one_month'
+  /** More posted lines than a statement file will carry. Narrow the dates. */
+  | 'bank.statement_too_large'
+  /** No service secret, or activity could not be read, so no file was built. */
+  | 'bank.statement_unavailable';
 
 export class BankError extends Error {
   constructor(

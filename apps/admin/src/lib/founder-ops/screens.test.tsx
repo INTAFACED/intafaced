@@ -97,9 +97,9 @@ describe('new founder route inventory', () => {
     const html = renderToStaticMarkup(await run(s.route));
     expect(html).toContain(s.title);
     if (WIRED.has(s.id)) {
-      expect(html).not.toContain('Arrives with the next backend update');
+      expect(html).not.toContain('Not connected');
       expect(html).toContain('Not built yet');
-    } else expect(html).toContain('Arrives with the next backend update');
+    } else expect(html).toContain('Not connected');
     expect(html).not.toContain('NaN');
     expect(moduleForPage(pathOf(s.route))).toBe('merchants');
   });
@@ -118,7 +118,7 @@ describe('new founder route inventory', () => {
     const html = renderToStaticMarkup(await call());
     expect(html).toContain(`data-screen="${id}"`);
     expect(html).toContain('not visible to merchant');
-    expect(html).not.toContain('Arrives with the next backend update');
+    expect(html).not.toContain('Not connected');
     expect(html).not.toContain('merchant drilldown procedure is still unimplemented');
     if (SCREEN_SECTIONS[section]) {
       // Reads are off in this stub, so every list says so by name instead of showing an empty table.

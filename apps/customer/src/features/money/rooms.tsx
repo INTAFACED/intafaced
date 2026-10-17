@@ -41,6 +41,8 @@ import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
+import { splitAnalytics } from './analytics-model';
+import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBank } from './BusinessBank';
 import { businessCopy } from './business-copy';
@@ -49,7 +51,7 @@ import { rampDepthCopy } from './ramp-depth-copy';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
-import { assetSelectField, useHoldings } from './holdings';
+import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -709,6 +711,8 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
   }
   const pools = useBankRead('earn.pools', { limit });
   const positions = useBankRead('earn.positions', { limit });
+  const held = useHoldings();
+  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
   const automation = useBankRead('autoInvest.policy', undefined);
   return (
     <BankPage room="Earn" description={earnCopy.t('description')}>
@@ -855,6 +859,8 @@ function Earn({ open }: { open: (spec: ActionSpec) => void }) {
                                 );
                               },
                               fields: [positiveMoney(pool.assetId)],
+                              formFacts: earnFormFacts(pool, availableRow(pool.assetId, heldRows, funds), new Date(), bps),
+                              liveRows: (values) => earnLiveRows(pool, values, funds),
                               facts: [
                                 [copyText('rooms.pool'), pool.name],
                                 [copyText('rooms.apr.2'), bps(pool.aprBps)],
@@ -958,6 +964,8 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
   const products = useBankRead('loans.products', { limit });
   const loans = useBankRead('loans.list', { limit });
   const health = useBankRead('loans.health', undefined);
+  const held = useHoldings();
+  const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
   return (
     <BankPage room="Loans" description={copyText('rooms.configured.borrowing.terms.ledger.collateral.and.authoritative')}>
       <Section title={copyText('rooms.loan.health')}>
@@ -1044,6 +1052,8 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             positiveMoney(product.debtAssetId, 'principal', copyText('rooms.principal.to.borrow')),
                             positiveMoney(product.collateralAssetId, 'collateralAmount', copyText('rooms.collateral.to.pledge')),
                           ],
+                          formFacts: loanFormFacts(product, availableRow(product.collateralAssetId, heldRows, funds), bps),
+                          liveRows: (values) => loanLiveRows(product, values, funds),
                           facts: [
                             [copyText('rooms.product'), product.name],
                             [copyText('rooms.apr.2'), bps(product.aprBps)],
@@ -1393,20 +1403,36 @@ function Analytics() {
                   <Text k="rooms.ledger.movements.transfers.between.your.spaces.may" />
                 </p>
               </Section>
-              <Section title={copyText('rooms.outflow.categories')}>
-                {Object.entries(summary.outflowByCategory).length ? (
-                  Object.entries(summary.outflowByCategory).map(([category, quantity]) => (
-                    <div className="money-space-row" key={category}>
-                      <span>{categoryLabel(category)}</span>
-                      <strong className="numeric">{funds(quantity, summary.assetId)}</strong>
-                    </div>
-                  ))
-                ) : (
-                  <NoRows title={copyText('rooms.no.outflow.categories.returned')}>
-                    <Text k="rooms.the.service.returned.no.categorized.outflow.for" />
-                  </NoRows>
-                )}
-              </Section>
+              {(() => {
+                const split = splitAnalytics(summary);
+                return (
+                  <>
+                    <Section title={copyText('rooms.outflow.categories')}>
+                      {split.outflow.length ? (
+                        split.outflow.map((row) => (
+                          <div className="money-space-row" key={row.category}>
+                            <span>{row.category === 'deposits' ? copyText('rooms.deposit.outflow') : categoryLabel(row.category)}</span>
+                            <strong className="numeric">{funds(row.amount, summary.assetId)}</strong>
+                          </div>
+                        ))
+                      ) : (
+                        <NoRows title={copyText('rooms.no.outflow.categories.returned')}>
+                          <Text k="rooms.the.service.returned.no.categorized.outflow.for" />
+                        </NoRows>
+                      )}
+                    </Section>
+                    {split.moneyInDeposits !== null && (
+                      <Section title={copyText('rooms.money.in.deposits')}>
+                        <div className="money-space-row">
+                          <span>{categoryLabel('deposits')}</span>
+                          <strong className="numeric">{funds(split.moneyInDeposits, summary.assetId)}</strong>
+                        </div>
+                        <p className="money-caption">{copyText(split.exact ? 'rooms.money.in.note' : 'rooms.money.in.inexact')}</p>
+                      </Section>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
         </ResourceView>
@@ -1573,6 +1599,34 @@ function BankOverview() {
                     </p>
                   </div>
                 )}
+                {overview.spaces.ok &&
+                  (() => {
+                    const totals = spaceTotals(overview.spaces.data, overview.holdings);
+                    if (!totals.length) return null;
+                    return (
+                      <section className="money-spaces-total" aria-label={copyText('index.spaces.heading')}>
+                        {totals.map((row) => (
+                          <p key={row.assetId}>
+                            <span className="numeric" dir="ltr">
+                              {hideBalances
+                                ? `•••• ${row.assetId}`
+                                : copyText(row.total === null ? 'index.spaces.plus' : 'index.spaces.total', {
+                                    amount: amount(row.total ?? row.inSpaces, row.assetId),
+                                  })}
+                            </span>
+                            {row.total !== null && (
+                              <small>
+                                {hideBalances ? '' : copyText('index.spaces.plus', { amount: amount(row.inSpaces, row.assetId) })}
+                              </small>
+                            )}
+                          </p>
+                        ))}
+                        <small>
+                          <Text k="index.spaces.note" />
+                        </small>
+                      </section>
+                    );
+                  })()}
               </>
             )}
           </ResourceView>

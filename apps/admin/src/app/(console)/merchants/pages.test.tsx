@@ -353,7 +353,7 @@ describe('all merchants', () => {
     expect(out).toContain('aria-sort="ascending"');
     expect(out).toContain('Export CSV (1)');
     expect(out).toContain('href="/merchants/all?status=active&amp;cursor=NEXTC"');
-    expect(out).toContain('The tier filter arrives with the control room');
+    expect(out).toContain('The tier filter is not connected');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"filter":{"status":"active"}');
     expect(decodeURIComponent(seen.find((u) => u.includes('merchants.list'))!)).toContain('"limit":50');
   });

@@ -472,7 +472,7 @@ services:
     container_name: intafaced-svc-matching
     command: ['node', 'services/svc-matching/dist/index.js']
     environment:
-      <<: [*service-env, *internal-secret]
+      <<: [*service-env, *internal-secret, *edge-secret]
       SERVICE_NAME: svc-matching
       # 4005, not the code default of 4004: svc-trade's MATCHING_URL default is
       # `http://localhost:4005`, and three services share 4004 as a default
@@ -503,6 +503,7 @@ services:
       # a blank URL leaves a book that replayed resting orders closed. Compose
       # points at the ledger the same way svc-trade does.
       LEDGER_URL: http://svc-ledger:4001
+      # Founder door verifies the edge principal. Blank → matching.operator_auth_unconfigured.
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -831,6 +832,9 @@ services:
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
+      # Owner-published futures mark freshness. Blank refuses futures.mark
+      # with ws.freshness_limit_unset. Never invent 300.
+      WS_MARK_FRESHNESS_SECONDS: ${WS_MARK_FRESHNESS_SECONDS:-}
       # Owner-published outbound high-water — pass-through, no compose default.
       # Blank stays refuse-closed (ws.high_water_bytes_unset). Host may set
       # 1048576 explicitly. Never invent 1048576.
@@ -1467,6 +1471,9 @@ services:
       EXECUTION_MM_SPREAD_SKEW_BANDS: ${EXECUTION_MM_SPREAD_SKEW_BANDS:-}
       # execution.arbitrage owner freshness window — blank = refuse-closed (no invented maxQuoteAgeMs).
       EXECUTION_ARB_MAX_QUOTE_AGE_MS: ${EXECUTION_ARB_MAX_QUOTE_AGE_MS:-}
+      # Founder halt consume. Blank → action_approval.identity_unwired.
+      # Do not add INTERNAL_SERVICE_SECRET here: that would open HMAC writes.
+      IDENTITY_URL: ${IDENTITY_URL:-}
     expose: ['4019']
     volumes:
       - execution-ems-journal:/data/execution
@@ -1545,6 +1552,11 @@ services:
       # Blank/unknown freeze policy → createApproval/execute refuse ops.custody_freeze_unset.
       # frozen → ops.custody_frozen. open passes freeze only — never a live send.
       OPS_CUSTODY_FREEZE_POLICY: ${OPS_CUSTODY_FREEZE_POLICY:-}
+      # Joint-restore archive. Blank → ops.restore_archive_unconfigured.
+      # Not the erasure archive. A set URL is not probed.
+      OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
+      # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
+      OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
     expose: ['4022']
     healthcheck: *healthcheck
     depends_on:

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   accountControlInputSchema,
+  identityAccountControlInputSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlStateSchema,
@@ -12,7 +13,7 @@ import {
   protectedProcedure,
   serviceProcedure,
   TRPCError,
-  type AccountControlInput,
+  type IdentityAccountControlInput,
   type Context,
 } from '@intafaced/contracts';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
@@ -37,7 +38,7 @@ export const identityRestoreInputSchema = identityRestrictionInputSchema.refine(
 export async function callFounderControl(
   controls: Pick<FounderControlsPort, 'change'> | undefined,
   context: Context,
-  input: AccountControlInput,
+  input: IdentityAccountControlInput,
 ) {
   if (!controls)
     throw new TRPCError({
@@ -65,7 +66,12 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
-        .input(identityRestrictionInputSchema)
+        .input(
+          identityAccountControlInputSchema.refine(
+            (input) => input.target.area === 'identity' || input.target.area === 'trading',
+            'Identity or trading target required',
+          ),
+        )
         .output(accountControlResultSchema)
         .mutation(({ ctx, input }) => callFounderControl(controls, ctx, input)),
       history: protectedProcedure

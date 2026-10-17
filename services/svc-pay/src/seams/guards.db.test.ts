@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
@@ -25,22 +25,11 @@ import { composeGuards, PayGuardRefusal, type PartialPayGuards } from './guards.
  * NO guards passed are the proof that the defaults preserve behaviour.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-const migrations = [
-  '0000_pay_init.sql',
-  '0002_pay_payment_links.sql',
-  '0003_pay_checkout_sessions.sql',
-  '0005_pay_merchant_kyb.sql',
-  '0006_pay_merchant_status_history.sql',
-  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
-  '0009_pay_submerchant_tree.sql',
-  '0014_pay_merchant_payout_destinations.sql',
-  '0018_pay_founder_controls_admission.sql',
-  // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
-  '0071_pay_merchant_names.sql',
-  '0073_pay_settlement_read.sql',
-  '0087_pay_payment_link_checkout.sql',
-  '0089_pay_payout_dispatched_outcome.sql',
-].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
+const drizzleDir = join(here, '..', '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 const SECRET = 'svc-pay-seams-test-secret-at-least-32-characters';
 const USER = '11111111-1111-4111-8111-111111111111';

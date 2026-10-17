@@ -130,7 +130,25 @@ export type AcademyErrorCode =
   | 'academy.my_completions_list_limit_unset'
   | 'academy.residency_cohorts_list_limit_unset'
   | 'academy.my_upcoming_sessions_list_limit_unset'
-  | 'academy.grant_audit_list_limit_unset';
+  | 'academy.grant_audit_list_limit_unset'
+  /** Lesson has no owner-published assessment. */
+  | 'academy.assessment_unpublished'
+  /** Assessment questions exist and the pass mark does not. */
+  | 'academy.pass_mark_unset'
+  | 'academy.assessment_invalid'
+  /** Owner-published attempt cap reached. */
+  | 'academy.attempt_limit'
+  /** Owner-published cooldown has not elapsed. */
+  | 'academy.attempt_cooldown'
+  /** Path has no owner-published certificate definition. */
+  | 'academy.certificate_unpublished'
+  /** certVerify rate max or window is blank. */
+  | 'academy.verify_rate_unset'
+  /** certVerify caller address is missing. Fail closed. */
+  | 'academy.verify_address_unset'
+  /** certVerify over the published per-address limit. */
+  | 'academy.verify_rate_limited'
+  | 'academy.holder_name_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -213,6 +231,16 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.residency_cohorts_list_limit_unset',
   'academy.my_upcoming_sessions_list_limit_unset',
   'academy.grant_audit_list_limit_unset',
+  'academy.assessment_unpublished',
+  'academy.pass_mark_unset',
+  'academy.assessment_invalid',
+  'academy.attempt_limit',
+  'academy.attempt_cooldown',
+  'academy.certificate_unpublished',
+  'academy.verify_rate_unset',
+  'academy.verify_address_unset',
+  'academy.verify_rate_limited',
+  'academy.holder_name_invalid',
 ] as const;
 
 /** L3 — catalog size. */
