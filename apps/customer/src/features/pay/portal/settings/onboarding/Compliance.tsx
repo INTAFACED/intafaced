@@ -10,6 +10,7 @@ import { CopyReference } from '../../ui/CopyReference';
 import { Freshness } from '../../ui/Freshness';
 import { Timeline } from '../../ui/Timeline';
 import { useReadAt } from '../../hooks';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { Blocker } from '../account/ui';
 import { extensionCopy as c, portalCopy } from '../copy';
@@ -93,7 +94,7 @@ export function ComplianceView({
         </Gate>
       </PaySection>
       <PaySection title={t('compNextTitle')} description={t('compNextBody')}>
-        <Blocker what={t('waitDocuments')} title={t('docsTitle')}>
+        <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={t('docsHeading')}>
           {t('docsBlocked')}
         </Blocker>
       </PaySection>

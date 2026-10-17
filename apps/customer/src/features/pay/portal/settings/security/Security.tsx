@@ -2,6 +2,7 @@ import { PaySection } from '../../../components';
 import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
 import { Chip } from '../../components';
 import { IdentitySessions } from '../../../../account/IdentitySessions';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { Blocker } from '../account/ui';
 
@@ -57,7 +58,7 @@ export function SecurityView({ role, interactive, verified }: { role: string | n
       </PaySection>
 
       <PaySection title={t('secPolicyTitle')}>
-        <Blocker what={t('waitPolicy')} title={t('secPolicyHead')}>
+        <Blocker reason={notLive('reasonSecurity')} needs="team sign-in policy" title={t('secPolicyHead')}>
           {t('secPolicyBody')}
         </Blocker>
       </PaySection>

@@ -9,6 +9,7 @@ import { DateTime } from '../../ui/DateTime';
 import { EntityList } from '../../ui/EntityList';
 import { PortalReview } from '../../ui/PortalReview';
 import { useUnsavedForm } from '../../useUnsavedForm';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';
 import { bpsPercent, isPlatformAccount, nodeName, parsePercentToBps } from '../account/model';
@@ -58,7 +59,7 @@ export function NetworkView({
   return (
     <div className="stack">
       <PaySection title={t('netListTitle')} description={t('netListBody')}>
-        <ReadGate resource={subs} retry={reload} waiting={{ what: t('waitNetwork'), body: t('netWaitBody') }}>
+        <ReadGate resource={subs} retry={reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
           {(rows) =>
             rows.length === 0 ? (
               <EmptyState title={t('netEmptyTitle')}>{t('netEmptyBody')}</EmptyState>
@@ -97,7 +98,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
   const [fee, setFee] = useState('');
   const bps = fee.trim() === '' ? null : parsePercentToBps(fee);
   const feeProblem = fee.trim() !== '' && bps === null;
-  useUnsavedForm(Boolean(userId || fee), t('unsaved'));
+  useUnsavedForm(Boolean(userId || fee), t('acUnsaved'));
   const why = !allowed ? t('netOwnerOnly') : userId.trim() === '' ? t('netNeedUser') : bps === null ? t('netNeedFee') : undefined;
   return (
     <PaySection title={t('netCreateTitle')} description={t('netCreateBody')}>

@@ -7,6 +7,8 @@ import './portal.css';
 import { ExactMoneyContext } from './presentation';
 import { LayoutFrame } from './home-layout/Frame';
 import { rooms } from './rooms';
+import type { RoomContext } from './rooms-model';
+import { DisabledAction, NoBusiness } from './access/NoBusiness';
 import type { PayBusinessAuthority } from '../pay-api';
 import { MerchantAccessProvider, useMerchantAccess } from './access/MerchantAccess';
 import { authorityFromAccess } from './access/authority';
@@ -50,26 +52,54 @@ function PortalRooms({
   // A page that needs a `PayBusinessAuthority` gets one made from the resolved access, for the owner only.
   const effective = authority ?? authorityFromAccess(access.access, userId);
   return (
-    <PortalFrame route={route}>
-      {rooms[route.room].render(route, {
+    <PortalPage
+      route={route}
+      ctx={{
         portal,
         authority: effective,
         access,
         starterFeeBps,
         legacyHome: typeof legacyHome === 'function' ? legacyHome(effective) : legacyHome,
-      })}
+      }}
+    />
+  );
+}
+
+/**
+ * One page inside the frame. A signed-in person with no business account never reaches a page's own code: they get the
+ * one calm "No business account yet" state and the header action switched off, unless the page says otherwise
+ * (`withoutBusiness` on its room). This is the only place that decision is made.
+ */
+export function PortalPage({ route, ctx }: { route: PortalRoute; ctx: RoomContext }) {
+  const room = rooms[route.room];
+  const noBusiness = ctx.access.access.status === 'none' && room.withoutBusiness !== 'render';
+  const body = !noBusiness ? (
+    room.render(route, ctx)
+  ) : typeof room.withoutBusiness === 'function' ? (
+    room.withoutBusiness(ctx)
+  ) : (
+    <NoBusiness />
+  );
+  return (
+    <PortalFrame route={route} actionOff={noBusiness}>
+      {body}
     </PortalFrame>
   );
 }
 
-export function PortalFrame({ route, children }: { route: PortalRoute; children: ReactNode }) {
+export function PortalFrame({ route, actionOff = false, children }: { route: PortalRoute; actionOff?: boolean; children: ReactNode }) {
   // Subscribes the header to the language preference; the room headers read the same catalogs.
   portalCopy.useCopy();
   const room = rooms[route.room];
   const copy = room.header(route);
   const here = typeof room.here === 'function' ? room.here(route) : (room.here ?? `/pay/${route.room}`);
   return (
-    <LayoutFrame here={here} title={copy.title} purpose={copy.purpose} action={copy.action}>
+    <LayoutFrame
+      here={here}
+      title={copy.title}
+      purpose={copy.purpose}
+      action={actionOff ? <DisabledAction action={copy.action} /> : copy.action}
+    >
       <ExactMoneyContext.Provider
         value={Boolean(route.param || route.step) || route.room.endsWith('-new') || route.room === 'money-activity'}
       >

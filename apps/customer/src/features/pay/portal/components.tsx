@@ -10,8 +10,8 @@ import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
 import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
-import { ComingSoonCard } from './chrome/ComingSoonCard';
-import { isComingSoon, refusalText, refusalTitle } from './refusal';
+import { NotLiveCard } from './chrome/NotLiveCard';
+import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
 import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -22,13 +22,17 @@ export function PortalLoading({ rows = 3, label }: { rows?: number; label?: stri
   return <StateBlock kind="loading" rows={rows} label={label ?? t('loading')} />;
 }
 
-/** A feature that is not live yet. One calm card; see ComingSoonCard. */
-export const ComingSoon = ComingSoonCard;
+/** A feature that is not live yet. One calm card; see NotLiveCard. */
+export const NotLive = NotLiveCard;
 
-export function PortalFailure({ result, retry }: { result: Failed; retry?: () => void }) {
+/**
+ * A refusal in plain words. When the service has not switched the feature on, it is a card naming the blocker instead:
+ * pass `notLive` to word it for the page, or the code's own reason (or a general one) is used.
+ */
+export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  if (isComingSoon(result)) return <ComingSoon />;
+  if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
   return (
     <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>

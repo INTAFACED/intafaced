@@ -9,13 +9,14 @@ import { ApplyView } from '../features/account/View';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
-import { hiddenFeatureFor, isDevBuild, tabHome, type Feature } from './feature-registry';
+import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
 import { LegacyRoom, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { screens } from './screens';
 import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
+import { ParkedProtocolRoomAt } from '../features/protocol';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;
@@ -101,15 +102,9 @@ export function App() {
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const hidden = hiddenFeatureFor(path, search);
-  // One redirect rule per render, in this order: a hidden feature in a customer build, an alias row, signed-in `/`.
-  const redirectTo =
-    !devFeatures && hidden && !dev
-      ? tabHome(hidden)
-      : room?.alias
-        ? resolveAlias(room, path, search)
-        : path === '/' && session
-          ? '/home'
-          : undefined;
+  // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
+  // build, so the Docker image opens exactly what `vite dev` opens.
+  const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
   useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? configuredTeamHref(current) : undefined;
   useEffect(() => {
@@ -172,7 +167,25 @@ export function App() {
         <Screen path={path} search={search} params={matchPath(room.path, path) ?? {}} />
       </Suspense>
     );
-  } else if (area) body = <LegacyRoom area={area} path={current} />;
+  } else if (path === '/uc/ad/update')
+    // The offer form only knows how to create; there is no edit call yet, so say so instead of showing "Create offer".
+    body = (
+      <div className="legacy-room">
+        <Page title={t('Pick an offer to edit')}>
+          <EmptyState
+            title={t('Pick an offer to edit')}
+            action={
+              <a className="button button--primary" href="/uc/ad">
+                {t('Go to my offers')}
+              </a>
+            }
+          >
+            {t('Open your offers and choose one to review. Changing an offer after it is published is not available yet.')}
+          </EmptyState>
+        </Page>
+      </div>
+    );
+  else if (area) body = <LegacyRoom area={area} path={current} />;
   else
     body = (
       <div className="legacy-room">
@@ -206,13 +219,12 @@ export function App() {
       </Page>
     </div>
   ) : room?.area === 'parked' ? (
-    <div className="legacy-room">
-      <Page title={t('This room is parked')}>
-        <EmptyState title={t('Chain services are not active')}>
-          {t('This room remains reserved until owner activation. It is not available from customer navigation or search.')}
-        </EmptyState>
-      </Page>
-    </div>
+    // Parked rooms sit in the normal shell (top bar, door "More") but stay out of customerRoomHref, so they are
+    // never a sign-in return target.
+    <Shell door="More" path={path}>
+      {ribbon}
+      <ParkedProtocolRoomAt path={path} />
+    </Shell>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}

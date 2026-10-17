@@ -13,6 +13,7 @@ import { ExportsView } from './Exports';
 import type { ListState } from '../hooks';
 import { NotificationsView } from './Notifications';
 import * as p from '../schemas';
+import { notLiveWords } from '../ui/test-words';
 // Everything below is TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const portal = {} as PortalApi;
 const html = (node: ReactElement) => renderToString(node);
@@ -76,6 +77,8 @@ describe('exports', () => {
     rowCount: 42,
     sha256: 'a'.repeat(64),
     requestedBy: 'owner-1',
+    columns: ['payment_id', 'amount'],
+    generatedAt: '2026-10-15T09:00:00.000Z',
     asOf: '2026-10-15T09:00:00.000Z',
     expiresAt: null,
     createdAt: '2026-10-15T09:00:00.000Z',
@@ -108,7 +111,7 @@ describe('exports', () => {
   it('has empty, loading, error and coming-soon states', () => {
     expect(render(list<p.ExportJob>([]))).toContain('No exports yet');
     expect(render({ status: 'loading' })).toContain('aria-busy="true"');
-    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toContain('Coming soon');
+    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toMatch(notLiveWords);
     expect(render({ status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') })).toContain('Try again');
   });
 });

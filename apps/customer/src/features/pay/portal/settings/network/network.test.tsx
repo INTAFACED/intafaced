@@ -70,7 +70,7 @@ describe('network', () => {
   });
   it('names the blocker when the network read is not switched on', () => {
     const out = renderToString(<NetworkView portal={{} as PortalApi} merchantId="m" subs={failed('pay.not_built', 501, 'not_supported')} reload={noop} mayCreate />);
-    expect(out).toContain('Waiting on the network update');
+    expect(out).toContain('the network pages aren’t connected yet');
     expect(out).not.toContain('Coming soon');
   });
   it('turns a typed fee into whole basis points, and refuses anything else', () => {
@@ -91,7 +91,7 @@ describe('one business in the network', () => {
     const out = renderToString(<NetworkChildView node={ready(node(A))} summary={ready(summary())} reload={noop} />);
     expect(out).toContain('TEST Child Alpha');
     expect(out).toContain('Last 30 days');
-    expect(out).toContain('2,480.50');
+    expect(out).toContain('2,480.5');
     expect(out).toContain('USDT');
     expect(out).toContain('This is not the whole 30 days above.');
     expect(out).toContain('Payment refund');
@@ -105,7 +105,7 @@ describe('one business in the network', () => {
   });
   it('keeps the facts and names the blocker when the summary is not switched on', () => {
     const out = renderToString(<NetworkChildView node={ready(node(A))} summary={failed('pay.not_built', 501, 'not_supported')} reload={noop} />);
-    expect(out).toContain('Waiting on the business summary');
+    expect(out).toContain('Summary not connected yet');
     expect(out).toContain('1.50%');
   });
 });

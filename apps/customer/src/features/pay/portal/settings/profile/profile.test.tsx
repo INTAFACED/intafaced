@@ -103,7 +103,7 @@ describe('business details', () => {
   });
   it('names the blocker when the details read is not switched on, and keeps the facts', () => {
     const out = html({ profile: failed('pay.not_built', 501, 'not_supported') });
-    expect(out).toContain('Waiting on the business details update');
+    expect(out).toContain('Profile changes not connected yet');
     expect(out).toContain('TEST Shop');
     expect(out).not.toContain('Coming soon');
   });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
-import { accountApi } from './account/api';
+import { accountApi } from './account/account-api';
 
 const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */

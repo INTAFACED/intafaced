@@ -6,7 +6,8 @@ vi.mock('../../../../shared/preferences', async (original) => {
 });
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ComingSoonCard } from './ComingSoonCard';
+import { NotLiveCard } from './NotLiveCard';
+import { reason } from './copy';
 import { currentHref, isMerchantArea } from './model';
 
 describe('portal chrome', () => {
@@ -25,11 +26,12 @@ describe('portal chrome', () => {
   });
 });
 
-describe('ComingSoonCard', () => {
-  it('says what the feature will do, in plain words', () => {
-    const html = renderToStaticMarkup(<ComingSoonCard>You’ll be able to send invoices.</ComingSoonCard>);
-    expect(html).toContain('Coming soon');
+describe('NotLiveCard', () => {
+  it('names what it is waiting for first, then what the feature will do, in plain words', () => {
+    const html = renderToStaticMarkup(<NotLiveCard reason={reason('reasonFees')}>You’ll be able to send invoices.</NotLiveCard>);
+    expect(html).toContain('Pricing not set yet: INTAFACED is finalising merchant fees');
     expect(html).toContain('You’ll be able to send invoices.');
-    expect(html).not.toMatch(/backend|Arrives|Not available yet|\(W\d\)/i);
+    expect(html.indexOf('Pricing not set yet')).toBeLessThan(html.indexOf('send invoices'));
+    expect(html).not.toMatch(/coming soon|backend|Arrives|\(W\d\)/i);
   });
 });

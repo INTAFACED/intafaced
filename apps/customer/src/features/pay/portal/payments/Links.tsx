@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
+import { reason } from '../chrome/copy';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
@@ -8,7 +9,7 @@ import { PortalReview } from '../ui/PortalReview';
 import { validatedMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as s from '../../schemas';
-import { BackLink, ComingSoon, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from '../components';
+import { BackLink, NotLive, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from '../components';
 import { useNow, useReadAt, useUrlParam } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
 import { nextLimit, readLimit } from '../model';
@@ -162,8 +163,8 @@ export function LinksView({
                     ]}
                   />
                 </PaySection>
-                <ComingSoon>{t('linkHistoryGap')}</ComingSoon>
-                {noWrite && <ComingSoon>{t('linkAuthorityGap')}</ComingSoon>}
+                <NotLive reason={reason('reasonHistory')}>{t('linkHistoryGap')}</NotLive>
+                {noWrite && <NotLive reason={reason('reasonOwner')}>{t('linkAuthorityGap')}</NotLive>}
                 <div title={noWrite ? t('linkAuthorityGap') : !selected.active ? t('inactiveTip') : undefined}>
                   <PortalReview
                     title={t('deactivateLink')}
@@ -197,7 +198,7 @@ export function LinksView({
               </>
             ) : (
               <>
-                <ComingSoon>{t('linksGap')}</ComingSoon>
+                <NotLive reason={reason('reasonLists')}>{t('linksGap')}</NotLive>
                 <KpiGrid label={t('linksTitle')}>
                   <Kpi label={t('loadedLinks')} period={t('linksPeriod')} value={links.length} href={`?limit=${limit}`} />
                   {(['active', 'expired', 'inactive'] as const).map((state) => (
@@ -354,8 +355,8 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
   );
   return (
     <PaySection title={t('linkNew')}>
-      <ComingSoon>{t('linkFormGap')}</ComingSoon>
-      {noWrite && <ComingSoon>{t('linkAuthorityGap')}</ComingSoon>}
+      <NotLive reason={reason('reasonActions')}>{t('linkFormGap')}</NotLive>
+      {noWrite && <NotLive reason={reason('reasonOwner')}>{t('linkAuthorityGap')}</NotLive>}
       <div className="form-stack pp-form">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>

@@ -13,6 +13,7 @@ import { DateTime } from '../../ui/DateTime';
 import { PortalReview } from '../../ui/PortalReview';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { actorName } from '../account/actors';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { isWaiting, profilePatch, sensitiveChanges, toForm, validateProfile, type ProfileForm } from '../account/model';
 import type { BusinessProfile, ProfileChange, ProfileFields } from '../account/schemas';
@@ -96,7 +97,7 @@ export function BusinessSettingsView(props: {
       <ReadGate
         resource={profile}
         retry={props.reload}
-        waiting={{ what: t('waitProfile'), body: t('profileEditBlocked') }}
+        waiting={{ reason: notLive('reasonProfile'), body: t('profileEditBlocked'), needs: 'merchant.businessProfile.get' }}
         rows={4}
       >
         {(data) => <ProfileForm key={data.version} {...props} profile={data} />}
@@ -191,7 +192,7 @@ function ProfileForm({
   const kybLocked = who.kybStatus === 'pending';
   const locked = !mayEdit || interactive === false;
   const dirty = changed.length > 0;
-  useUnsavedForm(dirty && outcome === null, t('unsaved'));
+  useUnsavedForm(dirty && outcome === null, t('acUnsaved'));
   const set = (key: keyof ProfileForm) => (e: { target: { value: string } }) => {
     setOutcome(null);
     setForm({ ...form, [key]: e.target.value });
@@ -373,7 +374,6 @@ function ChangeRow({
               <>
                 <PortalReview
                   title={t('confirmChange')}
-                  variant="primary"
                   description={t('confirmChangeBody')}
                   perform={act('confirm')}
                   onConfirmed={reload}

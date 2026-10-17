@@ -68,8 +68,8 @@ describe('setup overview', () => {
   });
   it('names the two genuine blockers: the document check and the terms', () => {
     const out = html({ merchant, progress: ready(progress()) });
-    expect(out).toContain('Waiting on the document check');
-    expect(out).toContain('Waiting on the terms of service');
+    expect(out).toContain('Document checks not connected yet');
+    expect(out).toContain('Terms not set up yet');
     expect(out).not.toContain('Coming soon');
   });
   it('lists what is missing from the business details when the service says so', () => {
@@ -101,11 +101,11 @@ describe('business step', () => {
     expect(out).toContain('Declared by you, not verified');
     expect(out).toContain('reviewed by INTAFACED');
     expect(out).toContain('Create my account');
-    expect(out).not.toContain('Waiting on the starting fee');
+    expect(out).not.toContain('Pricing not set yet');
   });
   it('names the starting fee as the blocker and keeps account creation off', () => {
     const out = html({ step: 'business', starterFeeBps: null });
-    expect(out).toContain('Waiting on the starting fee');
+    expect(out).toContain('Pricing not set yet');
     expect(out).toContain('Opening new accounts isn’t available yet.');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Create my account<\/button>/);
   });
@@ -129,7 +129,7 @@ describe('verification step', () => {
     });
     expect(out).toContain('Verification file reference *');
     expect(out).toContain('Send for review');
-    expect(out).toContain('Waiting on the document check');
+    expect(out).toContain('Document checks not connected yet');
     expect(out).toContain('never counts as passed');
     expect(out).toContain('Nothing sent yet');
   });
@@ -157,13 +157,13 @@ describe('go-live step', () => {
     });
     expect(out).toContain('••••4321');
     expect(out).toContain('Waiting for your verification to be approved');
-    expect(out).toContain('Waiting on the terms of service');
+    expect(out).toContain('Terms not set up yet');
     expect(out).toContain('TEST VALUE');
     expect(out).not.toContain('You are live');
   });
   it('names the missing payout method', () => {
     const out = html({ ...live, rails: ready([]) });
-    expect(out).toContain('Waiting on a payout method');
+    expect(out).toContain('Payout method not connected yet');
   });
   it('says live payments wait for INTAFACED even once verified', () => {
     const out = html({ ...live, merchant, progress: ready(progress({ kybStatus: 'approved' })) });
@@ -193,7 +193,7 @@ describe('compliance', () => {
     expect(out).toContain('Results are not shown here');
     expect(out).toContain('TEST-reference');
     expect(out).toContain('Changed by INTAFACED');
-    expect(out).toContain('Waiting on the document check');
+    expect(out).toContain('Document checks not connected yet');
     expect(out).not.toContain('INTERNAL NOTE');
     expect(out).toContain('Load more');
   });

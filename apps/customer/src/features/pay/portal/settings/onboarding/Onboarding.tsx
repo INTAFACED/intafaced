@@ -10,6 +10,7 @@ import type { OnboardingStep } from '../../routes';
 import type { KybEvent, MerchantRecord, kybCurrentSchema } from '../../schemas';
 import { PortalReview } from '../../ui/PortalReview';
 import { useUnsavedForm } from '../../useUnsavedForm';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress } from '../account/schemas';
 import { Blocker } from '../account/ui';
@@ -224,10 +225,10 @@ function Overview(props: OnboardingViewProps) {
       </PaySection>
       <PaySection title={a('overviewWaitTitle')} description={a('overviewWaitBody')}>
         <div className="stack">
-          <Blocker what={a('waitDocuments')} title={a('docsTitle')}>
+          <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
             {a('docsBlocked')}
           </Blocker>
-          <Blocker what={a('waitTerms')} title={a('termsTitle')}>
+          <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
             {a('termsBlocked')}
           </Blocker>
         </div>
@@ -241,7 +242,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
   const { t: a } = accountCopy.useCopy();
   const [form, setForm] = useState<BusinessForm>(emptyBusiness);
   const [tried, setTried] = useState(false);
-  useUnsavedForm(!merchant && Object.values(form).some(Boolean), a('unsaved'));
+  useUnsavedForm(!merchant && Object.values(form).some(Boolean), a('acUnsaved'));
   const set = (field: keyof BusinessForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
   const errors: BusinessErrors = tried || Object.values(form).some(Boolean) ? validateBusiness(form) : {};
   const errorText = (field: keyof BusinessForm) => (errors[field] ? t(`err_${errors[field]}` as 'err_required') : undefined);
@@ -357,7 +358,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
         </fieldset>
         <p className="sa-reviewed">{a('sensitiveReviewed')}</p>
         {noFee && (
-          <Blocker what={a('waitStarterFee')} title={a('starterFeeTitle')}>
+          <Blocker reason={notLive('reasonFees')} needs="starter fee" title={a('starterFeeTitle')}>
             {a('starterFeeBlocked')}
           </Blocker>
         )}
@@ -399,7 +400,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
   const { t: a } = accountCopy.useCopy();
   const [ref, setRef] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  useUnsavedForm(Boolean(ref) && !submitted, a('unsaved'));
+  useUnsavedForm(Boolean(ref) && !submitted, a('acUnsaved'));
   if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   return (
     <>
@@ -456,7 +457,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
           }}
         </Gate>
       </PaySection>
-      <Blocker what={a('waitDocuments')} title={a('docsTitle')}>
+      <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
         {a('docsBlocked')}
       </Blocker>
       <a className="text-link" href="/pay/onboarding/go-live">
@@ -502,7 +503,7 @@ function StepGoLive(props: OnboardingViewProps) {
   const { t: a } = accountCopy.useCopy();
   const [railId, setRailId] = useState('');
   const [ref, setRef] = useState('');
-  useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, a('unsaved'));
+  useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, a('acUnsaved'));
   if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   const steps = stepStates(props);
   const onFile = steps.progress?.destination.destinations ?? [];
@@ -526,7 +527,7 @@ function StepGoLive(props: OnboardingViewProps) {
             const payoutRails = all.filter((rail) => rail.capabilities.includes('payout'));
             if (payoutRails.length === 0)
               return (
-                <Blocker what={a('waitPayoutRail')} title={t('noPayoutRailTitle')}>
+                <Blocker reason={a('waitPayoutRail')} needs="payout rail" title={t('noPayoutRailTitle')}>
                   {t('noPayoutRailBody')}
                 </Blocker>
               );
@@ -596,7 +597,12 @@ function StepGoLive(props: OnboardingViewProps) {
             </>],
           ]}
         />
-        <Blocker what={a('waitTerms')} title={a('termsTitle')}>
+        {steps.kybStatus !== 'approved' && (
+          <Blocker reason={notLive('reasonVerified')} needs="approved verification" title={a('liveHeading')}>
+            {a('liveBlockedBody')}
+          </Blocker>
+        )}
+        <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
           {a('termsBlocked')}
         </Blocker>
         <div className="pp-actions">

@@ -1,11 +1,28 @@
 import { defineCopy } from '../../../../shared/i18n';
 
-/** Words in the portal frame: the top bar, the business switcher, the search menu and the Coming soon card. */
+/** Words in the portal frame: the top bar, the business switcher, the search menu and the card for parts that are not live. */
 const en = {
-  comingSoon: 'Coming soon',
-  comingSoonDefault: 'You’ll be able to use this part of your business here soon.',
-  comingSoonPage: 'This page isn’t open yet',
-  comingSoonPageBody: 'You’ll be able to use this part of your business here soon. Nothing is lost while you wait.',
+  // Why a part of the portal is not live yet. A card names its blocker; it never just says "not yet".
+  reasonFees: 'Pricing not set yet: INTAFACED is finalising merchant fees',
+  reasonLimits: 'Limits not set yet: INTAFACED is finalising account tiers',
+  reasonDocuments: 'Document checks not connected yet',
+  reasonVerified: 'Available after your business is verified',
+  reasonOwner: 'Available to the account owner once the account is active',
+  reasonHistory: 'History not connected yet: past changes aren’t recorded for your account yet',
+  reasonDetail: 'Detail not connected yet: this extra information isn’t available for your account yet',
+  reasonLists: 'Not connected yet: this view isn’t available for your account yet',
+  reasonActions: 'Not connected yet: this action isn’t switched on for your account yet',
+  reasonDeveloper: 'Developer tools not connected yet: this part isn’t switched on for your account yet',
+  reasonProfile: 'Profile changes not connected yet: your business details can’t be edited here yet',
+  reasonNetwork: 'For platform accounts: the network pages aren’t connected yet',
+  reasonSecurity: 'Security settings not connected yet: sign-in protection can’t be changed here yet',
+  reasonDocs: 'Developer guides not published yet',
+  reasonService: 'Not connected yet: INTAFACED hasn’t switched this on for your account',
+  // A business account is needed first.
+  noBusinessTitle: 'No business account yet',
+  noBusinessBody: 'Set up your business to take payments, send payment links and move money. It takes a few minutes.',
+  noBusinessStart: 'Start setup',
+  noBusinessActionOff: 'Needs a business account. Start setup first.',
   switchAccount: 'Switch account',
   yourBusiness: 'Your business',
   yourAccounts: 'Your accounts',
@@ -36,3 +53,7 @@ const en = {
 export const chromeCopy = defineCopy('pay.portal.chrome', en);
 /** The wording as written, for the copy lint. */
 export const chromeMessages: Record<string, string> = en;
+
+export type ReasonKey = Extract<keyof typeof en, `reason${string}`>;
+/** The words for why a part is not live, in the reader's language. Pass the result to `NotLiveCard`'s `reason`. */
+export const reason = (key: ReasonKey): string => chromeCopy.t(key);

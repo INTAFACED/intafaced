@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { P2P } from './P2P';
 import { BusinessPay, BusinessHomeSection } from './BusinessPay';
-import { MerchantPortal } from './portal/MerchantPortal';
+import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
+import { NoBusiness } from './portal/access/NoBusiness';
 import { isLegacyTool, parsePortalRoute, portalRedirect } from './portal/routes';
 import { Checkout } from './Checkout';
 import type { PayBusinessAuthority } from './pay-api';
@@ -75,6 +76,13 @@ export type { PayBusinessAuthority } from './pay-api';
 function LegacyTools({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { userId } = useSession();
   const { access } = useMerchantAccess();
+  // The older sandbox tools need a business too: no account means the one calm state, like every other business page.
+  if (access.status === 'none' && !authority)
+    return (
+      <PortalFrame route={{ room: 'dashboard' }}>
+        <NoBusiness />
+      </PortalFrame>
+    );
   return <BusinessPay path={path} authority={authority ?? authorityFromAccess(access, userId)} />;
 }
 

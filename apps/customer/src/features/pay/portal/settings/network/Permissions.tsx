@@ -9,6 +9,7 @@ import type { PortalApi } from '../../api';
 import { DateTime } from '../../ui/DateTime';
 import { EntityList } from '../../ui/EntityList';
 import { PortalReview } from '../../ui/PortalReview';
+import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';
 import { areaWords, isPlatformAccount, nodeName } from '../account/model';
@@ -74,7 +75,7 @@ export function PermissionsView(props: {
       <ReadGate
         resource={props.subs}
         retry={props.reloadAll}
-        waiting={{ what: t('waitNetwork'), body: t('netWaitBody') }}
+        waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}
         rows={3}
       >
         {(subs) =>
@@ -157,7 +158,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
       </PaySection>
 
       <PaySection title={t('permGrantsTitle')} description={t('permGrantsBody')}>
-        <ReadGate resource={props.grants} retry={props.reload} waiting={{ what: t('waitNetwork'), body: t('netWaitBody') }}>
+        <ReadGate resource={props.grants} retry={props.reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
           {(grants) =>
             grants.length === 0 ? (
               <EmptyState title={t('permNoGrants')}>{t('permNoGrantsBody')}</EmptyState>
@@ -249,7 +250,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
       </PaySection>
 
       <PaySection title={t('permHistoryTitle')} description={t('permHistoryBody')}>
-        <ReadGate resource={props.history} retry={props.reload} waiting={{ what: t('waitNetwork'), body: t('netWaitBody') }}>
+        <ReadGate resource={props.history} retry={props.reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
           {(events) =>
             events.length === 0 ? (
               <EmptyState title={t('permNoHistory')}>{t('permNoHistoryBody')}</EmptyState>

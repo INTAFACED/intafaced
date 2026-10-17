@@ -9,7 +9,8 @@ import { Compliance } from '../onboarding/Compliance';
 import { Onboarding } from '../onboarding/Onboarding';
 import { BusinessSettings } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
-import { Team } from '../team/Team';
+import { InvitationsOnly, Team } from '../team/Team';
+import { NoBusiness } from '../../access/NoBusiness';
 import { Network } from '../network/Network';
 import { NetworkChild } from '../network/NetworkChild';
 import { Permissions } from '../network/Permissions';
@@ -64,6 +65,7 @@ export const accountRooms: RoomTable = {
     render: () => <WithAccount>{() => <Security />}</WithAccount>,
   },
   onboarding: {
+    withoutBusiness: 'render',
     header: (route) => ({
       title: route.step
         ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
@@ -80,7 +82,12 @@ export const accountRooms: RoomTable = {
     ),
   },
   team: {
-    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite'), 'primary') }),
+    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite')) }),
+    withoutBusiness: ({ portal }) => (
+      <NoBusiness>
+        <InvitationsOnly portal={portal} />
+      </NoBusiness>
+    ),
     render: (_route, { portal }) => <WithAccount>{() => <Team portal={portal} />}</WithAccount>,
   },
   activity: {

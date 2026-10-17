@@ -16,6 +16,7 @@ import { PricingView } from './Pricing';
 import { portalRefusal } from '../refusal';
 import { SettlementDetailView, SettlementsView } from './Settlements';
 import * as p from '../schemas';
+import { notLiveWords } from '../ui/test-words';
 // Everything below is TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const portal = {} as PortalApi;
 const html = (node: ReactElement) => renderToString(node);
@@ -255,7 +256,7 @@ describe('payouts list (P28)', () => {
     expect(out).toContain('<td><span class="muted">Not paid out yet</span></td>');
     expect(out).not.toContain('TEST-2026-W42');
     expect(out).toContain('In transit');
-    expect(out).toContain('Coming soon');
+    expect(out).toContain('Not reported yet');
     expect(out).toContain('filter payouts by destination');
     expect(out).toContain('href="/pay/payouts/bb000001-0000-4000-8000-000000000001"');
     expectPlain(out);
@@ -390,7 +391,7 @@ describe('payout detail (P30)', () => {
     );
     expect(view({ settlement: down })).toContain('Try again');
     expect(view({ settlement: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ usage: soon })).toContain('Coming soon');
+    expect(view({ usage: soon })).toMatch(notLiveWords);
   });
 });
 describe('payout approvals queue (P31)', () => {
@@ -509,7 +510,7 @@ describe('pricing and fees (P36)', () => {
     expect(out).toContain('same engine as live payments');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Work out the fee<\/button>/);
     expect(out).toContain('History of price changes');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
   });
   it('shows "not configured" and no fee at all when pricing was never published', () => {
     const out = view({ control: ready(unconfigured) });
@@ -529,7 +530,7 @@ describe('pricing and fees (P36)', () => {
     expect(view({ control: loading })).toContain('aria-busy="true"');
     expect(view({ control: down })).toContain('Try again');
     expect(view({ control: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ control: soon })).toContain('Coming soon');
+    expect(view({ control: soon })).toMatch(notLiveWords);
   });
 });
 describe('limits and tier (P37)', () => {
@@ -579,7 +580,7 @@ describe('limits and tier (P37)', () => {
     const out = view();
     expect(out).toContain('Tiers and what unlocks next');
     expect(out).toContain('Ask for a higher limit');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
   });
   it('shows the limits it knows when usage cannot be read, with a retry', () => {
     const out = view({ usage: down });
@@ -590,6 +591,6 @@ describe('limits and tier (P37)', () => {
     expect(view({ control: loading })).toContain('aria-busy="true"');
     expect(view({ control: down, usage: down })).toContain('Try again');
     expect(view({ control: forbidden, usage: forbidden })).toContain('Your account does not have access to this.');
-    expect(view({ control: soon, usage: soon })).toContain('Coming soon');
+    expect(view({ control: soon, usage: soon })).toMatch(notLiveWords);
   });
 });

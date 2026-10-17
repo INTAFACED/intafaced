@@ -2,7 +2,7 @@ import './settings.css';
 import { Button } from '@intafaced/ui';
 import { WithAccount } from '../access/WithAccount';
 import { extensionCopy, portalCopy, settingsCopy, w3cCopy } from './copy';
-import { comingSoonRoom } from '../ui/comingSoonRoom';
+import { notLiveRoom } from '../ui/notLiveRoom';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Developers, developerHeader } from './Developers';
 import { Exports } from './Exports';
@@ -60,25 +60,36 @@ export const settingsRooms: RoomTable = {
     header: () => ({ title: t('pageNotifications'), purpose: t('purposeNotifications') }),
     render: (_route, { portal }) => <Notifications portal={portal} />,
   },
-  'developer-sandbox': comingSoonRoom(
+  'developer-sandbox': notLiveRoom(
     () => ({ title: settingsCopy.t('sandboxTitle'), purpose: settingsCopy.t('sandboxPurpose'), body: settingsCopy.t('sandboxSoon') }),
+    'reasonActions',
     '/pay/developer/keys',
+    'sandbox procedures callable from the portal',
   ),
-  'developer-docs': comingSoonRoom(
+  'developer-docs': notLiveRoom(
     () => ({ title: settingsCopy.t('docsTitle'), purpose: settingsCopy.t('docsPurpose'), body: settingsCopy.t('docsSoon') }),
+    'reasonDocs',
     '/pay/developer/keys',
+    'static developer docs (Package 3)',
   ),
-  analytics: comingSoonRoom(() => ({
-    title: settingsCopy.t('analyticsTitle'),
-    purpose: settingsCopy.t('analyticsPurpose'),
-    body: settingsCopy.t('analyticsSoon'),
-  })),
-  'analytics-fees': comingSoonRoom(
+  analytics: notLiveRoom(
+    () => ({
+      title: settingsCopy.t('analyticsTitle'),
+      purpose: settingsCopy.t('analyticsPurpose'),
+      body: settingsCopy.t('analyticsSoon'),
+    }),
+    'reasonLists',
+    undefined,
+    'merchantAnalytics.volume (feat/pay-portal-be-profile-analytics)',
+  ),
+  'analytics-fees': notLiveRoom(
     () => ({
       title: settingsCopy.t('analyticsFeesTitle'),
       purpose: settingsCopy.t('analyticsFeesPurpose'),
       body: settingsCopy.t('analyticsFeesSoon'),
     }),
+    'reasonLists',
     '/pay/analytics',
+    'merchantAnalytics.fees (feat/pay-portal-be-profile-analytics)',
   ),
 };

@@ -10,7 +10,7 @@ import { Limits } from './Limits';
 import { BalanceActivity, MerchantMoney } from './Money';
 import { PayoutDetailPage, Payouts } from './Payouts';
 import { Pricing } from './Pricing';
-import { comingSoonRoom } from '../ui/comingSoonRoom';
+import { notLiveRoom } from '../ui/notLiveRoom';
 import { Refunds } from './Refunds';
 import { SettlementDetailPage, Settlements } from './Settlements';
 
@@ -150,16 +150,20 @@ export const moneyRooms: RoomTable = {
       <WithAccount>{({ merchantId, record }) => <Limits portal={portal} merchantId={merchantId} merchant={record} />}</WithAccount>
     ),
   },
-  'payout-new': comingSoonRoom(
+  'payout-new': notLiveRoom(
     () => ({ title: moneyCopy.t('payoutNewTitle'), purpose: moneyCopy.t('payoutNewPurpose'), body: moneyCopy.t('payoutNewSoon') }),
+    'reasonActions',
     '/pay/payouts',
+    'merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)',
   ),
-  'payout-destinations': comingSoonRoom(
+  'payout-destinations': notLiveRoom(
     () => ({
       title: moneyCopy.t('destinationsTitle'),
       purpose: moneyCopy.t('destinationsPurpose'),
       body: moneyCopy.t('destinationsSoon'),
     }),
+    'reasonLists',
     '/pay/payouts/destinations',
+    'merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)',
   ),
 };

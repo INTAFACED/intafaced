@@ -10,7 +10,6 @@ const en = {
   actorYou: 'You',
   actorIntafaced: 'INTAFACED',
   actorUnknown: 'A team member',
-  waitingOn: 'Waiting on {what}',
 
   // ---- plain words for refusals
   rProfileInteractive: 'Sign in with two-step verification to change business details.',
@@ -35,11 +34,11 @@ const en = {
 
   // ---- shared bits
   notSet: 'Not set up yet',
-  unsaved: 'You have changes that are not saved. Leave this page anyway?',
+  acUnsaved: 'You have changes that are not saved. Leave this page anyway?',
   fReason: 'Reason',
   hReason: 'A few words on why. Recorded with the change. At least 3 characters.',
   reasonNeeded: 'Add a reason of at least 3 characters.',
-  clearFilters: 'Clear filters',
+  acClearFilters: 'Clear filters',
   backOverview: 'Back to Overview',
   colWhen: 'When',
   colWho: 'Who',
@@ -72,24 +71,22 @@ const en = {
   limitsLine: 'Your starting limits are test values until you are live.',
   overviewWaitTitle: 'Waiting on us',
   overviewWaitBody: 'These parts of setup aren’t open yet. They don’t hold up test payments.',
-  waitDocuments: 'the document check',
-  docsTitle: 'Documents',
+  docsHeading: 'Documents',
   docsBlocked:
     'Uploading documents isn’t open yet. The document check isn’t set up, so nothing is asked for here, and a missing document never counts as passed.',
-  waitTerms: 'the terms of service',
+  waitTerms: 'Terms not set up yet: there is no terms version to accept',
   termsTitle: 'Terms of service',
   termsBlocked: 'There is no terms version to accept yet. You will be asked to accept them here before going live.',
   businessEditElsewhere: 'Business details can be edited on the Business page. Legal details are reviewed by INTAFACED.',
   editBusiness: 'Edit business details',
   sensitiveReviewed: 'Changes to legal name, address, descriptor and industry are reviewed by INTAFACED.',
-  waitStarterFee: 'the starting fee',
   starterFeeTitle: 'Opening a new account',
   starterFeeBlocked:
     'Opening new accounts isn’t available yet. INTAFACED hasn’t set the starting fee, so the button below stays off. What you typed is kept on this page until you leave it.',
   starterFeeRefusal: 'Opening new accounts isn’t available yet.',
   continueGoLive: 'Continue to the payout destination',
   onFileTitle: 'On file',
-  waitPayoutRail: 'a payout method',
+  waitPayoutRail: 'Payout method not connected yet: no way to pay out is available',
   destinationMasked: 'For safety only the end of a saved destination is shown. You can save a different one at any time.',
   goLiveReviewTitle: 'Before you go live',
   goLiveReviewBody: 'INTAFACED turns on live payments. This is where you stand.',
@@ -97,6 +94,8 @@ const en = {
   destinationMissing: 'Not saved yet',
   liveByIntafaced: 'Waiting for INTAFACED to switch it on',
   liveWaitingVerification: 'Waiting for your verification to be approved',
+  liveBlockedBody: 'Live payments open once your business is verified and INTAFACED switches them on. Test payments work now.',
+  liveHeading: 'Live payments',
   progressUnavailable: 'Setup progress couldn’t be read just now, so some lines above come from your account record.',
 
   // ---- compliance
@@ -120,7 +119,6 @@ const en = {
   needVerifiedSession: 'Sign in with two-step verification to change business details.',
   pendingTitle: 'A change is waiting.',
   pendingBody: '{n} change(s) to your details haven’t taken effect yet. See where each one stands below.',
-  waitProfile: 'the business details update',
   profileEditBlocked:
     'Editing business details isn’t open yet. You can see your name and status above. Nothing you need is lost.',
   profileFormTitle: 'Business details',
@@ -218,7 +216,6 @@ const en = {
   secKeysBody: 'Keys, request signing and the addresses allowed to use them are managed under Developers.',
   secKeysLink: 'Open API keys',
   secPolicyTitle: 'Sign-in rules for your team',
-  waitPolicy: 'team sign-in rules',
   secPolicyHead: 'Team-wide rules',
   secPolicyBody:
     'Requiring two-step verification for everyone on the account isn’t something you can set here yet. Today it is already required for team changes and money movements.',
@@ -253,7 +250,6 @@ const en = {
   netNotPlatformBody: 'Network shows the businesses a platform account manages. Your account doesn’t manage other businesses.',
   netListTitle: 'Your network',
   netListBody: 'The businesses under your platform account. Open one to see its volume, payments and who has access.',
-  waitNetwork: 'the network update',
   netWaitBody: 'The network pages aren’t open for this account yet. Nothing here is lost.',
   netEmptyTitle: 'No businesses in your network yet',
   netEmptyBody: 'Add the first one below. They get their own account that you manage.',
@@ -276,7 +272,7 @@ const en = {
   netPermissionsAction: 'Manage permissions',
   netFactsTitle: 'About this business',
   netDepth: 'Level in your network',
-  waitSummary: 'the business summary',
+  waitSummary: 'Summary not connected yet: volume and recent payments aren’t available for this business',
   netSummaryBlocked: 'The summary of volume and recent payments isn’t open yet. The details above are current.',
   netVolumeTitle: 'Last 30 days',
   netVolumeBody: 'Payment volume per asset over the last 30 days. Different assets are never added together.',

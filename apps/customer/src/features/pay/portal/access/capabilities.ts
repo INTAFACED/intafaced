@@ -21,6 +21,10 @@ export const CAPABILITIES = [
   'halts.read',
   'payout.request',
   'payout.approve',
+  'activity.read',
+  'payouts.read',
+  'webhooks.read',
+  'webhooks.manage',
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type Need = Capability | 'owner';
@@ -41,6 +45,8 @@ const READS: readonly Capability[] = [
   'payments.read',
   'settlements.read',
   'halts.read',
+  'activity.read',
+  'payouts.read',
 ];
 const ALL_ON_MAIN = CAPABILITIES.filter((c) => c !== 'profile.read' && c !== 'profile.manage');
 export const ROLE_CAPABILITIES: Record<MemberRole, ReadonlySet<Capability>> = {
@@ -55,6 +61,6 @@ export const ROLE_CAPABILITIES: Record<MemberRole, ReadonlySet<Capability>> = {
     'payout.request',
     'payout.approve',
   ]),
-  developer: new Set<Capability>([...READS, 'exports.create']),
+  developer: new Set<Capability>([...READS, 'exports.create', 'webhooks.read', 'webhooks.manage']),
   viewer: new Set<Capability>(READS),
 };

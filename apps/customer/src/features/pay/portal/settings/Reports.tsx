@@ -1,6 +1,7 @@
 import { DataTable } from '@intafaced/ui';
 import { PaySection } from '../../components';
-import { BackLink, ComingSoon } from '../components';
+import { reason } from '../chrome/copy';
+import { BackLink, NotLive } from '../components';
 import { w3cCopy } from './copy';
 
 /** The report catalog names only formats the current server export API supports. */
@@ -24,7 +25,7 @@ export function Reports() {
           ))}
         </DataTable>
       </PaySection>
-      <ComingSoon>{t('reportGaps')}</ComingSoon>
+      <NotLive reason={reason('reasonLists')}>{t('reportGaps')}</NotLive>
     </div>
   );
 }

@@ -36,6 +36,12 @@ const filters: ListFilters = {
   asset: '',
   setAsset: noop,
 };
+const rows = [
+  item({}),
+  item({ id: 'a2', actorId: 'TEST-finance', action: 'captured', objectType: 'payment', objectId: 'pay-1', detail: { amount: '120.50', asset: 'USDT' } }),
+  item({ id: 'a3', actorId: 'intafaced', action: 'approved', objectType: 'kyb', objectId: 'k1', detail: { toStatus: 'approved' } }),
+  item({ id: 'a4', actorId: 'founder:7', action: 'payout_pending', objectType: 'approval', objectId: 'ap1', detail: { destinationKind: 'bank', destinationMasked: '••••1234' } }),
+];
 const base = {
   filters,
   type: '',
@@ -44,12 +50,7 @@ const base = {
   setActor: noop,
   names: new Map([['TEST-finance', 'Accounts']]),
   me: 'TEST-user',
-  state: list([
-    item({}),
-    item({ id: 'a2', actorId: 'TEST-finance', action: 'captured', objectType: 'payment', objectId: 'pay-1', detail: { amount: '120.50', asset: 'USDT' } }),
-    item({ id: 'a3', actorId: 'intafaced', action: 'approved', objectType: 'kyb', objectId: 'k1', detail: { toStatus: 'approved' } }),
-    item({ id: 'a4', actorId: 'founder:7', action: 'payout_pending', objectType: 'approval', objectId: 'ap1', detail: { destinationKind: 'bank', destinationMasked: '••••1234' } }),
-  ]),
+  state: list(rows),
   loadMore: noop,
   reload: noop,
 };
@@ -103,7 +104,7 @@ describe('activity', () => {
     expect(actionWords('dispute', 'evidence_added')).toBe('Evidence added');
   });
   it('has filters by type, who, date and search, and an honest count', () => {
-    const out = html({ state: { status: 'ready', items: base.state.items, hasMore: true, more: 'idle' } });
+    const out = html({ state: { status: 'ready', items: rows, hasMore: true, more: 'idle' } });
     expect(out).toContain('role="search"');
     expect(out).toContain('Everything');
     expect(out).toContain('Anyone');

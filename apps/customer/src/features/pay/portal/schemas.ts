@@ -219,7 +219,7 @@ export const customerDetailSchema = customerSchema.extend({
 });
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
-export const exportKinds = ['payments', 'settlements', 'payouts'] as const;
+export const exportKinds = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
 export type ExportKind = (typeof exportKinds)[number];
 export const exportJobSchema = z.object({
   jobId: z.string(),
@@ -230,13 +230,15 @@ export const exportJobSchema = z.object({
     status: z.string().optional(),
     assetId: z.string().optional(),
   }),
-  status: z.enum(['queued', 'running', 'ready', 'failed']),
+  columns: z.array(z.string()),
+  status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   failureCode: z.string().nullable(),
   fileName: z.string().nullable(),
   sizeBytes: z.string().nullable(),
   rowCount: z.number().int().nullable(),
   sha256: z.string().nullable(),
   requestedBy: z.string(),
+  generatedAt: timestamp.nullable(),
   asOf: timestamp.nullable(),
   expiresAt: timestamp.nullable(),
   createdAt: timestamp,

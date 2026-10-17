@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { reason } from '../chrome/copy';
 import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import {
   AsOf,
   BackLink,
   Chip,
-  ComingSoon,
+  NotLive,
   Facts,
   Gate,
   HaltBanner,
@@ -437,19 +438,21 @@ export function SettlementDetailView({
                   {ties ? t('statementTies') : t('statementDoesNotTie')}
                 </p>
                 <ReserveLine control={control} retry={retry} />
-                <ComingSoon title={t('feeLinesSoonTitle')}>
+                <NotLive reason={reason('reasonFees')} title={t('feeLinesSoonTitle')}>
                   {t('feeLinesSoonBody')}{' '}
                   <a className="text-link" href="/pay/pricing">
                     {t('seePricing')}
                   </a>
-                </ComingSoon>
+                </NotLive>
               </PaySection>
 
               <PaySection title={t('stlTimelineTitle')} description={t('stlTimelineBody')}>
                 <Steps label={t('stlTimelineTitle')} items={steps} />
               </PaySection>
 
-              <ComingSoon title={t('stlPaymentsSoonTitle')}>{t('stlPaymentsSoonBody')}</ComingSoon>
+              <NotLive reason={reason('reasonDetail')} title={t('stlPaymentsSoonTitle')}>
+                {t('stlPaymentsSoonBody')}
+              </NotLive>
 
               <PaySection title={t('stlLinksTitle')}>
                 <ul className="pp-links">
