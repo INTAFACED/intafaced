@@ -105,6 +105,20 @@ function stubKyb(): KybService {
     },
     history: async () => events,
     currentStatus: async () => ({ kybStatus: status, kybRef, mode: 'psp' as const }),
+    decisionBinding: async (merchantId: string) => {
+      const identityHash = 'sha256:' + '0'.repeat(64);
+      return {
+        merchantId,
+        profileVersion: '0',
+        identityHash,
+        fields: (decision: 'approved' | 'rejected') => ({
+          decision,
+          identityHash,
+          merchantId,
+          profileVersion: '0',
+        }),
+      };
+    },
   } as unknown as KybService;
 }
 

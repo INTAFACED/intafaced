@@ -21,9 +21,11 @@ import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
   consumePayApproval,
+  readApprovalIds,
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -540,6 +542,10 @@ export function createPayRouter(
        * Identity action-bound approval is the second person. Typed-in
        * `confirmOperatorId` is attribution at most. MFA is still required locally
        * (`admin:compliance` is not INTERACTIVE_ONLY). Missing approval ids refuse.
+       *
+       * The approval hash includes the live profile version and identity hash.
+       * A proposal filed against an older identity does not consume. The same
+       * fields are what a proposer sends to identity (`kybDecisionPayloadHash`).
        */
       decideKyb: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
@@ -562,11 +568,29 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_decide_kyb', {
+            readApprovalIds(input);
+            if (!portalSql) {
+              throw new PayError('KYB decide cannot bind the merchant profile', 'pay.kyb_profile_unbound');
+            }
+            const binding = await loadKybDecisionBinding(portalSql, input.merchantId);
+            if (!binding) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              PAY_MERCHANT_DECIDE_KYB,
+              kybApprovalFields({
+                merchantId: binding.merchantId,
+                decision: input.decision,
+                profileVersion: binding.profileVersion,
+                identityHash: binding.identityHash,
+              }),
+            );
+            const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
+              profileVersion: binding.profileVersion,
+              identityHash: binding.identityHash,
             });
-            const merchant = await pay.decideKyb({ merchantId: input.merchantId, decision: input.decision });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef, confirmOperatorId };
           }),
         ),
@@ -1989,6 +2013,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.due_webhook_deliveries_batch_limit_unset':
       case 'pay.capture_reconcile_disabled':
       case 'pay.capture_reconcile_batch_limit_unset':
+      case 'pay.kyb_profile_unbound':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':
@@ -2025,6 +2050,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_required':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
+      case 'pay.kyb_identity_changed':
         return 'CONFLICT' as const;
       default:
         return 'BAD_REQUEST' as const;

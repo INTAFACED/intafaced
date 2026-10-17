@@ -328,7 +328,30 @@ let router: ReturnType<typeof createPayRouter>;
 beforeEach(() => {
   stub = stubService();
   money = stubUserMoney();
-  router = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM));
+  router = createPayRouter(
+    stub.service,
+    rails,
+    money.service,
+    null,
+    undefined,
+    stubApprovalConsumer(CONFIRM),
+    null,
+    undefined,
+    (async () => [
+      {
+        profile_version: '0',
+        legal_name: null,
+        statement_descriptor: null,
+        industry: null,
+        address_line1: null,
+        address_line2: null,
+        address_city: null,
+        address_region: null,
+        address_postal_code: null,
+        address_country: null,
+      },
+    ]) as never,
+  );
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));

@@ -3,8 +3,9 @@
 -- Legal name and display name already live on pay.merchants (0071). This adds the
 -- rest of the business identity the merchant portal edits, plus an append-only
 -- change log. Sensitive fields (legal name, address, statement descriptor,
--- industry) apply on submit while KYB is not approved. The change log records
--- that as `applied_pre_kyb`, because KYB review is what checks them. Once KYB
+-- industry) apply on submit only while KYB is none or rejected. While KYB is
+-- pending a sensitive edit is refused. The change log records a pre-KYB apply
+-- as applied_pre_kyb, because KYB review is what checks those fields. Once KYB
 -- is approved they stay off the live row until INTAFACED compliance approves
 -- the proposal. A merchant second approver is optional
 -- (`profile_second_approval`, default off) and never applies those fields.

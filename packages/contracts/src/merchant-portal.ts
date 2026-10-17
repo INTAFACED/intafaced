@@ -25,6 +25,8 @@ export const merchantCapabilityFlagsSchema = z
     'team.manage': z.boolean(),
     'disputes.read': z.boolean(),
     'disputes.respond': z.boolean(),
+    'invoices.read': z.boolean(),
+    'invoices.write': z.boolean(),
     'customers.read': z.boolean(),
     'kyb.read': z.boolean(),
     'profile.read': z.boolean(),
@@ -193,9 +195,10 @@ export const merchantProfileChangeSchema = z
     /** bigserial ordering key. A string, never a number. */
     seq: z.string().regex(/^\d+$/),
     /**
-     * `applied_pre_kyb` is a sensitive edit written onto the live row because KYB
-     * was not approved yet. KYB review checks those fields. After approval, a
-     * sensitive edit is `pending` or `pending_review` until compliance decides.
+     * `applied_pre_kyb` is a sensitive edit written onto the live row while KYB
+     * is `none` or `rejected`. While KYB is `pending`, a sensitive edit is refused.
+     * After approval, a sensitive edit is `pending` or `pending_review` until
+     * compliance decides.
      */
     status: z.enum(['applied', 'applied_pre_kyb', 'pending', 'pending_review', 'rejected', 'conflict']),
     before: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),

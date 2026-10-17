@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { kybBindingMatches, loadKybDecisionBinding, type KybDecisionBinding } from './kyb-decision-binding.js';
 
 /**
  * DIGITAL KYB — THE LIVE OPERATOR PATH (`pay.psp`).
@@ -197,9 +198,16 @@ export class KybService {
     );
   }
 
+  /** Live profile version and identity hash for the KYB approval payload. Null when the merchant is missing. */
+  async decisionBinding(merchantId: string): Promise<KybDecisionBinding | null> {
+    return loadKybDecisionBinding(this.sql, merchantId);
+  }
+
   /**
    * Operator decide — works under live-only. This is the digital KYB path the
    * stub points at when it refuses. Scope belongs on the router (`admin:compliance`).
+   * When `profileVersion` and `identityHash` are set, the locked row must still
+   * be that identity or the decision is refused.
    */
   async decide(input: {
     merchantId: string;
@@ -207,6 +215,8 @@ export class KybService {
     reason: string;
     actorId: string;
     actorScope: string;
+    profileVersion?: string;
+    identityHash?: string;
   }): Promise<{ changed: boolean; kybStatus: KybStatus; event: KybEventRecord | null }> {
     const reason = requireReason(input.reason, 'pay.kyb_reason_required');
     if (reason.length < 3) {
@@ -226,6 +236,17 @@ export class KybService {
           throw new KybError(`Merchant KYB must be pending to decide (is ${merchant.kyb_status})`, 'pay.kyb_invalid', {
             kybStatus: merchant.kyb_status,
           });
+        }
+        if (input.profileVersion !== undefined || input.identityHash !== undefined) {
+          const live = await loadKybDecisionBinding(tx, input.merchantId);
+          if (
+            !live ||
+            input.profileVersion === undefined ||
+            input.identityHash === undefined ||
+            !kybBindingMatches(live, { profileVersion: input.profileVersion, identityHash: input.identityHash })
+          ) {
+            throw new KybError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+          }
         }
 
         const [updated] = await tx<Array<{ id: string }>>`

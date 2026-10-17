@@ -44,11 +44,12 @@ import { MerchantProfileService } from './profile.js';
  *
  * Profile writes are owner or admin, and only from an interactive session.
  * A PayFac parent that can read a child cannot write that child's profile.
- * Before KYB is approved, one interactive owner or admin applies sensitive
- * identity fields directly. After approval, `businessProfile.review`
- * (`admin:compliance`) applies them, the same operator class as
- * `merchant.decideKyb`. Review checks that the request is `pending_review`
- * before it consumes the founder approval.
+ * While KYB is `none` or `rejected`, one interactive owner or admin applies
+ * sensitive identity fields directly. While KYB is `pending`, a sensitive edit
+ * is refused. After approval, `businessProfile.review` (`admin:compliance`)
+ * applies them, the same operator class as `merchant.decideKyb`. Review checks
+ * that the request is `pending_review` and that the presented change hash
+ * matches, before it consumes the founder approval.
  */
 export function merchantPortalExtensions(deps: {
   sql: Sql;
@@ -117,7 +118,7 @@ export function merchantPortalExtensions(deps: {
             requireMfa(ctx.principal);
             const reviewerId = ctx.principal?.userId;
             if (!reviewerId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-            await profile.assertPendingReview(input.merchantId, input.requestId);
+            await profile.assertPendingReview(input.merchantId, input.requestId, input.expectedChangeHash);
             const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_profile_review', {
               merchantId: input.merchantId,
               requestId: input.requestId,

@@ -16,6 +16,7 @@ import { payoutRailSourceKey, targetKey, type PayHaltStore } from './halts/store
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
+import { kybBindingMatches, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
@@ -153,6 +154,10 @@ export type PayErrorCode =
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
   | 'pay.kyb_invalid'
   | 'pay.kyb_operator_required'
+  /** The approval was reviewed against a different profile version or identity. */
+  | 'pay.kyb_identity_changed'
+  /** decideKyb has no database, so it cannot bind the approval to the live identity. */
+  | 'pay.kyb_profile_unbound'
   /**
    * Live acquiring money door — merchant lacks approved KYB (D26-P1-P10 Layer B).
    * Distinct from scope issuance (Layer A); never invents `pay:*`.
@@ -1338,8 +1343,16 @@ export class PayService {
    * Writes `merchants.kyb_status` pending → approved|rejected.
    * Does not invent a vendor webhook, fee bps, or `pay:*` scopes (Layer A).
    */
-  async decideKyb(input: { merchantId: string; decision: 'approved' | 'rejected' }): Promise<MerchantRecord> {
-    return this.writeKybDecision(input.merchantId, input.decision);
+  async decideKyb(input: {
+    merchantId: string;
+    decision: 'approved' | 'rejected';
+    profileVersion?: string;
+    identityHash?: string;
+  }): Promise<MerchantRecord> {
+    return this.writeKybDecision(input.merchantId, input.decision, {
+      profileVersion: input.profileVersion,
+      identityHash: input.identityHash,
+    });
   }
 
   /**
@@ -1357,7 +1370,11 @@ export class PayService {
     return this.writeKybDecision(input.merchantId, input.decision);
   }
 
-  private async writeKybDecision(merchantId: string, decision: 'approved' | 'rejected'): Promise<MerchantRecord> {
+  private async writeKybDecision(
+    merchantId: string,
+    decision: 'approved' | 'rejected',
+    binding?: { profileVersion?: string; identityHash?: string },
+  ): Promise<MerchantRecord> {
     return transaction(this.sql, async (tx) => {
       const rows = await tx<MerchantRow[]>`
         SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
@@ -1366,6 +1383,17 @@ export class PayService {
       const row = rows[0];
       if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
       const merchant = toMerchant(row);
+      if (binding?.profileVersion !== undefined || binding?.identityHash !== undefined) {
+        const live = await loadKybDecisionBinding(tx, merchantId);
+        if (
+          !live ||
+          binding.profileVersion === undefined ||
+          binding.identityHash === undefined ||
+          !kybBindingMatches(live, { profileVersion: binding.profileVersion, identityHash: binding.identityHash })
+        ) {
+          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+      }
       if (merchant.kybStatus !== 'pending') {
         throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
           kybStatus: merchant.kybStatus,
