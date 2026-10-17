@@ -18,6 +18,8 @@ import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
+import { createPayeesRouter } from './payees/payee.router.js';
+import { createStatementsRouter } from './statements/statement.router.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import {
   addMemberBinding,
@@ -184,6 +186,7 @@ function toTrpcError(err: unknown): TRPCError {
     switch (err.code) {
       case 'bank.space_not_found':
       case 'bank.schedule_not_found':
+      case 'bank.activity_not_found':
       case 'bank.pool_not_found':
       case 'bank.position_not_found':
       case 'bank.loan_not_found':
@@ -287,6 +290,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_issue_conflict':
       case 'bank.card_command_conflict':
       case 'bank.card_replace_conflict':
+      case 'bank.payee_limit':
+      case 'bank.payee_command_conflict':
+      case 'bank.transfer_message_conflict':
+      case 'bank.activity_note_conflict':
+      case 'bank.activity_dispute_conflict':
+      case 'bank.activity_dispute_exists':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -344,6 +353,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.offramps_list_limit_unset':
       case 'bank.convert_markets_limit_unset':
       case 'bank.validation_failed':
+      case 'bank.payee_self':
+      case 'bank.activity_range':
+      case 'bank.statement_range':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -380,6 +392,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.step_up_required':
       case 'bank.step_up_mismatch':
       case 'bank.step_up_used':
+      case 'bank.activity_lookup_bounded':
+      case 'bank.statement_pdf_one_month':
+      case 'bank.statement_too_large':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -409,6 +424,7 @@ function toTrpcError(err: unknown): TRPCError {
       // svc-trade's prices could not be read. A retry later may work; the
       // caller sent nothing wrong.
       case 'bank.prices_unavailable':
+      case 'bank.statement_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -786,6 +802,18 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toSpaceId: z.string().uuid(),
           amount: amountString,
+          note: z
+            .string()
+            .min(1)
+            .max(140)
+            .refine((value) => !/[\u0000-\u001F]/.test(value), 'note has a control character')
+            .optional(),
+          reference: z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[\x20-\x7E]+$/)
+            .optional(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -830,6 +858,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                   toSpaceId: input.toSpaceId,
                   assetId: from.assetId,
                   amount: input.amount,
+                  note: input.note,
+                  reference: input.reference,
                 }),
                 input.stepUpApprovalId,
               );
@@ -844,6 +874,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               fromSpaceId: input.fromSpaceId,
               toSpaceId: input.toSpaceId,
               amount: parseAmount(input.amount),
+              note: input.note ?? null,
+              reference: input.reference ?? null,
             })
             .catch((err: unknown) => {
               throw gate.mayDescribe ? err : hideDestinationDetail(err);
@@ -859,6 +891,18 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
+          note: z
+            .string()
+            .min(1)
+            .max(140)
+            .refine((value) => !/[\u0000-\u001F]/.test(value), 'note has a control character')
+            .optional(),
+          reference: z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[\x20-\x7E]+$/)
+            .optional(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
@@ -877,6 +921,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 toUserId: input.toUserId,
                 assetId: from.assetId,
                 amount: input.amount,
+                note: input.note,
+                reference: input.reference,
               }),
               input.stepUpApprovalId,
             );
@@ -886,6 +932,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             fromSpaceId: input.fromSpaceId,
             toUserId: input.toUserId,
             amount: parseAmount(input.amount),
+            note: input.note ?? null,
+            reference: input.reference ?? null,
           });
           return { ledgerTxId: result.ledgerTxId, amount: result.amount };
         }),
@@ -3913,6 +3961,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     analytics,
     portfolio,
     activity: createActivityRouter(bank),
+    payees: createPayeesRouter(bank),
+    statements: createStatementsRouter(bank),
     ops,
   });
 }

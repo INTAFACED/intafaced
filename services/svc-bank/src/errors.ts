@@ -499,7 +499,35 @@ export type BankErrorCode =
   /** The approval was already spent on a different operation. Ask again. */
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
-  | 'bank.step_up_unavailable';
+  | 'bank.step_up_unavailable'
+  /** The customer tried to save their own user id as a recipient. */
+  | 'bank.payee_self'
+  /** The saved-recipient list is already at its cap. */
+  | 'bank.payee_limit'
+  /** A command id was reused with a different recipient or nickname. */
+  | 'bank.payee_command_conflict'
+  /** A transfer id was reused with a different note or reference. */
+  | 'bank.transfer_message_conflict'
+  /** The activity id is not in this customer's history. */
+  | 'bank.activity_not_found'
+  /** Lookup stopped before history ended, so absence is not proven. */
+  | 'bank.activity_lookup_bounded'
+  /** A from/to or amount range is backwards. */
+  | 'bank.activity_range'
+  /** A note command id was reused with different text. */
+  | 'bank.activity_note_conflict'
+  /** A dispute id was reused with a different reason or transaction. */
+  | 'bank.activity_dispute_conflict'
+  /** This customer already has an open dispute on that transaction. */
+  | 'bank.activity_dispute_exists'
+  /** Statement dates are backwards or longer than 366 days. */
+  | 'bank.statement_range'
+  /** PDF statements are one UTC calendar month. */
+  | 'bank.statement_pdf_one_month'
+  /** More posted lines than a statement file will carry. Narrow the dates. */
+  | 'bank.statement_too_large'
+  /** No service secret, or activity could not be read, so no file was built. */
+  | 'bank.statement_unavailable';
 
 export class BankError extends Error {
   constructor(

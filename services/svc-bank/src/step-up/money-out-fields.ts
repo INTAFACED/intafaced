@@ -24,6 +24,8 @@ export function toUserBinding(i: {
   toUserId: string;
   assetId: string;
   amount: string;
+  note?: string;
+  reference?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.toUser',
@@ -35,6 +37,8 @@ export function toUserBinding(i: {
       toUserId: i.toUserId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
     },
   };
 }
@@ -46,6 +50,8 @@ export function createTransferBinding(i: {
   toSpaceId: string;
   assetId: string;
   amount: string;
+  note?: string;
+  reference?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.create',
@@ -57,6 +63,8 @@ export function createTransferBinding(i: {
       toSpaceId: i.toSpaceId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
     },
   };
 }

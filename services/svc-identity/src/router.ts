@@ -33,6 +33,7 @@ import {
 } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
 import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
+import { normalisePayeeEmail, normalisePayeePhone } from './payee-search.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -338,6 +339,10 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.email_confirm_rate_limited':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.phone_taken':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
+    case 'auth.payee_phone_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
 }
 
@@ -654,6 +659,83 @@ export function createIdentityRouter(
           const hit = await auth.findActiveByHandle(handle);
           if (!hit) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Find a person by exact email or exact phone. Same budget and the same
+       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * The email and the phone are never in the answer.
+       */
+      searchPayees: protectedProcedure
+        .input(
+          z
+            .object({
+              email: z.string().max(320).optional(),
+              phone: z.string().max(32).optional(),
+            })
+            .strict()
+            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
+        )
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
+          }
+          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
+            throw new TRPCError({
+              code: 'TOO_MANY_REQUESTS',
+              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
+            });
+          }
+          const email = input.email === undefined ? undefined : normalisePayeeEmail(input.email);
+          const phone = input.phone === undefined ? undefined : normalisePayeePhone(input.phone);
+          if (email === null || phone === null || (email === undefined && phone === undefined)) return { found: false as const };
+          const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
+          if (!hit) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Opt in to being found by email or phone, and store the phone people
+       * would match. The stored number is not returned.
+       */
+      setPayeeSearchConsent: protectedProcedure
+        .input(
+          z
+            .object({
+              emailConsent: z.boolean().optional(),
+              phoneConsent: z.boolean().optional(),
+              phone: z.string().max(32).nullable().optional(),
+            })
+            .strict()
+            .refine(
+              (value) => value.emailConsent !== undefined || value.phoneConsent !== undefined || value.phone !== undefined,
+              'Nothing to change',
+            ),
+        )
+        .output(z.object({ emailConsent: z.boolean(), phoneConsent: z.boolean(), phoneOnFile: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search settings need a signed-in session' });
+          }
+          const phone = input.phone === undefined || input.phone === null ? input.phone : normalisePayeePhone(input.phone);
+          if (phone === null) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
+          }
+          try {
+            return await auth.setPayeeSearchConsent(ctx.principal.userId, {
+              ...(input.emailConsent !== undefined ? { emailConsent: input.emailConsent } : {}),
+              ...(input.phoneConsent !== undefined ? { phoneConsent: input.phoneConsent } : {}),
+              ...(phone !== undefined ? { phone } : {}),
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
     }),
 

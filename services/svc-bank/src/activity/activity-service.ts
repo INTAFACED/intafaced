@@ -1,6 +1,8 @@
+import { parseAmount } from '@intafaced/ledger-client';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
+import type { ActivityAnnotation, ActivityRecordService } from './activity-records.js';
 
 /**
  * ACTIVITY — the signed-in user's merged money history, newest first (U5b).
@@ -51,6 +53,14 @@ export interface ActivityItem {
    * order's lines exactly instead of guessing by time.
    */
   readonly orderId?: string;
+  /** Transfer note, visible to both parties. Absent when the transfer had none. */
+  readonly note?: string;
+  /** Payment reference, visible to both parties. */
+  readonly reference?: string;
+  /** The caller's own note. Not shown to the other party. */
+  readonly privateNote?: string;
+  /** An open dispute this caller filed. Status stays open; nothing here is a refund. */
+  readonly dispute?: { readonly id: string; readonly status: 'open'; readonly reason: string };
 }
 
 export interface ActivityPage {
@@ -110,6 +120,130 @@ export interface ActivityServiceOptions {
   /** Signs page cursors. Required with `pages`. */
   cursorSecret?: string;
   counterparties?: ActivityCounterparties;
+  /** Notes, references and disputes. Unset = those fields stay absent. A failure never hides a line. */
+  records?: Pick<ActivityRecordService, 'forItems'>;
+}
+
+/** The date range is backwards. */
+export class ActivityRangeError extends Error {
+  readonly code = 'bank.activity_range' as const;
+  constructor() {
+    super('The end of the range is before the start');
+    this.name = 'ActivityRangeError';
+  }
+}
+
+/** The id is not in this customer's activity. */
+export class ActivityNotFoundError extends Error {
+  readonly code = 'bank.activity_not_found' as const;
+  constructor() {
+    super('That transaction is not in your activity');
+    this.name = 'ActivityNotFoundError';
+  }
+}
+
+/** The scan stopped before the history ended, so "not found" would be a guess. */
+export class ActivityLookupBoundedError extends Error {
+  readonly code = 'bank.activity_lookup_bounded' as const;
+  constructor() {
+    super('Activity lookup stopped before the end of your history. Try again.');
+    this.name = 'ActivityLookupBoundedError';
+  }
+}
+
+export interface ActivityFilter {
+  readonly kind?: readonly ActivityKind[];
+  readonly direction?: 'in' | 'out';
+  readonly from?: string;
+  readonly to?: string;
+  readonly q?: string;
+  readonly minAmount?: string;
+  readonly maxAmount?: string;
+}
+
+export interface ActivityQuery {
+  limit?: number;
+  cursor?: string;
+  assetId?: string;
+  kind?: ActivityKind[];
+  direction?: 'in' | 'out';
+  from?: string;
+  to?: string;
+  q?: string;
+  minAmount?: string;
+  maxAmount?: string;
+}
+
+const FILTER_WINDOW = 100;
+const FILTER_SCAN_MAX = 2_000;
+const GET_PAGE = 100;
+const GET_MAX_PAGES = 100;
+
+export function activityFilterKey(filter: ActivityFilter): string {
+  return JSON.stringify({
+    k: filter.kind ? [...filter.kind].sort() : null,
+    d: filter.direction ?? null,
+    f: filter.from ?? null,
+    t: filter.to ?? null,
+    q: filter.q ?? null,
+    n: filter.minAmount ?? null,
+    x: filter.maxAmount ?? null,
+  });
+}
+
+function hasFilter(input: ActivityQuery): boolean {
+  return (
+    input.kind !== undefined ||
+    input.direction !== undefined ||
+    input.from !== undefined ||
+    input.to !== undefined ||
+    input.q !== undefined ||
+    input.minAmount !== undefined ||
+    input.maxAmount !== undefined
+  );
+}
+
+function readFilter(input: ActivityQuery): ActivityFilter {
+  const filter: ActivityFilter = {
+    ...(input.kind ? { kind: input.kind } : {}),
+    ...(input.direction ? { direction: input.direction } : {}),
+    ...(input.from ? { from: input.from } : {}),
+    ...(input.to ? { to: input.to } : {}),
+    ...(input.q ? { q: input.q.trim().toLowerCase() } : {}),
+    ...(input.minAmount ? { minAmount: input.minAmount } : {}),
+    ...(input.maxAmount ? { maxAmount: input.maxAmount } : {}),
+  };
+  if (filter.from && filter.to && Date.parse(filter.from) > Date.parse(filter.to)) throw new ActivityRangeError();
+  if (filter.minAmount && filter.maxAmount && parseAmount(filter.minAmount) > parseAmount(filter.maxAmount)) {
+    throw new ActivityRangeError();
+  }
+  return filter;
+}
+
+function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
+  if (filter.kind && !filter.kind.includes(item.kind)) return false;
+  if (filter.direction && item.direction !== filter.direction) return false;
+  const amount = parseAmount(item.amount);
+  if (filter.minAmount && amount < parseAmount(filter.minAmount)) return false;
+  if (filter.maxAmount && amount > parseAmount(filter.maxAmount)) return false;
+  if (!filter.q) return true;
+  const haystack = [
+    item.kind,
+    item.direction,
+    item.asset,
+    item.amount,
+    item.txId,
+    item.id,
+    item.spaceName ?? '',
+    item.counterparty?.handle ?? '',
+    item.note ?? '',
+    item.reference ?? '',
+    item.privateNote ?? '',
+    item.orderId ?? '',
+  ]
+    .join('\n')
+    .toLowerCase();
+  return haystack.includes(filter.q);
 }
 
 /** The feed cannot be served right now. A retry may work; the caller sent nothing wrong. */
@@ -175,7 +309,156 @@ export class ActivityService {
   ) {}
 
   /** `userId` is the verified principal, never input. */
-  async list(userId: string, input: { limit?: number; cursor?: string; assetId?: string }): Promise<ActivityPage> {
+  async list(userId: string, input: ActivityQuery = {}): Promise<ActivityPage> {
+    if (!hasFilter(input)) return this.listPage(userId, input);
+    return this.listFiltered(userId, input);
+  }
+
+  /**
+   * One activity line, plus the other lines of the same ledger transaction.
+   * `order:<orderId>` returns every line the ledger links to that order.
+   * An activity id is a ledger transaction id (a uuid) plus its owner, so it
+   * does not start with `order:`.
+   */
+  async get(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
+    if (id.startsWith('order:')) {
+      const orderId = id.slice('order:'.length);
+      if (orderId.length < 1 || orderId.length > 128) throw new ActivityNotFoundError();
+      return this.findOrder(userId, orderId);
+    }
+    return this.findItem(userId, id);
+  }
+
+  /**
+   * Every matching line in the range, newest first, for a statement.
+   * Stops after `limit` matches and leaves the caller to notice a short page
+   * only when history ended. The caller passes limit+1 to detect overflow.
+   */
+  async collect(userId: string, input: { from: string; to: string; assetId?: string; limit: number }): Promise<ActivityItem[]> {
+    const items: ActivityItem[] = [];
+    let cursor: string | undefined;
+    while (items.length < input.limit) {
+      const page = await this.list(userId, {
+        limit: Math.min(200, input.limit - items.length),
+        cursor,
+        assetId: input.assetId,
+        from: input.from,
+        to: input.to,
+      });
+      items.push(...page.items);
+      if (!page.nextCursor) break;
+      if (page.items.length === 0 && cursor === page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    return items;
+  }
+
+  private async listFiltered(userId: string, input: ActivityQuery): Promise<ActivityPage> {
+    const { cursorSecret } = this.options;
+    if (!this.options.pages || !cursorSecret) throw new ActivityUnavailableError();
+    const filter = readFilter(input);
+    const filterKey = activityFilterKey(filter);
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
+    const assetId = input.assetId ?? null;
+    const start = input.cursor === undefined ? null : decodeCursor(cursorSecret, input.cursor, { userId, assetId, filterKey });
+    let positionCursor = start === null ? undefined : encodeCursor(cursorSecret, { userId, assetId, owners: start.owners });
+    let skip = start?.skip ?? 0;
+    const matches: ActivityItem[] = [];
+    let scanned = 0;
+    while (matches.length < limit && scanned < FILTER_SCAN_MAX) {
+      const window = await this.listPage(userId, {
+        limit: FILTER_WINDOW,
+        cursor: positionCursor,
+        ...(assetId === null ? {} : { assetId }),
+      });
+      scanned += window.items.length;
+      const kept: ActivityItem[] = [];
+      let older = false;
+      const fromMs = filter.from ? Date.parse(filter.from) : null;
+      const toMs = filter.to ? Date.parse(filter.to) : null;
+      for (const item of window.items) {
+        const at = Date.parse(item.postedAt);
+        if (toMs !== null && at > toMs) continue;
+        if (fromMs !== null && at < fromMs) {
+          older = true;
+          break;
+        }
+        if (itemMatches(item, filter)) kept.push(item);
+      }
+      const rest = kept.slice(skip);
+      const take = rest.slice(0, limit - matches.length);
+      matches.push(...take);
+      const windowStart = await this.positionBody(userId, assetId, positionCursor);
+      if (take.length < rest.length) {
+        return {
+          items: matches,
+          nextCursor: encodeCursor(cursorSecret, { ...windowStart, filterKey, skip: skip + take.length }),
+        };
+      }
+      if (older || window.nextCursor === null) return { items: matches, nextCursor: null };
+      if (window.items.length === 0) return { items: matches, nextCursor: null };
+      positionCursor = window.nextCursor;
+      skip = 0;
+      if (scanned >= FILTER_SCAN_MAX && matches.length < limit) {
+        const end = decodeCursor(cursorSecret, window.nextCursor, { userId, assetId });
+        return { items: matches, nextCursor: encodeCursor(cursorSecret, { ...end, filterKey, skip: 0 }) };
+      }
+    }
+    if (positionCursor === undefined) return { items: matches, nextCursor: null };
+    const end = decodeCursor(cursorSecret, positionCursor, { userId, assetId });
+    const more = matches.length >= limit;
+    return { items: matches, nextCursor: more ? encodeCursor(cursorSecret, { ...end, filterKey, skip: 0 }) : null };
+  }
+
+  private async positionBody(
+    userId: string,
+    assetId: string | null,
+    cursor: string | undefined,
+  ): Promise<{ userId: string; assetId: string | null; owners: Record<string, OwnerPosition> }> {
+    if (cursor !== undefined) {
+      const body = decodeCursor(this.options.cursorSecret ?? '', cursor, { userId, assetId });
+      return { userId, assetId, owners: { ...body.owners } };
+    }
+    const owners = await this.ownersOf(userId, assetId);
+    const map: Record<string, OwnerPosition> = {};
+    for (const owner of owners) map[owner.key] = null;
+    return { userId, assetId, owners: map };
+  }
+
+  private async findItem(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
+    let cursor: string | undefined;
+    for (let page = 0; page < GET_MAX_PAGES; page += 1) {
+      const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
+      const hit = got.items.find((item) => item.id === id);
+      if (hit) {
+        return { item: hit, lines: got.items.filter((item) => item.txId === hit.txId), complete: true };
+      }
+      if (!got.nextCursor) throw new ActivityNotFoundError();
+      cursor = got.nextCursor;
+    }
+    throw new ActivityLookupBoundedError();
+  }
+
+  private async findOrder(userId: string, orderId: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
+    const lines: ActivityItem[] = [];
+    let cursor: string | undefined;
+    let complete = true;
+    for (let page = 0; page < GET_MAX_PAGES; page += 1) {
+      const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
+      for (const item of got.items) if (item.orderId === orderId) lines.push(item);
+      if (!got.nextCursor) break;
+      cursor = got.nextCursor;
+      if (page === GET_MAX_PAGES - 1) complete = false;
+    }
+    const item = lines[0];
+    if (!item) {
+      if (!complete) throw new ActivityLookupBoundedError();
+      throw new ActivityNotFoundError();
+    }
+    return { item, lines, complete };
+  }
+
+  private async listPage(userId: string, input: { limit?: number; cursor?: string; assetId?: string }): Promise<ActivityPage> {
     const { pages, cursorSecret } = this.options;
     if (!pages || !cursorSecret) throw new ActivityUnavailableError();
 
@@ -313,17 +596,43 @@ export class ActivityService {
 
     const resolver = this.options.counterparties;
     const wanted = [...new Set(items.filter((i) => i.kind === 'transfer_in' || i.kind === 'transfer_out').map((i) => i.txId))];
-    if (resolver === undefined || wanted.length === 0) return items;
+    if (resolver === undefined || wanted.length === 0) return this.withRecords(userId, items);
     let handles: ReadonlyMap<string, { handle: string }>;
     try {
       handles = await resolver.handlesFor(userId, wanted);
     } catch {
       // A handle is a nicety. Failing to find one never hides the money movement.
-      return items;
+      return this.withRecords(userId, items);
     }
-    return items.map((i) => {
+    const withHandles = items.map((i) => {
       const h = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? handles.get(i.txId) : undefined;
       return h === undefined ? i : { ...i, counterparty: { handle: h.handle } };
+    });
+    return this.withRecords(userId, withHandles);
+  }
+
+  private async withRecords(userId: string, items: ActivityItem[]): Promise<ActivityItem[]> {
+    const records = this.options.records;
+    if (!records || items.length === 0) return items;
+    let notes: ReadonlyMap<string, ActivityAnnotation>;
+    try {
+      notes = await records.forItems(
+        userId,
+        items.map((item) => ({ id: item.id, txId: item.txId })),
+      );
+    } catch {
+      return items;
+    }
+    return items.map((item) => {
+      const note = notes.get(item.id);
+      if (!note) return item;
+      return {
+        ...item,
+        ...(note.note ? { note: note.note } : {}),
+        ...(note.reference ? { reference: note.reference } : {}),
+        ...(note.privateNote ? { privateNote: note.privateNote } : {}),
+        ...(note.dispute ? { dispute: note.dispute } : {}),
+      };
     });
   }
 }

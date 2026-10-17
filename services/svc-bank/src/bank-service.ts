@@ -13,6 +13,9 @@ import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
+import { ActivityRecordService } from './activity/activity-records.js';
+import { PayeeService } from './payees/payee-service.js';
+import { StatementService } from './statements/statement-service.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 
@@ -37,6 +40,9 @@ export interface BankServices {
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
+  readonly activityRecords: ActivityRecordService;
+  readonly payees: PayeeService;
+  readonly statements: StatementService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
@@ -118,7 +124,10 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
-  const activity = new ActivityService(spaces, options.activity ?? {});
+  const activityRecords = new ActivityRecordService(sql);
+  const activity = new ActivityService(spaces, { ...(options.activity ?? {}), records: activityRecords });
+  const payees = new PayeeService(sql, options.directory);
+  const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -144,7 +153,22 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.directoryLookups,
   );
 
-  return { spaces, transfers, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
+  return {
+    spaces,
+    transfers,
+    earn,
+    analytics,
+    portfolio,
+    activity,
+    activityRecords,
+    payees,
+    statements,
+    loans,
+    cards,
+    ramps,
+    autoInvest,
+    business,
+  };
 }
 
 export { PortfolioService, httpTickerSource, type TickerSource } from './portfolio/portfolio-service.js';

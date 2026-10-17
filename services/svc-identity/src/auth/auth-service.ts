@@ -122,7 +122,9 @@ export class AuthError extends Error {
       | 'auth.request_stale'
       | 'auth.request_tampered'
       | 'auth.request_replay'
-      | 'auth.ip_allowlist_required',
+      | 'auth.ip_allowlist_required'
+      | 'auth.phone_taken'
+      | 'auth.payee_phone_unset',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -1487,6 +1489,87 @@ export class AuthService {
       SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
     return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
+  /**
+   * Exact email or phone, and only when that person opted in. Frozen, closed,
+   * unknown and "did not consent" are the same null. The row's email and phone
+   * are not returned.
+   */
+  async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
+    const rows =
+      'email' in query
+        ? await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE email = ${query.email} AND status = 'active' AND payee_email_consent = true
+             LIMIT 1`
+        : await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE phone = ${query.phone} AND status = 'active' AND payee_phone_consent = true
+             LIMIT 1`;
+    const row = rows[0];
+    return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
+  /**
+   * The signed-in user turns email or phone discovery on or off, and may set
+   * their own phone. The phone number is stored and never written to the audit.
+   */
+  async setPayeeSearchConsent(
+    userId: string,
+    input: { emailConsent?: boolean; phoneConsent?: boolean; phone?: string | null },
+  ): Promise<{ emailConsent: boolean; phoneConsent: boolean; phoneOnFile: boolean }> {
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<Array<{ phone: string | null; payee_email_consent: boolean; payee_phone_consent: boolean; status: string }>>`
+        SELECT phone, payee_email_consent, payee_phone_consent, status
+          FROM users WHERE id = ${userId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row || row.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+      let phone = row.phone;
+      let emailConsent = row.payee_email_consent;
+      let phoneConsent = row.payee_phone_consent;
+      let phoneEvent: 'phone_set' | 'phone_cleared' | null = null;
+      if (input.phone === null) {
+        if (phone !== null) phoneEvent = 'phone_cleared';
+        phone = null;
+        phoneConsent = false;
+      } else if (typeof input.phone === 'string') {
+        phone = input.phone;
+        phoneEvent = 'phone_set';
+      }
+      if (input.emailConsent !== undefined) emailConsent = input.emailConsent;
+      if (input.phoneConsent !== undefined) phoneConsent = input.phoneConsent;
+      if (phoneConsent && phone === null) {
+        throw new AuthError('Add a phone number before people can find you by it', 'auth.payee_phone_unset');
+      }
+      try {
+        await tx`
+          UPDATE users
+             SET phone = ${phone},
+                 payee_email_consent = ${emailConsent},
+                 payee_phone_consent = ${phoneConsent},
+                 updated_at = now()
+           WHERE id = ${userId}
+        `;
+      } catch (err) {
+        if (isUniqueViolation(err) && /phone/i.test(uniqueConstraintName(err))) {
+          throw new AuthError('That phone number is already on an account', 'auth.phone_taken');
+        }
+        throw err;
+      }
+      await tx`
+        INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+        VALUES (${userId}, 'consent', ${emailConsent}, ${phoneConsent})
+      `;
+      if (phoneEvent) {
+        await tx`
+          INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+          VALUES (${userId}, ${phoneEvent}, ${emailConsent}, ${phoneConsent})
+        `;
+      }
+      return { emailConsent, phoneConsent, phoneOnFile: phone !== null };
+    });
   }
 
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {

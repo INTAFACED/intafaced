@@ -238,6 +238,21 @@ describe('flag required: sends to other users', () => {
     });
   });
 
+  it('adds a note and reference to the hash only when the transfer carries them', () => {
+    expect(
+      toUserBinding({
+        actor: USER,
+        transferId: TRANSFER,
+        fromSpaceId: FROM,
+        toUserId: OTHER,
+        assetId: 'USDT',
+        amount: '5',
+        note: 'October rent',
+        reference: 'INV-9',
+      }).fields,
+    ).toEqual({ ...toUserFields, note: 'October rent', reference: 'INV-9' });
+  });
+
   it('refuses without an approval, and never reaches the service', async () => {
     const f = fixture();
     await expect(f.caller().transfers.toUser(toUserInput)).rejects.toMatchObject({
