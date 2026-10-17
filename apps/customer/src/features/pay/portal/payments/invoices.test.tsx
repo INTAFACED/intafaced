@@ -6,10 +6,16 @@ vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-// A review dialog is closed until it is clicked and there is no browser here: draw its body in place, with the real exact scope.
-vi.mock('../../components', async (original) => {
-  const real = await original<typeof import('../../components')>();
-  return { ...real, ReviewedAction: ({ review, title }: { review?: ReactNode; title: string }) => <div data-review={title}>{review}</div> };
+// A review dialog is closed until it is clicked and there is no browser here: draw its body in place, inside the real exact scope.
+vi.mock('../ui/PortalReview', async () => {
+  const { ExactMoneyScope } = await import('../ui/ExactMoneyScope');
+  return {
+    PortalReview: ({ review, title }: { review?: ReactNode; title: string }) => (
+      <div data-review={title}>
+        <ExactMoneyScope>{review}</ExactMoneyScope>
+      </div>
+    ),
+  };
 });
 let allowWrite = true;
 vi.mock('../access/MerchantAccess', async (original) => {
