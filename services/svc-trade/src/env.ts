@@ -453,6 +453,27 @@ const schema = serviceEnvSchema
       TRADE_RECONCILE_JOBS_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
 
       /**
+       * Lost order.hold reply sweep (TRD-0540). Default ON — a timeout after
+       * the hold is booked leaves the row in hold_unknown, and this pass reads
+       * order.hold:<orderId>. Set false to stop the timer; the place path
+       * still resolves a reply it can read.
+       */
+      TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(true)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /** Hold-unknown sweep interval when enabled. Default 60s. */
+      TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
+
+      /**
+       * A market, IOC, or FOK order left in hold_unknown is released instead of
+       * submitted once it is older than this on the database clock. The customer
+       * was told the outcome was unknown. Default 30s. Min 1s. Max 10 minutes.
+       */
+      TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
+
+      /**
        * OTC RFQ desk law (trade.otc / D-S-02). JSON or empty.
        *
        * Empty (default) = unpublished → refuse-closed. Never invent spread bps,
