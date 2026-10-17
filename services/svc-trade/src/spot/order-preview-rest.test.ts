@@ -15,6 +15,7 @@ import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycl
 import { READY_MARKET_LIFECYCLE, READY_MARKET_NOW, readyMarket } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { registerSpotOrderPreviewRest, SPOT_ORDER_PREVIEW_PATH } from './order-preview-rest.js';
+import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -119,14 +120,17 @@ function appWith(input: {
   market?: Market | null;
   lifecycle?: MarketLifecyclePort | null;
   bestAsk?: AmountOrNull | (() => Promise<AmountOrNull>);
+  bestBid?: AmountOrNull | (() => Promise<AmountOrNull>);
   submit?: () => Promise<never>;
   ledgerPost?: () => Promise<never>;
   spotEnabled?: boolean;
   feeSchedule?: OwnerFeeSchedule;
+  slippageCapBps?: number | null;
   feeDiscountBps?: (userId: string) => Promise<number>;
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
+  const bestBid = input.bestBid;
   const submit =
     input.submit ??
     vi.fn(async () => {
@@ -151,10 +155,14 @@ function appWith(input: {
       if (typeof bestAsk === 'function') return bestAsk();
       return bestAsk === undefined ? parseAmount('100') : bestAsk;
     },
+    bestBid: async () => {
+      if (typeof bestBid === 'function') return bestBid();
+      return bestBid === undefined ? parseAmount('100') : bestBid;
+    },
     spotEnabled: input.spotEnabled ?? true,
     futuresEnabled: false,
     optionsSettlementLawStamped: false,
-    slippageCapBps: 200,
+    slippageCapBps: input.slippageCapBps === undefined ? 200 : input.slippageCapBps,
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
     ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
   });
@@ -530,5 +538,78 @@ describe('POST /api/v1/orders/preview', () => {
       expect(ledgerPost).not.toHaveBeenCalled();
       await app.close();
     });
+  });
+
+  it('refuses a market sell with trade.protection_unset when the owner floor is unpublished', async () => {
+    const { app } = appWith({ slippageCapBps: null, bestBid: parseAmount('100') });
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { symbol: MARKET.symbol, side: 'sell', type: 'market', amount: '2' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json();
+    expect(body.orderable).toBe(false);
+    expect(body.protectionPrice).toBeNull();
+    expect(body.refusals.map((row: { code: string }) => row.code)).toContain('trade.protection_unset');
+    await app.close();
+  });
+
+  it('returns the sell floor and estimated fee when the owner cap and a bid exist', async () => {
+    const { app } = appWith({ slippageCapBps: 200, bestBid: parseAmount('100') });
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { symbol: MARKET.symbol, side: 'sell', type: 'market', amount: '2' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json();
+    // 100 - 200 bps = 98. Fee is taker 2 bps of 98 * 2 = 196.
+    expect(body.orderable).toBe(true);
+    expect(body.protectionPrice).toBe('98');
+    expect(body.estimatedFee).not.toBeNull();
+    expect(body.feeBps).toBe(2);
+    expect(body.feeRole).toBe('taker');
+    expect(body.refusals).toEqual([]);
+    await app.close();
+  });
+
+  it('preview and GET /account/fees return the same published maker and taker rates', async () => {
+    const schedule = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' }));
+    const listed = { ...MARKET, makerBps: 10, takerBps: 20 };
+    const { app } = appWith({ market: listed, feeSchedule: schedule });
+    registerPrivateRest(app, {
+      edgeSecret: EDGE_SECRET,
+      serviceName: 'svc-trade',
+      markets: async () => [listed],
+      feeSchedule: schedule,
+    } as unknown as PrivateRestDeps);
+    const maker = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { symbol: listed.symbol, side: 'buy', type: 'limit', amount: '1', price: '100', timeInForce: 'PO' },
+    });
+    const taker = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { symbol: listed.symbol, side: 'buy', type: 'limit', amount: '1', price: '100' },
+    });
+    const fees = await app.inject({ method: 'GET', url: '/api/v1/account/fees', headers: headers() });
+    expect(maker.statusCode, maker.body).toBe(200);
+    expect(taker.statusCode, taker.body).toBe(200);
+    expect(fees.statusCode, fees.body).toBe(200);
+    expect(maker.json().feeBps).toBe(8);
+    expect(taker.json().feeBps).toBe(10);
+    const row = fees.json()[listed.symbol];
+    expect(row.makerBps).toBe(8);
+    expect(row.takerBps).toBe(10);
+    expect(row.maker).toBe('0.0008');
+    expect(row.taker).toBe('0.001');
+    expect(row.version).toBe('desk');
+    await app.close();
   });
 });

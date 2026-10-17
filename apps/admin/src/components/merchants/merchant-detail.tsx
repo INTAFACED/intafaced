@@ -8,7 +8,10 @@ import { BarChart, type BarPoint } from './bar-chart';
 import { ApprovalsTable } from './approvals-queue';
 import { ControlsTab } from './controls-tab';
 import { CopyButton } from './copy-button';
-import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
+import { NotesPanel } from '@/components/founder-ops/notes-panel';
+import type { NotePage } from '@/lib/founder-ops/notes';
+import type { PayCallResult } from '@/lib/merchants/pay-call';
+import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
 
 export const DETAIL_TABS = [
@@ -87,6 +90,7 @@ export function MerchantDetailView({
   asset,
   today,
   tabData = {},
+  query = {},
   currentUserId,
   now = new Date(),
 }: {
@@ -98,6 +102,8 @@ export function MerchantDetailView({
   /** `YYYY-MM-DD`, the last day of the series range. */
   today: string;
   tabData?: DetailTabData;
+  /** The page's own query string, so a tab can keep its filters and cursor. */
+  query?: Record<string, string | string[] | undefined>;
   /** The signed-in founder, so rows they took part in say they cannot sign them. */
   currentUserId?: string | undefined;
   now?: Date;
@@ -177,7 +183,9 @@ export function MerchantDetailView({
       {tab === 'overview' ? <Overview data={data} asset={asset} today={today} here={here} assetHref={(a) => href({ asset: a })} /> : null}
       {tab === 'payments' ? <Payments metrics={data.metrics} here={here} /> : null}
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
-      {tab === 'notes' ? <Notes /> : null}
+      {tab === 'notes' ? (
+        <NotesPanel merchantId={merchantId} result={tabData.notes} path={`/merchants/${merchantId}`} query={{ ...query, tab: 'notes' }} />
+      ) : null}
       {tab === 'controls' ? tabData.controls ? <ControlsTab data={tabData.controls} merchantId={merchantId} here={here} /> : null : null}
       {tab === 'approvals' ? (
         <ApprovalsTab
@@ -514,23 +522,12 @@ function Settlements({ metrics, here }: { metrics: MerchantDetailData['metrics']
   );
 }
 
-function Notes() {
-  return (
-    <Card id="notes" title="Operator notes" sub="Internal notes about this merchant. The merchant never sees them.">
-      <StateBlock kind="not_built" title="Notes are not built yet">
-        Listing, adding and retracting notes needs the operator notes service (<code>founderAdmin.ops</code>, workstream W15), which is not
-        on this deployment. This tab will list notes, add a note with a reason, and retract one while keeping the history, as soon as it is.
-        Nothing is stored in the browser in the meantime.
-      </StateBlock>
-    </Card>
-  );
-}
-
 /** What a tab needs beyond the metrics: loaded by the page only for the tab that is open. */
 export interface DetailTabData {
   readonly controls?: ControlsData;
   readonly approvals?: MerchantApprovalsData;
   readonly halts?: MerchantHaltsData;
+  readonly notes?: PayCallResult<NotePage>;
 }
 
 function ApprovalsTab({
@@ -649,7 +646,7 @@ function HaltsTab({
         )}
       </Card>
       <Card id="pending-clears" title="Clears waiting for a second founder" sub="A halt only comes off when two different founders agree.">
-        <PendingClearsGap />
+        <PendingClearsPanel result={data.pending} currentUserId={currentUserId} merchantId={merchantId} retryHref={here} />
       </Card>
       <Card
         id="halt-history"
