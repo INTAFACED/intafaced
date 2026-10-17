@@ -24,6 +24,7 @@ import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
 import { SqlBlockQuoteStore } from './block-rfq-store.js';
@@ -178,7 +179,15 @@ export const appRouter = createP2pRouter(
   p2p,
   instruments,
   erasure,
-  { moderatorUserIds, offerLimits, blockRfq, approvals: actionApprovals, instrumentKeyProvider: instrumentKey.instrumentKeyProvider },
+  {
+    moderatorUserIds,
+    offerLimits,
+    blockRfq,
+    approvals: actionApprovals,
+    instrumentKeyProvider: instrumentKey.instrumentKeyProvider,
+    opsReads: new OpsReads(sql),
+    disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
+  },
   merchants,
 );
 export type AppRouter = typeof appRouter;

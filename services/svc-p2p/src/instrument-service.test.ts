@@ -1205,6 +1205,18 @@ describe('svc-p2p payment instruments', () => {
         'rfq.get': { quoteId: crypto.randomUUID() },
         'rfq.allocate': { quoteId: crypto.randomUUID(), allocations: [{ receivingAccount: 'probe' }] },
         'rfq.giveUp': { quoteId: crypto.randomUUID(), receivingAccount: 'probe' },
+        // Considered. Manual escalation writes the actor and re-arms the trade
+        // deadline. It joins no instrument table and moves no money. A stranger
+        // is not a moderator, so the door refuses before any row is read.
+        'disputes.escalate': { disputeId: crypto.randomUUID(), reason: 'probe', clientRequestId: 'probe-escalate' },
+        // Considered. Operator reads (admin:compliance). The row lists are
+        // explicit columns: offer and trade terms, never payment-instrument
+        // details, chat text, or a sealed field. A stranger holds neither
+        // admin:compliance nor a moderator allowlist entry.
+        'ops.offers': { status: 'active', limit: 1 },
+        'ops.trades': { status: 'escrowed', limit: 1 },
+        'ops.counts': undefined,
+        'ops.disputeRate24h': undefined,
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

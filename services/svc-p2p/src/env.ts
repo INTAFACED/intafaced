@@ -166,6 +166,24 @@ const schema = serviceEnvSchema
        * `p2p:moderate` scope split — that remains an owner sign-off.
        */
       P2P_MODERATOR_USER_IDS: z.string().default(''),
+
+      /**
+       * When true, disputes.resolve consumes a p2p.dispute_resolve approval
+       * before escrow moves. Unset, blank, and every value other than an
+       * explicit on is false. This ships off. Turning it on removes
+       * single-moderator resolution and is a lead policy decision.
+       */
+      P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: z.preprocess(
+        (value) => {
+          if (typeof value === 'boolean') return value ? 'true' : 'false';
+          if (typeof value !== 'string' || value.trim() === '') return undefined;
+          return value.trim().toLowerCase();
+        },
+        z
+          .enum(['0', '1', 'false', 'true', 'off', 'on', 'no', 'yes'])
+          .optional()
+          .transform((value) => value === '1' || value === 'true' || value === 'on' || value === 'yes'),
+      ),
     }),
   )
   .superRefine((value, ctx) => {
