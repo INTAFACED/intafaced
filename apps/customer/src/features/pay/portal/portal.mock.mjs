@@ -19,6 +19,19 @@ import { createSettingsBMock } from './settings/b-mock.mjs';
 export { USER_ID };
 
 /**
+ * The scopes an owner session carries. Identity today grants an owner `pay:read`, `pay:write` and `pay:onboard` and never
+ * `pay:refund` or `pay:payout` (svc-identity `scopesForNewAccessToken`). `OWNER_SCOPES_WITH_MONEY` is the session a coming
+ * confirmed sign-in step would give; the money tests use it to exercise sending, and the others use the plain one.
+ */
+export const OWNER_SCOPES = ['pay:read', 'pay:write', 'pay:onboard'];
+export const OWNER_SCOPES_WITH_MONEY = [...OWNER_SCOPES, 'pay:refund', 'pay:payout'];
+/** An access token shaped like identity's (header.payload.signature) whose payload carries `scopes`. The signature is not real: the portal only reads the claim to decide which controls to draw. */
+export function accessTokenFor(scopes = OWNER_SCOPES) {
+  const part = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ sub: USER_ID, scopes, tier: 'full', mfa: true })}.stand-in-signature`;
+}
+
+/**
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
  * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */

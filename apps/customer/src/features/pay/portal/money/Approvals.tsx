@@ -18,6 +18,7 @@ import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
+import { useMoneyReason } from '../access/MoneyAction';
 import { usePayoutPicture } from './payout-picture';
 import { describeDestination } from './destination';
 import {
@@ -368,9 +369,11 @@ export function CancelRequest({
   const { t } = mc.useCopy();
   const destination = useApprovalDestination();
   const [reason, setReason] = useState('');
+  // Taking a request back carries the payout scope, like making it.
+  const stepReason = useMoneyReason('payout');
   const mine = me !== null && approval.makerUserId === me;
   if (approval.status !== 'pending') return null;
-  const why = !mine ? t('cancelOnlyMaker') : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
+  const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
   return (
     <div className="form-stack pp-form">
       <label className="field">
@@ -401,7 +404,7 @@ export function CancelRequest({
         }
         perform={() => portal.cancelApproval({ approvalId: approval.approvalId, reason: reason.trim() })}
         onConfirmed={onDone}
-        disabled={!mine || !minReasonOk(reason)}
+        disabled={!mine || stepReason !== null || !minReasonOk(reason)}
         disabledReason={why}
       />
       {!mine && (

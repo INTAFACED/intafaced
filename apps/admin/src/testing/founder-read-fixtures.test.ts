@@ -56,6 +56,10 @@ describe('TEST DATA fixtures match the contract', () => {
   it('operator notes parse with the console parser', () => {
     expect(asNotePage(notesFixture)?.items).toHaveLength(2);
   });
+  it('profile fixture carries the stored fee and the starter fee, both unset', () => {
+    const parsed = founderMerchantSectionSchema.parse(sectionFixture('profile'));
+    expect(parsed).toMatchObject({ section: 'profile', current: { feeBps: null, starterFee: null } });
+  });
   it('money in the fixtures is a decimal string beyond float precision, never a number', () => {
     const page = sectionFixture('payments') as { items: Array<{ amount: unknown }> };
     expect(typeof page.items[0]!.amount).toBe('string');

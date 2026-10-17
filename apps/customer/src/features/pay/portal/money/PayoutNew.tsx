@@ -16,6 +16,7 @@ import { uiCopy } from '../ui/copy';
 import { SelectField } from '../components';
 import { LinkButton, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
+import { useMoneyReason } from '../access/MoneyAction';
 import { describeDestination } from './destination';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 import {
@@ -58,9 +59,12 @@ export function payoutProblem(
     dest: unknown;
     sending: boolean;
     maySend: boolean;
+    /** Why this session cannot start or send a payout (`money-step.ts`), or null. Asking for approval carries the payout scope too. */
+    stepReason?: string | null;
   },
 ): string | null {
   if (!input.allowed) return t('pnNotAllowed');
+  if (input.stepReason) return input.stepReason;
   if (!input.settlement) return t('pnBlock_nothing');
   if (input.haltsRead === 'loading') return t('pnHaltsLoading');
   if (input.haltsRead === 'failed') return t('pnHaltsFailed');
@@ -84,12 +88,16 @@ export async function submitPayout(input: {
   dest: { railId: string } | null;
   sending: boolean;
   maySend: boolean;
+  /** Why this session cannot ask for approval or send, or null (both procedures carry the payout scope). */
+  stepReason?: string | null;
 }): Promise<ApiResult<PayoutOutcome>> {
-  const { portal, merchantId, t, settlement, dest, sending, maySend } = input;
+  const { portal, merchantId, t, settlement, dest, sending, maySend, stepReason = null } = input;
   if (!settlement || !dest) return localRefusal(t('pnPickDestination'));
+  if (stepReason) return localRefusal(stepReason);
   const send = async (): Promise<ApiResult<PayoutOutcome>> => {
     // A person who cannot send is told who can, rather than sent into a refusal.
     if (!maySend) return localRefusal(t('pnOwnerSends'));
+    if (stepReason) return localRefusal(stepReason);
     const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
     return sent.ok ? { ok: true, data: { route: 'sent', id: sent.data.id, status: sent.data.status } } : sent;
   };
@@ -135,6 +143,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const test = useTestMode();
   const now = useNow();
   const { access, can } = useMerchantAccess();
+  const stepReason = useMoneyReason('payout');
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
   // A payout can be started from a finalised settlement ("posted"). Retrying a "failed" one is held (PAYOUT_RETRY_ENABLED).
@@ -225,7 +234,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           const allowed = can('payout.request');
           // The account owner is the only person who can send a payout (same rule as the payout page); a role we could not read is left to the service.
           const maySend = access.status !== 'ready' || access.role === 'owner';
-          const problem = payoutProblem(t, { allowed, settlement, haltsRead, block, dest, sending, maySend });
+          const problem = payoutProblem(t, { allowed, settlement, haltsRead, block, dest, sending, maySend, stepReason });
           return (
             <>
               {payable.length === 0 ? (
@@ -358,7 +367,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                           </dl>
                         ) : undefined
                       }
-                      perform={() => submitPayout({ portal, merchantId, t, settlement, dest, sending, maySend })}
+                      perform={() => submitPayout({ portal, merchantId, t, settlement, dest, sending, maySend, stepReason })}
                       onConfirmed={setDone}
                     />
                   </PaySection>

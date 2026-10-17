@@ -443,6 +443,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
