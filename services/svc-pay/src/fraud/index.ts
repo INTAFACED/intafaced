@@ -37,7 +37,11 @@ export {
   type DisputeCaseStatus,
   type DisputeCaseStore,
   type OpenDisputeCaseInput,
+  type RailResolutionInput,
+  type RailResolutionOutcome,
 } from './dispute-case.js';
+
+export { PostgresDisputeCaseStore } from './dispute-case-store.js';
 
 export {
   defaultFraudReviewQueue,

@@ -181,7 +181,7 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
     getCheckoutSession: async () => {
       throw new PayError('checkout not exercised in this test', 'pay.checkout_session_not_found');
     },
-    listSettlements: async () => [],
+    listSettlements: async () => ({ items: [], nextCursor: null }),
     releasePendingSettlement: async () => {
       throw new PayError('not pending', 'pay.settlement_not_pending');
     },

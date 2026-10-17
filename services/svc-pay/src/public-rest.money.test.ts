@@ -7,7 +7,14 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, formatAmount, merchantClearing, userAvailable, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  merchantClearing,
+  merchantProceeds,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
@@ -70,9 +77,18 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0003_pay_checkout_sessions.sql', '0005_pay_merchant_kyb.sql'].map(
-  (f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'),
-);
+const MIGRATIONS = [
+  '0000_pay_init.sql',
+  '0002_pay_payment_links.sql',
+  '0003_pay_checkout_sessions.sql',
+  '0005_pay_merchant_kyb.sql',
+  // GET /v1/payments reads the stored pricing row. The table is empty here.
+  '0050_pay_control_tiers.sql',
+  '0051_pay_control_pricing.sql',
+  // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
+  '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
+].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-pay-public-rest-money-edge-secret-long-enough';
 const RAIL_SECRET = 'svc-pay-money-rest-test-secret-32-characters-x';
@@ -143,7 +159,20 @@ describe('svc-pay public REST money (source)', () => {
   });
 });
 
-describe('svc-pay public REST money paths PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Ten local runs of this file on an
+ * idle throwaway Postgres finished the tests in 587 to 662 ms, 13 passed each
+ * time. On CI the journal-lost partial refund alone has been 1254 ms, 1298 ms
+ * and 2995 ms while the rest of the pay package shares one Postgres, so a 5 s
+ * limit is a speed failure on a loaded runner. The customer-only run that went
+ * red named this test; the body does not replan a second refund.
+ *
+ * vitest does not cancel a test body that has timed out. The body keeps
+ * posting while the next test's beforeEach TRUNCATE takes ACCESS EXCLUSIVE
+ * on the pay tables, and the two deadlock. The same budget is already on the
+ * money PG-hard suite. It is a limit, not a retry.
+ */
+describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let ledger: MemoryLedger;
@@ -203,7 +232,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
   }
 
   const clearingOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantClearing(merchantId, ASSET))).amount);
-  const availableOf = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, ASSET))).amount);
+  const proceedsOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantProceeds(merchantId, ASSET))).amount);
   const keysMatching = (prefix: string) => postedKeys.filter((k) => k.startsWith(prefix));
 
   /** Merchant with a zero fee: this suite is about movement and identity, not pricing. */
@@ -406,9 +435,11 @@ describe('svc-pay public REST money paths PG-hard', () => {
       const id = await captured(http, m.id);
       const headers = { ...signed(), 'idempotency-key': `refund:${id}:partial` };
 
-      await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      const first = await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(first.statusCode, first.payload).toBe(200);
       const retried = await build(new MemoryRestIdempotencyStore());
       const second = await retried.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(second.statusCode, second.payload).toBe(200);
 
       // 90, not 80. One business event, one movement.
       expect(await clearingOf(m.id)).toBe('90');
@@ -545,7 +576,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
       });
 
       expect(res.json().clearing).toBe(await clearingOf(m.id));
-      expect(res.json().available).toBe(await availableOf(OWNER));
+      expect(res.json().available).toBe(await proceedsOf(m.id));
     });
   });
 });

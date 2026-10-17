@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowDownToLine,
@@ -7,7 +7,9 @@ import {
   ArrowUpRight,
   CircleDot,
   CreditCard,
+  Search,
   Check,
+  Download,
   Gift,
   Lock,
   LockOpen,
@@ -54,6 +56,9 @@ import {
   type Loadable,
 } from './deps';
 import { buyHref } from './links';
+import { detailHref } from './activity-detail';
+import { groupMatches, hasFilters, NO_FILTERS, rangeProblem, type ActivityFilters } from './activity-filter';
+import { activityCsv, csvFileName } from './activity-csv';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 
@@ -90,6 +95,148 @@ const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No trans
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
 };
+
+/** The words a row shows as its title, so a search finds what the person reads. */
+function groupTitle(group: ActivityGroup, copy: Copy): string {
+  const { t } = copy;
+  return group.kind === 'cancelled' ? t('Order cancelled · nothing spent') : titleOf(group.main, t, (key, handle) => t(key, { handle }));
+}
+
+function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onChange: (next: ActivityFilters) => void; copy: Copy }) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const problem = rangeProblem(filters, timeZone);
+  return (
+    <form className="money-bar" role="search" aria-label={t('Search activity')} onSubmit={(event) => event.preventDefault()}>
+      <label className="money-bar__search">
+        <Search size={16} aria-hidden="true" />
+        <span className="if-sr">{t('Search activity')}</span>
+        <input
+          type="search"
+          value={filters.q}
+          placeholder={t('Search activity hint')}
+          autoComplete="off"
+          onChange={(event) => onChange({ ...filters, q: event.target.value })}
+        />
+      </label>
+      <label className="money-bar__field">
+        <span>{t('Money in or out')}</span>
+        <select value={filters.dir} onChange={(event) => onChange({ ...filters, dir: event.target.value as ActivityFilters['dir'] })}>
+          <option value="all">{t('All')}</option>
+          <option value="in">{t('Money in')}</option>
+          <option value="out">{t('Money out')}</option>
+        </select>
+      </label>
+      <label className="money-bar__field">
+        <span>{t('From date')}</span>
+        <input type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
+      </label>
+      <label className="money-bar__field">
+        <span>{t('To date')}</span>
+        <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
+      </label>
+      {hasFilters(filters) && (
+        <Button type="button" variant="secondary" size={40} onClick={() => onChange(NO_FILTERS)}>
+          {t('Clear filters')}
+        </Button>
+      )}
+      {problem && (
+        <p className="money-bar__error" role="alert">
+          {problem === 'order' ? t('Date range order') : t('Date range invalid')}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/** Downloads the customer's own records that match the filters. It reads every older page first, within a bound. */
+const EXPORT_MAX_PAGES = 100;
+function ExportButton({ feed, rows, copy }: { feed: ActivityFeed; rows: ActivityGroup[]; copy: Copy }) {
+  const { t } = copy;
+  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'nothing' | 'failed'>('idle');
+  const [count, setCount] = useState(0);
+  const pages = useRef(0);
+  const latest = useRef({ feed, rows });
+  latest.current = { feed, rows };
+
+  function download() {
+    const lines = latest.current.rows.flatMap((group) => group.lines);
+    if (lines.length === 0) {
+      setState('nothing');
+      return;
+    }
+    const seen = new Set<string>();
+    const unique = lines.filter((line) => (seen.has(line.id) ? false : (seen.add(line.id), true)));
+    unique.sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
+    try {
+      const csv = activityCsv(unique, (line) => titleOf(line, t, (key) => t(key === 'Sent to {handle}' ? 'Sent' : 'Received')));
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = csvFileName(new Date());
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setCount(unique.length);
+      setState('done');
+    } catch {
+      setState('failed');
+    }
+  }
+
+  useEffect(() => {
+    if (state !== 'loading') return;
+    if (feed.moreFailed) {
+      setState('failed');
+      return;
+    }
+    if (feed.loadingMore) return;
+    if (feed.hasMore && pages.current < EXPORT_MAX_PAGES) {
+      pages.current += 1;
+      feed.loadMore();
+      return;
+    }
+    if (feed.hasMore) {
+      setState('failed');
+      return;
+    }
+    download();
+  }, [state, feed]);
+
+  return (
+    <div className="money-export">
+      <Button
+        variant="secondary"
+        size={40}
+        onClick={() => {
+          pages.current = 0;
+          setState('loading');
+        }}
+        disabled={state === 'loading'}
+      >
+        <Download size={16} aria-hidden="true" />
+        {t('Export CSV')}
+      </Button>
+      <p className="money-export__note" role="status" aria-live="polite">
+        {state === 'loading'
+          ? t('Exporting', { count: feed.items.length })
+          : state === 'done'
+            ? t('Export done', { count })
+            : state === 'nothing'
+              ? t('Export nothing')
+              : state === 'failed'
+                ? t('Export failed')
+                : t('Export note')}
+      </p>
+      {state === 'loading' && (
+        <Button variant="secondary" size={40} onClick={() => setState('idle')}>
+          {t('Export cancel')}
+        </Button>
+      )}
+    </div>
+  );
+}
 
 function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden: boolean }) {
   const { t } = copy;
@@ -131,7 +278,9 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
             <Icon size={18} />
           </span>
           <span className="money-act__text">
-            <span className="money-act__title">{title}</span>
+            <a className="money-act__title money-act__link" href={detailHref(group)}>
+              {title}
+            </a>
             {sub ? <span className="money-act__sub">{sub}</span> : null}
           </span>
         </div>
@@ -191,31 +340,40 @@ function Body({
   asset,
   copy,
   hidden,
+  filters,
 }: {
   feed: ActivityFeed;
   tab: LedgerTab;
   asset: string | null;
   copy: Copy;
   hidden: boolean;
+  filters: ActivityFilters;
 }) {
   const { t } = copy;
+  const { timeZone } = usePreferences();
   const { groups } = useMemo(() => groupActivity(feed.items), [feed.items]);
-  const rows = groups.filter((group) => inTab(group.main, tab) && (!asset || groupInAsset(group, asset)));
+  const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
+  const rows = groups.filter(
+    (group) =>
+      inTab(group.main, tab) &&
+      (!asset || groupInAsset(group, asset)) &&
+      (!filtered || groupMatches(group, filters, timeZone, groupTitle(group, copy))),
+  );
   const pages = useRef(0);
 
   // The server has no kind filter, so a narrow tab may be thin: look further back a few pages, then ask.
   useEffect(() => {
     pages.current = 0;
-  }, [tab, asset]);
+  }, [tab, asset, filters]);
   useEffect(() => {
-    if ((tab === 'all' && !asset) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
+    if ((tab === 'all' && !asset && !filtered) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
     if (rows.length >= WANT_ROWS || pages.current >= AUTO_PAGES) return;
     pages.current += 1;
     feed.loadMore();
-  }, [tab, asset, rows.length, feed]);
+  }, [tab, asset, filtered, rows.length, feed]);
 
   const searching =
-    (tab !== 'all' || asset !== null) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
+    (tab !== 'all' || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
   const more = feed.hasMore ? (
     <div className="money-more">
       {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
@@ -224,6 +382,19 @@ function Body({
       </Button>
     </div>
   ) : null;
+  if (rows.length === 0 && !searching && filtered) {
+    return (
+      <>
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t('No matches')}
+          body={feed.hasMore ? t('No matches more body') : t('No matches body')}
+        />
+        {more}
+      </>
+    );
+  }
   if (rows.length === 0 && !searching) {
     // A filter that matches nothing in the pages read so far must not say there is nothing: older pages may match.
     const why = ledgerEmpty(tab, asset, feed.hasMore);
@@ -266,6 +437,7 @@ function Body({
 
   return (
     <>
+      <ExportButton feed={feed} rows={rows} copy={copy} />
       <table className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />
@@ -302,12 +474,14 @@ function Content({
   asset,
   copy,
   hidden,
+  filters,
 }: {
   activity: Loadable<ActivityFeed>;
   tab: LedgerTab;
   asset: string | null;
   copy: Copy;
   hidden: boolean;
+  filters: ActivityFilters;
 }) {
   const { t } = copy;
   switch (activity.status) {
@@ -347,20 +521,33 @@ function Content({
         />
       );
     case 'ready':
-      return <Body feed={activity.data} tab={tab} asset={asset} copy={copy} hidden={hidden} />;
+      return <Body feed={activity.data} tab={tab} asset={asset} copy={copy} hidden={hidden} filters={filters} />;
   }
 }
 
 /** The ledger-based tabs (All, Deposits, Transfers). Mounted only on those tabs, so the other two never read the ledger. */
-function LedgerTabs({ tab, asset, copy, hidden }: { tab: LedgerTab; asset: string | null; copy: Copy; hidden: boolean }) {
+function LedgerTabs({
+  tab,
+  asset,
+  copy,
+  hidden,
+  filters,
+}: {
+  tab: LedgerTab;
+  asset: string | null;
+  copy: Copy;
+  hidden: boolean;
+  filters: ActivityFilters;
+}) {
   const activity = useActivity();
-  return <Content activity={activity} tab={tab} asset={asset} copy={copy} hidden={hidden} />;
+  return <Content activity={activity} tab={tab} asset={asset} copy={copy} hidden={hidden} filters={filters} />;
 }
 
 export default function Activity({ search }: { search: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
   const { hideBalances, layoutMode } = usePreferences();
+  const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const tab = tabFromSearch(search);
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
@@ -389,13 +576,14 @@ export default function Activity({ search }: { search: string }) {
           </button>
         </div>
       ) : null}
+      {isLedgerTab(tab) && <FilterBar filters={filters} onChange={setFilters} copy={copy} />}
       <section className="money-card money-card--activity" aria-label={t('Activity')}>
         {tab === 'trades' ? (
           <TradesPanel asset={asset} />
         ) : tab === 'orders' ? (
           <OrdersPanel />
         ) : isLedgerTab(tab) ? (
-          <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} />
+          <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} filters={filters} />
         ) : null}
       </section>
     </div>

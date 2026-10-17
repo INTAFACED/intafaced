@@ -118,6 +118,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
       /**
+       * 32-byte AES-256 key (base64 or 64-char hex) for api_keys.request_signing_secret.
+       * Blank = signing opt-in refuses (no plaintext write). Prod and staging boot refuse if missing.
+       */
+      API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
@@ -150,6 +155,16 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published lifetime for a signed-out password-reset proof, in seconds.
+       * Blank / unset → unpublished; the reset request refuses (`auth.reset_unwired`).
+       * Never git-default 900 or 15 minutes. One day is the ceiling.
+       */
+      IDENTITY_PASSWORD_RESET_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop

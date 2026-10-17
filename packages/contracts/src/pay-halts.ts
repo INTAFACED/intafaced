@@ -5,19 +5,41 @@ import { payMerchantIdSchema, payReasonSchema, payRequestIdSchema, payTimestampS
  * GRANULAR PAY HALTS — wire contract (workstream W0, built by W5).
  *
  * A halt is one switch with two coordinates: WHAT it stops (intake, conversion,
- * payout, settlement) and WHO it covers (everyone, or one merchant). Halting one
- * scope leaves the others running. The store is shared by every replica and an
- * unreadable store means HALTED, so `readable: false` is a refusal, never "not
- * halted".
+ * payout, settlement) and WHO it covers (everyone, one merchant, one user's
+ * withdrawal exit, or one rail for every merchant). Halting one scope leaves
+ * the others running. The store is shared by every replica and an unreadable
+ * store means HALTED, so `readable: false` is a refusal, never "not halted".
+ *
+ * A user target and a rail target are enforced only on payout (one person's
+ * withdrawal exit, or one rail's sends). `payHalts.set` refuses them on intake,
+ * settlement, or conversion.
  */
 
 export const PAY_HALT_SCOPES = ['intake', 'conversion', 'payout', 'settlement'] as const;
 export type PayHaltScope = (typeof PAY_HALT_SCOPES)[number];
 export const payHaltScopeSchema = z.enum(PAY_HALT_SCOPES);
 
+export const payHaltRailIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+
+/**
+ * Typed refusals from the halt store and `payHalts.*`.
+ * `pay.halt_target_unsupported`: a user or rail target on a scope other than payout,
+ * or a user id that is not a uuid.
+ * `pay.halt_target_unknown_rail`: a rail id this deployment has not registered.
+ */
+export const PAY_HALT_ERROR_CODES = [
+  'pay.halt_store_unavailable',
+  'pay.halt_target_not_found',
+  'pay.halt_target_unsupported',
+  'pay.halt_target_unknown_rail',
+] as const;
+export type PayHaltErrorCode = (typeof PAY_HALT_ERROR_CODES)[number];
+
 export const payHaltTargetSchema = z.discriminatedUnion('level', [
   z.object({ level: z.literal('global') }).strict(),
   z.object({ level: z.literal('merchant'), merchantId: payMerchantIdSchema }).strict(),
+  z.object({ level: z.literal('user'), userId: payMerchantIdSchema }).strict(),
+  z.object({ level: z.literal('rail'), railId: payHaltRailIdSchema }).strict(),
 ]);
 export type PayHaltTarget = z.infer<typeof payHaltTargetSchema>;
 
@@ -54,8 +76,17 @@ export const payHaltStatusSchema = z
   .strict();
 export type PayHaltStatus = z.infer<typeof payHaltStatusSchema>;
 
-/** The same status with operator fields, for `founderAdmin.*` only. */
-export const payHaltOperatorStatusSchema = z.object({ readable: z.boolean(), states: z.array(payHaltStateSchema) }).strict();
+/**
+ * Auto-trip posture. `enabled: false` means no failure count is configured, so NOTHING trips by itself;
+ * there is no default count. Operator-only.
+ */
+export const payHaltAutoTripSchema = z.object({ enabled: z.boolean(), consecutiveFailures: z.number().int().min(1).nullable() }).strict();
+export type PayHaltAutoTrip = z.infer<typeof payHaltAutoTripSchema>;
+
+/** The same status with operator fields, for `founderAdmin.*` and `payHalts.operatorStatus` only. */
+export const payHaltOperatorStatusSchema = z
+  .object({ readable: z.boolean(), autoTrip: payHaltAutoTripSchema, states: z.array(payHaltStateSchema) })
+  .strict();
 export type PayHaltOperatorStatus = z.infer<typeof payHaltOperatorStatusSchema>;
 
 /** The actor comes from founder authentication, never this body. */
@@ -74,11 +105,44 @@ export type PayHaltSetInput = z.infer<typeof payHaltSetInputSchema>;
 export const payHaltSetResultSchema = z
   .object({
     requestId: payRequestIdSchema,
-    outcome: z.enum(['changed', 'noop', 'conflict']),
+    /**
+     * `pending_confirmation`: a CLEAR needs a second, distinct founder. The first call records the
+     * proposal; the second founder repeats the same call (same `requestId`) to apply it.
+     */
+    outcome: z.enum(['changed', 'noop', 'conflict', 'pending_confirmation']),
     state: payHaltStateSchema,
   })
   .strict();
 
+/** One audited change. `confirmedByUserId` is the second founder on a dual-controlled clear. */
+export const payHaltEventSchema = payHaltStateSchema.extend({ confirmedByUserId: z.string().uuid().nullable() }).strict();
+export type PayHaltEvent = z.infer<typeof payHaltEventSchema>;
+
 export const payHaltHistoryInputSchema = z
   .object({ scope: payHaltScopeSchema.optional(), target: payHaltTargetSchema.optional(), limit: z.number().int().min(1).max(200) })
+  .strict();
+
+/**
+ * A clear that one founder proposed and a different founder has not confirmed.
+ * `requestedByUserId` is that first founder. Ordered by request id; the cursor is the last id returned.
+ * Proposals older than the store's confirm window are omitted: they can no longer be confirmed.
+ */
+export const payHaltPendingClearSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    scope: payHaltScopeSchema,
+    target: payHaltTargetSchema,
+    expectedVersion: payVersionSchema,
+    reason: z.string().min(1).max(4000),
+    requestedByUserId: z.string().uuid(),
+    requestedAt: payTimestampSchema,
+  })
+  .strict();
+export type PayHaltPendingClear = z.infer<typeof payHaltPendingClearSchema>;
+export const payHaltPendingClearListInputSchema = z
+  .object({ limit: z.number().int().min(1).max(200), cursor: payRequestIdSchema.optional() })
+  .strict();
+export type PayHaltPendingClearListInput = z.infer<typeof payHaltPendingClearListInputSchema>;
+export const payHaltPendingClearListSchema = z
+  .object({ proposals: z.array(payHaltPendingClearSchema), nextCursor: z.string().nullable() })
   .strict();

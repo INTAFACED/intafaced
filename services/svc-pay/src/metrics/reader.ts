@@ -235,7 +235,7 @@ export class MetricsReader {
   async merchantList(input: {
     limit: number;
     cursor?: string;
-    filter?: { status?: string; tierId?: string; kybStatus?: string };
+    filter?: { status?: string; tierId?: string; kybStatus?: string; merchantId?: string };
   }): Promise<FounderMerchantList> {
     const f = input.filter ?? {};
     if (f.tierId !== undefined) throw new MetricsError('pay.metrics_filter_unsupported');
@@ -246,10 +246,11 @@ export class MetricsReader {
     const after = input.cursor ? decodeCursor(input.cursor) : null;
 
     const read = await this.snapshot(async (tx) => {
-      const merchants = await tx<Array<{ id: string; status: string; kyb_status: string }>>`
-        SELECT id, status::text AS status, kyb_status::text AS kyb_status FROM pay.merchants
+      const merchants = await tx<Array<{ id: string; status: string; kyb_status: string; display_name: string | null }>>`
+        SELECT id, status::text AS status, kyb_status::text AS kyb_status, display_name FROM pay.merchants
          WHERE true
            ${after ? tx`AND id > ${after}::uuid` : tx``}
+           ${f.merchantId ? tx`AND id = ${f.merchantId}::uuid` : tx``}
            ${f.status ? tx`AND status = ${f.status}::pay.merchant_status` : tx``}
            ${f.kybStatus ? tx`AND kyb_status = ${f.kybStatus}::pay.kyb_status` : tx``}
          ORDER BY id LIMIT ${input.limit + 1}`;
@@ -266,6 +267,7 @@ export class MetricsReader {
       const mine = read.totals.filter((t) => t.merchant_id === m.id);
       return {
         merchantId: m.id,
+        displayName: m.display_name,
         status: m.status,
         // Tiers belong to the control room (W1); until it lands there is no tier to report.
         tierId: null,

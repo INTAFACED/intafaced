@@ -164,8 +164,14 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     return state;
   }
 
-  async unfreeze(actor: string): Promise<FreezeState> {
-    const { state } = await writeFreeze(this.sql, { frozen: false, actor });
+  /**
+   * Thaw posting. `actor` alone does not clear a freeze. `confirmOperatorId`
+   * is the other person, taken from a consumed approval, and must be distinct
+   * from `actor` and from the actor who froze the book. An already-open book
+   * stays a no-op so a second clear does not rewrite the row.
+   */
+  async unfreeze(actor: string, confirmOperatorId?: string | null): Promise<FreezeState> {
+    const { state } = await writeFreeze(this.sql, { frozen: false, actor, confirmOperatorId });
     await this.publishUnpublishedFreezeOutbox();
     return state;
   }

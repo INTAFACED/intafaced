@@ -13,7 +13,7 @@
  * Later workstreams (W1 control room, W3/W4, W6) add their procedures
  * to the TABLES in `procedures.ts`. They never touch this file's seeding.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,10 @@ import { createMerchantStateRouter } from '../../src/merchant-state-router.js';
 import { MerchantPayoutDestinationStore } from '../../src/merchant-payout-destination.js';
 import { MerchantWebhookService, PostgresMerchantWebhookStore } from '../../src/merchant-webhooks.js';
 import { createMetricsRuntime, type MetricsRuntime } from '../../src/metrics/index.js';
+import { loadHaltAutoTripConfig } from '../../src/halts/config.js';
+import { PayHaltStore } from '../../src/halts/store.js';
+import { ControlService } from '../../src/control/service.js';
+import { teamAccessPorts } from '../../src/control/access.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import { PayService } from '../../src/payment-service.js';
 import { PspModeService } from '../../src/psp-mode.js';
@@ -40,11 +44,19 @@ import { CardSandboxAdapter } from '../../src/rails/card-sandbox.js';
 import { BankPayoutAbsentAdapter } from '../../src/rails/bank-payout.js';
 import { RailRegistry } from '../../src/rails/registry.js';
 import { registerPublicPayRest } from '../../src/public-rest.js';
+import { teamReadFromSql } from '../../src/merchant-team-read.js';
 import { createPayRouter } from '../../src/router.js';
 import { createSubMerchantRouter } from '../../src/submerchant-router.js';
 import { SubMerchantService } from '../../src/submerchants.js';
 import { unwiredApprovalConsumer } from '../../src/action-approval-consume.js';
+import { loadTreasuryLimits } from '../../src/treasury/config.js';
+import { ConversionService } from '../../src/conversion/service.js';
+import { unconfiguredConversionVenue } from '../../src/conversion/venue.js';
+import { createConversionInventory } from '../../src/conversion/inventory.js';
+import { createRegistryReader } from '../../src/registries/read-api.js';
+import { buildPayGuards } from '../../src/seams/registry.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
+import { seedControl, type ControlSeed } from './control-seed.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -77,6 +89,10 @@ export interface Entity {
   readonly settlementId: string;
   readonly linkId: string;
   readonly endpointId: string;
+  /** A second endpoint the isolation sweep may disable without silencing the primary. */
+  readonly spareEndpointId: string;
+  /** A failed delivery on `endpointId`, so a retry positive control has a row to requeue. */
+  readonly deliveryId: string;
   /** W15: a dispute case (process-wide store; the id is unique per entity) on `paymentId`. */
   readonly disputeId: string;
   /** W15: the opaque customer reference the merchant put on `paymentId`. */
@@ -89,6 +105,14 @@ export interface Entity {
   readonly memberId: string;
   /** W15: an invitation to the OWNER's own account onto the own team, so the owner can accept or decline it. */
   readonly inviteId: string;
+  /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
+  readonly approvalId: string;
+  /** Portal refund list: the `refund.posted` event id. No ledger movement. */
+  readonly refundEventId: string;
+  /** Draft standalone invoice for `paymentId`'s amount and asset. */
+  readonly invoiceId: string;
+  /** Evidence bytes stored for `disputeId`. */
+  readonly evidenceId: string;
 }
 
 export type Entitlement = 'enabled' | 'revoked' | 'unconfigured' | 'not_operator';
@@ -125,6 +149,10 @@ export interface World {
   readonly founderUserId: string;
   /** A live operator note on merchant A, for the founder positive control of `founderAdmin.ops.notes.retract`. */
   readonly operatorNoteId: string;
+  /** W1: one-shot targets for the founder positive controls (see control-seed.ts). */
+  readonly control: ControlSeed;
+  /** An ACTIVE `finance` team member of merchant B (a real row in pay.merchant_team_members): the cross-merchant probe for teamAccessPorts. */
+  readonly bFinanceUserId: string;
   /** Every id of a merchant row seeded by `tag` (merchant, payments, settlement, link, endpoint, W15 rows). */
   idsOf(tag: Tag): string[];
   stop(): Promise<void>;
@@ -213,20 +241,46 @@ function composeRouter(parts: {
   sql: TestDatabase['sql'];
   founderAuthority: FounderAuthority;
   metrics: MetricsRuntime;
+  conversion: ConversionService;
+  ledger: MemoryLedger;
 }) {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
   return mergeRouters(
-    createPayRouter(parts.pay, parts.rails, parts.userMoney, parts.subMerchants, parts.destinations, actionApprovals),
+    createPayRouter(
+      parts.pay,
+      parts.rails,
+      parts.userMoney,
+      parts.subMerchants,
+      parts.destinations,
+      actionApprovals,
+      teamReadFromSql(parts.sql),
+      undefined,
+      parts.sql,
+    ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
-    createSubMerchantRouter(parts.subMerchants, parts.pay),
+    createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
       founderAuthority: parts.founderAuthority,
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      webhooksAllowLocalHttp: true,
+      webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
+      invoiceLinks: parts.pay,
+      // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
+      // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
+      payHalts: {
+        store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})),
+        merchants: parts.pay,
+        team: teamReadFromSql(parts.sql),
+      },
+      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: createConversionInventory(parts.sql, parts.ledger) },
+      // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
+      control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
+      conversion: parts.conversion,
     }),
   );
 }
@@ -274,10 +328,37 @@ export async function createWorld(): Promise<World> {
     fetcher: identity.fetcher,
   });
   const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
-  const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority, metrics });
+  const conversion = new ConversionService({
+    sql,
+    ledger,
+    guards: buildPayGuards({ sql, ledger }),
+    venue: unconfiguredConversionVenue(),
+    registries: createRegistryReader(sql),
+    slippageBps: null,
+    placingMaxAgeMs: null,
+  });
+  const appRouter = composeRouter({
+    pay,
+    rails,
+    userMoney,
+    subMerchants,
+    destinations,
+    sql,
+    founderAuthority,
+    metrics,
+    conversion,
+    ledger,
+  });
 
   const rest = Fastify();
-  await registerPublicPayRest(rest, { edgeSecret: EDGE_SECRET, serviceName: 'svc-pay', pay, webhooks, trees: subMerchants });
+  await registerPublicPayRest(rest, {
+    edgeSecret: EDGE_SECRET,
+    serviceName: 'svc-pay',
+    pay,
+    webhooks,
+    trees: subMerchants,
+    teamReads: teamReadFromSql(sql),
+  });
   await rest.ready();
 
   // ── seed ──
@@ -305,12 +386,35 @@ export async function createWorld(): Promise<World> {
     const settlement = await pay.settleWindow({ merchantId, window: `w14-${tag}`, assetId: 'USDT', ...settleAt });
     const link = await pay.createPaymentLink({ merchantId, label: `link-${tag}` });
     const endpoint = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}`);
+    const spare = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}-spare`);
     await webhooks.enqueue({ type: 'payment.captured', payment: captured });
+    const deliveryRows = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.merchant_webhook_deliveries
+       WHERE merchant_id = ${merchantId} AND endpoint_id = ${endpoint.id}
+       ORDER BY created_at DESC LIMIT 1`;
+    await sql`
+      UPDATE pay.merchant_webhook_deliveries SET status = 'failed', attempts = 1
+       WHERE id = ${deliveryRows[0]!.id}`;
+    await sql`DELETE FROM pay.merchant_webhook_deliveries WHERE endpoint_id = ${spare.id}`;
 
     // W15 merchant operations rows. Direct inserts for the ones the product creates asynchronously
     // (export, invitations), so seeding starts no background work.
     const disputeId = `dp-${tag}-${randomUUID()}`;
     defaultDisputeCaseStore.open({ disputeId, paymentId: first.id, merchantId, amount: '100', assetId: 'USDT', reasonCode: '4853' });
+    const evidenceBytes = Buffer.from('%PDF');
+    const evidenceSha = createHash('sha256').update(evidenceBytes).digest('hex');
+    const evidenceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_dispute_evidence (merchant_id, dispute_id, kind, file_name, content_type, size_bytes, sha256, added_by)
+      VALUES (${merchantId}, ${disputeId}, 'receipt', 'receipt.pdf', 'application/pdf', ${evidenceBytes.length}, ${evidenceSha}, ${userId})
+      RETURNING id`;
+    const evidenceId = evidenceRows[0]!.id;
+    await sql`
+      INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
+      VALUES (${evidenceId}, ${merchantId}, ${evidenceBytes})`;
+    const invoiceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
+      VALUES (${merchantId}, 'draft', 'USDT', 100, ${customerRef}, 'isolation invoice', ${userId})
+      RETURNING id`;
     const exportRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
       VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
@@ -322,6 +426,14 @@ export async function createWorld(): Promise<World> {
     const inviteRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
       VALUES (${merchantId}, ${userId}, 'viewer', 'invited', ${userId}) RETURNING id`;
+    const refundRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (
+        ${first.id},
+        'refund.posted',
+        ${sql.json({ refundId: `iso-${tag}`, amount: '1', source: 'clearing' })}
+      )
+      RETURNING id`;
     entities[tag] = {
       tag,
       userId,
@@ -331,12 +443,18 @@ export async function createWorld(): Promise<World> {
       settlementId: settlement.id,
       linkId: link.id,
       endpointId: endpoint.id,
+      spareEndpointId: spare.id,
+      deliveryId: deliveryRows[0]!.id,
       disputeId,
       customerRef,
       exportJobId: exportRows[0]!.id,
       notificationId: notificationId!,
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
+      approvalId: '', // set by seedControl below, once every merchant has a tier
+      refundEventId: refundRows[0]!.id,
+      invoiceId: invoiceRows[0]!.id,
+      evidenceId,
     };
   }
 
@@ -376,6 +494,21 @@ export async function createWorld(): Promise<World> {
   const Q = await root('Q');
   await child('D1', Q, Q);
 
+  // W1: a tier, a destination and one pending payout approval per merchant (the owner is the maker).
+  const all = Object.values(entities);
+  const control = await seedControl(sql, all, (userId) => principal(userId), {
+    railId: 'crypto-native',
+    kind: 'crypto',
+    ref: EVM_DESTINATION,
+  });
+  for (const x of all) (entities[x.tag] as { approvalId: string }).approvalId = control.approvalIds[x.tag]!;
+
+  // A real finance member of merchant B: holds payout.approve on B and nothing on anyone else.
+  const bFinanceUserId = randomUUID();
+  await sql`
+    INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+    VALUES (${entities.B.merchantId}, ${bFinanceUserId}, 'finance', 'active', ${entities.B.userId}, now())`;
+
   await sql`
     INSERT INTO pay.network_registry (network_id, display_name, asset_codes, updated_by)
     VALUES (${REGISTRY_NETWORK_ID}, 'Isolation network', '["USDT"]'::jsonb, 'fixture')`;
@@ -402,7 +535,9 @@ export async function createWorld(): Promise<World> {
     outbound,
     e: entities,
     founderUserId,
+    bFinanceUserId,
     operatorNoteId: operatorNote[0]!.id,
+    control,
     idsOf(tag) {
       const x = entities[tag];
       return [
@@ -412,11 +547,17 @@ export async function createWorld(): Promise<World> {
         x.settlementId,
         x.linkId,
         x.endpointId,
+        x.spareEndpointId,
+        x.deliveryId,
         x.disputeId,
         x.exportJobId,
         x.notificationId,
         x.memberId,
         x.inviteId,
+        x.approvalId,
+        x.refundEventId,
+        x.invoiceId,
+        x.evidenceId,
       ];
     },
     async stop() {
@@ -525,7 +666,17 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     notifications: await q('merchant_notifications', 'merchant_id'),
     exportJobs: await q('merchant_export_jobs', 'merchant_id'),
     disputeEvidence: await q('merchant_dispute_evidence', 'merchant_id'),
+    disputeEvidenceContent: await q('merchant_dispute_evidence_content', 'merchant_id'),
+    disputeDeadlines: await q('dispute_response_deadlines', 'merchant_id'),
     disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
+    invoices: await q('merchant_invoices', 'merchant_id'),
+    invoiceActions: await q('merchant_invoice_actions', 'merchant_id'),
+    disputeCasesPg: await q('dispute_cases', 'merchant_id'),
+    // W1
+    controlProfile: await q('control_merchant_profiles', 'merchant_id'),
+    controlApprovals: await q('control_payout_approvals', 'merchant_id'),
+    controlAudit: await q('control_audit', 'merchant_id'),
+    limitRequests: await q('control_limit_requests', 'merchant_id'),
     disputeCases: defaultDisputeCaseStore.listForMerchant(merchantId),
   });
 }

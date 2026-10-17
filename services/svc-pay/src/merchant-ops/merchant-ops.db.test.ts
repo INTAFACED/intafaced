@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -205,6 +205,18 @@ describe('W15 merchant operations (Postgres)', () => {
       )[0]!.id;
       const member = id();
       const invited = (await b.merchantOps.team.invite({ userId: member, role: 'viewer' })) as { memberId: string };
+      const bInvoice = (await b.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '4' })) as { id: string };
+      const evidenceBytes = Buffer.from('%PDF');
+      const evidenceSha = createHash('sha256').update(evidenceBytes).digest('hex');
+      const bEvidence = (
+        await sql<Array<{ id: string }>>`
+        INSERT INTO pay.merchant_dispute_evidence (merchant_id, dispute_id, kind, file_name, content_type, size_bytes, sha256, added_by)
+        VALUES (${merchantB}, 'dp-b1', 'receipt', 'b.pdf', 'application/pdf', ${evidenceBytes.length}, ${evidenceSha}, ${userB})
+        RETURNING id`
+      )[0]!.id;
+      await sql`
+        INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
+        VALUES (${bEvidence}, ${merchantB}, ${evidenceBytes})`;
 
       const a = as(userA);
       const cases: Array<[string, (v: string) => unknown, string, string]> = [
@@ -223,7 +235,27 @@ describe('W15 merchant operations (Postgres)', () => {
           'dp-nonexistent',
         ],
         ['disputes.respond', (v) => ({ requestId: id(), disputeId: v, action: 'accept_liability' }), 'dp-b1', 'dp-nonexistent'],
+        [
+          'disputes.uploadEvidence',
+          (v) => ({
+            disputeId: v,
+            kind: 'receipt',
+            fileName: 'r.pdf',
+            contentType: 'application/pdf',
+            contentBase64: Buffer.from('%PDF').toString('base64'),
+          }),
+          'dp-b1',
+          'dp-nonexistent',
+        ],
+        ['disputes.getEvidence', (v) => ({ evidenceId: v }), bEvidence, id()],
+        ['invoices.get', (v) => ({ invoiceId: v }), bInvoice.id, id()],
         ['customers.get', (v) => ({ customerRef: v, recentPaymentsLimit: 5 }), 'cust-b1', 'cust-nonexistent'],
+        [
+          'customers.series',
+          (v) => ({ customerRef: v, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day', limit: 5 }),
+          'cust-b1',
+          'cust-nonexistent',
+        ],
         ['exports.get', (v) => ({ jobId: v }), bExport.jobId, id()],
         ['exports.download', (v) => ({ jobId: v }), bExport.jobId, id()],
         ['notifications.markRead', (v) => ({ notificationIds: [v] }), bNote, id()],
@@ -248,7 +280,9 @@ describe('W15 merchant operations (Postgres)', () => {
       const stranger = as(id());
       const paths: Array<[string, unknown]> = [
         ['disputes.list', { limit: 5 }],
+        ['invoices.list', { limit: 5 }],
         ['customers.list', { limit: 5 }],
+        ['customers.series', { customerRef: 'cust-a1', from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day', limit: 5 }],
         ['team.list', { limit: 5 }],
         ['kyb.current', {}],
         ['exports.list', { limit: 5 }],
@@ -821,6 +855,22 @@ describe('W15 merchant operations (Postgres)', () => {
       }
       // viewer cannot write anything
       expect((await refusal(() => viewer.merchantOps.disputes.addEvidence(evidence))).cause).toBe('pay.team_role_forbidden');
+      expect(
+        (
+          await refusal(() =>
+            viewer.merchantOps.disputes.uploadEvidence({
+              disputeId: 'dp-team',
+              kind: 'receipt',
+              fileName: 'r.pdf',
+              contentType: 'application/pdf',
+              contentBase64: Buffer.from('%PDF').toString('base64'),
+            }),
+          )
+        ).cause,
+      ).toBe('pay.team_role_forbidden');
+      expect((await refusal(() => viewer.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '1' }))).cause).toBe(
+        'pay.team_role_forbidden',
+      );
       expect((await refusal(() => viewer.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} }))).cause).toBe(
         'pay.team_role_forbidden',
       );
@@ -830,6 +880,29 @@ describe('W15 merchant operations (Postgres)', () => {
       expect((await refusal(() => viewer.merchantOps.team.invite({ userId: id(), role: 'viewer' }))).cause).toBe('pay.team_role_forbidden');
       // developer: exports yes, disputes no
       expect((await refusal(() => dev.merchantOps.disputes.addEvidence(evidence))).cause).toBe('pay.team_role_forbidden');
+      expect((await refusal(() => dev.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '1' }))).cause).toBe(
+        'pay.team_role_forbidden',
+      );
+      const drafted = (await fin.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '3.50' })) as {
+        id: string;
+        amount: string;
+        status: string;
+      };
+      expect(drafted).toMatchObject({ status: 'draft', amount: '3.5' });
+      expect(JSON.stringify(drafted)).not.toMatch(/pricingSnapshot|feeBps/);
+      expect(
+        (
+          await refusal(() =>
+            fin.merchantOps.disputes.uploadEvidence({
+              disputeId: 'dp-team',
+              kind: 'receipt',
+              fileName: 'r.pdf',
+              contentType: 'application/pdf',
+              contentBase64: Buffer.from('%PDF').toString('base64'),
+            }),
+          )
+        ).cause,
+      ).toBe('pay.dispute_evidence_upload_off');
       const job = (await dev.merchantOps.exports.create({ requestId: id(), kind: 'payments', filters: {} })) as { jobId: string };
       // ...and sees only their own exports, while the owner sees all
       expect(((await viewer.merchantOps.exports.list({ limit: 10 })) as { items: unknown[] }).items).toHaveLength(0);

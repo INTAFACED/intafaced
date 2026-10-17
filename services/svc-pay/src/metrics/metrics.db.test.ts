@@ -200,7 +200,22 @@ const principal = (userId: string, extra: Partial<Principal> = {}): Principal =>
 });
 const ctxOf = (p: Principal | null): Context => ({ principal: p, service: null, region: 'DE', requestId: randomUUID() });
 
-describe('svc-pay metrics read model PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Measured on CI (runs 38718530279 to
+ * 38737143811): this file takes 3 s on a laptop and 45 to 106 s there, because
+ * the pay package runs 145 test files against one Postgres on a shared runner. The
+ * seeded-run tests alone took 2.3 to 6.2 s on main before and after the flows were
+ * made concurrent, so a 5 s limit failed about one run in five on speed alone.
+ *
+ * It matters beyond the one red test. vitest does not cancel a test body that has
+ * timed out: the seeding and the refreshers keep running while the next test's
+ * beforeEach issues its TRUNCATE (ACCESS EXCLUSIVE on the pay tables), and the two
+ * deadlock. PR 4784's "deadlock detected" failures were exactly that, the test
+ * harness's TRUNCATE against the previous test's leftover transactions, never two
+ * product statements against each other. A timeout generous enough not to trip
+ * keeps that from starting.
+ */
+describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
@@ -299,37 +314,53 @@ describe('svc-pay metrics read model PG-hard', () => {
   const settle = (merchantId: string, window: string, assetId = 'USDT') =>
     pay.settleWindow({ merchantId, window, assetId, from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + DAY_MS) });
 
-  /** Two merchants and a third in another asset, with captures, refunds, a decline, a link payment and a settlement. */
+  /**
+   * Two merchants and a third in another asset, with captures, refunds, a decline, a link payment and a settlement.
+   *
+   * Every call is a few real Postgres transactions, so run one after another this
+   * was ~55 serial commits and the test's wall clock was commit latency times
+   * 55; on a loaded CI runner that reached the 5 s default. The flows below
+   * touch different payments, so they run concurrently (the pool has 8
+   * connections), keeping only the real dependencies in order: merchants exist
+   * before payments, a payment is captured before it is refunded, and every
+   * capture and refund is in before a merchant is settled. The concurrent
+   * writers also give the projection's dirty log real interleaving to absorb.
+   */
   async function seedRun() {
-    const a = await merchant();
-    const b = await merchant();
-    const c = await merchant();
-    const a1 = await capturedPayment(a.id, '100');
-    await capturedPayment(a.id, '40.5');
-    await cryptoCaptured(a.id, '7.25');
-    await pay.refund(a1, amt('30'));
-    const declined = await pay.createPayment({
-      merchantId: a.id,
-      amount: amt('5'),
-      assetId: 'USDT',
-      method: 'card',
-      railAdapter: 'card-sandbox',
-      instrument: { kind: 'card', token: 'tok_decline' },
-    });
-    await pay.authorize(declined.id).catch(() => undefined);
-    await capturedPayment(b.id, '1000');
-    await capturedPayment(b.id, '12.000000000000000001');
-    await cryptoCaptured(c.id, '3', 'BTC');
-    // A link payment for B
-    const link = await pay.createPaymentLink({ merchantId: b.id, label: 'Invoice', amount: amt('9'), currency: 'USDT' });
-    await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
-    const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE merchant_id = ${b.id}`;
-    const address = await chain.acceptanceAddress(row!.payment_id, 'USDT');
-    chain.credit({ address, assetId: 'USDT', amount: amt('9'), from: '0xbuyer', confirmations: 12 });
-    await pay.authorize(row!.payment_id);
-    await pay.capture(row!.payment_id);
-    await settle(a.id, 'w1');
-    await settle(b.id, 'w1');
+    const [a, b, c] = await Promise.all([merchant(), merchant(), merchant()]);
+    await Promise.all([
+      (async () => {
+        const a1 = await capturedPayment(a.id, '100');
+        await pay.refund(a1, amt('30'));
+      })(),
+      capturedPayment(a.id, '40.5'),
+      cryptoCaptured(a.id, '7.25'),
+      (async () => {
+        const declined = await pay.createPayment({
+          merchantId: a.id,
+          amount: amt('5'),
+          assetId: 'USDT',
+          method: 'card',
+          railAdapter: 'card-sandbox',
+          instrument: { kind: 'card', token: 'tok_decline' },
+        });
+        await pay.authorize(declined.id).catch(() => undefined);
+      })(),
+      capturedPayment(b.id, '1000'),
+      capturedPayment(b.id, '12.000000000000000001'),
+      cryptoCaptured(c.id, '3', 'BTC'),
+      (async () => {
+        // A link payment for B
+        const link = await pay.createPaymentLink({ merchantId: b.id, label: 'Invoice', amount: amt('9'), currency: 'USDT' });
+        await pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'ID', method: 'crypto' });
+        const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE merchant_id = ${b.id}`;
+        const address = await chain.acceptanceAddress(row!.payment_id, 'USDT');
+        chain.credit({ address, assetId: 'USDT', amount: amt('9'), from: '0xbuyer', confirmations: 12 });
+        await pay.authorize(row!.payment_id);
+        await pay.capture(row!.payment_id);
+      })(),
+    ]);
+    await Promise.all([settle(a.id, 'w1'), settle(b.id, 'w1')]);
     return { a, b, c };
   }
 
@@ -556,10 +587,10 @@ describe('svc-pay metrics read model PG-hard', () => {
       expect(sa.linkUsage).toEqual({ linksUsed: 0, paymentsViaLinks: 0 });
 
       // Balances come from the ledger, not from a copy.
-      const { merchantClearing, userAvailable } = await import('@intafaced/ledger-client');
+      const { merchantClearing, merchantProceeds } = await import('@intafaced/ledger-client');
       const bal = sa.balances.find((x) => x.assetCode === 'USDT')!;
       expect(bal.clearing).toBe(formatAmount((await ledger.balance(merchantClearing(a.id, 'USDT'))).amount));
-      expect(bal.available).toBe(formatAmount((await ledger.balance(userAvailable((await pay.getMerchant(a.id)).userId, 'USDT'))).amount));
+      expect(bal.available).toBe(formatAmount((await ledger.balance(merchantProceeds(a.id, 'USDT'))).amount));
 
       const sb = await metrics.reader.merchantSnapshot(b.id, { kind: 'preset', preset: 'today' });
       expect(sb.linkUsage).toEqual({ linksUsed: 1, paymentsViaLinks: 1 });
@@ -704,6 +735,27 @@ describe('svc-pay metrics read model PG-hard', () => {
     });
   });
 
+  describe('merchant names (W4b)', () => {
+    it('reads a merchant name into the founder list, null where none was given, and can look up exactly one merchant', async () => {
+      const named = await pay.createMerchant({
+        userId: userOf(),
+        pricing: { feeBps: 250 },
+        status: 'active',
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+      });
+      const unnamed = await merchant();
+      const all = (await metrics.reader.merchantList({ limit: 10 })).rows;
+      expect(all.find((r) => r.merchantId === named.id)?.displayName).toBe('Acme Shop');
+      expect(all.find((r) => r.merchantId === unnamed.id)?.displayName).toBeNull();
+
+      const one = await metrics.reader.merchantList({ limit: 1, filter: { merchantId: named.id } });
+      expect(one.rows.map((r) => [r.merchantId, r.displayName])).toEqual([[named.id, 'Acme Shop']]);
+      expect(one.nextCursor).toBeNull();
+      expect((await metrics.reader.merchantList({ limit: 1, filter: { merchantId: randomUUID() } })).rows).toEqual([]);
+    });
+  });
+
   // ── isolation: M1, M2, M3, M5 through the real router ───────────────────────
 
   describe('isolation through the router', () => {
@@ -834,6 +886,38 @@ describe('svc-pay metrics read model PG-hard', () => {
       await expect(caller.founderAdmin.metrics.merchant({ merchantId: randomUUID(), window: today })).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+    });
+
+    it('serves the name through the strict founder contract and keeps the legal name off the list', async () => {
+      const named = await pay.createMerchant({
+        userId: userOf(),
+        pricing: { feeBps: 250 },
+        status: 'active',
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+      });
+      const caller = mount().createCaller(ctxOf(principal(founderUser)));
+      const list = await caller.founderAdmin.merchants.list({ limit: 5, filter: { merchantId: named.id } });
+      expect(list.rows).toHaveLength(1);
+      expect(list.rows[0]).toMatchObject({ merchantId: named.id, displayName: 'Acme Shop' });
+      expect(JSON.stringify(list)).not.toContain('Acme Trading Ltd');
+    });
+
+    it('does not show merchant names to a merchant session or an API key', async () => {
+      const ua = userOf();
+      await pay.createMerchant({ userId: ua, pricing: { feeBps: 250 }, status: 'active', displayName: 'Acme Shop' });
+      const router = mount(entitled('revoked'));
+      await expect(router.createCaller(ctxOf(principal(ua))).founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      // An API key (kid plus admin:read) is refused even for a founder's own user id and a live entitlement.
+      const calls = entitled('enabled');
+      const keyCaller = mount(calls).createCaller(ctxOf(principal(founderUser, { kid: randomUUID(), scopes: ['admin:read'] })));
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 5 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(keyCaller.founderAdmin.merchants.list({ limit: 1, filter: { merchantId: randomUUID() } })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(calls).not.toHaveBeenCalled();
     });
 
     it('M3: a PayFac parent reads sub-merchants only within granted areas; nobody else in or out of the tree can', async () => {

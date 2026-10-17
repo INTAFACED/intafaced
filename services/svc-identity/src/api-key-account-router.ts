@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
 import { userCopy } from './user-copy.js';
@@ -19,6 +20,9 @@ type AccountExchanger = ApiKeyMinter & {
     keyId: string;
     scopes: string[];
     mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
   }>;
 };
 
@@ -34,7 +38,15 @@ function toAccountTrpc(err: unknown): never {
   }
   if (err instanceof AuthError) {
     const message = userCopy(err.code);
-    if (err.code === 'auth.invalid_credentials' || err.code === 'auth.domain_not_allowed') {
+    if (
+      err.code === 'auth.invalid_credentials' ||
+      err.code === 'auth.domain_not_allowed' ||
+      err.code === 'auth.request_unsigned' ||
+      err.code === 'auth.request_stale' ||
+      err.code === 'auth.request_tampered' ||
+      err.code === 'auth.request_replay' ||
+      err.code === 'auth.ip_allowlist_required'
+    ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     }
     if (err.code === 'auth.account_frozen' || err.code === 'auth.sub_account_denied' || err.code === 'auth.delegate_cannot_grant') {
@@ -114,7 +126,13 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
      * Bound keys must name the bound account. Empty account id refuses.
      */
     exchangeApiKeyForAccount: publicProcedure
-      .input(z.object({ key: z.string().min(8).max(200), accountId: z.string().uuid() }))
+      .input(
+        z.object({
+          key: z.string().min(8).max(200),
+          accountId: z.string().uuid(),
+          request: requestSignWireSchema.optional(),
+        }),
+      )
       .output(
         z.object({
           accessToken: z.string(),
@@ -124,12 +142,18 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
           accountId: z.string().uuid(),
+          requireSignature: z.boolean().optional(),
+          requireNonEmptyIpAllowlist: z.boolean().optional(),
+          ipAllowlist: z.array(z.string()).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         try {
+          assertEdgeSignedRequest(ctx.service, input.request);
           const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-          const result = await requestAccountAls.run(input.accountId, () => minter.exchangeApiKey(input.key, clientOrigin));
+          const result = await requestAccountAls.run(input.accountId, () =>
+            requestSignAls.run(input.request, () => minter.exchangeApiKey(input.key, clientOrigin)),
+          );
           return {
             accessToken: result.accessToken,
             expiresAt: result.expiresAt.toISOString(),
@@ -138,6 +162,9 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
             scopes: result.scopes,
             mode: result.mode,
             accountId: input.accountId,
+            ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+            ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+            ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
           };
         } catch (err) {
           toAccountTrpc(err);

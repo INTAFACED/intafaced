@@ -9,6 +9,7 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
@@ -245,6 +246,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
+    case 'auth.request_unsigned':
+    case 'auth.request_stale':
+    case 'auth.request_tampered':
+    case 'auth.request_replay':
+    case 'auth.ip_allowlist_required':
       // Deliberately the same shape as a wrong password: never confirm which
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
@@ -310,6 +316,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.session_denied':
     case 'auth.session_revoked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    case 'auth.reset_proof_invalid':
+      // Same sentence for a wrong, expired, spent, or unknown-email proof.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.reset_unwired':
+      // No mail port or no owner-published lifetime. Same answer for every address.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
 }
 
@@ -744,6 +756,44 @@ export function createIdentityRouter(
               throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
             }
             throw toFactorError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 1 (D-38). Same answer whether or not
+       * the email is registered. The one-time code is mailed, never returned.
+       * The password hash does not change here.
+       */
+      requestPasswordReset: publicProcedure
+        .input(z.object({ email: z.string().trim().email().max(320) }))
+        .output(z.object({ accepted: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.requestPasswordReset({ email: input.email });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 2. A correct proof replaces the hash
+       * and ends the old sessions. This does not sign the caller in.
+       */
+      completePasswordReset: publicProcedure
+        .input(
+          z.object({
+            email: z.string().trim().email().max(320),
+            code: z.string().trim().min(1).max(200),
+            newPassword: z.string().max(200),
+          }),
+        )
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            await auth.completePasswordReset(input);
+            return { ok: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 
@@ -1375,7 +1425,7 @@ export function createIdentityRouter(
        * This is what makes identity.apikeys real — create alone is not enough.
        */
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200) }))
+        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -1384,14 +1434,18 @@ export function createIdentityRouter(
             keyId: z.string().uuid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+            ipAllowlist: z.array(z.string()).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
           try {
             // Origin is read from the trusted edge request, never from the body.
             // A non-empty domain_whitelist refuses foreign or missing origins.
+            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -1399,6 +1453,9 @@ export function createIdentityRouter(
               keyId: result.keyId,
               scopes: result.scopes,
               mode: result.mode,
+              ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
+              ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
+              ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             };
           } catch (err) {
             throw toTrpcError(err);

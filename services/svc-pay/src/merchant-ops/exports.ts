@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { formatAmount, merchantClearing, merchantProceeds, type LedgerClient } from '@intafaced/ledger-client';
+import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import { MerchantOpsError } from './errors.js';
 import { iso, money } from './money.js';
 import { recordMerchantNotification } from './notifications.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
-import { assertPermission, type MerchantCaller } from './roles.js';
+import { payoutReference } from './payouts.js';
+import { assertPermission, type MerchantCaller, type MerchantRole } from './roles.js';
 
 /**
  * ASYNC CSV EXPORT JOBS (G5).
@@ -24,8 +27,46 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  * VISIBILITY. Owner and admin see every export of their merchant; other roles
  * see the ones they requested. A job id outside that is "not found".
  */
-export const EXPORT_KINDS = ['payments', 'settlements', 'payouts'] as const;
+export const EXPORT_KINDS = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
+
+/**
+ * Column allowlist per kind. A request that names anything else, including a
+ * pricing rule id or a spread, is refused. Viewer and developer fee files omit
+ * the rule layer; the fee amount itself is the booked snapshot.
+ */
+const EXPORT_COLUMNS: Record<ExportKind, readonly string[]> = {
+  payments: [
+    'payment_id',
+    'created_at',
+    'status',
+    'asset',
+    'amount',
+    'captured_amount',
+    'refunded_amount',
+    'method',
+    'rail',
+    'rail_reference',
+    'customer_reference',
+  ],
+  settlements: ['settlement_id', 'window', 'asset', 'gross', 'fees', 'net', 'status', 'payout_method', 'payout_reference', 'created_at'],
+  payouts: ['settlement_id', 'window', 'asset', 'net_paid', 'status', 'payout_method', 'payout_reference', 'created_at'],
+  refunds: ['event_id', 'payment_id', 'occurred_at', 'amount', 'asset'],
+  ledger_statement: ['account', 'asset', 'kind', 'available'],
+  disputes: ['dispute_id', 'payment_id', 'status', 'amount', 'asset', 'opened_at', 'reason_code'],
+  fees: ['subject_kind', 'subject_id', 'asset', 'fee', 'recorded_at', 'fee_bps', 'applied_layer'],
+};
+const FEE_LAYER_COLUMNS = new Set(['fee_bps', 'applied_layer']);
+
+export function resolveExportColumns(kind: ExportKind, role: MerchantRole, requested: readonly string[] | undefined): string[] {
+  const known = EXPORT_COLUMNS[kind];
+  const permit = kind === 'fees' && (role === 'viewer' || role === 'developer') ? known.filter((c) => !FEE_LAYER_COLUMNS.has(c)) : known;
+  if (requested === undefined) return [...permit];
+  if (requested.length === 0 || new Set(requested).size !== requested.length || requested.some((c) => !permit.includes(c))) {
+    throw new MerchantOpsError('pay.export_columns_forbidden', 'bad_request');
+  }
+  return [...requested];
+}
 
 const PAYMENT_STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
 const SETTLEMENT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
@@ -48,6 +89,10 @@ export interface ExportDeps {
   /** How long (ms) a ready file stays downloadable. Unset = no expiry (no invented lifetime). */
   readonly ttlMs?: number;
   readonly now?: () => Date;
+  /** Current clearing and proceeds balances. Absent: a ledger statement refuses. */
+  readonly ledger?: Pick<LedgerClient, 'balances'>;
+  /** Dispute cases. Absent: a disputes export refuses rather than inventing rows. */
+  readonly disputes?: DisputeCaseStore;
 }
 
 interface JobRow {
@@ -57,13 +102,15 @@ interface JobRow {
   requested_by: string;
   kind: ExportKind;
   filters: ExportFilters;
-  status: 'queued' | 'running' | 'ready' | 'failed';
+  columns: string[] | null;
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'expired';
   failure_code: string | null;
   file_name: string | null;
   size_bytes: string | null;
   row_count: number | null;
   sha256: string | null;
   as_of: Date | null;
+  generated_at: Date | null;
   expires_at: Date | null;
   created_at: Date;
   completed_at: Date | null;
@@ -71,14 +118,15 @@ interface JobRow {
 }
 
 const JOB_FIELDS = (sql: Sql) => sql`
-  id, merchant_id, request_id, requested_by, kind, filters, status, failure_code, file_name, size_bytes::text, row_count, sha256,
-  as_of, expires_at, created_at, completed_at,
+  id, merchant_id, request_id, requested_by, kind, filters, columns, status, failure_code, file_name, size_bytes::text, row_count, sha256,
+  as_of, generated_at, expires_at, created_at, completed_at,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`;
 
 const jobView = (r: JobRow) => ({
   jobId: r.id,
   kind: r.kind,
   filters: r.filters,
+  columns: r.columns ?? [],
   status: r.status,
   failureCode: r.failure_code,
   fileName: r.file_name,
@@ -87,6 +135,7 @@ const jobView = (r: JobRow) => ({
   sha256: r.sha256,
   requestedBy: r.requested_by,
   asOf: r.as_of ? iso(r.as_of) : null,
+  generatedAt: r.generated_at ? iso(r.generated_at) : null,
   expiresAt: r.expires_at ? iso(r.expires_at) : null,
   createdAt: iso(r.created_at),
   completedAt: r.completed_at ? iso(r.completed_at) : null,
@@ -101,6 +150,11 @@ export function csvText(value: string | null | undefined): string {
 }
 const csvRaw = (v: string | number | null | undefined) => (v === null || v === undefined ? '' : String(v));
 
+function projectLine(header: readonly string[], cells: readonly string[], chosen: readonly string[]): string {
+  const byName = new Map(header.map((name, i) => [name, cells[i] ?? '']));
+  return chosen.map((name) => byName.get(name) ?? '').join(',');
+}
+
 export function validateFilters(kind: ExportKind, f: ExportFilters): void {
   const bad = () => new MerchantOpsError('pay.export_filter_invalid', 'bad_request');
   for (const key of ['from', 'to'] as const) {
@@ -109,8 +163,15 @@ export function validateFilters(kind: ExportKind, f: ExportFilters): void {
   }
   if (f.from && f.to && Date.parse(f.from) >= Date.parse(f.to)) throw bad();
   if (f.status !== undefined) {
-    const allowed: readonly string[] = kind === 'payments' ? PAYMENT_STATUSES : SETTLEMENT_STATUSES;
-    if (!allowed.includes(f.status)) throw bad();
+    const allowed: readonly string[] | undefined =
+      kind === 'payments'
+        ? PAYMENT_STATUSES
+        : kind === 'settlements' || kind === 'payouts'
+          ? SETTLEMENT_STATUSES
+          : kind === 'disputes'
+            ? ['open', 'contested', 'accepted', 'won', 'lost']
+            : undefined;
+    if (!allowed || !allowed.includes(f.status)) throw bad();
   }
 }
 
@@ -128,13 +189,17 @@ export class ExportService {
     return caller.role === 'owner' || caller.role === 'admin';
   }
 
-  async create(caller: MerchantCaller, input: { requestId: string; kind: ExportKind; filters: ExportFilters }) {
+  async create(caller: MerchantCaller, input: { requestId: string; kind: ExportKind; filters: ExportFilters; columns?: string[] }) {
     assertPermission(caller, 'exports.create');
     validateFilters(input.kind, input.filters);
+    if (input.kind === 'ledger_statement' && !this.deps.ledger)
+      throw new MerchantOpsError('pay.export_ledger_unconfigured', 'precondition');
+    if (input.kind === 'disputes' && !this.deps.disputes) throw new MerchantOpsError('pay.export_disputes_unconfigured', 'precondition');
+    const columns = resolveExportColumns(input.kind, caller.role, input.columns);
     const sql = this.sql;
     const inserted = await sql<Array<{ id: string }>>`
-      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, filters)
-      VALUES (${caller.merchantId}, ${input.requestId}::uuid, ${caller.userId}, ${input.kind}, ${sql.json(input.filters as never)})
+      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, filters, columns)
+      VALUES (${caller.merchantId}, ${input.requestId}::uuid, ${caller.userId}, ${input.kind}, ${sql.json(input.filters as never)}, ${sql.json(columns)})
       ON CONFLICT (merchant_id, request_id) DO NOTHING
       RETURNING id`;
     if (inserted[0]) return { job: await this.load(caller, inserted[0].id), created: true as const };
@@ -144,6 +209,7 @@ export class ExportService {
     if (
       row.kind !== input.kind ||
       JSON.stringify(sorted(row.filters)) !== JSON.stringify(sorted(input.filters)) ||
+      JSON.stringify(row.columns ?? []) !== JSON.stringify(columns) ||
       row.requested_by !== caller.userId
     ) {
       throw new MerchantOpsError('pay.request_id_reused', 'conflict');
@@ -166,10 +232,23 @@ export class ExportService {
     return this.load(caller, jobId);
   }
 
-  async list(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string; kind?: ExportKind; status?: JobRow['status'] }) {
+  async list(
+    caller: MerchantCaller,
+    input: {
+      limit?: number | undefined;
+      cursor?: string;
+      kind?: ExportKind;
+      status?: JobRow['status'];
+      search?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
     assertPermission(caller, 'exports.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
+    if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to))
+      throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
     const sql = this.sql;
     const rows = await sql<JobRow[]>`
       SELECT ${JOB_FIELDS(sql)} FROM pay.merchant_export_jobs
@@ -177,10 +256,34 @@ export class ExportService {
          ${this.canSeeAll(caller) ? sql`` : sql`AND requested_by = ${caller.userId}`}
          ${input.kind ? sql`AND kind = ${input.kind}` : sql``}
          ${input.status ? sql`AND status = ${input.status}` : sql``}
+         ${input.search ? sql`AND id::text = lower(${input.search})` : sql``}
+         ${input.from ? sql`AND created_at >= (${input.from}::text)::timestamptz` : sql``}
+         ${input.to ? sql`AND created_at < (${input.to}::text)::timestamptz` : sql``}
          ${after ? sql`AND (created_at, id) < ((${after.ts}::text)::timestamptz, ${after.key}::uuid)` : sql``}
        ORDER BY created_at DESC, id DESC
        LIMIT ${limit + 1}`;
     return toPage(rows, limit, jobView, (r) => encodeCursor(r.cursor_ts, r.id));
+  }
+
+  /** Drop a file the merchant no longer wants. A job another worker is writing stays until that worker finishes. */
+  async expire(caller: MerchantCaller, jobId: string) {
+    assertPermission(caller, 'exports.create');
+    const sql = this.sql;
+    const rows = await sql<JobRow[]>`
+      UPDATE pay.merchant_export_jobs
+         SET status = 'expired', expires_at = now(), content = NULL, updated_at = now()
+       WHERE id = ${jobId}::uuid AND merchant_id = ${caller.merchantId}
+         ${this.canSeeAll(caller) ? sql`` : sql`AND requested_by = ${caller.userId}`}
+         AND status IN ('queued', 'ready', 'failed', 'expired')
+       RETURNING ${JOB_FIELDS(sql)}`;
+    if (rows[0]) return jobView(rows[0]);
+    const running = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.merchant_export_jobs
+       WHERE id = ${jobId}::uuid AND merchant_id = ${caller.merchantId}
+         ${this.canSeeAll(caller) ? sql`` : sql`AND requested_by = ${caller.userId}`}
+         AND status = 'running'`;
+    if (running[0]) throw new MerchantOpsError('pay.export_in_progress', 'conflict');
+    throw new MerchantOpsError('pay.export_not_found', 'not_found');
   }
 
   /** The stored file of a ready, unexpired job. */
@@ -218,14 +321,16 @@ export class ExportService {
   /** Generate one job. Returns false when another worker already claimed it. */
   async process(jobId: string): Promise<boolean> {
     const sql = this.sql;
-    const claimed = await sql<Array<{ id: string; merchant_id: string; kind: ExportKind; filters: ExportFilters }>>`
+    const claimed = await sql<
+      Array<{ id: string; merchant_id: string; kind: ExportKind; filters: ExportFilters; columns: string[] | null }>
+    >`
       UPDATE pay.merchant_export_jobs SET status = 'running', updated_at = now()
-       WHERE id = ${jobId}::uuid AND status = 'queued' RETURNING id, merchant_id, kind, filters`;
+       WHERE id = ${jobId}::uuid AND status = 'queued' RETURNING id, merchant_id, kind, filters, columns`;
     const job = claimed[0];
     if (!job) return false;
     const asOf = this.now();
     try {
-      const file = await this.build(job.merchant_id, job.kind, job.filters);
+      const file = await this.build(job.merchant_id, job.kind, job.filters, job.columns ?? []);
       const expiresAt = this.deps.ttlMs === undefined ? null : new Date(asOf.getTime() + this.deps.ttlMs);
       const fileName = `${job.kind}-${job.id.slice(0, 8)}.csv`;
       const sha = createHash('sha256').update(file.content).digest('hex');
@@ -233,7 +338,7 @@ export class ExportService {
         UPDATE pay.merchant_export_jobs
            SET status = 'ready', file_name = ${fileName}, content_type = 'text/csv; charset=utf-8', content = ${file.content},
                size_bytes = ${Buffer.byteLength(file.content)}, row_count = ${file.rows}, sha256 = ${sha}, as_of = ${asOf},
-               expires_at = ${expiresAt}, completed_at = now(), updated_at = now()
+               generated_at = ${asOf}, expires_at = ${expiresAt}, completed_at = now(), updated_at = now()
          WHERE id = ${job.id}`;
       await recordMerchantNotification(sql, {
         merchantId: job.merchant_id,
@@ -252,8 +357,16 @@ export class ExportService {
     return true;
   }
 
-  private async build(merchantId: string, kind: ExportKind, filters: ExportFilters): Promise<{ content: string; rows: number }> {
+  private async build(
+    merchantId: string,
+    kind: ExportKind,
+    filters: ExportFilters,
+    columns: readonly string[],
+  ): Promise<{ content: string; rows: number }> {
     validateFilters(kind, filters);
+    if (kind === 'refunds' || kind === 'fees') return this.buildSqlKind(merchantId, kind, filters, columns);
+    if (kind === 'disputes') return await this.buildDisputes(merchantId, filters, columns);
+    if (kind === 'ledger_statement') return this.buildLedger(merchantId, filters, columns);
     const ceiling = this.deps.rowCeiling ?? DEFAULT_EXPORT_ROW_CEILING;
     const BATCH = this.deps.batchSize ?? DEFAULT_BATCH;
     const lines: string[] = [];
@@ -288,7 +401,8 @@ export class ExportService {
       ],
       payouts: ['settlement_id', 'window', 'asset', 'net_paid', 'status', 'payout_method', 'payout_reference', 'created_at'],
     }[kind];
-    lines.push(header.join(','));
+    const chosen = columns.length > 0 ? columns : header;
+    lines.push(chosen.join(','));
     for (;;) {
       const page: Array<Record<string, string | null | Date>> =
         kind === 'payments'
@@ -325,55 +439,189 @@ export class ExportService {
         if (rows > ceiling) throw new MerchantOpsError('pay.export_too_large', 'precondition');
         const at = (r.created_at as Date).toISOString();
         const s = (k: string) => r[k] as string | null;
-        if (kind === 'payments') {
-          lines.push(
-            [
-              csvRaw(s('id')),
-              at,
-              csvRaw(s('status')),
-              csvText(s('currency')),
-              money(s('amount')),
-              money(s('captured')),
-              money(s('refunded')),
-              csvText(s('method')),
-              csvText(s('rail_adapter')),
-              csvText(s('rail_ref')),
-              csvText(s('customer_ref')),
-            ].join(','),
-          );
-        } else if (kind === 'settlements') {
-          lines.push(
-            [
-              csvRaw(s('id')),
-              csvText(s('window')),
-              csvText(s('asset_id')),
-              money(s('gross')),
-              money(s('fees')),
-              money(s('net')),
-              csvRaw(s('status')),
-              csvText(s('payout_method')),
-              csvText(s('payout_ref')),
-              at,
-            ].join(','),
-          );
-        } else {
-          lines.push(
-            [
-              csvRaw(s('id')),
-              csvText(s('window')),
-              csvText(s('asset_id')),
-              money(s('net')),
-              csvRaw(s('status')),
-              csvText(s('payout_method')),
-              csvText(s('payout_ref')),
-              at,
-            ].join(','),
-          );
-        }
+        const ref = payoutReference(s('payout_ref'));
+        const cells =
+          kind === 'payments'
+            ? [
+                csvRaw(s('id')),
+                at,
+                csvRaw(s('status')),
+                csvText(s('currency')),
+                money(s('amount')),
+                money(s('captured')),
+                money(s('refunded')),
+                csvText(s('method')),
+                csvText(s('rail_adapter')),
+                csvText(s('rail_ref')),
+                csvText(s('customer_ref')),
+              ]
+            : kind === 'settlements'
+              ? [
+                  csvRaw(s('id')),
+                  csvText(s('window')),
+                  csvText(s('asset_id')),
+                  money(s('gross')),
+                  money(s('fees')),
+                  money(s('net')),
+                  csvRaw(s('status')),
+                  csvText(s('payout_method')),
+                  csvText(ref),
+                  at,
+                ]
+              : [
+                  csvRaw(s('id')),
+                  csvText(s('window')),
+                  csvText(s('asset_id')),
+                  money(s('net')),
+                  csvRaw(s('status')),
+                  csvText(s('payout_method')),
+                  csvText(ref),
+                  at,
+                ];
+        lines.push(projectLine(header, cells, chosen));
       }
       const last = page[page.length - 1];
       if (page.length < BATCH || !last) break;
       cursor = { ts: last.cursor_ts as string, id: last.id as string };
+    }
+    return { content: `${lines.join('\r\n')}\r\n`, rows };
+  }
+
+  private async buildSqlKind(
+    merchantId: string,
+    kind: 'refunds' | 'fees',
+    filters: ExportFilters,
+    columns: readonly string[],
+  ): Promise<{ content: string; rows: number }> {
+    const header = EXPORT_COLUMNS[kind];
+    const chosen = columns.length > 0 ? columns : header;
+    const ceiling = this.deps.rowCeiling ?? DEFAULT_EXPORT_ROW_CEILING;
+    const BATCH = this.deps.batchSize ?? DEFAULT_BATCH;
+    const lines = [chosen.join(',')];
+    let rows = 0;
+    let cursor: { ts: string; id: string } | null = null;
+    const sql = this.sql;
+    for (;;) {
+      const page: Array<Record<string, string | Date | number | null>> =
+        kind === 'refunds'
+          ? await sql<Array<Record<string, string | Date>>>`
+              SELECT e.id::text AS id, e.payment_id::text AS payment_id, e.ts AS occurred_at, e.payload->>'amount' AS amount, p.currency AS asset,
+                     to_char(e.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+                FROM pay.payment_events e
+                JOIN pay.payments p ON p.id = e.payment_id
+               WHERE p.merchant_id = ${merchantId} AND e.event = 'refunded'
+                 ${filters.from ? sql`AND e.ts >= (${filters.from}::text)::timestamptz` : sql``}
+                 ${filters.to ? sql`AND e.ts < (${filters.to}::text)::timestamptz` : sql``}
+                 ${filters.assetId ? sql`AND p.currency = ${filters.assetId}` : sql``}
+                 ${cursor ? sql`AND (e.ts, e.id) > ((${cursor.ts}::text)::timestamptz, ${cursor.id}::uuid)` : sql``}
+               ORDER BY e.ts, e.id LIMIT ${BATCH}`
+          : await sql<Array<Record<string, string | Date | number>>>`
+              SELECT id::text AS id, subject_kind, subject_id::text AS subject_id, asset_code AS asset, fee::text AS fee,
+                     fee_bps::text AS fee_bps, applied_layer, created_at AS recorded_at,
+                     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+                FROM pay.control_pricing_snapshots
+               WHERE merchant_id = ${merchantId}
+                 ${filters.from ? sql`AND created_at >= (${filters.from}::text)::timestamptz` : sql``}
+                 ${filters.to ? sql`AND created_at < (${filters.to}::text)::timestamptz` : sql``}
+                 ${filters.assetId ? sql`AND asset_code = ${filters.assetId}` : sql``}
+                 ${cursor ? sql`AND (created_at, id) > ((${cursor.ts}::text)::timestamptz, ${cursor.id}::uuid)` : sql``}
+               ORDER BY created_at, id LIMIT ${BATCH}`;
+      for (const r of page) {
+        rows += 1;
+        if (rows > ceiling) throw new MerchantOpsError('pay.export_too_large', 'precondition');
+        const at = (r.occurred_at ?? r.recorded_at) as Date;
+        const cells =
+          kind === 'refunds'
+            ? [
+                csvRaw(r.id as string),
+                csvRaw(r.payment_id as string),
+                at.toISOString(),
+                r.amount === null || r.amount === undefined || String(r.amount).trim() === '' ? '' : money(String(r.amount)),
+                csvText(r.asset as string),
+              ]
+            : [
+                csvText(r.subject_kind as string),
+                csvRaw(r.subject_id as string),
+                csvText(r.asset as string),
+                money(String(r.fee)),
+                (r.recorded_at as Date).toISOString(),
+                csvRaw(r.fee_bps as string),
+                csvText(r.applied_layer as string),
+              ];
+        lines.push(projectLine(header, cells, chosen));
+      }
+      const last = page[page.length - 1];
+      if (page.length < BATCH || !last) break;
+      cursor = { ts: last.cursor_ts as string, id: last.id as string };
+    }
+    return { content: `${lines.join('\r\n')}\r\n`, rows };
+  }
+
+  private async buildDisputes(
+    merchantId: string,
+    filters: ExportFilters,
+    columns: readonly string[],
+  ): Promise<{ content: string; rows: number }> {
+    const store = this.deps.disputes;
+    if (!store) throw new MerchantOpsError('pay.export_disputes_unconfigured', 'precondition');
+    const header = EXPORT_COLUMNS.disputes;
+    const chosen = columns.length > 0 ? columns : header;
+    const ceiling = this.deps.rowCeiling ?? DEFAULT_EXPORT_ROW_CEILING;
+    const from = filters.from ? Date.parse(filters.from) : null;
+    const to = filters.to ? Date.parse(filters.to) : null;
+    const cases = (await store.listForMerchant(merchantId))
+      .filter((c) => (filters.status ? c.status === filters.status : true))
+      .filter((c) => (filters.assetId ? c.assetId === filters.assetId : true))
+      .filter((c) => (from === null ? true : Date.parse(c.openedAt) >= from))
+      .filter((c) => (to === null ? true : Date.parse(c.openedAt) < to));
+    if (cases.length > ceiling) throw new MerchantOpsError('pay.export_too_large', 'precondition');
+    const lines = [chosen.join(',')];
+    for (const c of cases) {
+      lines.push(
+        projectLine(
+          header,
+          [
+            csvRaw(c.disputeId),
+            csvRaw(c.paymentId),
+            csvRaw(c.status),
+            money(c.amount),
+            csvText(c.assetId),
+            c.openedAt,
+            csvText(c.reasonCode),
+          ],
+          chosen,
+        ),
+      );
+    }
+    return { content: `${lines.join('\r\n')}\r\n`, rows: cases.length };
+  }
+
+  private async buildLedger(
+    merchantId: string,
+    filters: ExportFilters,
+    columns: readonly string[],
+  ): Promise<{ content: string; rows: number }> {
+    const ledger = this.deps.ledger;
+    if (!ledger) throw new MerchantOpsError('pay.export_ledger_unconfigured', 'precondition');
+    const header = EXPORT_COLUMNS.ledger_statement;
+    const chosen = columns.length > 0 ? columns : header;
+    const owners = [merchantClearing(merchantId, 'ledger').ownerId, merchantProceeds(merchantId, 'ledger').ownerId];
+    const lines = [chosen.join(',')];
+    let rows = 0;
+    for (const ownerId of owners) {
+      const balances = await ledger.balances('module', ownerId);
+      for (const balance of balances) {
+        if (filters.assetId && balance.account.assetId !== filters.assetId) continue;
+        rows += 1;
+        const account = ownerId.startsWith('pay:proceeds:') ? 'proceeds' : 'clearing';
+        lines.push(
+          projectLine(
+            header,
+            [account, csvText(balance.account.assetId), csvText(balance.account.kind), formatAmount(balance.amount)],
+            chosen,
+          ),
+        );
+      }
     }
     return { content: `${lines.join('\r\n')}\r\n`, rows };
   }

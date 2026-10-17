@@ -6,6 +6,7 @@ import { Verification } from './Verification';
 import { Security } from './Security';
 import { Account } from './Account';
 import { Notifications } from './Notifications';
+import { BusinessVerification } from './BusinessVerification';
 import { Promotions } from './Promotions';
 import './account.css';
 
@@ -23,21 +24,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
-  if (clean === '/identbusiness')
-    return (
-      <Page title={copyText('accountroutes.business.verification')}>
-        <EmptyState
-          title={copyText('accountroutes.verified.company.accounts.are.not.connected')}
-          action={
-            <a href="/verification" className="text-link">
-              <Text k="accountroutes.view.personal.verification" />
-            </a>
-          }
-        >
-          <Text k="accountroutes.company.identity.owner.membership.and.the.associated" />
-        </EmptyState>
-      </Page>
-    );
+  if (clean === '/identbusiness') return <BusinessVerification />;
   if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions />;
   if (clean === '/uc/paydividends')
     return (

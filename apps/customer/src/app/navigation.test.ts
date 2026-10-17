@@ -53,19 +53,30 @@ it('keeps legitimate Money notification links and refuses non-customer destinati
   expect(customerRoomHref('//external.invalid')).toBeUndefined();
 });
 
-it('does not expose merchant, team or parked chain rooms in Personal search', () => {
-  expect(searchRooms('', 'Personal').map((room) => room.path)).not.toContain('/pay/merchant');
-  expect(searchRooms('chain', 'Personal')).toHaveLength(0);
+it('finds the Merchant home and the parked Protocol rooms in Personal search, but never the Team desk or Business-only rooms', () => {
+  const personal = searchRooms('', 'Personal').map((room) => room.path);
+  expect(personal).toContain('/pay/merchant');
+  expect(personal).not.toContain('/pay/payouts');
+  expect(searchRooms('chain', 'Personal').map((room) => room.path)).toEqual(['/chain']);
+  for (const path of ['/dex', '/protocol']) expect(searchRooms(path.slice(1), 'Personal').map((room) => room.path)).toContain(path);
   expect(searchRooms('operator', 'Personal')).toHaveLength(0);
+  expect(searchRooms('payouts', 'Business').map((room) => room.path)).toContain('/pay/payouts');
+});
+
+it('keeps parked and team rooms out of sign-in return targets even though parked rooms are searchable', () => {
+  for (const path of ['/chain', '/dex', '/protocol', '/ops', '/platform']) {
+    expect(customerRoomHref(path), path).toBeUndefined();
+    expect(safeReturnTo(path), path).toBe('/home');
+  }
 });
 
 it('finds translated and canonical room labels while preserving customer scope', () => {
   expect(searchRooms('seguridad', 'Personal', 'es').map((room) => room.path)).toContain('/uc/safe');
   expect(searchRooms('security', 'Personal', 'es').map((room) => room.path)).toContain('/uc/safe');
   expect(searchRooms('sécurité', 'Personal', 'fr').map((room) => room.path)).toContain('/uc/safe');
-  expect(searchRooms('paiements entreprise', 'Personal', 'fr')).toHaveLength(0);
+  // Business rooms wait for Business mode; the Merchant home is the one entry a Personal account may find.
+  expect(searchRooms('paiements entreprise', 'Personal', 'fr').map((room) => room.path)).toEqual(['/pay/merchant']);
   expect(searchRooms('operador', 'Personal', 'es')).toHaveLength(0);
-  expect(searchRooms('chaîne', 'Personal', 'fr')).toHaveLength(0);
 });
 
 it('signed-in sign-in and fallbacks land on /home', () => {
@@ -75,15 +86,38 @@ it('signed-in sign-in and fallbacks land on /home', () => {
   expect(findRoom('/home')?.screen).toBe('home');
 });
 
-it('never offers a hidden feature in search', () => {
+it('offers every room in search, and only the detail pages, aliases and Team desk stay out', () => {
   for (const query of ['deposit', 'withdraw', 'bank', 'margin', 'futures', 'person-to-person', 'academy', 'bill pay', 'notices', ''])
     for (const room of searchRooms(query, 'Personal')) expect(isHiddenPath(room.path), `${query}: ${room.path}`).toBe(false);
-  expect(searchRooms('deposit', 'Personal')).toHaveLength(0);
-  expect(searchRooms('academy', 'Personal')).toHaveLength(0);
-  expect(searchRooms('activity', 'Personal').map((room) => room.path)).toContain('/money/activity');
-  expect(searchRooms('markets', 'Personal').map((room) => room.path)).toContain('/trade');
-  const everything = searchRooms('', 'Personal').map((room) => room.path);
+  const paths = (query: string) => searchRooms(query, 'Personal').map((room) => room.path);
+  expect(paths('deposit')).toContain('/uc/recharge');
+  expect(paths('withdraw')).toContain('/uc/withdraw');
+  expect(paths('academy')).toContain('/academy');
+  expect(paths('academy')).not.toContain('/academy/:slug');
+  expect(paths('bank')).toContain('/bank');
+  expect(paths('')).toEqual(
+    expect.arrayContaining([
+      '/bank/spaces',
+      '/bank/transfers',
+      '/bank/earn',
+      '/bank/loans',
+      '/bank/cards',
+      '/bank/ramps',
+      '/bank/analytics',
+    ]),
+  );
+  expect(paths('margin')).toContain('/trade/margin');
+  expect(paths('notices')).toContain('/notice');
+  expect(paths('partners')).toContain('/partner');
+  expect(paths('activity')).toContain('/money/activity');
+  expect(paths('markets')).toContain('/trade');
+  const everything = paths('');
   expect(everything).toContain('/help');
+  expect(everything).toContain('/p2p');
+  expect(everything).toContain('/predict');
+  expect(everything).not.toContain('/bank/business');
+  expect(everything).not.toContain('/notice/:id');
+  expect(everything).not.toContain('/ops');
   expect(everything).not.toContain('/about-us');
   expect(everything).not.toContain('/invite');
 });
@@ -117,7 +151,7 @@ describe('resolveAlias (UI-SPEC 3.2)', () => {
     expect(resolve('/exchange')).toBe('/trade');
     expect(resolve('/exchange', '?simulated=true')).toBe('/trade?simulated=true');
     expect(resolve('/portfolio')).toBe('/money');
-    expect(resolve('/bank')).toBe('/money');
+    expect(resolve('/bank')).toBeUndefined();
     expect(resolve('/uc/money')).toBe('/money');
     expect(resolve('/money')).toBeUndefined();
     expect(resolve('/coin/BTC')).toBeUndefined();
@@ -140,7 +174,7 @@ describe('route table', () => {
       ['/index', '/'],
       ['/uc/money', '/money'],
       ['/portfolio', '/money'],
-      ['/bank', '/money'],
+      ['/bank', '/bank'],
       ['/portfolio/BTC', '/coin/BTC'],
       ['/money/asset/BTC', '/coin/BTC'],
       ['/uc/record', '/money/activity'],
