@@ -55,7 +55,9 @@ export function refuseChargebackUncovered(input: { readonly disputeId: string; r
   return {
     code: CHARGEBACK_LEDGER_UNCOVERED_CODE,
     socket: CHARGEBACK_LEDGER_SOCKET_ID,
-    message: 'The chargeback opening post was refused for funds ' + `(${CHARGEBACK_LEDGER_SOCKET_ID}). No value moved by this delivery.`,
+    message:
+      'Clearing and the merchant balance cannot cover this opening. The shortfall is a separate post ' +
+      `(${CHARGEBACK_LEDGER_SOCKET_ID}). No value moved by this delivery.`,
     disputeId: input.disputeId,
     paymentId: input.paymentId,
   };
