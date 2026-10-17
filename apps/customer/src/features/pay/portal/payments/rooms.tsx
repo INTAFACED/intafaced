@@ -89,7 +89,7 @@ export const paymentsRooms: RoomTable = {
     header: () => ({
       title: t('pageDashboard'),
       purpose: t('purposeDashboard'),
-      action: link('/pay/links', t('actCreateLink'), 'primary'),
+      action: link('/pay/links/new', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
     render: (_route, { portal, access, legacyHome }) => (

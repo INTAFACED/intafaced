@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
 import { LayoutDashboardView, RecentPaymentsView } from './DashboardHome';
+import { usagePercent } from './TierUsage';
 import { type Snapshot } from '../schemas';
 import type { DashboardData } from './Dashboard';
 vi.mock('../../../../shared/preferences', async (original) => {
@@ -51,6 +52,14 @@ describe('portal overview', () => {
     expect(view()).not.toContain('<form');
     expect(view()).not.toContain('layout=');
   });
+  it('gives every tile its period and the filter of the list it opens', () => {
+    const out = view();
+    expect(out).toContain('href="/pay/payments?status=captured&amp;date=today"');
+    expect(out).toContain('href="/pay/payments?date=today"');
+    expect(out).toContain('href="/pay/refunds?from=');
+    expect(out).toContain('href="/pay/money"');
+    expect(out).toContain('Captured<!-- --> · <!-- -->Today');
+  });
   it('does not offer owner money actions to teammates', () => {
     const out = view({ role: 'viewer' });
     expect(out).not.toContain('view=tools');
@@ -66,10 +75,20 @@ describe('portal overview', () => {
   });
   it('preserves backend gaps, loading and empty activity states', () => {
     expect(view()).not.toContain('backend update');
-    expect(view()).toContain('limit usage');
+    expect(view({ tier: <p>TEST tier</p> })).toContain('TEST tier');
     expect(view({ data: { ...data, today: { status: 'loading' } } })).toContain('aria-busy="true"');
     const out = renderToString(<RecentPaymentsView resource={{ status: 'ready', data: [] }} retry={noop} at={null} />);
     expect(out).toContain('Your first payment starts here');
     expect(out).toContain('href="/pay/links/new"');
+  });
+});
+
+describe('limit usage', () => {
+  it('works the share used out exactly, and shows no bar without a figure', () => {
+    expect(usagePercent('250', '1000')).toBe(25);
+    expect(usagePercent('1000.5', '1000')).toBe(100);
+    expect(usagePercent('0', '1000')).toBe(0);
+    expect(usagePercent(null, '1000')).toBeNull();
+    expect(usagePercent('5', '0')).toBeNull();
   });
 });

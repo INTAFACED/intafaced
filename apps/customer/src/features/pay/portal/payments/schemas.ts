@@ -65,3 +65,10 @@ export const activityItemSchema = z.object({
   detail: z.record(z.string()),
 });
 export type ActivityItem = z.infer<typeof activityItemSchema>;
+
+/** `merchantControl.tiers.list` on main: this merchant's own tier, or "not configured". Only the name is read here. */
+export const ownTierSchema = z.union([
+  z.object({ status: z.literal('not_configured') }),
+  z.object({ status: z.literal('configured'), ownTierId: z.string(), tiers: z.array(z.object({ id: z.string(), name: z.string() })) }),
+]);
+export type OwnTier = z.infer<typeof ownTierSchema>;
