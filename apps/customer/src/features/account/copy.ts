@@ -25,12 +25,6 @@ const messages = {
   'accountroutes.view.personal.verification': 'View personal verification ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'Company identity, owner membership and the associated merchant permissions are not available through the current account service. Personal verification or a strategy subaccount cannot activate a Business account.',
-  'accountroutes.dividend.records': 'Dividend records',
-  'accountroutes.dividend.history.is.not.connected': 'Dividends aren’t available yet',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'Dividend history isn’t available yet. Your token stake and earning activity are in their own rooms.',
-  'accountroutes.open.token': 'Open Token ↗',
-  'accountroutes.open.earn': 'Open Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'The service confirmed the action.',
   'accountroutes.account': 'Account',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':
@@ -293,12 +287,6 @@ const es = {
   'accountroutes.view.personal.verification': 'Ver verificación personal ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'La identidad de empresa, la pertenencia del propietario y los permisos de comerciante asociados no están disponibles mediante el servicio de cuentas actual. La verificación personal o una subcuenta de estrategia no pueden activar una cuenta Business.',
-  'accountroutes.dividend.records': 'Registros de dividendos',
-  'accountroutes.dividend.history.is.not.connected': 'El historial de dividendos no está conectado',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'El historial de dividendos aún no está disponible. Tu stake de tokens y tu actividad de rendimiento están en sus propias salas.',
-  'accountroutes.open.token': 'Abrir Token ↗',
-  'accountroutes.open.earn': 'Abrir Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'El servicio ha confirmado la acción.',
   'accountroutes.account': 'Cuenta',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':
@@ -562,12 +550,6 @@ const fr = {
   'accountroutes.view.personal.verification': 'Voir la vérification personnelle ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'L’identité de l’entreprise, l’appartenance du propriétaire et les autorisations de marchand associées ne sont pas disponibles via le service de comptes actuel. La vérification personnelle ou un sous-compte de stratégie ne peuvent pas activer un compte Business.',
-  'accountroutes.dividend.records': 'Enregistrements de dividendes',
-  'accountroutes.dividend.history.is.not.connected': 'L’historique des dividendes n’est pas connecté',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'L’historique des dividendes n’est pas encore disponible. Ton stake de tokens et ton activité de placement sont dans leurs propres salles.',
-  'accountroutes.open.token': 'Ouvrir Token ↗',
-  'accountroutes.open.earn': 'Ouvrir Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'Le service a confirmé l’action.',
   'accountroutes.account': 'Compte',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':

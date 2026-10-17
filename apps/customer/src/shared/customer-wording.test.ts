@@ -32,6 +32,7 @@ import '../features/account/notifications-copy';
 import '../features/account/notification-targets-copy';
 import '../features/account/referral-copy';
 import '../features/account/promotions-copy';
+import '../features/account/dividends-copy';
 import '../features/pay/p2p-counterparty-copy';
 import '../features/pay/p2p-offer-copy';
 import '../features/pay/p2p-order-copy';
@@ -110,6 +111,7 @@ const CHECKED = new Set([
   'account.notificationTargets',
   'account.referrals',
   'account.promotions',
+  'account.dividends',
   'pay.p2p.counterparty',
   'pay.p2p.offer',
   'pay.p2p.order',
