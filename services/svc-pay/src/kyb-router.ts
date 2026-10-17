@@ -22,7 +22,7 @@ import { PspModeError, type PspModeService } from './psp-mode.js';
  * settlement (#1694) and fraud (#1657), and do not dual-edit `router.ts`.
  *
  * Scopes:
- *   · `pay:write` — merchant submits a dossier
+ *   · `pay:onboard` — merchant submits a dossier
  *   · `admin:compliance` — operator decides KYB (the live path)
  *   · `admin:read` — read KYB / pricing history
  *   · `admin:write` — set pricing / enable PSP mode (commercial, not compliance)
@@ -118,7 +118,7 @@ export function createKybPspRouter(
        * The body names the merchant. The caller must own that row
        * (`pay.merchant_forbidden`). The stored actor is still the caller.
        */
-      submit: scopedProcedure('pay:write', { module: 'pay' })
+      submit: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(
           z.object({
             merchantId: z.string().uuid(),

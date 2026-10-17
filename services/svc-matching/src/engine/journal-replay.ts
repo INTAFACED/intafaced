@@ -1,5 +1,5 @@
 import { OrderBook } from './book.js';
-import type { BookState, Fill, MarketId, TriggerOutcome } from './types.js';
+import type { BookState, CancelledRef, Fill, MarketId, TriggerOutcome } from './types.js';
 import type { JournalRecord } from './journal-codec.js';
 import { fromWire, fromWireAmend } from './journal-wire.js';
 
@@ -37,6 +37,12 @@ export interface ReplayFill {
   readonly fill: Fill;
 }
 
+/** A hold_unconfirmed cancel. Re-announced on the next boot with the same sequence key. */
+export interface ReplayHoldCancel {
+  readonly marketId: MarketId;
+  readonly cancellation: CancelledRef;
+}
+
 function collectFills(
   marketId: MarketId,
   at: string,
@@ -59,9 +65,11 @@ function collectFills(
 export function replayJournal(records: readonly JournalRecord[]): {
   readonly books: Map<MarketId, OrderBook>;
   readonly fills: readonly ReplayFill[];
+  readonly holdCancels: readonly ReplayHoldCancel[];
 } {
   const books = new Map<MarketId, OrderBook>();
   const fills: ReplayFill[] = [];
+  const holdCancels: ReplayHoldCancel[] = [];
   const deadSessions = new Set<string>();
 
   const bookFor = (marketId: MarketId): OrderBook => {
@@ -132,10 +140,15 @@ export function replayJournal(records: readonly JournalRecord[]): {
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
       continue;
     }
-    existing.cancel(record.orderId);
+    if (record.kind === 'cancel') {
+      const result = existing.cancel(record.orderId, record.reason ?? 'requested');
+      if (record.reason === 'hold_unconfirmed' && result.cancellation) {
+        holdCancels.push({ marketId: record.marketId, cancellation: result.cancellation });
+      }
+    }
   }
 
-  return { books, fills };
+  return { books, fills, holdCancels };
 }
 
 export function replay(records: readonly JournalRecord[]): Map<MarketId, OrderBook> {

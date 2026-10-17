@@ -43,6 +43,11 @@ async function lockCounter(tx: Sql, merchantId: string, kind: string, assetCode:
   return parseAmount(rows[0]!.used);
 }
 
+/** Take the cap counter FOR UPDATE, creating the row at 0 when this period has none yet. */
+export function lockMoneyUsage(tx: Sql, merchantId: string, kind: MoneyCapKind, assetCode: string, periodKey: string): Promise<Amount> {
+  return lockCounter(tx, merchantId, kind, assetCode, periodKey);
+}
+
 export interface ConsumeResult {
   /** True when this call added to the counter; false when the key was already counted. */
   readonly counted: boolean;

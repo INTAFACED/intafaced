@@ -5,8 +5,11 @@ import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contra
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
+import { openIdentityMail } from './auth/local-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
+import { onboardingUserFromRow } from './auth/onboarding-user.js';
+import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -38,6 +41,8 @@ import { createIdentityRequestContext, configuredIdentityOperationOwners } from 
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
+import { SavedRecipientService } from './saved-recipients.js';
+import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -147,6 +152,11 @@ await sql`SELECT challenge_id FROM customer_step_ups LIMIT 0`.catch(() => {
     'identity schema is out of date: customer_step_ups is missing — apply drizzle/0033_customer_step_up.sql before starting svc-identity',
   );
 });
+await sql`SELECT email_verified_at FROM users LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: users.email_verified_at is missing — apply drizzle/0034_email_confirmation.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -196,10 +206,37 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
 );
+if (env.PAY_URL) {
+  const payUrl = env.PAY_URL;
+  auth.useOwnerPayScopeSource(async (userId) => {
+    const rows = await sql<Array<{ status: string; email: string; totp_secret: string | null; webauthn_creds: unknown }>>`
+      SELECT status, email::text AS email, totp_secret, webauthn_creds FROM users WHERE id = ${userId} LIMIT 1`;
+    const user = rows[0] ? onboardingUserFromRow(rows[0]) : null;
+    return fetchOwnerPayScopes({
+      payUrl,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      userId,
+      ...(user ? { user } : {}),
+    });
+  });
+}
 // Lifetime can be published without a mail port. With either one missing, every
-// reset request refuses auth.reset_unwired. No mailer is installed in this
-// process: svc-notify is a different module, and this service does not invent one.
+// reset request refuses auth.reset_unwired. The only transport this process
+// can install is the local-outbox file, and only when APP_ENV is exactly dev
+// or test. Staging and production stay unwired. No provider is configured.
+const mail = openIdentityMail({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_MAIL_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+});
+auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+auth.useEmailConfirmation({
+  mail,
+  ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
+  rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
+  rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -305,6 +342,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
+  createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -529,6 +567,31 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return state;
+});
+
+/**
+ * Public handle for a user id. svc-bank snapshots it onto a personal-send receipt.
+ * Service credentials only. 404 for an unknown id. Frozen and closed still have
+ * a handle; the caller does not learn the status from this route.
+ */
+app.get<{ Params: { userId: string } }>('/internal/handle/:userId', async (req, reply) => {
+  if (
+    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
+      rawBody: rawBodyOf(req),
+      mode: env.INTERNAL_SERVICE_BODY_BIND,
+    }).service === null
+  ) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const handle = await auth.handleOf(userId);
+  if (!handle) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return { userId, handle };
 });
 
 await app.register(fastifyTRPCPlugin, {

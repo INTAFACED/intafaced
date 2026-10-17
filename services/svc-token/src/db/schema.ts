@@ -186,6 +186,11 @@ export const buybackRuns = token.table(
     tokensToRewards: amount('tokens_to_rewards').notNull(),
     executedAt: tstz('executed_at').notNull().defaultNow(),
     createdAt: createdAt(),
+    /**
+     * When the last burn/post attempt started. NULL until one does.
+     * The quiet period reads this, not `created_at` (the claim time).
+     */
+    lastPostAt: tstz('last_post_at'),
   },
   (t) => [
     /** A window is consumed exactly once, ever. See the migration's comment. */

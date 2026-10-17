@@ -44,6 +44,9 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
   'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',
   'auth.reset_unwired': 'Password reset is not available yet.',
+  'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
+  'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
+  'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
