@@ -21,9 +21,11 @@ const SIZES = [
 ];
 
 const PHONE = [390, 844];
+// ROOMS_PHONE_ALL=1 takes every shot at phone width as well, not only the landing pages.
+const PHONE_ALL = process.env.ROOMS_PHONE_ALL === '1';
 
 /** One screenshot at both sizes (and phone width when `phone`); each file must exist and not be empty. */
-async function shot(page, name, { full = true, phone = false, only = null } = {}) {
+async function shot(page, name, { full = true, phone = PHONE_ALL, only = null } = {}) {
   await page.waitForTimeout(400); // let dialogs and fades finish
   for (const [width, height] of only ? [only] : phone ? [...SIZES, PHONE] : SIZES) {
     await page.setViewportSize({ width, height });
