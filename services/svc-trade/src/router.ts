@@ -29,6 +29,7 @@ import {
   unmountedCopyDeskFacts,
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
+import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './copy/disclosure.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -36,8 +37,12 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
+import { convertHistoryProcedures } from './convert/convert-history-router.js';
+import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
+import { tradeOpsAdminRouter } from './admin/router.js';
+import type { TradeOpsAdmin } from './admin/service.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -267,6 +272,8 @@ function presentFill(fill: FillRecord) {
  * order may not have been placed at all.
  */
 function toTrpcError(err: unknown): TRPCError {
+  const historyError = convertHistoryTrpcError(err);
+  if (historyError) return historyError;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -340,6 +347,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_flatten_drift':
       case 'trade.copy_flatten_unavailable':
       case 'trade.copy_flatten_partial':
+      case 'trade.copy_disclosure_unpublished':
+      case 'trade.copy_disclosure_required':
+      case 'trade.copy_disclosure_version_stale':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -399,9 +409,16 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, copy?: CopyService, controls?: TradingControls) {
+export function createTradeRouter(
+  trade: TradeService,
+  otc?: OtcDeskService,
+  copy?: CopyService,
+  controls?: TradingControls,
+  admin?: TradeOpsAdmin,
+) {
   return router({
     accountControls: tradingControlsRouter(controls),
+    admin: tradeOpsAdminRouter(admin),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
@@ -611,6 +628,8 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
             }),
           ),
         ),
+
+      ...convertHistoryProcedures(trade),
     }),
 
     /**
@@ -945,6 +964,47 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
       opsStatus: scopedProcedure('admin:read')
         .output(copyOpsStatusOutput)
         .query(() => (copy ? copy.opsStatus() : presentCopyOpsStatus(unmountedCopyDeskFacts()))),
+
+      disclosure: scopedProcedure('trade:read', { module: 'trade' })
+        .output(
+          z
+            .object({
+              published: z.boolean(),
+              version: z.string().nullable(),
+              text: z.string().nullable(),
+              accepted: z.boolean(),
+            })
+            .strict(),
+        )
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!copy) return UNPUBLISHED_COPY_DISCLOSURE_VIEW;
+            return copy.disclosure(ctx.principal);
+          }),
+        ),
+
+      acceptDisclosure: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            version: z.string().min(1).max(200),
+            clientAcceptId: z.string().min(1).max(200),
+          }),
+        )
+        .output(
+          z
+            .object({
+              version: z.string(),
+              acceptedAt: z.string().datetime(),
+              clientAcceptId: z.string(),
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError(COPY_DISCLOSURE_LAW_KEY, 'trade.copy_disclosure_unpublished');
+            return copy.acceptDisclosure(ctx.principal, input);
+          }),
+        ),
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(

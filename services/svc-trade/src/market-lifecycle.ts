@@ -302,6 +302,13 @@ function scheduleReadiness(market: Market, at: string): AdmissionReadiness {
   return { status: 'READY', evidenceRefs: [evidenceId(market, `schedule:${market.schedule}`)] };
 }
 
+function listingLifecycleState(market: Market): MarketLifecycleState | null {
+  if (market.status === 'halted') return 'HALTED';
+  if (market.status === 'delisted') return 'DELISTING';
+  if (market.status === 'pending') return 'PRELAUNCH';
+  return null;
+}
+
 function allowedActions(state: MarketLifecycleState, safeRecovery = false): MarketAction[] {
   if (safeRecovery || state === 'HALTED' || state === 'REDUCE_ONLY' || state === 'EXPIRING' || state === 'DELISTING') {
     return ['CANCEL', 'REDUCE', 'CLOSE'];
@@ -348,6 +355,7 @@ export function deriveMarketLifecycleSnapshot(market: Market, options: MarketLif
   const transitionId = transition?.transitionId ?? stableId('trade.lifecycle.snapshot', `${market.id}|${now}`);
   const lastGoodState = transition?.expectedState ?? null;
 
+  let applied: MarketTransitionRecord | null = null;
   if (transition !== null) {
     const parsed = marketTransitionRecordSchema.safeParse(transition);
     if (!parsed.success)
@@ -370,6 +378,7 @@ export function deriveMarketLifecycleSnapshot(market: Market, options: MarketLif
         true,
       );
     }
+    if (parsed.data.outcome.outcome === 'APPLIED' || parsed.data.outcome.outcome === 'REFUSED') applied = parsed.data;
   }
 
   const authority = evidence.authority;
@@ -441,11 +450,19 @@ export function deriveMarketLifecycleSnapshot(market: Market, options: MarketLif
     return refusalState(market, MARKET_LIFECYCLE_REASON.READINESS_SOCKET, now, lastGoodState, sockets, transitionId);
   }
 
-  let state: MarketLifecycleState;
-  if (market.status === 'halted') state = 'HALTED';
-  else if (market.status === 'delisted') state = 'DELISTING';
-  else if (market.status === 'pending') state = 'PRELAUNCH';
-  else state = 'OPEN';
+  // Listing status only names halt, delist, and prelaunch. An applied (or
+  // refused) transition's resolvedState is the stored name — post-only,
+  // cancel-only, and the rest. Collapsing every active listing to OPEN is
+  // what dropped that name on the public row. A listing halt still wins over
+  // a stored OPEN so a halted book is not published as open.
+  const listing = listingLifecycleState(market);
+  const stored = applied?.resolvedState ?? null;
+  const useStored = stored !== null && stored !== 'OPEN';
+  const state: MarketLifecycleState = useStored ? stored : (listing ?? stored ?? 'OPEN');
+  const reasonCategory = useStored && applied ? applied.reasonCategory : state === 'OPEN' ? 'NORMAL' : 'OPERATOR';
+  const reasonCode =
+    useStored && applied ? applied.reasonCode : state === 'OPEN' ? 'trade.lifecycle.ready' : `trade.market_${market.status}`;
+  const publishedLastGood = useStored && applied ? applied.expectedState : state === 'OPEN' ? 'OPEN' : null;
 
   return marketStateSnapshotSchema.parse({
     marketId: market.id,
@@ -453,11 +470,11 @@ export function deriveMarketLifecycleSnapshot(market: Market, options: MarketLif
     instrumentId: market.id,
     instrumentVersion: parsedDossier.data.instrumentVersion,
     state,
-    reasonCategory: state === 'OPEN' ? 'NORMAL' : 'OPERATOR',
-    reasonCode: state === 'OPEN' ? 'trade.lifecycle.ready' : `trade.market_${market.status}`,
+    reasonCategory,
+    reasonCode,
     effectiveAt,
     observedAt: now,
-    lastGoodState: state === 'OPEN' ? 'OPEN' : null,
+    lastGoodState: publishedLastGood,
     allowedActions: allowedActions(state),
     transitionId,
     evidenceRefs: [
@@ -594,12 +611,23 @@ export class SqlMarketLifecycleAuthority implements MarketLifecyclePort {
         publicationRef,
       );
     }
+    const storedTransition = await this.readLatestTransition(market.id);
     return deriveMarketLifecycleSnapshot(market, {
       ...options,
       now,
       effectiveAt: options.effectiveAt ?? publication.effectiveAt,
-      evidence: { authority, dossier, readiness },
+      evidence: { authority, dossier, readiness, transition: (storedTransition ?? null) as MarketTransitionRecord | null },
     });
+  }
+
+  private async readLatestTransition(marketId: string): Promise<unknown | null> {
+    const [row] = await this.sql<Array<{ transition: unknown }>>`
+      SELECT transition FROM trade.market_lifecycle_evidence
+      WHERE market_id = ${marketId} AND evidence_kind = 'TRANSITION'
+      ORDER BY observed_at DESC
+      LIMIT 1
+    `;
+    return row?.transition ?? null;
   }
 
   admit(snapshot: MarketStateSnapshot, action: MarketAction): MarketActionDecision {

@@ -23,6 +23,16 @@ export const QUANT_STRATEGY_VERSION_UNSET = 'quant.strategy_version_unset' as co
 export const QUANT_LIST_CURSOR_INVALID = 'quant.list_cursor_invalid' as const;
 export const QUANT_DATABASE_URL_UNSET = 'quant.database_url_unset' as const;
 export const QUANT_DATABASE_POOL_MAX_UNSET = 'quant.database_pool_max_unset' as const;
+export const QUANT_RUN_NOT_FOUND = 'quant.run_not_found' as const;
+export const QUANT_RUN_IMMUTABLE = 'quant.run_immutable' as const;
+export const QUANT_RUN_UNFINISHED = 'quant.run_unfinished' as const;
+export const QUANT_RUN_NOT_SIMULATED = 'quant.run_not_simulated' as const;
+export const QUANT_RUN_RESULT_CAP_UNSET = 'quant.run_result_cap_unset' as const;
+export const QUANT_RUN_RESULT_TOO_LARGE = 'quant.run_result_too_large' as const;
+export const QUANT_CLAIM_PNL_UNSET = 'quant.claim_pnl_unset' as const;
+export const QUANT_OPS_RUNS_LIMIT_UNSET = 'quant.ops_runs_limit_unset' as const;
+export const QUANT_OPS_RUNS_FROM_UNSET = 'quant.ops_runs_from_unset' as const;
+export const QUANT_OPS_RUNS_TO_UNSET = 'quant.ops_runs_to_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -50,6 +60,16 @@ export type QuantCode =
   | typeof QUANT_LIST_CURSOR_INVALID
   | typeof QUANT_DATABASE_URL_UNSET
   | typeof QUANT_DATABASE_POOL_MAX_UNSET
+  | typeof QUANT_RUN_NOT_FOUND
+  | typeof QUANT_RUN_IMMUTABLE
+  | typeof QUANT_RUN_UNFINISHED
+  | typeof QUANT_RUN_NOT_SIMULATED
+  | typeof QUANT_RUN_RESULT_CAP_UNSET
+  | typeof QUANT_RUN_RESULT_TOO_LARGE
+  | typeof QUANT_CLAIM_PNL_UNSET
+  | typeof QUANT_OPS_RUNS_LIMIT_UNSET
+  | typeof QUANT_OPS_RUNS_FROM_UNSET
+  | typeof QUANT_OPS_RUNS_TO_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

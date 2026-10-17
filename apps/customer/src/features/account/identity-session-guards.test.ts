@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sessionIdFromToken, splitSessions } from './identity-session-guards';
+import { sessionIdFromToken, sessionMoreControl, splitSessions } from './identity-session-guards';
 
 const SID = '22222222-2222-4222-8222-222222222222';
 const b64 = (value: object) => btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -45,5 +45,22 @@ describe('splitSessions', () => {
   });
   it('folds nothing when there are five or fewer', () => {
     expect(splitSessions(seats.slice(0, 5), null).older).toHaveLength(0);
+  });
+});
+
+describe('sessionMoreControl', () => {
+  const base = { hidden: 0, expanded: false, returned: 5, limit: 50, maxLimit: 200 };
+  it('unfolds the rows already loaded first, with their count', () => {
+    expect(sessionMoreControl({ ...base, hidden: 45, returned: 50 })).toBe('unfold');
+  });
+  it('then asks the server for the next page, only when the server filled the page', () => {
+    expect(sessionMoreControl({ ...base, hidden: 45, expanded: true, returned: 50 })).toBe('fetch');
+    expect(sessionMoreControl({ ...base, returned: 50 })).toBe('fetch');
+    expect(sessionMoreControl({ ...base, returned: 12 })).toBe('none');
+  });
+  it('offers to fold when nothing more can be loaded, and stops at the 200 limit', () => {
+    expect(sessionMoreControl({ ...base, hidden: 7, expanded: true, returned: 12 })).toBe('fold');
+    expect(sessionMoreControl({ ...base, limit: 200, returned: 200, hidden: 195, expanded: true })).toBe('fold');
+    expect(sessionMoreControl({ ...base, limit: 200, returned: 200 })).toBe('none');
   });
 });

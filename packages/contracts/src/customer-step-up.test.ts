@@ -227,4 +227,35 @@ describe('customer step-up binding', () => {
     expect(ramp.ok).toBe(true);
     if (ramp.ok) expect(ramp.target).toBeNull();
   });
+
+  it('binds an email change and a phone change to the address, and a phone removal to the number', () => {
+    const email = bindCustomerStepUp(ACTOR, {
+      scope: 'identity.step_up.email_change',
+      purpose: 'account.email.change',
+      target: 'next@example.com',
+      fields: { newEmail: 'next@example.com' },
+    });
+    expect(email.ok).toBe(true);
+    if (email.ok) expect(email.target).toBe('next@example.com');
+
+    const phone = bindCustomerStepUp(ACTOR, {
+      scope: 'identity.step_up.phone_change',
+      purpose: 'account.phone.change',
+      target: '+14155552671',
+      fields: { newPhone: '+14155552671' },
+    });
+    expect(phone.ok).toBe(true);
+
+    const remove = bindCustomerStepUp(ACTOR, {
+      scope: 'identity.step_up.phone_remove',
+      purpose: 'account.phone.remove',
+      target: '+14155552671',
+      fields: { phone: '+14155552671' },
+    });
+    expect(remove.ok).toBe(true);
+    if (!email.ok) return;
+    expect(email.payloadHash).toBe(
+      customerStepUpPayloadHash('identity.step_up.email_change', { actor: ACTOR, newEmail: 'next@example.com' }),
+    );
+  });
 });

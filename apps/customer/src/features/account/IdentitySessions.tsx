@@ -10,6 +10,7 @@ import {
   revokeResponse,
   saveRevoke,
   sessionIdFromToken,
+  sessionMoreControl,
   sessionRevokeKey,
   sessionsFor,
   splitSessions,
@@ -24,11 +25,13 @@ export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
 type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
 type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
+const PAGE = 50;
+const MAX_LIMIT = 200;
 export function IdentitySessions() {
   const { api, userId, session } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const { timeZone } = usePreferences();
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(PAGE);
   const thisDevice = sessionIdFromToken(session?.accessToken);
   const { resource, reload } = useResource(
     (signal) =>
@@ -42,6 +45,9 @@ export function IdentitySessions() {
   const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
   // The newest five stay in view; the rest fold behind "Show N more". This device is always in view.
   const split = useMemo(() => (seats ? splitSessions(seats, thisDevice) : null), [seats, thisDevice]);
+  const moreControl = seats
+    ? sessionMoreControl({ hidden: split?.older.length ?? 0, expanded: showOlder, returned: seats.length, limit, maxLimit: MAX_LIMIT })
+    : 'none';
   const [review, setReview] = useState<Review | null>(null),
     [busy, setBusy] = useState(false),
     [response, setResponse] = useState<Response | null>(null),
@@ -271,9 +277,18 @@ export function IdentitySessions() {
               );
             })}
           </ul>
-          {split && split.older.length > 0 ? (
-            <Button variant="ghost" aria-expanded={showOlder} onClick={() => setShowOlder((value) => !value)}>
-              {showOlder ? <Copy k="hideOlder" /> : <Copy k="showOlder" params={{ count: split.older.length }} />}
+          {/* One control. It first unfolds the rows already loaded, then asks the server for the next page. */}
+          {moreControl === 'unfold' && split ? (
+            <Button variant="ghost" aria-expanded={false} onClick={() => setShowOlder(true)}>
+              <Copy k="showOlder" params={{ count: split.older.length }} />
+            </Button>
+          ) : moreControl === 'fetch' ? (
+            <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(MAX_LIMIT, value + PAGE))}>
+              <Copy k="more" params={{ count: Math.min(PAGE, MAX_LIMIT - limit) }} />
+            </Button>
+          ) : moreControl === 'fold' ? (
+            <Button variant="ghost" aria-expanded onClick={() => setShowOlder(false)}>
+              <Copy k="hideOlder" />
             </Button>
           ) : null}
         </>
@@ -286,19 +301,15 @@ export function IdentitySessions() {
           <Copy k="readOnly" />
         </p>
       )}
+      {limit >= MAX_LIMIT && seats && seats.length >= limit ? (
+        <p className="muted">
+          <Copy k="maximumBoundary" />
+        </p>
+      ) : null}
       <div className="actions">
         <Button variant="secondary" disabled={busy} onClick={reload}>
           <Copy k="refresh" />
         </Button>
-        {limit < 200 ? (
-          <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-            <Copy k="more" />
-          </Button>
-        ) : (
-          <p className="muted">
-            <Copy k="maximumBoundary" />
-          </p>
-        )}
       </div>
       {result &&
         (result.answer.ok ? (

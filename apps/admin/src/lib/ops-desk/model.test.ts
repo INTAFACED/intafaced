@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellOfRow, displayCell, formatBps, formatCell, readData, rowCountText, tableCells } from './model';
+import { cellOfRow, displayCell, formatBps, formatCell, inputFor, readData, rowCountText, tableCells } from './model';
 import type { ReadSpec } from './types';
 
 const base = {
@@ -131,5 +131,59 @@ describe('what the screen prints', () => {
     expect(displayCell(cell('text', 'USD'))).toBe('USD');
     expect(formatCell(cell('text', 'p2p.moderation_unprobed'))).toBe('p2p.moderation_unprobed');
     expect(formatCell(cell('time', '2026-10-15T10:02:03.000Z'))).toBe('2026-10-15T10:02:03.000Z');
+  });
+});
+
+describe('money totals per asset', () => {
+  const spec: ReadSpec = {
+    ...base,
+    shape: 'record',
+    columns: [{ key: 'outstandingPrincipal', label: 'Outstanding', kind: 'assetAmounts' }],
+  };
+  it('reads each total exactly as given and prints them together; none is none, not zero', () => {
+    const data = readData(spec, {
+      outstandingPrincipal: [
+        { assetId: 'USDC', amount: '1000.000000000000000001' },
+        { assetId: 'BTC', amount: '0.5' },
+      ],
+    });
+    if (data?.shape !== 'record') throw new Error('record expected');
+    expect(formatCell(data.cells[0]!)).toBe('1000.000000000000000001 USDC, 0.5 BTC');
+    const empty = readData(spec, { outstandingPrincipal: [] });
+    if (empty?.shape !== 'record') throw new Error('record expected');
+    expect(formatCell(empty.cells[0]!)).toBe('none');
+  });
+  it('a total that is a number, or an entry missing its asset, makes the whole read unreadable', () => {
+    expect(readData(spec, { outstandingPrincipal: [{ assetId: 'USDC', amount: 1000 }] })).toBeNull();
+    expect(readData(spec, { outstandingPrincipal: [{ amount: '1' }] })).toBeNull();
+    expect(readData(spec, { outstandingPrincipal: 'none' })).toBeNull();
+  });
+});
+
+describe('a read with a time window', () => {
+  const NOW = new Date('2026-10-18T01:00:00.000Z');
+  const spec: ReadSpec = {
+    ...base,
+    shape: 'list',
+    anonymousRows: true,
+    windowDays: 30,
+    input: { limit: 50 },
+    columns: [{ key: 'a', label: 'A', kind: 'text' }],
+  };
+  it('asks for the last N whole days up to now, keeping the rest of its input', () => {
+    expect(inputFor(spec, NOW)).toEqual({ limit: 50, from: '2026-09-18T01:00:00.000Z', to: '2026-10-18T01:00:00.000Z' });
+  });
+  it('a read without a window sends exactly its own input', () => {
+    expect(inputFor({ ...spec, windowDays: undefined }, NOW)).toEqual({ limit: 50 });
+    const { windowDays: _w, input: _i, ...bare } = spec;
+    expect(inputFor(bare, NOW)).toBeUndefined();
+    expect(inputFor({ ...bare, sendEmptyInput: true }, NOW)).toEqual({});
+  });
+  it('rows without an id are shown by position, and two identical rows are two rows', () => {
+    const data = readData(spec, { rows: [{ a: 'x' }] });
+    expect(data).toBeNull();
+    const list = readData({ ...spec, rowsKey: 'rows' }, { rows: [{ a: 'x' }, { a: 'x' }] });
+    if (list?.shape !== 'list') throw new Error('list expected');
+    expect(list.rows.map((r) => r.id)).toEqual(['0', '1']);
   });
 });

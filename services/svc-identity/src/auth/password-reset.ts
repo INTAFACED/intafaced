@@ -40,7 +40,7 @@ export interface PasswordResetMail {
     readonly email: string;
     readonly code: string;
     readonly expiresAt: Date;
-    readonly purpose?: 'password-reset' | 'email-confirm';
+    readonly purpose?: 'password-reset' | 'email-confirm' | 'email-change' | 'email-change-notice';
   }): Promise<void>;
 }
 

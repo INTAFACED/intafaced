@@ -5,7 +5,7 @@ import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnqui
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
 import { Callout, CrmIcon } from './crm-callout';
-import { crmDate, crmLocalDate, crmRelative, crmTime } from '@/lib/crm-browser';
+import { crmDate, crmLocalDate, crmRelative, crmUpdatedText } from '@/lib/crm-browser';
 import { describeDue, overdueText } from '@/lib/crm-due';
 import { RESTORED_EDITS_NOTICE, RETAINED_EDITS_NOTICE, RETENTION_BLOCKED_NOTICE, SAVED_NOTICE, detailNotices } from '@/lib/crm-notices';
 import { createDiscardConfirm, keepEditingBeforeSave, type DiscardQuestion } from '@/lib/crm-discard-confirm';
@@ -1009,7 +1009,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
             <h1>{heading.title}</h1>
           </div>
           <div className="adm-crm-refresh">
-            {lastUpdated && <span className="adm-subtle">Updated {crmTime(lastUpdated)}</span>}
+            {lastUpdated && <span className="adm-subtle">{crmUpdatedText(lastUpdated)}</span>}
             <button
               type="button"
               onClick={() => {

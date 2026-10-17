@@ -5,17 +5,40 @@ import { roomWords } from '../rooms/refusals';
 import { compareDecimals, percentOf } from '../rooms/math';
 import { execCopy } from './copy';
 import type { ParentRead } from './data';
-import { Gate, useWhen } from './parts';
+import { Gate, Why, useWhen } from './parts';
 
 export type AlgoAction = 'pause' | 'resume' | 'cancel';
 type Ok = Extract<ParentRead, { ok: true }>;
 
+const CANCEL_INCOMPLETE = 'cancel_incomplete';
 const TONE = { active: 'lime', paused: 'warn', halted: 'error', completed: 'neutral', cancelled: 'neutral' } as const;
 
 function pctOf(row: Ok): string | null {
   const done = row.progress?.filledQty ?? null;
   const pct = percentOf(done, row.parent.totalQty, 0);
   return pct !== null && compareDecimals(pct, '100') === 1 ? '100' : pct;
+}
+
+/** The reason Resume is off for this schedule, or null when it may be tried. */
+function resumeBlock(row: Ok, t: (key: 'Resume blocked cancel incomplete') => string): string | null {
+  const reason = row.parent.haltReason ?? row.progress?.haltReason ?? null;
+  return reason === CANCEL_INCOMPLETE ? t('Resume blocked cancel incomplete') : null;
+}
+
+/** A reason the service gave, in plain words when this room knows it. Unknown text stays as the service wrote it. */
+function useReasonWords() {
+  const { t } = execCopy.useCopy();
+  return (reason: string | null, kind: 'halt' | 'stretch'): { text: string; code: string | null } | null => {
+    if (!reason) return null;
+    const known: Record<string, string> = {
+      cancel_incomplete: t('Halt reason cancel_incomplete'),
+      user_pause: t('Stretch reason user_pause'),
+      tick_outage: t('Stretch reason tick_outage'),
+    };
+    const word = known[reason];
+    if (word && (kind === 'halt' ? reason === CANCEL_INCOMPLETE : reason !== CANCEL_INCOMPLETE)) return { text: word, code: reason };
+    return { text: reason, code: null };
+  };
 }
 
 function StatusCell({ row }: { row: ParentRead }) {
@@ -54,7 +77,7 @@ export function AlgoList({
   if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), width: 96, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
     { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
     {
       id: 'kind',
@@ -119,17 +142,18 @@ export function AlgoList({
     {
       id: 'actions',
       header: t('Actions'),
-      width: 170,
+      width: 230,
       cell: (r) => {
         if (!r.ok) return null;
         const { parent } = r;
         const status = r.progress?.status ?? parent.status;
+        const blocked = resumeBlock(r, t);
         const act = (action: AlgoAction, label: string) => (
           <Button
             key={action}
             variant="secondary"
             size={28}
-            disabled={locked}
+            disabled={locked || (action === 'resume' && blocked !== null)}
             aria-label={`${label} ${parent.id}`}
             onClick={(event) => {
               event.stopPropagation();
@@ -140,10 +164,13 @@ export function AlgoList({
           </Button>
         );
         return (
-          <span className="flex gap-1">
+          <span className="flex flex-wrap gap-1">
             {status === 'active' ? act('pause', t('Pause')) : null}
             {status === 'paused' || status === 'halted' ? act('resume', t('Resume')) : null}
             {status === 'active' || status === 'paused' || status === 'halted' ? act('cancel', t('Cancel')) : null}
+            {blocked !== null && (status === 'paused' || status === 'halted') ? (
+              <span className="basis-full whitespace-normal text-xs text-warn">{blocked}</span>
+            ) : null}
           </span>
         );
       },
@@ -183,13 +210,16 @@ export function AlgoList({
 export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent: Ok['parent']) => void }) {
   const { t } = execCopy.useCopy();
   const when = useWhen();
+  const reasonWords = useReasonWords();
   if (!row.ok) {
     const words = roomWords({ code: row.code ?? undefined });
     return <EmptyState variant="refused" size="inline" title={words.title} reason={words.body} code={words.code} />;
   }
   const { parent, progress } = row;
   const done = progress?.filledQty ?? null;
-  const reason = parent.haltReason ?? progress?.haltReason ?? null;
+  const halt = reasonWords(parent.haltReason ?? progress?.haltReason ?? null, 'halt');
+  const stretch = reasonWords(parent.scheduleStretchReason ?? null, 'stretch');
+  const blocked = resumeBlock(row, t);
   return (
     <section aria-label={t('Schedule detail')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
       <KeyValue
@@ -212,8 +242,8 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
               .join(', '),
           },
           { label: t('Status'), value: t(`Status ${progress?.status ?? parent.status}`) },
-          { label: t('Halt reason'), value: reason ? t('Halt: {reason}', { reason }) : null },
-          { label: t('Stretch reason'), value: parent.scheduleStretchReason ?? null },
+          { label: t('Halt reason'), value: halt ? t('Halt: {reason}', { reason: halt.text }) : null, hint: halt?.code ?? undefined },
+          { label: t('Stretch reason'), value: stretch?.text ?? null, hint: stretch?.code ?? undefined },
           {
             label: t('Filled so far'),
             value: done === null ? null : `${fmtAmount(done)} / ${fmtAmount(parent.totalQty)}`,
@@ -224,6 +254,7 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
           { label: t('Projected end'), value: when(parent.projectedEndsAt) },
         ]}
       />
+      {blocked ? <Why>{blocked}</Why> : null}
       <p className="m-0 text-sm text-fg-2">{t('Children note')}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size={32} onClick={() => onClone(parent)}>

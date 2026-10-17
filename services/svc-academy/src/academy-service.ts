@@ -1707,6 +1707,14 @@ export class AcademyService {
     return this.customer.opsMetrics(input);
   }
 
+  enrolments(input: { from: string; to: string }) {
+    return this.customer.enrolments(input);
+  }
+
+  completionsByItem(input: { from: string; to: string; pathSlug?: string | null }) {
+    return this.customer.completionsByItem(input);
+  }
+
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {

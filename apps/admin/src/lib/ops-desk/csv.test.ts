@@ -121,9 +121,14 @@ describe('filename and note', () => {
     expect(csvFilename('../x y', 'not a time')).toBe('x-y_rows-shown_as-of_time-unknown.csv');
   });
   it('says rows shown, and says so loudly when the read was capped', () => {
-    expect(exportNote(5, false, 50, 'T')).toBe('Exports the 5 rows shown above (not a full table export), as read at T.');
-    expect(exportNote(1, false, undefined, 'T')).toContain('1 row shown');
-    const capped = exportNote(2, true, 2, 'T');
+    const at = '2026-10-17T03:00:00.000Z';
+    // The time is the shared UTC form, never the raw ISO text.
+    expect(exportNote(5, false, 50, at)).toBe(
+      'Exports the 5 rows shown above (not a full table export), as read at 17 Oct 2026, 03:00:00 UTC.',
+    );
+    expect(exportNote(5, false, 50, at)).not.toContain('T03:00');
+    expect(exportNote(1, false, undefined, at)).toContain('1 row shown');
+    const capped = exportNote(2, true, 2, at);
     expect(capped).toContain('capped at 2 rows');
     expect(capped).toContain('more rows may exist');
   });

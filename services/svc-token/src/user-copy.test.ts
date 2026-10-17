@@ -44,6 +44,13 @@ const TOKEN_ERROR_CODES = [
   'token.governance_quorum_unset',
   'token.governance_snapshot_missing',
   'token.governance_execute_unwired',
+  'token.staking_asset_unpublished',
+  'token.stake_tier_unknown',
+  'token.stake_amount_invalid',
+  'token.history_list_limit_unset',
+  'token.history_cursor_invalid',
+  'token.emission_schedule_count_unset',
+  'token.ledger_tx_unread',
 ] as const satisfies readonly TokenError['code'][];
 
 type Missing = Exclude<TokenError['code'], (typeof TOKEN_ERROR_CODES)[number]>;

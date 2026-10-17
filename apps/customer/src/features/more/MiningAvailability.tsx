@@ -10,8 +10,8 @@ import { miningDepthCopy } from './mining-depth-copy';
 import type { Resource } from '../../shared/resource';
 import './mining-availability.css';
 
-// Public liveness supplies no customer records or authority. A configured
-// connection or registered job is never evidence of a credit or payout.
+// The Status tab is public liveness only: it supplies no customer records. The other tabs read the customer's own records
+// from the pool. A configured connection or registered job is never evidence of a credit or payout.
 type Status = { resource: Resource<MiningHealth>; reload: () => void };
 const TABS = ['Overview', 'Workers', 'Shares', 'Rewards', 'Status'] as const;
 export function Mining() {

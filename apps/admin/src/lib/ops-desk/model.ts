@@ -53,6 +53,15 @@ function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
       return isIso(value) ? make(value) : null;
     case 'list':
       return Array.isArray(value) && value.every((v) => typeof v === 'string') ? make([...(value as string[])]) : null;
+    case 'assetAmounts': {
+      if (!Array.isArray(value)) return null;
+      const parts: string[] = [];
+      for (const item of value) {
+        if (!isRecord(item) || typeof item.assetId !== 'string' || typeof item.amount !== 'string') return null;
+        parts.push(`${item.amount} ${item.assetId}`);
+      }
+      return make(parts);
+    }
   }
 }
 
@@ -65,6 +74,17 @@ function cellsOf(columns: readonly Column[], source: unknown): Cell[] | null {
     cells.push(cell);
   }
   return cells;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * What goes to the service for a read. A read with `windowDays` gets `from` and `to` (ISO instants): the last N whole days up
+ * to `now`. Nothing else is added, so a window is always one the founder can read off the read's title.
+ */
+export function inputFor(spec: ReadSpec, now: Date): Readonly<Record<string, unknown>> | undefined {
+  if (spec.windowDays === undefined) return spec.input ?? (spec.sendEmptyInput === true ? {} : undefined);
+  return { ...spec.input, from: new Date(now.getTime() - spec.windowDays * DAY_MS).toISOString(), to: now.toISOString() };
 }
 
 export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
@@ -105,7 +125,7 @@ export function formatCell(cell: Cell): string {
   if (v === null) return '—';
   if (cell.kind === 'bool') return v === true ? 'yes' : 'no';
   if (cell.kind === 'bps' && typeof v === 'number') return formatBps(v);
-  if (cell.kind === 'list') return Array.isArray(v) ? (v.length === 0 ? 'none' : v.join(', ')) : '—';
+  if (cell.kind === 'list' || cell.kind === 'assetAmounts') return Array.isArray(v) ? (v.length === 0 ? 'none' : v.join(', ')) : '—';
   return String(v);
 }
 

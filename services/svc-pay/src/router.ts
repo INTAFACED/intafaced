@@ -86,7 +86,8 @@ import {
 import { evaluateFraud } from './fraud/evaluate.js';
 import { describeFraudPolicy } from './fraud/fraud-policy.js';
 import { describeRoutingPolicy } from './routing/routing-policy.js';
-import { defaultFraudReviewQueue, FraudReviewError } from './fraud/review-queue.js';
+import { defaultFraudReviewQueue, FraudReviewError, type FraudReviewCase } from './fraud/review-queue.js';
+import { PostgresFraudReviewQueue, type DurableReviewCase } from './fraud/review-queue-store.js';
 import {
   defaultDisputeCaseStore,
   DisputeCaseError,
@@ -217,6 +218,11 @@ type SettlementViewOut = z.infer<typeof settlementView>;
 type SettlementDetailOut = z.infer<typeof settlementDetailView>;
 type WithdrawalViewOut = z.infer<typeof withdrawalView>;
 
+function reviewReasons(c: FraudReviewCase | DurableReviewCase): Array<{ ruleId: string; detail: string }> {
+  if ('decision' in c) return c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail }));
+  return c.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail }));
+}
+
 /**
  * A merchant may only touch payments/settlements it owns — or, when a PayFac
  * fence is wired, ones it holds the matching permission area over.
@@ -250,6 +256,11 @@ export function createPayRouter(
   /** Local-test starter fee. Null means the product fee is not set yet. */
   starterFee: MerchantStarterFee | null = null,
 ) {
+  const fraudReviews =
+    portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
+      ? new PostgresFraudReviewQueue(portalSql)
+      : null;
+
   const destinationChange = new PayoutDestinationChange(
     destinations,
     async (userId, merchantId) => {
@@ -1535,6 +1546,12 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.fraud.enqueueReview');
+            if (input.paymentId) {
+              const payment = await pay.getPayment(input.paymentId);
+              if (payment.merchantId !== input.merchantId) {
+                throw new PayError(`Payment ${input.paymentId} not found`, 'pay.payment_not_found');
+              }
+            }
             try {
               const decision = evaluateFraud({
                 merchantId: input.merchantId,
@@ -1547,24 +1564,39 @@ export function createPayRouter(
                 blocklists: input.blocklists,
                 enabled: input.enabled,
               });
-              const c = defaultFraudReviewQueue.enqueue({
-                id: input.id,
-                merchantId: input.merchantId,
-                amount: input.amount,
-                assetId: input.assetId,
-                paymentId: input.paymentId ?? null,
-                decision,
-              });
+              const c = fraudReviews
+                ? await fraudReviews.enqueue({
+                    id: input.id,
+                    merchantId: input.merchantId,
+                    amount: input.amount,
+                    assetId: input.assetId,
+                    paymentId: input.paymentId ?? null,
+                    decision,
+                    createdBy: ctx.principal?.userId ?? 'fraud.enqueue',
+                  })
+                : defaultFraudReviewQueue.enqueue({
+                    id: input.id,
+                    merchantId: input.merchantId,
+                    amount: input.amount,
+                    assetId: input.assetId,
+                    paymentId: input.paymentId ?? null,
+                    decision,
+                    createdBy: ctx.principal?.userId ?? 'fraud.enqueue',
+                  });
               return {
                 id: c.id,
                 status: c.status,
                 merchantId: c.merchantId,
                 paymentId: c.paymentId,
-                reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
+                reasons: reviewReasons(c),
               };
             } catch (e) {
               if (e instanceof FraudReviewError) {
-                throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+                throw new TRPCError({
+                  code: e.code === 'pay.fraud_review_not_found' ? 'NOT_FOUND' : 'BAD_REQUEST',
+                  message: `${e.code}: ${e.message}`,
+                  cause: e,
+                });
               }
               throw e;
             }
@@ -1584,17 +1616,22 @@ export function createPayRouter(
             })
             .optional(),
         )
-        .query(({ input }) => {
+        .query(async ({ input }) => {
           try {
-            return defaultFraudReviewQueue.listOpen(input?.merchantId, input?.limit).map((c) => ({
+            const rows = fraudReviews
+              ? await fraudReviews.listOpen(input?.merchantId, input?.limit)
+              : defaultFraudReviewQueue.listOpen(input?.merchantId, input?.limit);
+            return rows.map((c) => ({
               id: c.id,
               merchantId: c.merchantId,
               paymentId: c.paymentId,
+              paymentRef: c.paymentRef,
               amount: c.amount,
               assetId: c.assetId,
               status: c.status,
+              reason: c.reason,
               createdAt: c.createdAt,
-              reasons: c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail })),
+              reasons: reviewReasons(c),
             }));
           } catch (e) {
             if (e instanceof FraudReviewError) {
@@ -1603,6 +1640,22 @@ export function createPayRouter(
                 message: `${e.code}: ${e.message}`,
                 cause: e,
               });
+            }
+            throw e;
+          }
+        }),
+
+      claimReview: scopedProcedure('admin:treasury', { module: 'pay' })
+        .input(z.object({ id: z.string().min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const c = fraudReviews
+              ? await fraudReviews.claim({ id: input.id, actorId: ctx.principal.userId })
+              : defaultFraudReviewQueue.claim({ id: input.id, actorId: ctx.principal.userId });
+            return { id: c.id, status: c.status, claimedBy: c.claimedBy, claimedAt: c.claimedAt };
+          } catch (e) {
+            if (e instanceof FraudReviewError) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
             }
             throw e;
           }
@@ -1621,16 +1674,37 @@ export function createPayRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
+            const wanted = input.outcome === 'allow' ? 'allowed' : 'declined';
+            const existing = fraudReviews ? await fraudReviews.get(input.id) : defaultFraudReviewQueue.get(input.id);
+            if (existing && (existing.status === 'allowed' || existing.status === 'declined')) {
+              if (existing.status !== wanted) {
+                throw new FraudReviewError(`Fraud review ${input.id} is already ${existing.status}`, 'pay.fraud_review_closed');
+              }
+              return {
+                id: existing.id,
+                status: existing.status,
+                resolvedBy: existing.resolvedBy,
+                resolvedAt: existing.resolvedAt,
+                confirmOperatorId: existing.resolvedBy,
+              };
+            }
             const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_resolve_review', {
               id: input.id,
               outcome: input.outcome,
             });
-            const c = defaultFraudReviewQueue.resolve({
-              id: input.id,
-              outcome: input.outcome,
-              actorId: ctx.principal.userId,
-              note: input.note,
-            });
+            const c = fraudReviews
+              ? await fraudReviews.resolve({
+                  id: input.id,
+                  outcome: input.outcome,
+                  actorId: ctx.principal.userId,
+                  note: input.note,
+                })
+              : defaultFraudReviewQueue.resolve({
+                  id: input.id,
+                  outcome: input.outcome,
+                  actorId: ctx.principal.userId,
+                  note: input.note,
+                });
             return {
               id: c.id,
               status: c.status,

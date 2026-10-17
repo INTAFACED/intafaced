@@ -6,6 +6,7 @@ import { funds } from './components';
 import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 import { usePreferences } from '../../shared/preferences';
+import { GoalProgress } from './GoalAndMovement';
 import { currentSpace, type SpaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 
@@ -136,6 +137,7 @@ export function SelectedSpace({
               </dd>
             </div>
           </dl>
+          <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
         </>
       ) : (
         <>

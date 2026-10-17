@@ -11,7 +11,8 @@ import {
   EDGE_SIGNATURE_HEADER,
 } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
-import { AgentError, assertSessionLogPageLimit, assertUserLogPageLimit } from './errors.js';
+import type { Sql } from 'postgres';
+import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
 import { requireSettleService } from './settle-hmac.js';
 import type { AuditedAction } from './fleet/audit.js';
 import type { ModelGateway } from './gateway/gateway.js';
@@ -63,7 +64,11 @@ import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach
 import { describeCoachPolicy } from './coach/policy.js';
 import { envGrowthWarehouse, proposeGrowthCampaign } from './growth/campaign-proposal.js';
 import { planRebalance } from './portfolio-agent/plan.js';
+import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
 import { marketplaceInstallDoor } from './fleet/install.js';
+import { listCatalogue } from './ops/catalogue.js';
+import { listSessions } from './ops/ops-sessions.js';
+import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -292,6 +297,8 @@ export interface AgentsRouterDeps {
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
+  /** AGENTS_METERING_ENABLED. Absent is treated as billed, so the customer keeps the cost confirmation. */
+  readonly meteringEnabled?: boolean;
   /** Academy spine (or test inject). Absent → `envCoachGrounding()`. */
   readonly loadCoachGrounding?: () => Promise<CoachGrounding>;
   /** Live ops.support desk. Absent → support live tools refuse `no_live_kb`. */
@@ -329,6 +336,12 @@ export interface AgentsRouterDeps {
    * caller fixtures as live truth.
    */
   readonly navigatorIdentitySessionPort?: NavigatorIdentitySessionPort;
+  /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
+  readonly sql?: Sql;
+  /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
+  readonly portfolioLedger?: HoldingsLedger | null;
+  /** Platform prices. Absent → portfolio.plan stays port_dark. Null price → portfolio.price_unset. */
+  readonly portfolioPrices?: PortfolioPriceSource | null;
 }
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
@@ -346,7 +359,30 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     navigatorTradeUrl,
     navigatorTradeDataPort,
     navigatorIdentitySessionPort,
+    sql,
+    portfolioLedger,
+    portfolioPrices,
+    meteringEnabled,
   } = deps;
+
+  function routeEngine(route: RouteDef): { engine: RouteEngine; metered: boolean } {
+    const provider = typeof gateway.registeredProvider === 'function' ? gateway.registeredProvider(route.providerId) : undefined;
+    const engine = engineOfAdapter(provider);
+    return { engine, metered: routeIsMetered(meteringEnabled, route.price) };
+  }
+
+  function agentEngine(tasks: readonly string[]): { engine: RouteEngine; metered: boolean } {
+    return engineForTasks(
+      tasks,
+      (task) => {
+        const route = gateway.routingTable.routes.find((row) => row.task === task);
+        if (!route) return null;
+        const flagged = routeEngine(route);
+        return { engine: flagged.engine, billed: flagged.metered };
+      },
+      meteringEnabled,
+    );
+  }
 
   const resolveNavigatorPlane = (requested: 'live' | 'dark') => effectiveNavigatorTradePlane(requested, navigatorTradeUrl);
 
@@ -373,6 +409,72 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     })),
 
     /**
+     * Operator session list (admin:read). Newest first. A customer session is refused.
+     * Spend is sealed charged_amount per asset, or null with no_settled_window.
+     */
+    ops: router({
+      sessions: scopedProcedure('admin:read', { module: 'agents' })
+        .input(
+          z.object({
+            from: z.string().datetime().optional(),
+            to: z.string().datetime().optional(),
+            agentId: z.string().min(1).max(64).optional(),
+            userId: z.string().min(1).max(64).optional(),
+            status: z.enum(['open', 'closed']).optional(),
+            limit: z.number().int().optional(),
+            cursor: z.string().min(1).max(512).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().uuid(),
+                agentId: z.string(),
+                userId: z.string(),
+                status: z.enum(['open', 'closed']),
+                openedAt: z.string(),
+                closedAt: z.string().nullable(),
+                actionCount: z.number().int(),
+                spend: z.array(z.object({ assetId: z.string(), amount: z.string() })).nullable(),
+                spendReason: z.enum(['no_settled_window']).nullable(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(({ input }) =>
+          guard(async () => {
+            if (!sql) throw new Error('agents sql is unset');
+            const page = await listSessions(sql, {
+              userId: input.userId ?? null,
+              agentId: input.agentId ?? null,
+              status: input.status ?? null,
+              from: input.from ? new Date(input.from) : null,
+              to: input.to ? new Date(input.to) : null,
+              limit: assertOpsSessionsLimit(input.limit),
+              cursor: input.cursor ?? null,
+              feeAssetId,
+            });
+            return {
+              items: page.items.map((row) => ({
+                id: row.id,
+                agentId: row.agentId,
+                userId: row.userId,
+                status: row.status,
+                openedAt: row.openedAt,
+                closedAt: row.closedAt,
+                actionCount: row.actionCount,
+                spend: row.spend ? row.spend.map((line) => ({ assetId: line.assetId, amount: line.amount })) : null,
+                spendReason: row.spendReason,
+              })),
+              nextCursor: page.nextCursor,
+            };
+          }),
+        ),
+    }),
+
+    /**
      * The tasks this deployment can serve, and their ceilings.
      *
      * Deliberately includes the price: §8.2 meters per user, and a metered
@@ -390,18 +492,25 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               inputPerMillion: z.string(),
               outputPerMillion: z.string(),
               assetId: z.string(),
+              engine: z.enum(['sandbox', 'live', 'unknown']),
+              metered: z.boolean(),
             }),
           ),
         )
         .query(() =>
-          gateway.routingTable.routes.map((route) => ({
-            task: route.task,
-            maxOutputTokens: route.maxOutputTokens,
-            capability: route.capability,
-            inputPerMillion: formatAmount(route.price.inputPerMillion),
-            outputPerMillion: formatAmount(route.price.outputPerMillion),
-            assetId: feeAssetId,
-          })),
+          gateway.routingTable.routes.map((route) => {
+            const flagged = routeEngine(route);
+            return {
+              task: route.task,
+              maxOutputTokens: route.maxOutputTokens,
+              capability: route.capability,
+              inputPerMillion: formatAmount(route.price.inputPerMillion),
+              outputPerMillion: formatAmount(route.price.outputPerMillion),
+              assetId: feeAssetId,
+              engine: flagged.engine,
+              metered: flagged.metered,
+            };
+          }),
         ),
     }),
 
@@ -431,6 +540,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 allowedModules: z.array(z.string()),
                 allowedTasks: z.array(z.string()),
               }),
+              engine: z.enum(['sandbox', 'live', 'unknown']),
+              metered: z.boolean(),
             })
             .nullable(),
         )
@@ -440,6 +551,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             if (!definition) return null;
 
             const { guardrail, enabled } = definition;
+            const flagged = agentEngine(guardrail.limits.allowedTasks);
             return {
               agentId: guardrail.agentId,
               version: guardrail.version,
@@ -458,7 +570,32 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 allowedModules: [...guardrail.limits.allowedModules],
                 allowedTasks: [...guardrail.limits.allowedTasks],
               },
+              engine: flagged.engine,
+              metered: flagged.metered,
             };
+          }),
+        ),
+
+      /**
+       * Stored catalogue. Purpose is the column, null when absent.
+       * Disabled agents stay in the list with enabled false.
+       */
+      catalogue: scopedProcedure('agents:read', { module: 'agents' })
+        .output(
+          z.array(
+            z.object({
+              agentId: z.string(),
+              name: z.string().nullable(),
+              purpose: z.string().nullable(),
+              enabled: z.boolean(),
+              version: z.number().int(),
+            }),
+          ),
+        )
+        .query(() =>
+          guard(async () => {
+            if (!sql) throw new Error('agents sql is unset');
+            return listCatalogue(sql);
           }),
         ),
     }),
@@ -511,6 +648,54 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           guard(async () => {
             await ownedSession(input.sessionId, ctx.principal.userId);
             return (await runtime.sessionLog(input.sessionId, assertSessionLogPageLimit(input.limit))).map(toActionOutput);
+          }),
+        ),
+
+      /**
+       * The caller's own sessions, newest first. Replaces deriving them from
+       * log.mine (capped at 500 action rows). Spend follows the sealed-window rule.
+       */
+      mine: scopedProcedure('agents:read', { module: 'agents' })
+        .input(z.object({ limit: z.number().int().optional(), cursor: z.string().min(1).max(512).optional() }))
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().uuid(),
+                agentId: z.string(),
+                status: z.enum(['open', 'closed']),
+                openedAt: z.string(),
+                closedAt: z.string().nullable(),
+                actionCount: z.number().int(),
+                spend: z.array(z.object({ assetId: z.string(), amount: z.string() })).nullable(),
+                spendReason: z.enum(['no_settled_window']).nullable(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!sql) throw new Error('agents sql is unset');
+            const page = await listSessions(sql, {
+              userId: ctx.principal.userId,
+              limit: assertSessionMineLimit(input.limit),
+              cursor: input.cursor ?? null,
+              feeAssetId,
+            });
+            return {
+              items: page.items.map((row) => ({
+                id: row.id,
+                agentId: row.agentId,
+                status: row.status,
+                openedAt: row.openedAt,
+                closedAt: row.closedAt,
+                actionCount: row.actionCount,
+                spend: row.spend ? row.spend.map((line) => ({ assetId: line.assetId, amount: line.amount })) : null,
+                spendReason: row.spendReason,
+              })),
+              nextCursor: page.nextCursor,
+            };
           }),
         ),
     }),
@@ -3787,24 +3972,54 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   'portfolio.target_unset',
                   'portfolio.holding_unread',
                   'portfolio.cross_plane_blocked',
+                  'portfolio.price_unset',
                 ]),
                 userMessageKey: z.literal('agents.refused.module_not_allowed'),
+                asset: z.string().nullable(),
               }),
             ]),
           }),
         )
-        .query(({ ctx, input }) => {
-          const outcome = planRebalance({ userId: ctx.principal!.userId, targets: input.targets }, { portfolio: null });
-          if (outcome.result.status === 'planned') {
-            return {
-              result: {
-                ...outcome.result,
-                legs: outcome.result.legs.map((leg) => ({ ...leg })),
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const userId = ctx.principal.userId;
+            if (!portfolioLedger || !portfolioPrices) {
+              const outcome = planRebalance({ userId, targets: input.targets }, { portfolio: null });
+              if (outcome.result.status === 'planned') {
+                return { result: { ...outcome.result, legs: outcome.result.legs.map((leg) => ({ ...leg })) } };
+              }
+              return { result: { ...outcome.result, asset: null } };
+            }
+            const loaded = await readOwnHoldings({ ledger: portfolioLedger, prices: portfolioPrices, userId });
+            if (!loaded.ok) {
+              return {
+                result: {
+                  status: 'refused' as const,
+                  code: 'portfolio.price_unset' as const,
+                  userMessageKey: 'agents.refused.module_not_allowed' as const,
+                  asset: loaded.asset,
+                },
+              };
+            }
+            const outcome = planRebalance(
+              { userId, targets: input.targets },
+              {
+                portfolio: {
+                  read: (id) => {
+                    if (id !== userId) {
+                      return { holdings: [], unread: [{ asset: id, plane: 'unknown', reason: 'not_caller' }] };
+                    }
+                    return loaded.snapshot;
+                  },
+                },
               },
-            };
-          }
-          return { result: outcome.result };
-        }),
+            );
+            if (outcome.result.status === 'planned') {
+              return { result: { ...outcome.result, legs: outcome.result.legs.map((leg) => ({ ...leg })) } };
+            }
+            return { result: { ...outcome.result, asset: null } };
+          }),
+        ),
     }),
 
     /**

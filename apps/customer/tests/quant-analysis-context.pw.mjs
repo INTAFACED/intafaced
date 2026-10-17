@@ -220,7 +220,11 @@ test('original result remains identifiable after edited draft and a definitive f
         outOfSampleFrom: times[2],
         outOfSampleTo: times[3],
       });
+      expect(state.writes[0].input).toMatchObject({ idempotencyKey: expect.any(String) });
+      expect(String(state.writes[0].input.idempotencyKey).trim()).not.toBe('');
       expect(state.writes[1].input.strategyId).toBe(B);
+      expect(state.writes[1].input).toMatchObject({ idempotencyKey: expect.any(String) });
+      expect(String(state.writes[1].input.idempotencyKey).trim()).not.toBe('');
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: join(out, 'failed-new.png'), fullPage: true });
       await record(page).locator('summary').focus();
@@ -300,6 +304,8 @@ test('explicit UTC intervals are identical across device zones including a local
           outOfSampleFrom: boundaries[2],
           outOfSampleTo: boundaries[3],
         });
+        expect(state.writes[0].input).toMatchObject({ idempotencyKey: expect.any(String) });
+        expect(String(state.writes[0].input.idempotencyKey).trim()).not.toBe('');
         expect(
           await record(page)
             .locator('time')

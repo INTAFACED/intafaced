@@ -160,6 +160,17 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
 
       /**
+       * Local TEST swap listing on GET /markets. Default OFF.
+       * Does not enable TRADE_FUTURES_ENABLED or TRADE_FUTURES_JOBS_ENABLED,
+       * and does not publish a leverage cap, a mark, or a liquidation policy.
+       * The listing itself comes only from the local seed script.
+       */
+      TRADE_FUTURES_TEST_SEED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
        * OPTIONS SETTLEMENT ASSET LAW stamp (trade.options / D26-P0-05).
        *
        * EMPTY BY DEFAULT — and empty is a refusal, not a crash. listMarket with
@@ -535,6 +546,16 @@ const schema = serviceEnvSchema
        * Published empty array = serve none (still fail closed).
        */
       TRADE_COPY_JURISDICTION_LAW: z.string().default(''),
+
+      /**
+       * Copy risk-disclosure law (trade.copy / TRD-0773). JSON or empty.
+       *
+       * Empty (default) = unpublished → accept and mirror refuse
+       * `trade.copy_disclosure_unpublished`. Never invent version or text.
+       * Published shape: {"published":true,"version":"…","text":"…"}
+       * The text is owner content. Follow itself is not gated.
+       */
+      TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
 
       /**
        * Spot maker/taker fee/rebate schedule (PTX-M21). JSON or empty.
