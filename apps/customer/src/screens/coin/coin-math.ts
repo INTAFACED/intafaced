@@ -2,8 +2,8 @@
  * The numbers on the coin page, all from decimal strings in exact arithmetic (`data/decimal.ts`): nothing here turns a
  * price into a JS number. The chart itself draws from numbers in `CoinChart.tsx`; text never comes from those.
  */
-import { dec, decOrNull, fractionDigits, ratio, roundScaled, sub, toFixedString } from './deps';
-import type { Candle, Decimal } from './deps';
+import { classifyRefusal, partialWindowStart, dec, decOrNull, fractionDigits, ratio, roundScaled, sub, toFixedString } from './deps';
+import type { Candle, Decimal, Loadable, TickerRow } from './deps';
 
 export type Direction = 'up' | 'down' | 'flat';
 
@@ -29,6 +29,26 @@ export function moveSince(candles: readonly Candle[], price: Decimal | null): Mo
   return {
     base,
     price: price as Decimal,
+    change: decOrNull(diff) as Decimal,
+    changeRatio: decOrNull(ratio(diff, from)),
+    direction: diff > 0n ? 'up' : diff < 0n ? 'down' : 'flat',
+  };
+}
+
+/**
+ * The past day's change as the ticker already states it: from its 24 h open to its last price. It stands in for the
+ * 1D line's change while the candles are still loading or could not be read, so "Past day" is never an empty dash when
+ * the service has already said the figure. Null when the ticker has no open or no last price.
+ */
+export function tickerMove(ticker: TickerRow | null): Move | null {
+  if (!ticker) return null;
+  const from = dec(ticker.open24h);
+  const to = dec(ticker.last);
+  if (from === null || to === null || ticker.open24h === null || ticker.last === null) return null;
+  const diff = sub(to, from);
+  return {
+    base: ticker.open24h,
+    price: ticker.last,
     change: decOrNull(diff) as Decimal,
     changeRatio: decOrNull(ratio(diff, from)),
     direction: diff > 0n ? 'up' : diff < 0n ? 'down' : 'flat',
@@ -80,4 +100,32 @@ export function startsLate(candles: readonly Candle[], stepMs: number, spanMs: n
   if (!first) return false;
   const wanted = Math.floor(nowMs / stepMs) * stepMs - spanMs + stepMs;
   return first.t > wanted + stepMs;
+}
+
+/**
+ * A listed market the exchange cannot price: its ticker is refused because no book is open for it (ETH and IFC on a
+ * fresh exchange). That is "no market yet", not a fault, so there is nothing to retry and no support line to offer.
+ */
+export function isUnpricedMarket(ticker: Loadable<unknown>): boolean {
+  if (ticker.status !== 'refused') return false;
+  const kind = classifyRefusal(ticker.code);
+  return kind === 'noBook' || kind === 'notFound';
+}
+
+/**
+ * When the 1D line stands on the ticker's change (its candles are missing) and the ticker says the market is younger than
+ * a day, the moment the figure starts from, so the line says "Since 14:00" instead of "Past day". Null otherwise.
+ */
+export function fallbackSince(candlesMissing: boolean, rangeId: string, ticker: TickerRow | null, nowMs: number): number | null {
+  return candlesMissing && rangeId === '1D' && ticker ? partialWindowStart(ticker, nowMs) : null;
+}
+
+/**
+ * Which quote the page prices in. A quote whose market has no open book is skipped while another one is priced, even if it
+ * was chosen; with none priced, the chosen (else first) quote is kept so the "no market" card can name it.
+ */
+export function pickQuote(quotes: readonly string[], priced: readonly string[], chosen: string | null): string | null {
+  const wanted = chosen !== null && quotes.includes(chosen) ? chosen : null;
+  if (priced.length) return wanted !== null && priced.includes(wanted) ? wanted : priced[0]!;
+  return wanted ?? quotes[0] ?? null;
 }

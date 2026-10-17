@@ -34,13 +34,16 @@ const t = (key: string) => key;
 const withHandle = (key: string, handle: string) => key.replace('{handle}', `@${handle}`);
 
 describe('tabs', () => {
-  it('reads ?tab=, and nothing or anything unknown as Trades (the first tab)', () => {
+  it('reads ?tab=, and nothing or anything unknown as All (the first tab)', () => {
     expect(tabFromSearch('?tab=deposits')).toBe('deposits');
     expect(tabFromSearch('?tab=orders&x=1')).toBe('orders');
+    expect(tabFromSearch('?tab=trades')).toBe('trades');
     expect(tabFromSearch('?tab=all')).toBe('all');
-    expect(tabFromSearch('?tab=nope')).toBe('trades');
-    expect(tabFromSearch('')).toBe('trades');
-    expect(tabHref('trades')).toBe('/money/activity');
+    expect(tabFromSearch('?tab=nope')).toBe('all');
+    expect(tabFromSearch('')).toBe('all');
+    expect(tabFromSearch('?asset=BTC')).toBe('all');
+    expect(tabHref('all')).toBe('/money/activity');
+    expect(tabHref('trades')).toBe('/money/activity?tab=trades');
     expect(tabHref('orders')).toBe('/money/activity?tab=orders');
     expect(tabHref('transfers')).toBe('/money/activity?tab=transfers');
   });
@@ -55,10 +58,10 @@ describe('tabs', () => {
   });
 
   it('keeps the coin when it builds a tab link', () => {
-    expect(tabHref('trades', 'BTC')).toBe('/money/activity?asset=BTC');
-    expect(tabHref('all', 'BTC')).toBe('/money/activity?tab=all&asset=BTC');
-    expect(tabHref('all', null)).toBe('/money/activity?tab=all');
-    expect(tabHref('trades', null)).toBe('/money/activity');
+    expect(tabHref('all', 'BTC')).toBe('/money/activity?asset=BTC');
+    expect(tabHref('trades', 'BTC')).toBe('/money/activity?tab=trades&asset=BTC');
+    expect(tabHref('trades', null)).toBe('/money/activity?tab=trades');
+    expect(tabHref('all', null)).toBe('/money/activity');
   });
 
   it('matches a fill to a coin by its base or quote, whichever way the symbol is spelled', () => {
@@ -70,7 +73,7 @@ describe('tabs', () => {
   });
 
   it('puts the ledger tabs and only them on the ledger', () => {
-    expect(TABS).toEqual(['trades', 'orders', 'all', 'deposits', 'transfers']);
+    expect(TABS).toEqual(['all', 'trades', 'orders', 'deposits', 'transfers']);
     expect(TABS.filter(isLedgerTab)).toEqual(['all', 'deposits', 'transfers']);
   });
 

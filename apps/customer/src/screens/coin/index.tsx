@@ -20,10 +20,14 @@ import {
   usePortfolio,
   usePreferences,
   useSession,
+  useTicker,
   type Loadable,
   type MarketRow,
   type PortfolioSummary,
 } from './deps';
+import { isUnpricedMarket, pickQuote } from './coin-math';
+import { QuotePicker } from './QuotePicker';
+import { useTickerStates } from './use-ticker-states';
 import { KeyStats, holdingOf } from './KeyStats';
 import { PriceCard } from './PriceCard';
 import { RecentActivity } from './RecentActivity';
@@ -125,8 +129,14 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
   const open = stable ? [] : markets.filter((m) => m.orderable && m.base === asset);
   const quotes = QUOTES.filter((q) => open.some((m) => m.quote === q));
   const [chosen, setChosen] = useState<string | null>(null);
-  const quote = chosen && (quotes as readonly string[]).includes(chosen) ? chosen : (quotes[0] ?? null);
-  const market = quote ? (open.find((m) => m.quote === quote) ?? null) : null;
+  // Which of the coin's markets can be priced: a listed market with no open book answers "no market" on its ticker. The
+  // page prices against the first quote that can be; with none, it keeps the "no market" card and still offers the quotes.
+  const states = useTickerStates(quotes.map((q) => open.find((m) => m.quote === q)!.symbol));
+  const priced: string[] = quotes.filter(
+    (q) => !isUnpricedMarket(states[open.find((m) => m.quote === q)!.symbol] ?? { status: 'loading' }),
+  );
+  const quote = pickQuote(quotes, priced, chosen);
+  const market = priced.length && quote ? (open.find((m) => m.quote === quote) ?? null) : null;
 
   const holding = holdingOf(portfolio, asset);
   const holds = holding !== null && holding !== 'unknown' && (dec(holding.total) ?? 0n) > 0n ? holding : null;
@@ -158,15 +168,22 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
               asset={asset}
               symbol={market.symbol}
               tickSize={market.tickSize}
-              quotes={quotes}
+              quotes={priced}
               quote={quote}
               onQuote={setChosen}
             />
           ) : (
             <section className="coin-card coin-nomarket">
+              {!stable && !priced.length && quotes.length > 1 && quote ? (
+                <div className="coin-nomarket__quote">
+                  <QuotePicker quotes={quotes} quote={quote} onQuote={setChosen} />
+                </div>
+              ) : null}
               <StateBlock
                 kind="empty"
-                title={t('No market title', { asset })}
+                title={
+                  quote && quotes.length > 1 ? t('No pair market title', { pair: `${asset}/${quote}` }) : t('No market title', { asset })
+                }
                 body={t('No market body')}
                 action={{ label: t('Go to Markets'), href: '/trade' }}
               />
