@@ -37,6 +37,8 @@ describe('request packets', () => {
       { kind: 'edge.kill', module: 'pay', disabled: false, reason: 'cause resolved, reconciled' },
       { kind: 'ledger.freeze', reason: 'reconciliation mismatch on USD', version: '2026-10-17 03:00:00.123456+00' },
       { kind: 'ledger.unfreeze', version: '2026-10-17 03:00:00.123456+00' },
+      { kind: 'academy.ambassador.appoint', userId: '9f8e7d6c-1111-4222-8333-444455556666' },
+      { kind: 'academy.residency.decide', id: '5a3b9c10-1111-4222-8333-444455556666', decision: 'accepted' },
     ] as const) {
       expect(decodePacket(encodePacket({ ...packet, request }))).toEqual({ ok: true, packet: { ...packet, request } });
     }
@@ -156,5 +158,39 @@ describe('market and academy requests', () => {
     expect(requestReason(vet)).toBe(vet.reason);
     expect(requestReason(freeze)).toBe(freeze.reason);
     expect(requestReason(unfreeze)).toBeNull();
+  });
+});
+
+describe('academy appoint and residency decision requests', () => {
+  const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const id = '5a3b9c10-1111-4222-8333-444455556666';
+  it('are read strictly: exact keys, uuid ids, a known decision, and no free-text note that the approval would not cover', () => {
+    expect(readDeskRequest({ kind: 'academy.ambassador.appoint', userId })).toEqual({ kind: 'academy.ambassador.appoint', userId });
+    expect(readDeskRequest({ kind: 'academy.ambassador.appoint', userId: 'not-a-uuid' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.ambassador.appoint', userId, reason: 'twelve chars!' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.residency.decide', id, decision: 'rejected' })).toEqual({
+      kind: 'academy.residency.decide',
+      id,
+      decision: 'rejected',
+    });
+    expect(readDeskRequest({ kind: 'academy.residency.decide', id, decision: 'withdrawn' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.residency.decide', id, decision: 'accepted', note: 'looks fine to me' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.residency.decide', id: 'x', decision: 'accepted' })).toBeNull();
+  });
+  it('name the person or application in the phrase to type, and say in plain words what they do', () => {
+    expect(confirmPhrase({ kind: 'academy.ambassador.appoint', userId })).toBe('APPOINT AMBASSADOR 9f8e7d6c');
+    expect(confirmPhrase({ kind: 'academy.residency.decide', id, decision: 'accepted' })).toBe('ACCEPT RESIDENCY 5a3b9c10');
+    expect(confirmPhrase({ kind: 'academy.residency.decide', id, decision: 'rejected' })).toBe('REJECT RESIDENCY 5a3b9c10');
+    expect(describeRequest({ kind: 'academy.ambassador.appoint', userId })).toContain(`Appoint ${userId}`);
+    expect(describeRequest({ kind: 'academy.ambassador.appoint', userId })).toContain('pays nothing');
+    expect(describeRequest({ kind: 'academy.residency.decide', id, decision: 'accepted' })).toContain('recorded as accepted');
+    expect(describeRequest({ kind: 'academy.residency.decide', id, decision: 'rejected' })).toContain('recorded as rejected');
+  });
+  it('carry no reason', () => {
+    expect(requestReason({ kind: 'academy.ambassador.appoint', userId })).toBeNull();
+    expect(requestReason({ kind: 'academy.residency.decide', id, decision: 'accepted' })).toBeNull();
+    expect(requestReason({ kind: 'academy.ambassador.freeze', userId, reason: 'conduct complaint under review' })).toBe(
+      'conduct complaint under review',
+    );
   });
 });

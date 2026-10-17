@@ -24,6 +24,10 @@ const SERVICE: Readonly<Record<ReadSpec['module'], string>> = {
   market: 'svc-market',
   agents: 'svc-agents',
   quant: 'svc-quant',
+  token: 'svc-token',
+  protocol: 'svc-protocol',
+  indexer: 'svc-indexer',
+  dex: 'svc-dex',
 };
 
 export async function loadRead(ctx: FounderCallContext, spec: ReadSpec): Promise<ReadOutcome> {

@@ -11,6 +11,7 @@ import * as bankOps from './bank-ops/route';
 import * as p2pOps from './p2p-ops/route';
 import * as academyOps from './academy-ops/route';
 import * as moreOps from './more-ops/route';
+import * as protocolOps from './protocol-ops/route';
 
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
@@ -35,6 +36,7 @@ const readOnly = [
   ['p2p-ops', p2pOps, '/api/p2p-ops'],
   ['academy-ops', academyOps, '/api/academy-ops'],
   ['more-ops', moreOps, '/api/more-ops'],
+  ['protocol-ops', protocolOps, '/api/protocol-ops'],
 ] as const;
 
 describe('route-level module gate', () => {
