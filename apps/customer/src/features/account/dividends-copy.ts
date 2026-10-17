@@ -10,7 +10,7 @@ export const dividendsCopy = defineCopy(
       'A dividend is a payout recorded to your account because you hold a token. Each record would show the date, the asset, the amount and what it was paid for.',
     needTitle: 'What is needed',
     needBody:
-      'A list of your own payouts. That list is not switched on yet, so nothing is shown here and no amounts are guessed. This is not a statement that you were paid nothing.',
+      'A list of your own payouts. That list is not switched on, so nothing is shown here and no amounts are guessed. This is not a statement that you were paid nothing.',
     needToken: 'Token holdings and earning activity are in their own rooms.',
     historyTitle: 'Your dividend history',
     historyLabel: 'Dividend history',
@@ -33,7 +33,7 @@ export const dividendsCopy = defineCopy(
         'Un dividendo es un pago registrado en tu cuenta porque tienes un token. Cada registro mostraría la fecha, el activo, el importe y el motivo del pago.',
       needTitle: 'Qué hace falta',
       needBody:
-        'Una lista de tus propios pagos. Esa lista aún no está activada, así que aquí no se muestra nada y no se inventa ningún importe. Esto no significa que no hayas cobrado nada.',
+        'Una lista de tus propios pagos. Esa lista no está activada, así que aquí no se muestra nada y no se inventa ningún importe. Esto no significa que no hayas cobrado nada.',
       needToken: 'Tus tokens y tu actividad de rendimiento están en sus propias salas.',
       historyTitle: 'Tu historial de dividendos',
       historyLabel: 'Historial de dividendos',
@@ -55,7 +55,7 @@ export const dividendsCopy = defineCopy(
         'Un dividende est un versement enregistré sur votre compte parce que vous détenez un jeton. Chaque ligne indiquerait la date, l’actif, le montant et la raison du versement.',
       needTitle: 'Ce qu’il faut',
       needBody:
-        'Une liste de vos propres versements. Cette liste n’est pas encore activée : rien n’est affiché ici et aucun montant n’est deviné. Cela ne veut pas dire que vous n’avez rien reçu.',
+        'Une liste de vos propres versements. Cette liste n’est pas activée : rien n’est affiché ici et aucun montant n’est deviné. Cela ne veut pas dire que vous n’avez rien reçu.',
       needToken: 'Vos jetons et votre activité de rendement sont dans leurs propres salles.',
       historyTitle: 'Votre historique de dividendes',
       historyLabel: 'Historique des dividendes',

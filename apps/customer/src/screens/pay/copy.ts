@@ -16,7 +16,7 @@ const messages = {
   'Account ID placeholder': 'Paste their Account ID',
   Paste: 'Paste',
   'Paste blocked': 'Your browser didn’t let us read the clipboard. Paste with Ctrl+V or ⌘V instead.',
-  'Handles not on yet': 'Paying by handle isn’t turned on yet. Use their Account ID for now.',
+  'Handles not on yet': 'Paying by handle isn’t turned on. Use their Account ID instead.',
   'Ask for their handle': 'Ask them for their handle. It starts with @.',
   'Ask for their account ID': 'Ask them for their Account ID. They can copy it from Receive.',
   'Checking handle': 'Checking…',

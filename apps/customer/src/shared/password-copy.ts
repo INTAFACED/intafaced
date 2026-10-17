@@ -7,7 +7,7 @@ const messages = {
   tooLong: 'That password is too long. The limit is 72 bytes; accented letters and emoji count as more than one.',
   repeated: 'A password cannot be one character repeated.',
   mismatch: 'The two new passwords do not match.',
-  resetOff: 'Password reset is not switched on yet. Nothing was sent. Contact Support and a person will help you back in.',
+  resetOff: 'Password reset is not switched on. Nothing was sent. Contact Support and a person will help you back in.',
   notConnected: 'The sign-in service is not connected right now. Nothing was changed.',
   badCode: 'That code is not valid or has run out. Ask for a new code.',
   policy: 'That password does not meet the rules. Use at least 12 characters, up to 72 bytes, and not one character repeated.',
@@ -34,7 +34,7 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     repeated: 'Una contraseña no puede ser un solo carácter repetido.',
     mismatch: 'Las dos contraseñas nuevas no coinciden.',
     resetOff:
-      'La recuperación de contraseña aún no está activada. No se envió nada. Contacta con soporte y una persona te ayudará a volver a entrar.',
+      'La recuperación de contraseña no está activada. No se envió nada. Contacta con soporte y una persona te ayudará a volver a entrar.',
     notConnected: 'El servicio de inicio de sesión no está conectado ahora. No se cambió nada.',
     badCode: 'Ese código no es válido o ha caducado. Pide un código nuevo.',
     policy: 'Esa contraseña no cumple las reglas. Usa al menos 12 caracteres, hasta 72 bytes, y no un solo carácter repetido.',
@@ -59,7 +59,7 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     repeated: 'Un mot de passe ne peut pas être un seul caractère répété.',
     mismatch: 'Les deux nouveaux mots de passe ne correspondent pas.',
     resetOff:
-      'La réinitialisation du mot de passe n’est pas encore activée. Rien n’a été envoyé. Contactez l’assistance et une personne vous aidera à vous reconnecter.',
+      'La réinitialisation du mot de passe n’est pas activée. Rien n’a été envoyé. Contactez l’assistance et une personne vous aidera à vous reconnecter.',
     notConnected: 'Le service de connexion n’est pas relié pour le moment. Rien n’a été modifié.',
     badCode: 'Ce code n’est pas valide ou a expiré. Demandez-en un nouveau.',
     policy:

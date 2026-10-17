@@ -8,7 +8,7 @@ const en = {
   required: 'Where your records are',
   unavailable: 'Read-only',
   workers: 'Workers',
-  workersBody: 'The workers the pool lists for you, with their accepted share weight. Registering a worker isn’t open to customers yet.',
+  workersBody: 'The workers the pool lists for you, with their accepted share weight. Registering a worker isn’t open to customers.',
   shares: 'Accepted shares',
   sharesBody: 'Your accepted and rejected shares and their weight, by payout window.',
   credits: 'Credits and payouts',
@@ -39,7 +39,7 @@ const es = {
   unavailable: 'Solo lectura',
   workers: 'Trabajadores',
   workersBody:
-    'Los trabajadores que el pool lista para ti, con el peso de sus aportaciones aceptadas. Registrar un trabajador aún no está abierto a los clientes.',
+    'Los trabajadores que el pool lista para ti, con el peso de sus aportaciones aceptadas. Registrar un trabajador no está abierto a los clientes.',
   shares: 'Aportaciones aceptadas',
   sharesBody: 'Tus aportaciones aceptadas y rechazadas y su peso, por ventana de pago.',
   credits: 'Créditos y pagos',
@@ -70,7 +70,7 @@ const fr = {
   unavailable: 'Lecture seule',
   workers: 'Workers',
   workersBody:
-    'Les workers que le pool liste pour toi, avec le poids de leurs shares acceptées. L’enregistrement d’un worker n’est pas encore ouvert aux clients.',
+    'Les workers que le pool liste pour toi, avec le poids de leurs shares acceptées. L’enregistrement d’un worker n’est pas ouvert aux clients.',
   shares: 'Shares acceptées',
   sharesBody: 'Tes shares acceptées et refusées et leur poids, par fenêtre de paiement.',
   credits: 'Crédits et paiements',

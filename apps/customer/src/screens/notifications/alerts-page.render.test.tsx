@@ -97,7 +97,7 @@ describe('price alerts page', () => {
     reads.markets = markets;
     reads.alerts = ready([]);
     const page = render();
-    expect(page).toContain('Price checks are not connected on this platform yet.');
+    expect(page).toContain('Price checks are not connected on this platform.');
     expect(page).toContain('No alerts yet');
     expect(page).toContain('data-testid="alerts-form"');
     // With markets and alerts loaded the form is usable.

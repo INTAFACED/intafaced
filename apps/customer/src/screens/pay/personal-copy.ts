@@ -61,7 +61,7 @@ const en = {
   reqMakeAnother: 'Make another',
   reqDeviceOnlyTitle: 'Kept on this device only',
   reqDeviceOnlyBody:
-    'INTAFACED doesn’t keep payment requests yet. It can’t tell you when one is paid, remind the other person, or stop a link from being used later. Check Activity to see money that arrived.',
+    'INTAFACED doesn’t keep payment requests. It can’t tell you when one is paid, remind the other person, or stop a link from being used later. Check Activity to see money that arrived.',
   reqListTitle: 'Your requests',
   reqListEmpty: 'You haven’t made a request in this browser yet.',
   reqAnyAmount: 'Any amount',
@@ -84,7 +84,7 @@ const en = {
   reqPayContinue: 'Continue to Send',
   reqActivity: 'View activity',
   // Bills
-  billsReasonTitle: 'Bill pay isn’t connected yet',
+  billsReasonTitle: 'Bill pay isn’t connected',
   billsReasonBody:
     'No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps you will see once it is.',
   stepBiller: 'Choose a biller',
@@ -108,7 +108,7 @@ const en = {
   statusAccepted: 'Accepted by the biller',
   statusPaid: 'Paid',
   // Global
-  globalReasonTitle: 'Sending abroad isn’t connected yet',
+  globalReasonTitle: 'Sending abroad isn’t connected',
   globalReasonBody:
     'No international payment provider or exchange-rate source is connected, so we can’t check a bank account, quote a rate or send. We never estimate a rate. These are the steps you will see once it is.',
   globalStepDestination: 'Choose where it goes',
@@ -193,7 +193,7 @@ const es = {
   reqMakeAnother: 'Crear otra',
   reqDeviceOnlyTitle: 'Guardada solo en este dispositivo',
   reqDeviceOnlyBody:
-    'INTAFACED todavía no guarda las solicitudes de pago. No puede avisarte cuando se pague una, recordárselo a la otra persona ni impedir que se use un enlace más adelante. Mira Actividad para ver el dinero recibido.',
+    'INTAFACED no guarda las solicitudes de pago. No puede avisarte cuando se pague una, recordárselo a la otra persona ni impedir que se use un enlace más adelante. Mira Actividad para ver el dinero recibido.',
   reqListTitle: 'Tus solicitudes',
   reqListEmpty: 'Aún no has creado ninguna solicitud en este navegador.',
   reqAnyAmount: 'Cualquier importe',
@@ -215,7 +215,7 @@ const es = {
   reqPayNote: 'Motivo',
   reqPayContinue: 'Continuar a Enviar',
   reqActivity: 'Ver actividad',
-  billsReasonTitle: 'El pago de facturas aún no está conectado',
+  billsReasonTitle: 'El pago de facturas no está conectado',
   billsReasonBody:
     'No hay una red de emisores ni un servicio de pago de facturas conectado, así que no hay emisores que buscar y no se puede pagar ninguna factura. Nada de esto es un ejemplo: son los pasos que verás cuando lo esté.',
   stepBiller: 'Elige un emisor',
@@ -238,7 +238,7 @@ const es = {
   statusSubmitted: 'Enviada',
   statusAccepted: 'Aceptada por el emisor',
   statusPaid: 'Pagada',
-  globalReasonTitle: 'El envío al extranjero aún no está conectado',
+  globalReasonTitle: 'El envío al extranjero no está conectado',
   globalReasonBody:
     'No hay un proveedor de pagos internacionales ni una fuente de tipos de cambio conectados, así que no podemos comprobar una cuenta bancaria, cotizar un tipo ni enviar. Nunca estimamos un tipo de cambio. Estos son los pasos que verás cuando lo esté.',
   globalStepDestination: 'Elige el destino',
@@ -323,7 +323,7 @@ const fr = {
   reqMakeAnother: 'En créer une autre',
   reqDeviceOnlyTitle: 'Conservée sur cet appareil uniquement',
   reqDeviceOnlyBody:
-    'INTAFACED ne conserve pas encore les demandes de paiement. Il ne peut pas vous dire quand l’une d’elles est payée, relancer l’autre personne ni empêcher l’utilisation d’un lien plus tard. Consultez l’Activité pour voir l’argent reçu.',
+    'INTAFACED ne conserve pas les demandes de paiement. Il ne peut pas vous dire quand l’une d’elles est payée, relancer l’autre personne ni empêcher l’utilisation d’un lien plus tard. Consultez l’Activité pour voir l’argent reçu.',
   reqListTitle: 'Vos demandes',
   reqListEmpty: 'Vous n’avez pas encore créé de demande dans ce navigateur.',
   reqAnyAmount: 'Montant libre',
@@ -345,7 +345,7 @@ const fr = {
   reqPayNote: 'Motif',
   reqPayContinue: 'Continuer vers Envoyer',
   reqActivity: 'Voir l’activité',
-  billsReasonTitle: 'Le paiement de factures n’est pas encore connecté',
+  billsReasonTitle: 'Le paiement de factures n’est pas connecté',
   billsReasonBody:
     'Aucun réseau de facturiers ni service de paiement de factures n’est connecté : il n’y a donc aucun facturier à rechercher et aucune facture ne peut être payée. Rien ici n’est un exemple : ce sont les étapes que vous verrez une fois qu’il le sera.',
   stepBiller: 'Choisir un facturier',
@@ -368,7 +368,7 @@ const fr = {
   statusSubmitted: 'Soumise',
   statusAccepted: 'Acceptée par le facturier',
   statusPaid: 'Payée',
-  globalReasonTitle: 'L’envoi à l’étranger n’est pas encore connecté',
+  globalReasonTitle: 'L’envoi à l’étranger n’est pas connecté',
   globalReasonBody:
     'Aucun prestataire de paiement international ni source de taux de change n’est connecté : nous ne pouvons donc ni vérifier un compte bancaire, ni proposer un taux, ni envoyer. Nous n’estimons jamais un taux. Ce sont les étapes que vous verrez une fois qu’il le sera.',
   globalStepDestination: 'Choisir la destination',

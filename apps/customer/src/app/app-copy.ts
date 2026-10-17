@@ -34,8 +34,8 @@ const messages = {
     'The account service did not answer. Your sign-in is not lost; try again.',
   Retry: 'Retry',
   'Pick an offer to edit': 'Pick an offer to edit',
-  'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.',
+  'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.',
   'Go to my offers': 'Go to my offers',
 } as const;
 
@@ -52,8 +52,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Return to one of the four customer doors.': 'Vuelve a una de las cuatro secciones del cliente.',
     'Return to one of the customer tabs.': 'Vuelve a una de las pestañas del cliente.',
     'Pick an offer to edit': 'Elige una oferta para editar',
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-      'Abre tus ofertas y elige una para revisarla. Cambiar una oferta ya publicada aún no está disponible.',
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+      'Abre tus ofertas y elige una para revisarla. Cambiar una oferta ya publicada no está disponible.',
     'Go to my offers': 'Ir a mis ofertas',
     'Separate team desk': 'Mesa independiente del equipo',
     'Open the operator console': 'Abrir la consola del operador',
@@ -90,8 +90,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Return to one of the four customer doors.': 'Retournez dans l’un des quatre espaces clients.',
     'Return to one of the customer tabs.': 'Retournez dans l’un des onglets clients.',
     'Pick an offer to edit': 'Choisissez une offre à modifier',
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-      'Ouvrez vos offres et choisissez-en une à consulter. Modifier une offre déjà publiée n’est pas encore disponible.',
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+      'Ouvrez vos offres et choisissez-en une à consulter. Modifier une offre déjà publiée n’est pas disponible.',
     'Go to my offers': 'Aller à mes offres',
     'Separate team desk': 'Console séparée de l’équipe',
     'Open the operator console': 'Ouvrir la console opérateur',

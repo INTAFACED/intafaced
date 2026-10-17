@@ -41,7 +41,7 @@ const en = {
   none: 'Not recorded',
   unavailable: 'New withdrawal unavailable',
   unavailableNote:
-    "Sending money out of INTAFACED (to a wallet, card or bank) isn't connected yet. Your existing withdrawals stay visible here.",
+    "Sending money out of INTAFACED (to a wallet, card or bank) isn't connected. Your existing withdrawals stay visible here.",
   back: 'Back to Money',
   invalidId: 'Enter one valid original withdrawal ID.',
   notFound: 'Withdrawal not found',
@@ -82,12 +82,12 @@ const en = {
   rFee: 'Fee',
   rNotChosen: 'Not chosen yet',
   fReview: 'Review withdrawal',
-  fReason: 'This button is off because sending money out of INTAFACED isn’t connected yet.',
+  fReason: 'This button is off because sending money out of INTAFACED isn’t connected.',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
   aLead: 'Keep the wallet addresses you send to, so you can pick one when you withdraw.',
-  aUnavailable: 'Saving addresses is not available yet',
-  aUnavailableNote: 'Sending money out of INTAFACED isn’t connected yet, so addresses can’t be saved or checked. Nothing is stored here.',
+  aUnavailable: 'Saving addresses is not available',
+  aUnavailableNote: 'Sending money out of INTAFACED isn’t connected, so addresses can’t be saved or checked. Nothing is stored here.',
   aTableTitle: 'Saved addresses',
   aColLabel: 'Label',
   aColAsset: 'Asset',
@@ -106,7 +106,7 @@ const en = {
   aNetwork: 'Network',
   aAddress: 'Address',
   aSave: 'Save address',
-  aSaveReason: 'This button is off because saving addresses needs sending money out, which isn’t connected yet.',
+  aSaveReason: 'This button is off because saving addresses needs sending money out, which isn’t connected.',
   aBack: 'Back to Withdraw',
 } as const;
 
@@ -151,7 +151,7 @@ const es = {
   none: 'Sin registrar',
   unavailable: 'Nuevo retiro no disponible',
   unavailableNote:
-    'Enviar dinero fuera de INTAFACED (a una cartera, tarjeta o banco) aún no está conectado. Tus retiros existentes siguen visibles aquí.',
+    'Enviar dinero fuera de INTAFACED (a una cartera, tarjeta o banco) no está conectado. Tus retiros existentes siguen visibles aquí.',
   back: 'Volver a Dinero',
   invalidId: 'Introduce un único ID válido del retiro original.',
   notFound: 'Retiro no encontrado',
@@ -192,13 +192,13 @@ const es = {
   rFee: 'Comisión',
   rNotChosen: 'Aún sin elegir',
   fReview: 'Revisar retiro',
-  fReason: 'Este botón está desactivado porque enviar dinero fuera de INTAFACED aún no está conectado.',
+  fReason: 'Este botón está desactivado porque enviar dinero fuera de INTAFACED no está conectado.',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
   aLead: 'Guarda las direcciones de cartera a las que envías, para elegir una cuando retires.',
-  aUnavailable: 'Guardar direcciones aún no está disponible',
+  aUnavailable: 'Guardar direcciones no está disponible',
   aUnavailableNote:
-    'Enviar dinero fuera de INTAFACED aún no está conectado, así que las direcciones no se pueden guardar ni comprobar. Aquí no se guarda nada.',
+    'Enviar dinero fuera de INTAFACED no está conectado, así que las direcciones no se pueden guardar ni comprobar. Aquí no se guarda nada.',
   aTableTitle: 'Direcciones guardadas',
   aColLabel: 'Etiqueta',
   aColAsset: 'Activo',
@@ -217,7 +217,7 @@ const es = {
   aNetwork: 'Red',
   aAddress: 'Dirección',
   aSave: 'Guardar dirección',
-  aSaveReason: 'Este botón está desactivado porque guardar direcciones necesita enviar dinero fuera, y eso aún no está conectado.',
+  aSaveReason: 'Este botón está desactivado porque guardar direcciones necesita enviar dinero fuera, y eso no está conectado.',
   aBack: 'Volver a Retirar',
 } as const;
 
@@ -262,7 +262,7 @@ const fr = {
   none: 'Non enregistré',
   unavailable: 'Nouveau retrait indisponible',
   unavailableNote:
-    'L’envoi d’argent hors d’INTAFACED (vers un portefeuille, une carte ou une banque) n’est pas encore connecté. Tes retraits existants restent visibles ici.',
+    'L’envoi d’argent hors d’INTAFACED (vers un portefeuille, une carte ou une banque) n’est pas connecté. Tes retraits existants restent visibles ici.',
   back: 'Retour à Argent',
   invalidId: 'Saisis un seul ID valide du retrait original.',
   notFound: 'Retrait introuvable',
@@ -303,13 +303,13 @@ const fr = {
   rFee: 'Frais',
   rNotChosen: 'Pas encore choisi',
   fReview: 'Vérifier le retrait',
-  fReason: 'Ce bouton est désactivé parce que l’envoi d’argent hors d’INTAFACED n’est pas encore connecté.',
+  fReason: 'Ce bouton est désactivé parce que l’envoi d’argent hors d’INTAFACED n’est pas connecté.',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',
   aLead: 'Garde les adresses de portefeuille vers lesquelles tu envoies, pour en choisir une lors d’un retrait.',
-  aUnavailable: 'L’enregistrement d’adresses n’est pas encore disponible',
+  aUnavailable: 'L’enregistrement d’adresses n’est pas disponible',
   aUnavailableNote:
-    'L’envoi d’argent hors d’INTAFACED n’est pas encore connecté : les adresses ne peuvent donc ni être enregistrées ni être vérifiées. Rien n’est stocké ici.',
+    'L’envoi d’argent hors d’INTAFACED n’est pas connecté : les adresses ne peuvent donc ni être enregistrées ni être vérifiées. Rien n’est stocké ici.',
   aTableTitle: 'Adresses enregistrées',
   aColLabel: 'Libellé',
   aColAsset: 'Actif',
@@ -328,7 +328,7 @@ const fr = {
   aNetwork: 'Réseau',
   aAddress: 'Adresse',
   aSave: 'Enregistrer l’adresse',
-  aSaveReason: 'Ce bouton est désactivé parce que l’enregistrement d’adresses nécessite l’envoi d’argent, qui n’est pas encore connecté.',
+  aSaveReason: 'Ce bouton est désactivé parce que l’enregistrement d’adresses nécessite l’envoi d’argent, qui n’est pas connecté.',
   aBack: 'Retour à Retirer',
 } as const;
 

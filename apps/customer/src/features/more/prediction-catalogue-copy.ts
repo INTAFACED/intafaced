@@ -10,8 +10,7 @@ const en = {
   source: 'Result source',
   openEvent: 'Open event',
   review: 'Order review unavailable',
-  reviewBody:
-    'An outcome-specific review and ledger-backed order path are required. This room cannot confirm or send an outcome order yet.',
+  reviewBody: 'An outcome-specific review and ledger-backed order path are required. This room cannot confirm or send an outcome order.',
   support: 'Contact Support →',
   requirements: 'Review requirements',
   unavailable: 'Unavailable',
@@ -42,7 +41,7 @@ const es = {
   openEvent: 'Abrir evento',
   review: 'La revisión de órdenes no está disponible',
   reviewBody:
-    'Se requieren una revisión específica del resultado y una vía de órdenes respaldada por el libro mayor. Esta sala aún no puede confirmar ni enviar una orden de resultados.',
+    'Se requieren una revisión específica del resultado y una vía de órdenes respaldada por el libro mayor. Esta sala no puede confirmar ni enviar una orden de resultados.',
   support: 'Contactar con Soporte →',
   requirements: 'Requisitos de revisión',
   unavailable: 'No disponible',
@@ -74,7 +73,7 @@ const fr = {
   openEvent: 'Ouvrir l’événement',
   review: 'La revue des ordres est indisponible',
   reviewBody:
-    'Une revue propre au résultat et une voie d’ordres adossée au grand livre sont requises. Cette salle ne peut pas encore confirmer ni envoyer d’ordre de résultat.',
+    'Une revue propre au résultat et une voie d’ordres adossée au grand livre sont requises. Cette salle ne peut pas confirmer ni envoyer d’ordre de résultat.',
   support: 'Contacter le support →',
   requirements: 'Exigences de revue',
   unavailable: 'Indisponible',

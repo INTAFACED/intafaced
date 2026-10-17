@@ -43,11 +43,11 @@ const en = {
   chatEmpty: 'No messages yet.',
   chatPickTitle: 'Choose an order',
   chatPickBody:
-    "Your order details open from one of your orders. Pick an order to see its status, payment details and dispute options. Messaging inside an order isn't available yet.",
+    "Your order details open from one of your orders. Pick an order to see its status, payment details and dispute options. Messaging inside an order isn't available.",
   chatPickAction: 'Go to Your orders',
-  chatReasonTitle: 'Order chat isn’t connected yet',
+  chatReasonTitle: 'Order chat isn’t connected',
   chatReasonBody:
-    'No chat service is connected to orders yet, so messages can’t be sent or read here. Use the payment details on this order, and if something goes wrong open a dispute and add your evidence there.',
+    'No chat service is connected to orders, so messages can’t be sent or read here. Use the payment details on this order, and if something goes wrong open a dispute and add your evidence there.',
   chatLabel: 'Message',
   chatPlaceholder: 'Write a message',
   chatSend: 'Send message',
@@ -195,7 +195,7 @@ const en = {
   cpTheirOffers: 'See their offers',
   cpFollow: 'Follow',
   cpBlock: 'Block',
-  cpReason: 'Following and blocking need a contacts service, which isn’t connected yet.',
+  cpReason: 'Following and blocking need a contacts service, which isn’t connected.',
   cpPickTitle: 'Choose a counterparty',
   cpPickBody:
     'A counterparty is the other person in a trade. Open someone from an offer or an order to see their completion rate, release speed, disputes and badges.',
@@ -259,11 +259,11 @@ const es = {
   chatEmpty: 'Aún no hay mensajes.',
   chatPickTitle: 'Elige una orden',
   chatPickBody:
-    'Los detalles de tu orden se abren desde una de tus órdenes. Elige una orden para ver su estado, los datos de pago y las opciones de disputa. La mensajería dentro de una orden aún no está disponible.',
+    'Los detalles de tu orden se abren desde una de tus órdenes. Elige una orden para ver su estado, los datos de pago y las opciones de disputa. La mensajería dentro de una orden no está disponible.',
   chatPickAction: 'Ir a Tus órdenes',
-  chatReasonTitle: 'El chat del pedido aún no está conectado',
+  chatReasonTitle: 'El chat del pedido no está conectado',
   chatReasonBody:
-    'Todavía no hay un servicio de chat conectado a los pedidos, así que aquí no se pueden enviar ni leer mensajes. Usa los datos de pago de este pedido y, si algo sale mal, abre una disputa y añade allí tus pruebas.',
+    'No hay un servicio de chat conectado a los pedidos, así que aquí no se pueden enviar ni leer mensajes. Usa los datos de pago de este pedido y, si algo sale mal, abre una disputa y añade allí tus pruebas.',
   chatLabel: 'Mensaje',
   chatPlaceholder: 'Escribe un mensaje',
   chatSend: 'Enviar mensaje',
@@ -409,7 +409,7 @@ const es = {
   cpTheirOffers: 'Ver sus ofertas',
   cpFollow: 'Seguir',
   cpBlock: 'Bloquear',
-  cpReason: 'Seguir y bloquear requieren un servicio de contactos, que aún no está conectado.',
+  cpReason: 'Seguir y bloquear requieren un servicio de contactos, que no está conectado.',
   cpPickTitle: 'Elige una contraparte',
   cpPickBody:
     'Una contraparte es la otra persona en una operación. Abre a alguien desde una oferta o una orden para ver su tasa de finalización, velocidad de liberación, disputas e insignias.',
@@ -472,11 +472,11 @@ const fr = {
   chatEmpty: 'Aucun message pour l’instant.',
   chatPickTitle: 'Choisissez une commande',
   chatPickBody:
-    'Les détails de votre commande s’ouvrent depuis l’une de vos commandes. Choisissez une commande pour voir son statut, les informations de paiement et les options de litige. La messagerie au sein d’une commande n’est pas encore disponible.',
+    'Les détails de votre commande s’ouvrent depuis l’une de vos commandes. Choisissez une commande pour voir son statut, les informations de paiement et les options de litige. La messagerie au sein d’une commande n’est pas disponible.',
   chatPickAction: 'Aller à Vos commandes',
-  chatReasonTitle: 'Le chat de la commande n’est pas encore connecté',
+  chatReasonTitle: 'Le chat de la commande n’est pas connecté',
   chatReasonBody:
-    'Aucun service de chat n’est encore relié aux commandes : les messages ne peuvent donc être ni envoyés ni lus ici. Utilisez les coordonnées de paiement de cette commande et, en cas de problème, ouvrez un litige et ajoutez-y vos preuves.',
+    'Aucun service de chat n’est relié aux commandes : les messages ne peuvent donc être ni envoyés ni lus ici. Utilisez les coordonnées de paiement de cette commande et, en cas de problème, ouvrez un litige et ajoutez-y vos preuves.',
   chatLabel: 'Message',
   chatPlaceholder: 'Écrivez un message',
   chatSend: 'Envoyer le message',
@@ -626,7 +626,7 @@ const fr = {
   cpTheirOffers: 'Voir ses offres',
   cpFollow: 'Suivre',
   cpBlock: 'Bloquer',
-  cpReason: 'Suivre et bloquer nécessitent un service de contacts, qui n’est pas encore connecté.',
+  cpReason: 'Suivre et bloquer nécessitent un service de contacts, qui n’est pas connecté.',
   cpPickTitle: 'Choisissez une contrepartie',
   cpPickBody:
     'Une contrepartie est l’autre personne d’un échange. Ouvrez quelqu’un depuis une offre ou une commande pour voir son taux de réalisation, sa rapidité de libération, ses litiges et ses badges.',

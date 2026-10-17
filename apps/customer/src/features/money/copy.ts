@@ -141,7 +141,7 @@ const messages = {
   'index.movement.by.asset.and.date': 'Movement by asset and date',
   'index.sign.in.to.see.your.money': 'Sign in to see your Money.',
   'index.a.verified.company.ledger.owner.and.company':
-    'A verified company account and company balances are not connected yet. Personal amounts can’t be shown as company money.',
+    'A verified company account and company balances are not connected. Personal amounts can’t be shown as company money.',
   'index.available.projection.only': 'Available balance only',
   'index.user.ledger.quantity': 'Account quantity',
   'index.amounts.hidden': 'Amounts hidden',
@@ -584,7 +584,7 @@ const messages = {
   'rooms.company.money': 'Company money',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Company balance and write authority are unavailable',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Company accounts are not connected yet, so payments here come from your personal space. Personal amounts can’t be labelled as company funds.',
+    'Company accounts are not connected, so payments here come from your personal space. Personal amounts can’t be labelled as company funds.',
   'rooms.creating.a.company.bank.record.adding.members':
     'Creating a company bank record, adding members, proposing transfers, approval decisions and payroll stay unavailable until those dependencies are connected.',
   'rooms.account.identity.and.verification': 'Account identity and verification ↗',
@@ -817,7 +817,7 @@ const es = {
   'index.movement.by.asset.and.date': 'Movimientos por activo y fecha',
   'index.sign.in.to.see.your.money': 'Inicia sesión para consultar tu dinero.',
   'index.a.verified.company.ledger.owner.and.company':
-    'Aún no hay una cuenta de empresa verificada ni saldos de empresa conectados. Los importes personales no pueden mostrarse como dinero de la empresa.',
+    'No hay una cuenta de empresa verificada ni saldos de empresa conectados. Los importes personales no pueden mostrarse como dinero de la empresa.',
   'index.available.projection.only': 'Solo saldo disponible',
   'index.user.ledger.quantity': 'Cantidad en la cuenta',
   'index.amounts.hidden': 'Importes ocultos',
@@ -1278,7 +1278,7 @@ const es = {
   'rooms.company.money': 'Dinero de la empresa',
   'rooms.company.balance.and.write.authority.are.unavailable': 'El saldo empresarial y la autoridad de escritura no están disponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Las cuentas de empresa aún no están conectadas, así que los pagos de aquí salen de tu espacio personal. Los importes personales no pueden etiquetarse como fondos de la empresa.',
+    'Las cuentas de empresa no están conectadas, así que los pagos de aquí salen de tu espacio personal. Los importes personales no pueden etiquetarse como fondos de la empresa.',
   'rooms.creating.a.company.bank.record.adding.members':
     'La creación de registros bancarios empresariales, la incorporación de miembros, las propuestas de transferencia, las decisiones de aprobación y las nóminas siguen sin estar disponibles hasta que se conecten esas dependencias.',
   'rooms.account.identity.and.verification': 'Identidad y verificación de la cuenta ↗',
@@ -1511,7 +1511,7 @@ const fr = {
   'index.movement.by.asset.and.date': 'Mouvements par actif et date',
   'index.sign.in.to.see.your.money': 'Connecte-toi pour consulter ton argent.',
   'index.a.verified.company.ledger.owner.and.company':
-    'Un compte d’entreprise vérifié et des soldes d’entreprise ne sont pas encore connectés. Les montants personnels ne peuvent pas être affichés comme de l’argent de l’entreprise.',
+    'Un compte d’entreprise vérifié et des soldes d’entreprise ne sont pas connectés. Les montants personnels ne peuvent pas être affichés comme de l’argent de l’entreprise.',
   'index.available.projection.only': 'Solde disponible uniquement',
   'index.user.ledger.quantity': 'Quantité du compte',
   'index.amounts.hidden': 'Montants masqués',
@@ -1973,7 +1973,7 @@ const fr = {
   'rooms.company.money': 'Argent de l’entreprise',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Le solde de l’entreprise et l’autorité d’écriture sont indisponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Les comptes d’entreprise ne sont pas encore connectés : les paiements ici sont prélevés sur ton espace personnel. Les montants personnels ne peuvent pas être présentés comme des fonds d’entreprise.',
+    'Les comptes d’entreprise ne sont pas connectés : les paiements ici sont prélevés sur ton espace personnel. Les montants personnels ne peuvent pas être présentés comme des fonds d’entreprise.',
   'rooms.creating.a.company.bank.record.adding.members':
     'La création d’enregistrements bancaires d’entreprise, l’ajout de membres, les propositions de virement, les décisions d’approbation et la paie restent indisponibles jusqu’à la connexion de ces dépendances.',
   'rooms.account.identity.and.verification': 'Identité et vérification du compte ↗',

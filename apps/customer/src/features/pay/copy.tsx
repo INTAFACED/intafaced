@@ -548,7 +548,7 @@ const messages = {
   reviewCounterparty: 'Review counterparty →',
   newOrderReviewIsUnavailable: 'New order review is unavailable',
   anAuthoritativeFeeAndReservationPreviewIs:
-    'The fee and reservation preview isn’t available, and payment details can’t be stored safely yet. A new order can’t be reviewed here, so none is placed.',
+    'The fee and reservation preview isn’t available, and payment details can’t be stored safely. A new order can’t be reviewed here, so none is placed.',
   offerPublicationIsUnavailable: 'Offer publication is unavailable',
   theP2pServiceRefusesLiveOfferCreation:
     'New offers can’t be published until payment details can be stored safely. You can still view and manage existing offers. A published offer can’t be edited; creating a new one doesn’t update the old one.',
@@ -693,10 +693,10 @@ const messages = {
   moveMoneyWithAClearRecipientAnd: 'Move money with a clear recipient and an exact amount.',
   paymentRequestsAreNotConnected: 'Payment requests are not connected',
   thereIsNoPersonalRequestContractOr:
-    'Requests can’t be shared as a link yet. You can share your account ID from Receive for a transfer inside INTAFACED.',
+    'Requests can’t be shared as a link. You can share your account ID from Receive for a transfer inside INTAFACED.',
   billPaymentRailIsNotConnected: 'Bill payment rail is not connected',
   billerDiscoveryInvoiceValidationAndABill:
-    'Biller discovery, invoice validation and a bill payment rail are not available. No bill can be paid here yet. Keep paying the bill directly with your provider.',
+    'Biller discovery, invoice validation and a bill payment rail are not available. No bill can be paid here. Keep paying the bill directly with your provider.',
   internationalBankSendingIsNotConnected: 'International bank sending is not connected',
   theCorridorRecipientBankValidationExchangeQuote:
     'The corridor, recipient bank validation, exchange quote and transfer rail are missing. No bank account or transfer estimate is requested until those contracts are available.',
@@ -727,7 +727,7 @@ const messages = {
   reviewTransfer: 'Review transfer',
   originalTransferIsUnresolved: 'Original transfer is unresolved',
   aPreviousTransferHasNotBeenConfirmed:
-    'The earlier transfer hasn’t been confirmed. Keep its ID. A new send stays locked until the outcome is known. Transfer lookup isn’t connected yet; check Money activity or contact Support with this ID.',
+    'The earlier transfer hasn’t been confirmed. Keep its ID. A new send stays locked until the outcome is known. Transfer lookup isn’t connected; check Money activity or contact Support with this ID.',
   checkMoneyActivity: 'Check Money activity',
   contactSupport: 'Contact Support',
   originalTransferId: 'Original transfer ID:',
@@ -1398,7 +1398,7 @@ const es = {
   reviewCounterparty: 'Revisar contraparte →',
   newOrderReviewIsUnavailable: 'La revisión de nuevas órdenes no está disponible',
   anAuthoritativeFeeAndReservationPreviewIs:
-    'La vista previa de comisión y reserva no está disponible, y los datos de pago aún no se pueden guardar de forma segura. Aquí no se puede revisar una orden nueva, así que no se hace ninguna.',
+    'La vista previa de comisión y reserva no está disponible, y los datos de pago no se pueden guardar de forma segura. Aquí no se puede revisar una orden nueva, así que no se hace ninguna.',
   offerPublicationIsUnavailable: 'La publicación de ofertas no está disponible',
   theP2pServiceRefusesLiveOfferCreation:
     'No se pueden publicar ofertas nuevas hasta que los datos de pago se puedan guardar de forma segura. Aún puedes ver y gestionar las ofertas existentes. Una oferta publicada no se puede editar; crear otra no actualiza la anterior.',
@@ -1543,10 +1543,10 @@ const es = {
   moveMoneyWithAClearRecipientAnd: 'Mover dinero con un destinatario claro y un importe exacto.',
   paymentRequestsAreNotConnected: 'Las solicitudes de pago no están conectadas',
   thereIsNoPersonalRequestContractOr:
-    'Aún no se pueden compartir solicitudes como enlace. Puedes compartir el ID de tu cuenta desde Recibir para una transferencia dentro de INTAFACED.',
+    'No se pueden compartir solicitudes como enlace. Puedes compartir el ID de tu cuenta desde Recibir para una transferencia dentro de INTAFACED.',
   billPaymentRailIsNotConnected: 'El canal de pago de facturas no está conectado',
   billerDiscoveryInvoiceValidationAndABill:
-    'No están disponibles la búsqueda de emisores de facturas, la validación de facturas ni un canal de pago de facturas. Todavía no se puede pagar ninguna factura aquí. Sigue pagando directamente con tu proveedor.',
+    'No están disponibles la búsqueda de emisores de facturas, la validación de facturas ni un canal de pago de facturas. No se puede pagar ninguna factura aquí. Sigue pagando directamente con tu proveedor.',
   internationalBankSendingIsNotConnected: 'El envío a bancos internacionales no está conectado',
   theCorridorRecipientBankValidationExchangeQuote:
     'Faltan el corredor, la validación del banco destinatario, la cotización de cambio y el canal de transferencia. No se solicita ninguna cuenta bancaria ni estimación de transferencia hasta que estos contratos estén disponibles.',
@@ -1577,7 +1577,7 @@ const es = {
   reviewTransfer: 'Revisar transferencia',
   originalTransferIsUnresolved: 'La transferencia original sigue sin resolverse',
   aPreviousTransferHasNotBeenConfirmed:
-    'La transferencia anterior no se ha confirmado. Guarda su ID. Un nuevo envío sigue bloqueado hasta que se conozca el resultado. La consulta de transferencias aún no está conectada; revisa la actividad de Dinero o contacta con Soporte con este ID.',
+    'La transferencia anterior no se ha confirmado. Guarda su ID. Un nuevo envío sigue bloqueado hasta que se conozca el resultado. La consulta de transferencias no está conectada; revisa la actividad de Dinero o contacta con Soporte con este ID.',
   checkMoneyActivity: 'Consultar actividad de Money',
   contactSupport: 'Contactar con Support',
   originalTransferId: 'ID de la transferencia original:',
@@ -2250,7 +2250,7 @@ const fr = {
   reviewCounterparty: 'Vérifier la contrepartie →',
   newOrderReviewIsUnavailable: 'La vérification de nouveaux ordres est indisponible',
   anAuthoritativeFeeAndReservationPreviewIs:
-    'L’aperçu des frais et de la réservation n’est pas disponible, et les informations de paiement ne peuvent pas encore être stockées en sécurité. Une nouvelle commande ne peut pas être vérifiée ici : aucune n’est passée.',
+    'L’aperçu des frais et de la réservation n’est pas disponible, et les informations de paiement ne peuvent pas être stockées en sécurité. Une nouvelle commande ne peut pas être vérifiée ici : aucune n’est passée.',
   offerPublicationIsUnavailable: 'La publication d’offres est indisponible',
   theP2pServiceRefusesLiveOfferCreation:
     'Aucune nouvelle offre ne peut être publiée tant que les informations de paiement ne peuvent pas être stockées en sécurité. Vous pouvez toujours consulter et gérer les offres existantes. Une offre publiée ne peut pas être modifiée ; en créer une nouvelle ne met pas l’ancienne à jour.',
@@ -2395,10 +2395,10 @@ const fr = {
   moveMoneyWithAClearRecipientAnd: 'Déplacez de l’argent avec un destinataire clair et un montant exact.',
   paymentRequestsAreNotConnected: 'Les demandes de paiement ne sont pas connectées',
   thereIsNoPersonalRequestContractOr:
-    'Les demandes ne peuvent pas encore être partagées sous forme de lien. Vous pouvez partager l’ID de votre compte depuis Recevoir pour un virement au sein d’INTAFACED.',
+    'Les demandes ne peuvent pas être partagées sous forme de lien. Vous pouvez partager l’ID de votre compte depuis Recevoir pour un virement au sein d’INTAFACED.',
   billPaymentRailIsNotConnected: 'Le canal de paiement des factures n’est pas connecté',
   billerDiscoveryInvoiceValidationAndABill:
-    'La recherche de fournisseurs de factures, la validation des factures et un canal de paiement des factures sont indisponibles. Aucune facture ne peut encore être payée ici. Continuez à payer directement auprès de votre fournisseur.',
+    'La recherche de fournisseurs de factures, la validation des factures et un canal de paiement des factures sont indisponibles. Aucune facture ne peut être payée ici. Continuez à payer directement auprès de votre fournisseur.',
   internationalBankSendingIsNotConnected: 'L’envoi bancaire international n’est pas connecté',
   theCorridorRecipientBankValidationExchangeQuote:
     'Le corridor, la validation de la banque destinataire, le devis de change et le canal de transfert sont absents. Aucun compte bancaire ni aucune estimation de transfert n’est demandé tant que ces contrats ne sont pas disponibles.',
@@ -2429,7 +2429,7 @@ const fr = {
   reviewTransfer: 'Vérifier le transfert',
   originalTransferIsUnresolved: 'Le transfert initial reste non résolu',
   aPreviousTransferHasNotBeenConfirmed:
-    'Le virement précédent n’a pas été confirmé. Conservez son ID. Un nouvel envoi reste verrouillé tant que le résultat n’est pas connu. La recherche de virement n’est pas encore connectée ; consultez l’activité de Money ou contactez le Support avec cet ID.',
+    'Le virement précédent n’a pas été confirmé. Conservez son ID. Un nouvel envoi reste verrouillé tant que le résultat n’est pas connu. La recherche de virement n’est pas connectée ; consultez l’activité de Money ou contactez le Support avec cet ID.',
   checkMoneyActivity: 'Consulter l’activité de Money',
   contactSupport: 'Contacter Support',
   originalTransferId: 'ID du transfert initial :',

@@ -1,7 +1,7 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
-  lead: 'Set approval rules on your own accounts: a second person approves payments at or above a limit. Registered company accounts need business verification, which isn’t connected yet.',
+  lead: 'Set approval rules on your own accounts: a second person approves payments at or above a limit. Registered company accounts need business verification, which isn’t connected.',
   openTitle: 'Set up approvals',
   openLead: 'Choose a currency and the amount from which a payment on your accounts needs a second person.',
   openButton: 'Set up approvals',
@@ -25,7 +25,7 @@ const en = {
   sendAmount: 'Amount',
   sendNoSpaces: 'You need at least two accounts in this currency to move money between them.',
   sendNote: 'Below the threshold the payment goes straight through. At or above it, the money is set aside and a teammate approves it.',
-  sendReasonOther: 'Paying someone outside your own accounts needs their receiving account, and there is no way to look one up yet.',
+  sendReasonOther: 'Paying someone outside your own accounts needs their receiving account, and there is no way to look one up.',
   addMember: 'Add a teammate',
   addMemberTitle: 'Add a teammate to {name}',
   addMemberRole: 'Role',
@@ -35,10 +35,10 @@ const en = {
   addMemberSubmit: 'Add teammate',
   addMemberChoose: 'Find the person by their @handle, then choose a role.',
   membersTitle: 'Team',
-  membersReason: 'The list of teammates and their roles is not available yet. You can still add or change a teammate above.',
+  membersReason: 'The list of teammates and their roles is not available. You can still add or change a teammate above.',
   payroll: 'Run payroll',
   payrollReason:
-    'Payroll pays many people at once and needs each person’s receiving account. There is no way to look those up from a handle yet, so payroll is not available.',
+    'Payroll pays many people at once and needs each person’s receiving account. There is no way to look those up from a handle, so payroll is not available.',
   approvalsTitle: 'Waiting for approval',
   approvalsLead: 'Payments under these rules that are waiting on a decision.',
   approvalsEmpty: 'Nothing is waiting for approval',
@@ -76,7 +76,7 @@ const en = {
   makerTeammate: 'A teammate · ref {ref}',
   destinationLabel: 'Receiving account',
   destinationUnnamed: 'Account {ref}',
-  approveBlocked: 'We can’t show who owns the receiving account yet, so approving is turned off to protect you.',
+  approveBlocked: 'We can’t show who owns the receiving account, so approving is turned off to protect you.',
   roleNote: 'Only administrators and checkers can approve or reject. If you are a maker, ask a teammate.',
   adminCancel: 'Cancel (administrator)',
   adminCancelNote: 'Only an administrator can cancel a teammate’s proposal.',
@@ -85,7 +85,7 @@ const en = {
   outcomePosted: 'Sent straight away',
 } as const;
 const es = {
-  lead: 'Define reglas de aprobación en tus propias cuentas: una segunda persona aprueba los pagos a partir de un límite. Las cuentas de empresa registradas necesitan verificación de empresa, que todavía no está conectada.',
+  lead: 'Define reglas de aprobación en tus propias cuentas: una segunda persona aprueba los pagos a partir de un límite. Las cuentas de empresa registradas necesitan verificación de empresa, que no está conectada.',
   openTitle: 'Configurar aprobaciones',
   openLead: 'Elige una moneda y el importe a partir del cual un pago de tus cuentas necesita a una segunda persona.',
   openButton: 'Configurar aprobaciones',
@@ -109,7 +109,7 @@ const es = {
   sendAmount: 'Importe',
   sendNoSpaces: 'Necesitas al menos dos cuentas en esta moneda para mover dinero entre ellas.',
   sendNote: 'Por debajo del umbral el pago sale directamente. Desde el umbral, el dinero se aparta y un compañero lo aprueba.',
-  sendReasonOther: 'Pagar a alguien fuera de tus cuentas necesita su cuenta receptora, y todavía no hay forma de buscarla.',
+  sendReasonOther: 'Pagar a alguien fuera de tus cuentas necesita su cuenta receptora, y no hay forma de buscarla.',
   addMember: 'Añadir un compañero',
   addMemberTitle: 'Añadir un compañero a {name}',
   addMemberRole: 'Rol',
@@ -119,10 +119,10 @@ const es = {
   addMemberSubmit: 'Añadir compañero',
   addMemberChoose: 'Busca a la persona por su @usuario y elige un rol.',
   membersTitle: 'Equipo',
-  membersReason: 'La lista de compañeros y sus roles aún no está disponible. Aun así puedes añadir o cambiar un compañero arriba.',
+  membersReason: 'La lista de compañeros y sus roles no está disponible. Aun así puedes añadir o cambiar un compañero arriba.',
   payroll: 'Pagar nóminas',
   payrollReason:
-    'La nómina paga a muchas personas a la vez y necesita la cuenta receptora de cada una. Todavía no hay forma de buscarlas por usuario, así que la nómina no está disponible.',
+    'La nómina paga a muchas personas a la vez y necesita la cuenta receptora de cada una. No hay forma de buscarlas por usuario, así que la nómina no está disponible.',
   approvalsTitle: 'Pendientes de aprobación',
   approvalsLead: 'Pagos de estas reglas que esperan una decisión.',
   approvalsEmpty: 'No hay nada pendiente de aprobación',
@@ -160,8 +160,7 @@ const es = {
   makerTeammate: 'Un compañero · ref. {ref}',
   destinationLabel: 'Cuenta receptora',
   destinationUnnamed: 'Cuenta {ref}',
-  approveBlocked:
-    'Todavía no podemos mostrar quién es el titular de la cuenta receptora, así que aprobar está desactivado para protegerte.',
+  approveBlocked: 'No podemos mostrar quién es el titular de la cuenta receptora, así que aprobar está desactivado para protegerte.',
   roleNote: 'Solo los administradores y revisores pueden aprobar o rechazar. Si eres emisor, pide a un compañero.',
   adminCancel: 'Cancelar (administrador)',
   adminCancelNote: 'Solo un administrador puede cancelar la propuesta de un compañero.',
@@ -170,7 +169,7 @@ const es = {
   outcomePosted: 'Enviado de inmediato',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
-  lead: 'Définissez des règles d’approbation sur vos propres comptes : une seconde personne approuve les paiements à partir d’un plafond. Les comptes d’entreprise enregistrés demandent une vérification d’entreprise, pas encore connectée.',
+  lead: 'Définissez des règles d’approbation sur vos propres comptes : une seconde personne approuve les paiements à partir d’un plafond. Les comptes d’entreprise enregistrés demandent une vérification d’entreprise, non connectée.',
   openTitle: 'Configurer les approbations',
   openLead: 'Choisissez une devise et le montant à partir duquel un paiement de vos comptes exige une seconde personne.',
   openButton: 'Configurer les approbations',
@@ -194,7 +193,7 @@ const fr = {
   sendAmount: 'Montant',
   sendNoSpaces: 'Il faut au moins deux comptes dans cette devise pour déplacer de l’argent entre eux.',
   sendNote: 'En dessous du seuil, le paiement part directement. À partir du seuil, l’argent est mis de côté et un collègue l’approuve.',
-  sendReasonOther: 'Payer quelqu’un en dehors de vos comptes demande son compte de réception, et on ne peut pas encore le rechercher.',
+  sendReasonOther: 'Payer quelqu’un en dehors de vos comptes demande son compte de réception, et on ne peut pas le rechercher.',
   addMember: 'Ajouter un collègue',
   addMemberTitle: 'Ajouter un collègue à {name}',
   addMemberRole: 'Rôle',
@@ -205,10 +204,10 @@ const fr = {
   addMemberChoose: 'Trouvez la personne par son @identifiant, puis choisissez un rôle.',
   membersTitle: 'Équipe',
   membersReason:
-    'La liste des collègues et de leurs rôles n’est pas encore disponible. Vous pouvez quand même en ajouter ou en modifier un ci-dessus.',
+    'La liste des collègues et de leurs rôles n’est pas disponible. Vous pouvez quand même en ajouter ou en modifier un ci-dessus.',
   payroll: 'Lancer la paie',
   payrollReason:
-    'La paie paie plusieurs personnes à la fois et demande le compte de réception de chacune. On ne peut pas encore les retrouver par identifiant : la paie n’est donc pas disponible.',
+    'La paie paie plusieurs personnes à la fois et demande le compte de réception de chacune. On ne peut pas les retrouver par identifiant : la paie n’est donc pas disponible.',
   approvalsTitle: 'En attente d’approbation',
   approvalsLead: 'Paiements de ces règles qui attendent une décision.',
   approvalsEmpty: 'Rien n’attend d’approbation',
@@ -246,8 +245,7 @@ const fr = {
   makerTeammate: 'Un collègue · réf. {ref}',
   destinationLabel: 'Compte de réception',
   destinationUnnamed: 'Compte {ref}',
-  approveBlocked:
-    'Nous ne pouvons pas encore montrer qui possède le compte de réception : l’approbation est désactivée pour vous protéger.',
+  approveBlocked: 'Nous ne pouvons pas montrer qui possède le compte de réception : l’approbation est désactivée pour vous protéger.',
   roleNote: 'Seuls les administrateurs et approbateurs peuvent approuver ou refuser. Si vous êtes émetteur, demandez à un collègue.',
   adminCancel: 'Annuler (administrateur)',
   adminCancelNote: 'Seul un administrateur peut annuler la proposition d’un collègue.',

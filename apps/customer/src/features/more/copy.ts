@@ -290,7 +290,7 @@ const messages = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'A customer-owned participation read and ledger-backed subscription/allocation recipes are needed before an amount or order state can be shown.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'Asset issuance belongs to the chain plane. INTACHAIN is approved to build but not running yet, so this room cannot deploy a token, predict a live address, sign calldata or present a usable factory.',
+    'Asset issuance belongs to the chain plane. INTACHAIN is approved to build but not running, so this room cannot deploy a token, predict a live address, sign calldata or present a usable factory.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'The existing template is explicitly unaudited. Compiler artifacts do not establish an audit or permission to launch.',
   'availabilityrooms.launch.overview': 'Launch overview',
@@ -556,9 +556,9 @@ const messages = {
   'quant.simulated.no.live.trading.authority': 'Simulated · no live trading authority',
   'quant.strategy.sandbox': 'Strategy sandbox',
   'quant.isolate': 'The strategy runner is connected.',
-  'quant.runner.off': 'The strategy runner is not connected yet, so simulations can’t run.',
+  'quant.runner.off': 'The strategy runner is not connected, so simulations can’t run.',
   'quant.trade.only.vault': "Trade-only exchange access for strategies is set up (it can't withdraw).",
-  'quant.exchange.off': 'Exchange access for strategies is not set up yet.',
+  'quant.exchange.off': 'Exchange access for strategies is not set up.',
   'quant.review.simulated.run': 'Review simulated run',
   'quant.run.simulation': 'Run simulation',
   'quant.simulation.received': 'Simulation received',
@@ -820,11 +820,11 @@ const messages = {
   'agents.product.boundaries': 'Product boundaries',
   'agents.a.spend.cap.or.its.fee.asset': 'A spend cap or its fee asset is unavailable',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'Tool runs need a tier plan that isn’t published yet, and you can’t set your own, so tool runs stay unavailable.',
+    'Tool runs need a tier plan that isn’t published, and you can’t set your own, so tool runs stay unavailable.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'Signal ranking also requires a sealed input law and tier matrix. Neither is published through a customer-owned read. No quotes, ranking recipe, or signal count is invented.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'This needs published thresholds, a minimum sample size, an approved list of payment routes and your merchant metrics. None of these can be set from here yet.',
+    'This needs published thresholds, a minimum sample size, an approved list of payment routes and your merchant metrics. None of these can be set from here.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Leader data must come from the live source with an approved list. Profit and loss you type in isn’t accepted. Copy settings and real leader data are on Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
@@ -1220,7 +1220,7 @@ const es = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'Se necesitan una consulta de participación propia del cliente y operaciones de suscripción y asignación respaldadas por el libro contable antes de mostrar un importe o estado de orden.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'La emisión de activos pertenece al plano de cadena. INTACHAIN está aprobado para construirse pero aún no está en funcionamiento, por lo que esta sala no puede desplegar un token, predecir una dirección activa, firmar calldata ni presentar una fábrica utilizable.',
+    'La emisión de activos pertenece al plano de cadena. INTACHAIN está aprobado para construirse pero no está en funcionamiento, por lo que esta sala no puede desplegar un token, predecir una dirección activa, firmar calldata ni presentar una fábrica utilizable.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'La plantilla existente no está auditada, de forma explícita. Los artefactos del compilador no acreditan una auditoría ni permiso para lanzar.',
   'availabilityrooms.launch.overview': 'Vista general de Launch',
@@ -1499,9 +1499,9 @@ const es = {
   'quant.simulated.no.live.trading.authority': 'Simulado · sin autoridad de trading real',
   'quant.strategy.sandbox': 'Entorno de pruebas de estrategias',
   'quant.isolate': 'El ejecutor de estrategias está conectado.',
-  'quant.runner.off': 'El ejecutor de estrategias aún no está conectado, así que no se pueden ejecutar simulaciones.',
+  'quant.runner.off': 'El ejecutor de estrategias no está conectado, así que no se pueden ejecutar simulaciones.',
   'quant.trade.only.vault': 'El acceso al mercado solo para operar está configurado para las estrategias (no puede retirar fondos).',
-  'quant.exchange.off': 'El acceso al mercado para las estrategias aún no está configurado.',
+  'quant.exchange.off': 'El acceso al mercado para las estrategias no está configurado.',
   'quant.review.simulated.run': 'Revisar ejecución simulada',
   'quant.run.simulation': 'Ejecutar simulación',
   'quant.simulation.received': 'Simulación recibida',
@@ -1772,11 +1772,11 @@ const es = {
   'agents.product.boundaries': 'Límites del producto',
   'agents.a.spend.cap.or.its.fee.asset': 'No está disponible un límite de gasto o su activo de comisión',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'Las ejecuciones de herramientas necesitan un plan de niveles que aún no está publicado, y no puedes definir el tuyo, así que siguen sin estar disponibles.',
+    'Las ejecuciones de herramientas necesitan un plan de niveles que no está publicado, y no puedes definir el tuyo, así que siguen sin estar disponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'La clasificación de señales también requiere reglas de entrada selladas y una matriz de niveles. Ninguna se publica mediante una consulta propia del cliente. No se inventan cotizaciones, reglas de clasificación ni recuentos de señales.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'Esto necesita umbrales publicados, un tamaño mínimo de muestra, una lista aprobada de vías de pago y tus métricas de comercio. Por ahora no se puede definir nada de esto desde aquí.',
+    'Esto necesita umbrales publicados, un tamaño mínimo de muestra, una lista aprobada de vías de pago y tus métricas de comercio. No se puede definir nada de esto desde aquí.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Los datos de líderes deben venir de la fuente en vivo con una lista aprobada. No se acepta el resultado que escribas a mano. Los ajustes de copia y los datos reales de líderes están en Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
@@ -2176,7 +2176,7 @@ const fr = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'Une consultation de la participation propre au client et des opérations de souscription et d’allocation adossées au grand livre sont nécessaires avant d’afficher un montant ou un état d’ordre.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'L’émission d’actifs relève du plan de chaîne. INTACHAIN est approuvé pour la construction mais ne fonctionne pas encore ; ce salon ne peut donc ni déployer un token, ni prédire une adresse active, ni signer du calldata, ni présenter une factory utilisable.',
+    'L’émission d’actifs relève du plan de chaîne. INTACHAIN est approuvé pour la construction mais ne fonctionne pas ; ce salon ne peut donc ni déployer un token, ni prédire une adresse active, ni signer du calldata, ni présenter une factory utilisable.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'Le modèle existant est explicitement non audité. Les artefacts du compilateur ne constituent ni un audit ni une autorisation de lancement.',
   'availabilityrooms.launch.overview': 'Vue d’ensemble de Launch',
@@ -2455,9 +2455,9 @@ const fr = {
   'quant.simulated.no.live.trading.authority': 'Simulé · aucune autorité de trading réel',
   'quant.strategy.sandbox': 'Bac à sable de stratégies',
   'quant.isolate': 'L’exécuteur de stratégies est connecté.',
-  'quant.runner.off': 'L’exécuteur de stratégies n’est pas encore connecté : les simulations ne peuvent pas s’exécuter.',
+  'quant.runner.off': 'L’exécuteur de stratégies n’est pas connecté : les simulations ne peuvent pas s’exécuter.',
   'quant.trade.only.vault': 'L’accès au marché réservé au trading est configuré pour les stratégies (il ne peut pas retirer de fonds).',
-  'quant.exchange.off': 'L’accès au marché pour les stratégies n’est pas encore configuré.',
+  'quant.exchange.off': 'L’accès au marché pour les stratégies n’est pas configuré.',
   'quant.review.simulated.run': 'Vérifier l’exécution simulée',
   'quant.run.simulation': 'Exécuter la simulation',
   'quant.simulation.received': 'Simulation reçue',
@@ -2727,11 +2727,11 @@ const fr = {
   'agents.product.boundaries': 'Limites du produit',
   'agents.a.spend.cap.or.its.fee.asset': 'Un plafond de dépenses ou son actif de frais est indisponible',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'Les exécutions d’outils nécessitent un plan de niveaux qui n’est pas encore publié, et tu ne peux pas définir le tien : elles restent donc indisponibles.',
+    'Les exécutions d’outils nécessitent un plan de niveaux qui n’est pas publié, et tu ne peux pas définir le tien : elles restent donc indisponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'Le classement des signaux nécessite également des règles d’entrée scellées et une matrice de niveaux. Aucun des deux n’est publié via une consultation propre au client. Aucun cours, aucune règle de classement ni aucun nombre de signaux n’est inventé.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'Cela nécessite des seuils publiés, une taille d’échantillon minimale, une liste approuvée de voies de paiement et tes indicateurs de commerçant. Rien de tout cela ne peut encore être défini ici.',
+    'Cela nécessite des seuils publiés, une taille d’échantillon minimale, une liste approuvée de voies de paiement et tes indicateurs de commerçant. Rien de tout cela ne peut être défini ici.',
   'agents.leader.fixtures.must.come.from.the.live':
     'Les données des leaders doivent provenir de la source en direct avec une liste approuvée. Un résultat saisi à la main n’est pas accepté. Les réglages de copie et les vraies données des leaders se trouvent dans Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
