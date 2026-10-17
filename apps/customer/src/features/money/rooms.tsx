@@ -29,7 +29,7 @@ import { bankReads, bankWrites, type poolSchema, type positionSchema } from './c
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
 import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
-import { loanCopy } from './loan-copy';
+import { loanCopy, loanStatusLabel } from './loan-copy';
 import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
 import { standingCopy } from './standing-copy';
@@ -1104,7 +1104,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                           <Text k="rooms.loan" />
                         </h3>
                         <p>
-                          {loan.status}
+                          {loanStatusLabel(loan.status)}
                           {loan.marginCalledAt && copyText('rooms.margin.called', { value1: date(loan.marginCalledAt) })}
                         </p>
                       </div>
@@ -1150,7 +1150,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.debtAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.principal.at.last.read'), amount(loan.outstandingPrincipal, loan.debtAssetId)],
@@ -1174,7 +1174,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.collateralAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                             ],
@@ -1200,7 +1200,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             fields: [positiveMoney(loan.collateralAssetId)],
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
@@ -1226,7 +1226,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             preflight: currentLoanPreflight(api, loan, 'close', limit),
                             facts: [
                               [loanCopy.t('loan'), loan.id],
-                              [loanCopy.t('status'), loan.status],
+                              [loanCopy.t('status'), loanStatusLabel(loan.status)],
                               [loanCopy.t('debtAsset'), loan.debtAssetId],
                               [loanCopy.t('collateralAsset'), loan.collateralAssetId],
                               [copyText('rooms.collateral.at.last.read'), amount(loan.collateral, loan.collateralAssetId)],
