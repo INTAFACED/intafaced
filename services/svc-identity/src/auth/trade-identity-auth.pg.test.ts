@@ -4,10 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { SESSION_SCOPES } from '@intafaced/auth';
+import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { createTestDb } from '../fixture-truncate.testkit.js';
+import { FounderControls } from '../controls/founder-controls.js';
 import { AuthService } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
+import { createTradeIdentityAuthRouter } from './trade-identity-auth-router.js';
+import { gateFrozenSubAccount } from './sub-account-place-gate.js';
 import { createSqlTradeIdentityStore, requestAccountDeletion, setSubAccountFrozen } from './trade-identity-auth.js';
 
 function testDatabaseUrl(): string {
@@ -184,6 +187,156 @@ if (!available) {
       expect(second.debited).toBe(false);
       const after = await db.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${user.userId}`;
       expect(after[0]?.status).toBe('closed');
+    });
+  });
+
+  describe('sub-account freeze is enforced', () => {
+    it('currentAuthority denies a frozen sub-account and allows it again at frozen 0', async () => {
+      const handle = unique();
+      const parent = await auth.register({
+        handle,
+        email: `${handle}@example.com`,
+        password: 'correct horse battery staple',
+        region: 'DE',
+      });
+      const created = await auth.createSubAccount(parent.userId, 'strategy');
+      const session = await auth.login({ identifier: handle, password: 'correct horse battery staple' });
+      const key = await auth.createApiKey({
+        userId: parent.userId,
+        name: 'parent',
+        scopes: ['identity:write'],
+        grantorScopes: SESSION_SCOPES,
+      });
+      const controls = new FounderControls(db.sql, null);
+      const subject = {
+        userId: parent.userId,
+        credential: { kind: 'session' as const, sessionId: session.sessionId },
+        subAccountId: created.id,
+      };
+      expect((await controls.currentAuthority(subject)).status).toBe('eligible');
+      await setSubAccountFrozen(store, {
+        parentUserId: parent.userId,
+        parentApiKeyId: key.id,
+        subAccountId: created.id,
+        frozen: 1,
+      });
+      expect(await controls.currentAuthority(subject)).toMatchObject({
+        status: 'denied',
+        code: 'auth.sub_account_denied',
+      });
+      await setSubAccountFrozen(store, {
+        parentUserId: parent.userId,
+        parentApiKeyId: key.id,
+        subAccountId: created.id,
+        frozen: 0,
+      });
+      expect((await controls.currentAuthority(subject)).status).toBe('eligible');
+    });
+
+    it('the place gate answers 200 with the ownership body, then 423 when frozen', async () => {
+      const handle = unique();
+      const parent = await auth.register({
+        handle,
+        email: `${handle}@example.com`,
+        password: 'correct horse battery staple',
+        region: 'DE',
+      });
+      const created = await auth.createSubAccount(parent.userId, 'strategy');
+      const ownership = await auth.getSubAccountOwnership(created.id);
+      expect(ownership).toEqual({ id: created.id, parentUserId: parent.userId, revoked: false });
+      const open = await gateFrozenSubAccount(db.sql, ownership!);
+      expect(open).toEqual({ status: 200, body: ownership });
+      const key = await auth.createApiKey({
+        userId: parent.userId,
+        name: 'parent',
+        scopes: ['identity:write'],
+        grantorScopes: SESSION_SCOPES,
+      });
+      await setSubAccountFrozen(store, {
+        parentUserId: parent.userId,
+        parentApiKeyId: key.id,
+        subAccountId: created.id,
+        frozen: 1,
+      });
+      const frozenGate = await gateFrozenSubAccount(db.sql, ownership!);
+      expect(frozenGate.status).toBe(423);
+      expect(frozenGate.body).toEqual({ error: 'sub-account is frozen', code: 'identity.sub_account_frozen' });
+    });
+
+    it('a principal with kid and sub_account cannot change frozen', async () => {
+      const handle = unique();
+      const parent = await auth.register({
+        handle,
+        email: `${handle}@example.com`,
+        password: 'correct horse battery staple',
+        region: 'DE',
+      });
+      const target = await auth.createSubAccount(parent.userId, 'target');
+      const sibling = await auth.createSubAccount(parent.userId, 'sibling');
+      const session = await auth.login({ identifier: handle, password: 'correct horse battery staple' });
+      const key = await auth.createApiKey({
+        userId: parent.userId,
+        name: 'sibling-key',
+        scopes: ['identity:write'],
+        grantorScopes: SESSION_SCOPES,
+      });
+      await setSubAccountFrozen(store, {
+        parentUserId: parent.userId,
+        parentApiKeyId: key.id,
+        subAccountId: target.id,
+        frozen: 1,
+      });
+      const { token } = await issueAccessToken(
+        {
+          userId: parent.userId,
+          sessionId: session.sessionId,
+          scopes: ['identity:write'],
+          tier: 'none',
+          mfa: false,
+          apiKeyId: key.id,
+          subAccountId: sibling.id,
+        },
+        tokenConfig,
+      );
+      const principal = await verifyAccessToken(token, tokenConfig);
+      expect(principal.kid).toBe(key.id);
+      expect(principal.sub_account).toBe(sibling.id);
+      const caller = createTradeIdentityAuthRouter(db.sql, { tokens: tokenConfig }).createCaller({
+        principal,
+        service: null,
+        region: 'DE',
+        requestId: 'req-sub-freeze',
+      });
+      await expect(caller.subAccountFrozen.set({ subAccountId: target.id, frozen: 0 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringContaining('auth.parent_key_required'),
+      });
+      const row = await db.sql<Array<{ frozen: number }>>`SELECT frozen FROM sub_accounts WHERE id = ${target.id}`;
+      expect(row[0]?.frozen).toBe(1);
+      const { token: parentToken } = await issueAccessToken(
+        {
+          userId: parent.userId,
+          sessionId: session.sessionId,
+          scopes: ['identity:write'],
+          tier: 'none',
+          mfa: false,
+          apiKeyId: key.id,
+        },
+        tokenConfig,
+      );
+      const parentPrincipal = await verifyAccessToken(parentToken, tokenConfig);
+      expect(parentPrincipal.sub_account).toBeUndefined();
+      const parentCaller = createTradeIdentityAuthRouter(db.sql, { tokens: tokenConfig }).createCaller({
+        principal: parentPrincipal,
+        service: null,
+        region: 'DE',
+        requestId: 'req-parent-freeze',
+      });
+      await expect(parentCaller.subAccountFrozen.set({ subAccountId: target.id, frozen: 0 })).resolves.toEqual({
+        id: target.id,
+        frozen: 0,
+        changed: true,
+      });
     });
   });
 }

@@ -24,6 +24,7 @@ import { assertArgon2Available, argon2Available } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
+import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
 import { createApiKeyIpRouter } from './api-key-ip-router.js';
 import { createApiKeyOriginRouter } from './api-key-origin-router.js';
 import { createApiKeyAccountRouter } from './api-key-account-router.js';
@@ -552,7 +553,8 @@ app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (r
 
 /**
  * Service-to-service sub-account ownership (svc-trade placeOrder gate).
- * Fail-closed at the caller: missing credentials → 401; unknown id → 404.
+ * Fail-closed at the caller: missing credentials → 401; unknown id → 404;
+ * frozen → 423. A freeze read that throws answers 5xx, never 200.
  * Body is the published `subAccountOwnershipSchema` contract.
  */
 app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccountId', async (req, reply) => {
@@ -568,7 +570,9 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   if (!row) {
     return reply.code(404).send({ error: 'sub-account not found', code: 'identity.sub_account_not_found' });
   }
-  return row;
+  const gated = await gateFrozenSubAccount(sql, row);
+  if (gated.status !== 200) return reply.code(gated.status).send(gated.body);
+  return gated.body;
 });
 
 /**

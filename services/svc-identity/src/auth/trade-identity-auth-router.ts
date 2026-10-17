@@ -50,6 +50,9 @@ export function createTradeIdentityAuthRouter(
         .output(z.object({ id: z.string().uuid(), frozen: z.union([z.literal(0), z.literal(1)]), changed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
+            if (ctx.principal.sub_account) {
+              throw new TradeIdentityAuthError('A freeze call needs the parent API key', 'auth.parent_key_required');
+            }
             return await setSubAccountFrozen(store, {
               parentUserId: ctx.principal.userId,
               parentApiKeyId: ctx.principal.kid ?? null,
