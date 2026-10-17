@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { disableBalanceTrigger } from './journal-guards.testkit.js';
 
 /**
  * THE GUARDS NOTHING EVER EXECUTED.
@@ -106,6 +107,9 @@ describe('the database guards, made to refuse something', () => {
     const admin = await openH8aAdmin();
     adminStop = admin.stop;
     db = await createTestDb({ service: 'ledger_guards', url: admin.url, migrations });
+    // Raw fixtures below insert one-sided entries on purpose (they test other guards).
+    // 0023's balance-at-commit trigger has its own file: journal-immutable.db.test.ts.
+    await disableBalanceTrigger(db.sql);
   }, 120_000);
   afterAll(async () => {
     await db?.drop();

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { namesAreNotActionApproval } from '@intafaced/contracts';
+import { staticFounderDirectory } from './action-approval-audience.js';
 import { ActionApprovalError, ActionApprovalService } from './action-approval-service.js';
 import { MemoryActionApprovalStore } from './action-approval-store.js';
 
@@ -23,7 +24,7 @@ function svc(ttlSeconds: number | 'unset' = 60, now = new Date('2026-09-09T12:00
   let clock = now;
   const service = new ActionApprovalService(
     new MemoryActionApprovalStore(),
-    { ttlSeconds: ttlSeconds === 'unset' ? undefined : ttlSeconds },
+    { ttlSeconds: ttlSeconds === 'unset' ? undefined : ttlSeconds, founders: staticFounderDirectory([A, B]) },
     () => clock,
   );
   return {
@@ -44,13 +45,15 @@ describe('ActionApprovalService', () => {
     const { service } = svc();
     const pending = await service.propose(A, propose);
     expect(pending.approverId).toBeNull();
-    await expect(service.approve(A, pending.approvalId)).rejects.toMatchObject({ code: 'action_approval.same_person' });
+    await expect(service.approve(A, pending.approvalId, propose.payloadHash)).rejects.toMatchObject({
+      code: 'action_approval.same_person',
+    });
   });
 
   it('lets a distinct person approve, then consume once, then refuse replay', async () => {
     const { service } = svc();
     const pending = await service.propose(A, propose);
-    const approved = await service.approve(B, pending.approvalId);
+    const approved = await service.approve(B, pending.approvalId, propose.payloadHash);
     expect(approved.status).toBe('APPROVED');
     expect(approved.approverId).toBe(B);
 
@@ -78,7 +81,7 @@ describe('ActionApprovalService', () => {
   it('refuses a changed payload or a different target service', async () => {
     const { service } = svc();
     const pending = await service.propose(A, propose);
-    const approved = await service.approve(B, pending.approvalId);
+    const approved = await service.approve(B, pending.approvalId, propose.payloadHash);
     await expect(
       service.consume('svc-ledger', {
         approvalId: approved.approvalId,
@@ -105,7 +108,7 @@ describe('ActionApprovalService', () => {
     const { service, advance } = svc(1);
     const pending = await service.propose(A, propose);
     advance(2_000);
-    await expect(service.approve(B, pending.approvalId)).rejects.toMatchObject({ code: 'action_approval.expired' });
+    await expect(service.approve(B, pending.approvalId, propose.payloadHash)).rejects.toMatchObject({ code: 'action_approval.expired' });
   });
 
   it('does not treat two names in one body as approval', () => {
@@ -117,7 +120,7 @@ describe('ActionApprovalService', () => {
   it('lets the requester revoke before consume, and refuses later consume', async () => {
     const { service } = svc();
     const pending = await service.propose(A, propose);
-    const approved = await service.approve(B, pending.approvalId);
+    const approved = await service.approve(B, pending.approvalId, propose.payloadHash);
     const revoked = await service.revoke(A, approved.approvalId);
     expect(revoked.status).toBe('REVOKED');
     await expect(
