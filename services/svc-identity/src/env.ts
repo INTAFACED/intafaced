@@ -171,6 +171,48 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Mail transport. Blank / unset → unwired; confirmation and reset requests
+       * refuse. `local-outbox` is the only implemented transport and is refused
+       * at boot unless APP_ENV is exactly dev or test. Any other name refuses
+       * at boot. No provider is configured here.
+       */
+      IDENTITY_MAIL_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Owner-published lifetime for an email-confirmation proof, in seconds.
+       * Blank / unset → unpublished; the request refuses (`auth.email_confirm_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published confirmation requests per window. Blank / unset, or a
+       * window without a max, stays unpublished and the request refuses.
+       * The ceiling is technical. It is not a default budget.
+       */
+      IDENTITY_EMAIL_CONFIRM_RATE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1_000).optional()),
+      IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.

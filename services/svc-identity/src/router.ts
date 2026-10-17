@@ -330,6 +330,14 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.email_confirm_invalid':
+      // Same sentence for a wrong, expired, spent, or rebound link.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.email_confirm_unwired':
+      // No mail port, no published lifetime, or no published rate budget.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.email_confirm_rate_limited':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
   }
 }
 
@@ -600,11 +608,13 @@ export function createIdentityRouter(
      * The caller's own handle (Receive screen, account menu). Self-only: the
      * user id comes from the session, there is no input.
      */
-    me: protectedProcedure.output(z.object({ userId: z.string().uuid(), handle: z.string() })).query(async ({ ctx }) => {
-      const handle = await auth.handleOf(ctx.principal.userId);
-      if (handle === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-      return { userId: ctx.principal.userId, handle };
-    }),
+    me: protectedProcedure
+      .output(z.object({ userId: z.string().uuid(), handle: z.string(), emailVerified: z.boolean() }))
+      .query(async ({ ctx }) => {
+        const view = await auth.selfView(ctx.principal.userId);
+        if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+        return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
+      }),
 
     users: router({
       /**
@@ -835,6 +845,38 @@ export function createIdentityRouter(
           try {
             await auth.completePasswordReset(input);
             return { ok: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Signed-in email confirmation, step 1. The link goes to this account's
+       * own address. The response does not say whether a message was sent.
+       * An API key is not a session.
+       */
+      requestEmailConfirmation: protectedProcedure.output(z.object({ accepted: z.literal(true) })).mutation(async ({ ctx }) => {
+        if (ctx.principal.kid) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
+        }
+        try {
+          return await auth.requestEmailConfirmation({ userId: ctx.principal.userId });
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+      /**
+       * Email confirmation, step 2. The token is the proof. A wrong, expired,
+       * spent, or rebound token is the same refusal and does not name an account.
+       */
+      confirmEmail: publicProcedure
+        .input(z.object({ token: z.string().trim().min(1).max(500) }))
+        .output(z.object({ confirmed: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            await auth.confirmEmail({ token: input.token });
+            return { confirmed: true as const };
           } catch (err) {
             throw toTrpcError(err);
           }

@@ -34,8 +34,14 @@ export interface PasswordResetMail {
   /**
    * Hand the one-time code to this address. Throw if the handoff failed.
    * `code` is a secret: do not log it, and do not put it in an error message.
+   * Email confirmation uses the same port with `purpose: 'email-confirm'`.
    */
-  send(message: { readonly email: string; readonly code: string; readonly expiresAt: Date }): Promise<void>;
+  send(message: {
+    readonly email: string;
+    readonly code: string;
+    readonly expiresAt: Date;
+    readonly purpose?: 'password-reset' | 'email-confirm';
+  }): Promise<void>;
 }
 
 export interface PasswordResetDeps {
