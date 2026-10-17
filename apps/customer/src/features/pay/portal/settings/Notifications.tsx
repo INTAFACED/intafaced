@@ -6,7 +6,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { Field } from '../../ui-kit';
-import { PayTime, PaySection } from '../../components';
+import { PaySection } from '../../components';
+import { DateTime } from '../ui/DateTime';
 import { Gate, ListShell, MoreFooter, SelectField } from '../components';
 import { useCursorList, useUrlParam, type ListState } from '../hooks';
 import { isDecimalThreshold } from './model';
@@ -186,7 +187,7 @@ function FeedItem({ n, portal, reload }: { n: Notification; portal: PortalApi; r
         <strong>{n.title}</strong>
         {n.body && <p className="muted">{n.body}</p>}
         <small className="muted">
-          <PayTime value={n.createdAt} />
+          <DateTime value={n.createdAt} />
         </small>
         {error && (
           <small className="error-text" role="alert">
@@ -246,7 +247,7 @@ function PrefRow({
         <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
         {saved.updatedAt && (
           <small className="muted">
-            {c.t('preferenceChanged')} <PayTime value={saved.updatedAt} />
+            {c.t('preferenceChanged')} <DateTime value={saved.updatedAt} />
           </small>
         )}
         {hasThreshold && (

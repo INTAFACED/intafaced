@@ -5,7 +5,7 @@ import { SelectField } from '../components';
 import type { PortalApi } from '../api';
 import { useNow } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
-import { DateTime, UTC } from '../ui/DateTime';
+import { DateTime } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
 import { dateRange, useListFilters, type DatePreset } from '../ui/FilterRow';
 import { KpiStrip } from '../ui/Kpi';
@@ -45,7 +45,7 @@ export function SignedAmount({
 
 export function statementColumns(t: Words, test: boolean, showRunning: boolean) {
   return [
-    { header: t('mnColWhen'), cell: (l: StatementLine) => <DateTime value={l.at} timeZone={UTC} /> },
+    { header: t('mnColWhen'), cell: (l: StatementLine) => <DateTime value={l.at} /> },
     {
       header: t('mnColWhat'),
       cell: (l: StatementLine) => (
@@ -85,7 +85,7 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
 }
 export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
   title: kindWords(t, l.kind),
-  time: <DateTime value={l.at} timeZone={UTC} />,
+  time: <DateTime value={l.at} />,
   amount: <SignedAmount line={l} test={test} />,
   status: <span className="muted">{accountWords(t, l.account)}</span>,
 });
@@ -241,7 +241,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
       </div>
       {meta && (
         <p className="muted pp-note">
-          {t('stmAsOfEnd')} <DateTime value={meta.at} timeZone={UTC} />
+          {t('stmAsOfEnd')} <DateTime value={meta.at} />
         </p>
       )}
     </div>

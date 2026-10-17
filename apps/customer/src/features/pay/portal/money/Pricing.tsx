@@ -197,9 +197,7 @@ function RuleTable({ rule, feeOnly }: { rule: PricingRule; feeOnly: boolean }) {
             <th scope="row">
               <MoneyText value={b.fromAmount} asset={rule.assetCode} />
             </th>
-            <td className="numeric">
-              {bpsPercent(b.feeBps)} <span className="pp-unit">{`(${b.feeBps} bps)`}</span>
-            </td>
+            <td className="numeric">{bpsPercent(b.feeBps)}</td>
             <td>
               {b.flatFee === null ? (
                 <span className="muted">{t('noFlatFee')}</span>
@@ -213,14 +211,7 @@ function RuleTable({ rule, feeOnly }: { rule: PricingRule; feeOnly: boolean }) {
       {!feeOnly && (
         <Facts
           items={[
-            [
-              t('spreadLabel'),
-              rule.spreadBps === null ? (
-                <NotConfigured>{t('spreadNone')}</NotConfigured>
-              ) : (
-                `${bpsPercent(rule.spreadBps)} (${rule.spreadBps} bps)`
-              ),
-            ],
+            [t('spreadLabel'), rule.spreadBps === null ? <NotConfigured>{t('spreadNone')}</NotConfigured> : bpsPercent(rule.spreadBps)],
             [t('roundingLabel'), t(rule.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant')],
           ]}
         />

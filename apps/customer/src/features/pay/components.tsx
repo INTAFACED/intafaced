@@ -300,6 +300,11 @@ export function ReviewedAction<T>({
         lifetime.current.review += 1;
         onConfirmed?.(outcome.data);
         setOpened(false);
+      } else if (outcome.reason === 'uncertain') {
+        // The answer is unknown: close the review so the recovery message and its check button are not covered.
+        lifetime.current.opened = false;
+        lifetime.current.review += 1;
+        setOpened(false);
       }
     } finally {
       if (lifetime.current.mounted) setBusy(false);
@@ -342,7 +347,7 @@ export function ReviewedAction<T>({
               disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
               onClick={() => void confirm()}
             >
-              {busy ? payCopy.t('waitingForConfirmation') : payCopy.t('confirm', { value1: title.toLowerCase() })}
+              {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>
           </div>
         </Dialog>

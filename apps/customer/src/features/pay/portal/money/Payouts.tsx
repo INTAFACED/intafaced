@@ -11,7 +11,7 @@ import { isUuid } from '../model';
 import type { Approval, Settlement, Usage } from '../schemas';
 import { AuditPanel } from '../ui/AuditPanel';
 import { CopyReference } from '../ui/CopyReference';
-import { DateTime, UTC } from '../ui/DateTime';
+import { DateTime } from '../ui/DateTime';
 import { DetailHeader } from '../ui/DetailHeader';
 import { FilterRow, useListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
@@ -350,15 +350,23 @@ export function PayoutDetailView({
               />
               <TestBanner />
               <Freshness asOf={readAt} />
-              {latest?.status === 'voided' && (
+              {latest?.status === 'voided' && state !== 'failed' && (
                 <p className="pp-callout pp-callout--warn" role="alert">
                   {t('voidBanner')}
                 </p>
               )}
               {state === 'failed' && (
                 <p className="pp-callout pp-callout--warn" role="alert">
-                  {lc?.failure?.message ?? s.failure?.message ?? t('payoutFailedBody')}
-                  {!PAYOUT_RETRY_ENABLED && <> {t('payoutFailedContactSupport')}</>}
+                  {t('payoutFailedBody')} {lc?.failure?.message ?? s.failure?.message ?? ''}
+                  {!PAYOUT_RETRY_ENABLED && (
+                    <>
+                      {' '}
+                      {t('payoutFailedContactSupport')}{' '}
+                      <a className="text-link" href="/support">
+                        {t('contactSupport')}
+                      </a>
+                    </>
+                  )}
                 </p>
               )}
               {state === 'not_ready' && <p className="pp-callout">{t('payoutNotReadyBody')}</p>}
@@ -419,9 +427,6 @@ export function PayoutDetailView({
                             </span>
                           )}
                         </div>
-                        <small className="pp-mono" title={a.payloadHash}>
-                          {a.payloadHash.slice(0, 19)}…
-                        </small>
                       </li>
                     ))}
                   </ul>
@@ -494,7 +499,7 @@ function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; as
           [t('capDailyPayout'), row.limit ? <MoneyText value={row.limit} asset={assetId} test={test} /> : '—'],
           [t('capUsed'), row.used ? <MoneyText value={row.used} asset={assetId} test={test} /> : '—'],
           [t('capRemaining'), row.remaining ? <MoneyText value={row.remaining} asset={assetId} test={test} /> : '—'],
-          [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} timeZone={UTC} /> : '—'],
+          [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
         ]}
       />
     </>

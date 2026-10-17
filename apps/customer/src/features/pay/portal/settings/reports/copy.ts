@@ -74,7 +74,7 @@ const en = {
   to: 'To',
   search: 'Search',
   clearFilters: 'Clear filters',
-  newestMore: 'Newest {n} · Load more',
+  newestMore: '{n} shown · Load more',
   newestAll: '{n} shown',
   jobsEmptyTitle: 'No report files yet',
   jobsEmptyBody: 'Request a report above. It will appear here while it is built.',

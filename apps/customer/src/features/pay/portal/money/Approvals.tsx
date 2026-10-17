@@ -288,10 +288,6 @@ export function ApprovalDecision({
         </div>
       )}
       <div>
-        <dt>{t('fingerprint')}</dt>
-        <dd className="pp-mono">{approval.payloadHash}</dd>
-      </div>
-      <div>
         <dt>{t('decisionReason')}</dt>
         <dd>{reason.trim()}</dd>
       </div>

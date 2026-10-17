@@ -57,8 +57,7 @@ export function UsageRows({ rows }: { rows: readonly UsageRow[] }) {
         const label = t(`cap_${row.kind}`);
         return (
           <li key={`${row.kind}:${row.assetCode ?? ''}`}>
-            <span>{label}</span>
-            {pct !== null && <UsageBar pct={pct} label={label} />}
+            <span>{label}</span> {pct !== null && <UsageBar pct={pct} label={label} />}
             <small className="muted">
               {row.used === null ? (
                 t('usageUnknown')

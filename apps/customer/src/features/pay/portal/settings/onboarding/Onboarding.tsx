@@ -16,6 +16,8 @@ import { accountCopy } from '../account/copy';
 import type { Progress } from '../account/schemas';
 import { Blocker } from '../account/ui';
 import { portalCopy } from '../copy';
+import { mc } from '../../money/copy';
+import { describeDestination, railWords } from '../../money/destination';
 import {
   businessDetails,
   destinationShapeOk,
@@ -513,6 +515,7 @@ function StepGoLive(props: OnboardingViewProps) {
   const { portal, merchant, rails, saved, onDestinationSaved, retry, progress } = props;
   const { t } = portalCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
+  const { t: m } = mc.useCopy();
   const [railId, setRailId] = useState('');
   const [ref, setRef] = useState('');
   useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, a('acUnsaved'));
@@ -527,9 +530,7 @@ function StepGoLive(props: OnboardingViewProps) {
             <h3 className="pp-sub">{a('onFileTitle')}</h3>
             <ul className="sa-list" aria-label={a('onFileTitle')}>
               {onFile.map((d) => (
-                <li key={`${d.railId}:${d.destinationMasked}`}>
-                  {d.railId} · {d.kind} · <span className="pp-mono">{d.destinationMasked}</span>
-                </li>
+                <li key={`${d.railId}:${d.destinationMasked}`}>{describeDestination(m, d.kind, d.destinationMasked, d.railId)}</li>
               ))}
             </ul>
           </div>
@@ -553,7 +554,7 @@ function StepGoLive(props: OnboardingViewProps) {
                   value={chosen.id}
                   onChange={setRailId}
                   options={payoutRails.map(
-                    (rail) => [rail.id, `${rail.id} · ${t(rail.mode === 'live' ? 'railLive' : 'railSandbox')}`] as const,
+                    (rail) => [rail.id, `${railWords(m, rail.id)} · ${t(rail.mode === 'live' ? 'railLive' : 'railSandbox')}`] as const,
                   )}
                   hint={t('hRail')}
                 />
@@ -574,7 +575,7 @@ function StepGoLive(props: OnboardingViewProps) {
                   review={
                     <PayDetails
                       values={[
-                        [t('fRail'), chosen.id],
+                        [t('fRail'), railWords(m, chosen.id)],
                         [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
                         [t('factDestination'), <span className="pp-mono">{ref.trim()}</span>],
                       ]}

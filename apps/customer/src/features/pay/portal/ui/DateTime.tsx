@@ -18,3 +18,9 @@ export function DateTime({ value, timeZone, dayOnly = false }: { value: string; 
     </time>
   );
 }
+
+/** A day bucket ("2026-10-15", always a UTC day) as text in the same format as every other date: "Oct 15, 2026". */
+export function useDayText(): (day: string) => string {
+  const { requestedLocale } = uiCopy.useCopy();
+  return (day) => formatDay(/^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T00:00:00.000Z` : day, requestedLocale, 'UTC') ?? day;
+}

@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { plainCode } from '../ui/plain-code';
+import { paymentLabel } from '../presentation';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
-import { PayTime, PaySection } from '../../components';
+import { PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { BackLink, Chip, Facts, Gate, MoneyLines, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
 import { portalCopy } from './copy';
@@ -15,6 +16,7 @@ import type { z } from 'zod';
 import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type EvidenceKind } from '../schemas';
 import type { disputeSummarySchema } from '../schemas';
 import { DateTime } from '../ui/DateTime';
+import { PaymentCell } from './PaymentCell';
 import { EntityList } from '../ui/EntityList';
 import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
 import { KpiStrip } from '../ui/Kpi';
@@ -70,24 +72,6 @@ export function DueChip({ dispute, now }: { dispute: Pick<Dispute, 'status' | 'r
   const label =
     c.kind === 'overdue' ? t('dueOverdue', { days: c.days }) : c.kind === 'today' ? t('dueToday') : t('dueIn', { days: c.days });
   return <ToneChip tone={tone} label={label} />;
-}
-
-/** The payment a dispute is about: its reference and its customer. Reads the payment once the row is on screen; until then, and if that read fails, the reference alone. */
-function DisputePayment({ portal, paymentId }: { portal?: PortalApi; paymentId: string }) {
-  const { t } = portalCopy.useCopy();
-  const payment = useResource(
-    (s) => (portal ? portal.payment(paymentId, s) : Promise.resolve({ ok: false as const, reason: 'not_supported' as const, message: '' })),
-    `portal:dispute-payment:${paymentId}`,
-  );
-  const known = payment.resource.status === 'ready' ? payment.resource.data : null;
-  return (
-    <>
-      <a className="text-link" href={`/pay/payments/${encodeURIComponent(paymentId)}`}>
-        {t('disputePaymentRef', { ref: known?.railRef ?? shortId(paymentId) })}
-      </a>
-      {known?.customerRef && <small className="pay-cell-note">{known.customerRef}</small>}
-    </>
-  );
 }
 
 export function DisputesView({
@@ -196,7 +180,7 @@ export function DisputesView({
                 },
                 {
                   header: t('colPayment'),
-                  cell: (d) => <DisputePayment portal={portal} paymentId={d.paymentId} />,
+                  cell: (d) => <PaymentCell portal={portal} paymentId={d.paymentId} />,
                 },
                 { header: t('colAmount'), cell: (d) => <Money value={d.amount} asset={d.assetId} /> },
                 { header: t('colStatus'), cell: (d) => <StatusChip entity="dispute" value={d.status} /> },
@@ -263,7 +247,7 @@ export function DisputeDetailView({
                     t('colDue'),
                     d.responseDueAt ? (
                       <>
-                        <PayTime value={d.responseDueAt} /> <DueChip dispute={d} now={Date.now()} />
+                        <DateTime value={d.responseDueAt} /> <DueChip dispute={d} now={Date.now()} />
                       </>
                     ) : (
                       t('noDeadline')
@@ -302,7 +286,7 @@ export function DisputeDetailView({
                   items={[
                     [t('colAmount'), <Money value={d.payment.amount} asset={d.payment.assetId} />],
                     [t('colStatus'), <Chip kind="payment" value={d.payment.status} />],
-                    [t('colOpened'), <PayTime value={d.payment.createdAt} />],
+                    [t('colOpened'), <DateTime value={d.payment.createdAt} />],
                   ]}
                 />
                 <a className="text-link" href={`/pay/payments/${encodeURIComponent(d.payment.paymentId)}`}>
@@ -403,7 +387,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
               </td>
               <td>{e.note ?? '—'}</td>
               <td>
-                <PayTime value={e.createdAt} />
+                <DateTime value={e.createdAt} />
               </td>
               <td>
                 <EvidenceDownload portal={portal} evidenceId={e.evidenceId} fileName={e.fileName} />

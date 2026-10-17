@@ -3,6 +3,7 @@ import { EmptyState } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { PortalFailure, PortalLoading } from '../../components';
 import { Freshness } from '../../ui/Freshness';
+import { useDayText } from '../../ui/DateTime';
 import { KpiStrip } from '../../ui/Kpi';
 import { MoneyText } from '../../ui/MoneyText';
 import { EntityList } from '../../ui/EntityList';
@@ -91,6 +92,7 @@ export function AnalyticsView({
 
 function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState; test: boolean }) {
   const { t } = c.useCopy();
+  const dayText = useDayText();
   const { points } = data;
   if (points.length === 0)
     return (
@@ -145,7 +147,7 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
             label: t('tileBusiest'),
             period,
             href: link('payments'),
-            value: best ? best.period : '—',
+            value: best ? dayText(best.period) : '—',
             ...(best ? { note: t('capturesCount', { n: best.count }) } : {}),
           },
           { label: t('tileActive'), period, href: link('payments'), value: open ? periodsWithSales(points) : '—' },
@@ -162,13 +164,13 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
           rows={points}
           rowKey={(p) => `${p.period}:${p.assetCode}`}
           columns={[
-            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => p.period },
+            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => dayText(p.period) },
             { header: t('colAsset'), cell: (p) => p.assetCode },
             { header: t('colCaptured'), cell: (p) => <MoneyText value={p.volume} asset={p.assetCode} test={test} /> },
             { header: t('colPayments'), cell: (p) => (p.count === null ? '—' : p.count) },
           ]}
           card={(p) => ({
-            title: state.bucket === 'week' ? t('weekOf', { date: p.period }) : p.period,
+            title: state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period),
             time: p.count === null ? undefined : t('capturesCount', { n: p.count }),
             amount: <MoneyText value={p.volume} asset={p.assetCode} test={test} />,
           })}
@@ -183,6 +185,7 @@ const H = 96;
 /** One bar per period, tallest to scale. The table below holds every exact amount; this is a picture of it. */
 export function Bars({ points, asset }: { points: readonly Point[]; asset: string }) {
   const { t } = c.useCopy();
+  const dayText = useDayText();
   const bars = barsFor(points, asset, H);
   const [hover, setHover] = useState<number | null>(null);
   const w = 100 / Math.max(1, bars.length);
@@ -194,7 +197,12 @@ export function Bars({ points, asset }: { points: readonly Point[]; asset: strin
         viewBox={`0 0 100 ${H}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label={t('chartAlt', { asset, n: bars.length, from: first?.period ?? '', to: last?.period ?? '' })}
+        aria-label={t('chartAlt', {
+          asset,
+          n: bars.length,
+          from: first ? dayText(first.period) : '',
+          to: last ? dayText(last.period) : '',
+        })}
       >
         {bars.map((b, i) => (
           <rect
@@ -207,15 +215,15 @@ export function Bars({ points, asset }: { points: readonly Point[]; asset: strin
             onMouseEnter={() => setHover(i)}
             onMouseLeave={() => setHover(null)}
           >
-            <title>{`${b.period}: ${b.volume} ${asset}`}</title>
+            <title>{`${dayText(b.period)}: ${b.volume} ${asset}`}</title>
           </rect>
         ))}
       </svg>
       <figcaption className="muted">
         {hover !== null && bars[hover]
-          ? `${bars[hover]!.period} · ${bars[hover]!.volume} ${asset}`
+          ? `${dayText(bars[hover]!.period)} · ${bars[hover]!.volume} ${asset}`
           : first && last
-            ? `${first.period} – ${last.period}`
+            ? `${dayText(first.period)} – ${dayText(last.period)}`
             : ''}
       </figcaption>
     </figure>

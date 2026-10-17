@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from '../../ui-kit';
-import { PayTime, PaySection } from '../../components';
+import { PaySection } from '../../components';
 import {
   BackLink,
   Chip,
@@ -184,10 +184,10 @@ export function CustomersView({
                       <MoneyLines items={c.totals.map((x) => ({ assetCode: x.assetId, amount: x.refundedAmount }))} />
                     </td>
                     <td>
-                      <PayTime value={c.firstSeenAt} />
+                      <DateTime value={c.firstSeenAt} />
                     </td>
                     <td>
-                      <PayTime value={c.lastSeenAt} />
+                      <DateTime value={c.lastSeenAt} />
                     </td>
                   </tr>
                 ))}
@@ -270,8 +270,8 @@ export function CustomerDetailView({
                   value={c.subscriptionCount + c.mandateCount}
                   note={recurringNote(t, c.subscriptionCount, c.mandateCount)}
                 />
-                <Kpi label={t('colFirstSeen')} value={<PayTime value={c.firstSeenAt} />} />
-                <Kpi label={t('colLastSeen')} value={<PayTime value={c.lastSeenAt} />} />
+                <Kpi label={t('colFirstSeen')} value={<DateTime value={c.firstSeenAt} />} />
+                <Kpi label={t('colLastSeen')} value={<DateTime value={c.lastSeenAt} />} />
               </KpiGrid>
               <Facts items={[[t('colReference'), <span className="pp-mono pp-copy">{c.customerRef}</span>]]} />
               {series && today && <DailySeries series={series} today={today} retry={reload} />}
@@ -303,7 +303,7 @@ export function CustomerDetailView({
                         <Chip kind="payment" value={p.status} />
                       </td>
                       <td>
-                        <PayTime value={p.createdAt} />
+                        <DateTime value={p.createdAt} />
                       </td>
                     </tr>
                   ))}

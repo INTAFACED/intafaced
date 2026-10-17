@@ -30,12 +30,15 @@ export function MoneyText({
   if (hideZero && parseAmount(value) === 0n) return null;
   const text = formatMoney(value, asset, { exact: exactScope, sign });
   const rounded = !exactScope && isRounded(value, asset);
+  // Inside a review the figure shows every digit, so a figure that differs from the rounded one in the list says so.
+  const exactTag = exactScope && isRounded(value, asset);
   return (
     <span className="numeric pp-money pp-nowrap" title={rounded ? `${formatMoney(value, asset, { exact: true })} ${asset}` : undefined}>
       {text}{' '}
       <span className="pp-unit" lang="zxx">
         {asset}
       </span>
+      {exactTag && <span className="pp-exact-tag"> ({t('exactTag')})</span>}
       {test && (
         <>
           {' '}

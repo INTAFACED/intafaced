@@ -42,6 +42,8 @@ const byCode: Record<string, PlainKey> = {
   'pay.invalid_destination_ref': 'rDestinationRef',
   'pay.destination_kind_mismatch': 'rDestinationKind',
   'pay.submerchant_permission_denied': 'rForbidden',
+  'pay.submerchant_not_onboarded': 'rSubmerchantUnknown',
+  'pay.submerchant_out_of_scope': 'rSubmerchantUnknown',
   'pay.merchant_forbidden': 'rForbidden',
   'pay.payment_not_found': 'rPaymentNotFound',
   'pay.settlement_not_found': 'rSettlementNotFound',
@@ -136,6 +138,14 @@ export function refusalText(result: Failed): string {
   // Our own authored gateway messages (offline, timeouts) are already plain English.
   if (result.messageCopy) return result.message;
   return portalCopy.t(byReason[result.reason]);
+}
+/**
+ * A failed result whose message still carries a service code ("pay.subscription_already_open") turned into one that says it
+ * in words. Messages the page or the API layer already wrote in plain English are left alone.
+ */
+export function plainFailure<T>(result: ApiResult<T>): ApiResult<T> {
+  if (result.ok || !/\bpay\.[a-z0-9_]+/i.test(result.message)) return result;
+  return { ...result, message: refusalText({ ...result, messageCopy: undefined }) };
 }
 export function refusalTitle(result: Failed): string {
   return portalCopy.t(titles[result.reason]);

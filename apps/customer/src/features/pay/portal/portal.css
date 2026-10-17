@@ -94,6 +94,11 @@
       color: var(--if-fg-2);
       font-size: 13px;
     }
+    .pp-exact-tag {
+      color: var(--if-fg-2);
+      font-size: 12px;
+      white-space: nowrap;
+    }
     .pp-none {
       color: var(--if-fg-2);
     }

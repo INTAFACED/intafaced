@@ -4,7 +4,7 @@ import { Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { ListShell, MoreFooter, SelectField } from '../../components';
 import { ToneChip, type StatusTone } from '../../ui/StatusChip';
-import { DateTime } from '../../ui/DateTime';
+import { DateTime, useDayText } from '../../ui/DateTime';
 import { dateRange, type DatePreset } from '../../ui/FilterRow';
 import { EntityList } from '../../ui/EntityList';
 import { PortalReview } from '../../ui/PortalReview';
@@ -231,12 +231,13 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
 
 export function Covers({ job }: { job: Pick<ExportJob, 'filters' | 'kind'> }) {
   const { t } = c.useCopy();
+  const dayText = useDayText();
   const p = rangeParts(job);
   const range =
     job.kind === 'ledger_statement'
       ? t('atGeneration')
       : p.from || p.to
-        ? t('rangeFromTo', { from: p.from ?? t('rangeStart'), to: p.to ?? t('rangeNow') })
+        ? t('rangeFromTo', { from: p.from ? dayText(p.from) : t('rangeStart'), to: p.to ? dayText(p.to) : t('rangeNow') })
         : t('rangeAll');
   return <>{[range, p.status ? statusWord(job.kind, p.status) : null, p.asset].filter(Boolean).join(' · ')}</>;
 }

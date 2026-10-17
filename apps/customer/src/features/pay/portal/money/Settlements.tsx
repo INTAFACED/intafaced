@@ -1,4 +1,5 @@
 import { useResource } from '../../../../shared/resource';
+import { formatAmount, parseAmount } from '../../../../shared/money';
 import { Button } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { isUuid } from '../model';
@@ -260,6 +261,8 @@ export function SettlementDetailPage({
           const ties = statementTies(s);
           const snap = s.pricingSnapshot ?? null;
           const full = snap && 'ruleId' in snap ? (snap as FullSnapshot) : null;
+          // The flat fee is charged once per payment, so it is shown as the sum it made once every payment is in view.
+          const flatCount = lines.state.status === 'ready' && !lines.state.hasMore ? lines.state.items.length : null;
           const events = [
             ...(s.createdAt ? [{ at: s.createdAt, title: t('stlEvCreated') }] : []),
             ...(s.sentAt ? [{ at: s.sentAt, title: t('stlEvSent') }] : []),
@@ -386,7 +389,21 @@ export function SettlementDetailPage({
                           <div>
                             <dt>{t('feeFlat')}</dt>
                             <dd>
-                              <MoneyText value={full.flatFee} asset={s.assetId} test={test} sign="minus" />
+                              {flatCount === null ? (
+                                <>
+                                  <MoneyText value={full.flatFee} asset={s.assetId} test={test} /> {t('feeFlatPer')}
+                                </>
+                              ) : (
+                                <>
+                                  <MoneyText value={full.flatFee} asset={s.assetId} test={test} /> × {flatCount} ={' '}
+                                  <MoneyText
+                                    value={formatAmount(parseAmount(full.flatFee) * BigInt(flatCount))}
+                                    asset={s.assetId}
+                                    test={test}
+                                    sign="minus"
+                                  />
+                                </>
+                              )}
                             </dd>
                           </div>
                         )}

@@ -6,6 +6,7 @@ import { PortalFailure, PortalLoading } from '../../components';
 import { EntityList } from '../../ui/EntityList';
 import { EffectiveFeeRates } from '../../ui/FeeRate';
 import { Freshness } from '../../ui/Freshness';
+import { useDayText } from '../../ui/DateTime';
 import { KpiStrip } from '../../ui/Kpi';
 import { MoneyText } from '../../ui/MoneyText';
 import { isNotLive, notLiveReason } from '../../refusal';
@@ -108,6 +109,7 @@ export function FeesView({
 
 function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; test: boolean }) {
   const { t } = c.useCopy();
+  const dayText = useDayText();
   const { points } = data;
   if (points.length === 0)
     return (
@@ -165,7 +167,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
           rows={points}
           rowKey={(p) => `${p.period}:${p.assetCode}`}
           columns={[
-            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => p.period },
+            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => dayText(p.period) },
             { header: t('colAsset'), cell: (p) => p.assetCode },
             { header: t('tileGross'), cell: (p) => <MoneyText value={p.gross} asset={p.assetCode} test={test} /> },
             { header: t('tileFees'), cell: (p) => <MoneyText value={p.fees} asset={p.assetCode} test={test} /> },
@@ -173,7 +175,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
             { header: t('tileRefunded'), cell: (p) => <MoneyText value={p.refunded} asset={p.assetCode} test={test} /> },
           ]}
           card={(p) => ({
-            title: state.bucket === 'week' ? t('weekOf', { date: p.period }) : p.period,
+            title: state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period),
             time: t('feesOf', { asset: p.assetCode }),
             amount: <MoneyText value={p.fees} asset={p.assetCode} test={test} />,
           })}

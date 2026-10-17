@@ -170,6 +170,7 @@ const en = {
   secondApprovalIsOn: 'Second approval is on.',
   secondApprovalIsOff: 'Second approval is off.',
   secondApprovalUnknown: 'We can’t read this setting yet.',
+  secondApprovalCantChange: 'It can’t be changed until we can read it. Check back later.',
   secondApprovalOn: 'Turn on second approval',
   secondApprovalOnBody: 'Legal-detail changes will need a second person on your team to confirm them.',
   secondApprovalOff: 'Turn off second approval',

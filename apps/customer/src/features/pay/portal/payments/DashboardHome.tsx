@@ -14,7 +14,7 @@ import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { TierUsage } from './TierUsage';
 import { dateRange } from '../ui/FilterRow';
-import { DateTime, UTC } from '../ui/DateTime';
+import { DateTime, useDayText } from '../ui/DateTime';
 
 export function LayoutDashboard({
   portal,
@@ -109,8 +109,14 @@ export function LayoutDashboardView({
                 )
                 .map((balance) => (
                   <div className="plo-balance-asset" key={balance.assetCode}>
-                    <MoneyDisplay sensitive className="plo-number" value={balance.available} asset={balance.assetCode} />
-                    <span className="plo-unit">{balance.assetCode}</span>
+                    <MoneyDisplay
+                      sensitive
+                      className="plo-number"
+                      value={balance.available}
+                      asset={balance.assetCode}
+                      unit={balance.assetCode}
+                      unitClassName="plo-unit"
+                    />
                   </div>
                 ))
             ) : (
@@ -203,7 +209,7 @@ export function LayoutDashboardView({
           <AccordionItem value="insights">
             <AccordionTrigger>{t('insights')}</AccordionTrigger>
             <AccordionPanel>
-              <DashboardInsights merchant={merchant} role={role} data={data} retry={retry} todayDay={todayDay} />
+              <DashboardInsights data={data} retry={retry} />
             </AccordionPanel>
           </AccordionItem>
         </Accordion>
@@ -269,7 +275,7 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
                       <span className="plo-payment-label">
                         <strong>{paymentLabel(payment)}</strong>
                         <span>
-                          <Chip kind="payment" value={payment.status} /> · <DateTime value={payment.createdAt} timeZone={UTC} dayOnly />
+                          <Chip kind="payment" value={payment.status} /> · <DateTime value={payment.createdAt} />
                         </span>
                       </span>
                       <span className="plo-payment-amount">
@@ -293,6 +299,7 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
 }
 function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>; retry: () => void; todayDay: string }) {
   const { t } = c.useCopy();
+  const dayText = useDayText();
   const [days, setDays] = useState('30');
   const [pick, setPick] = useState('');
   const [table, setTable] = useState(false);
@@ -328,14 +335,18 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
               {assets.length > 1 && <ChoiceGroup items={assets} value={asset} onChange={setPick} label={t('asset')} />}
               <div className="plo-chart" role="img" aria-label={`${t('volume')} · ${asset} · ${days}`}>
                 {points.map((point) => (
-                  <div className="plo-chart-slot" key={point.day} title={`${point.day}: ${portalAmount(point.volume, asset)} ${asset}`}>
+                  <div
+                    className="plo-chart-slot"
+                    key={point.day}
+                    title={`${dayText(point.day)}: ${portalAmount(point.volume, asset)} ${asset}`}
+                  >
                     <span style={{ height: `${point.pct}%` }} />
                   </div>
                 ))}
               </div>
               <div className="plo-chart-axis">
-                <span>{points[0]?.day}</span>
-                <span>{points.at(-1)?.day}</span>
+                <span>{points[0] ? dayText(points[0].day) : null}</span>
+                <span>{points.length ? dayText(points[points.length - 1]!.day) : null}</span>
               </div>
               <AsOf freshness={series.freshness} />
               <Button variant="ghost" aria-expanded={table} onClick={() => setTable(!table)}>
@@ -345,7 +356,7 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
                 <DataTable label={`${t('volume')} ${asset}`} headers={[t('day'), `${t('amount')} (${asset})`]}>
                   {points.map((point) => (
                     <tr key={point.day}>
-                      <td>{point.day}</td>
+                      <td>{dayText(point.day)}</td>
                       <td>
                         <Money value={point.volume} asset={asset} />
                       </td>

@@ -279,7 +279,7 @@
       gap: 12px;
     }
     .pay-confirmed {
-      color: var(--if-lime);
+      color: var(--if-fg);
       padding-block: 12px;
       overflow-wrap: anywhere;
     }

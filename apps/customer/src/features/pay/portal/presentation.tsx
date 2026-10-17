@@ -16,11 +16,16 @@ export function MoneyDisplay({
   asset,
   className,
   sensitive = false,
+  unit,
+  unitClassName = 'pp-unit',
 }: {
   value: string;
   asset: string;
   className?: string;
   sensitive?: boolean;
+  /** The asset code to show right after the amount, so "Show exact" sits after both and never between them. */
+  unit?: string;
+  unitClassName?: string;
 }) {
   const canShowExact = useContext(ExactMoneyContext);
   const inReview = useExactMoneyScope();
@@ -29,11 +34,24 @@ export function MoneyDisplay({
   const compact = portalAmount(value, asset);
   const full = formatMoney(value, asset, { exact: true });
   // In a review the exact amount is the default and needs no toggle. In a detail view the compact amount keeps a "Show exact" button.
-  if (inReview) return <Amount className={className} value={full} sensitive={sensitive} />;
+  const unitText = unit ? (
+    <span className={unitClassName} lang="zxx">
+      {unit}
+    </span>
+  ) : null;
+  if (inReview)
+    return (
+      <>
+        <Amount className={className} value={full} sensitive={sensitive} />
+        {unitText && <> {unitText}</>}
+        {isRounded(value, asset) && <span className="pp-exact-tag"> ({t('exactTag')})</span>}
+      </>
+    );
   const hasExtraPrecision = isRounded(value, asset);
   return (
     <span className="plo-money-exact">
       <Amount className={className} value={exact && canShowExact ? full : compact} sensitive={sensitive} />
+      {unitText}
       {canShowExact && hasExtraPrecision && (
         <Button variant="ghost" aria-pressed={exact} onClick={() => setExact(!exact)}>
           {t(exact ? 'hideExact' : 'showExact')}

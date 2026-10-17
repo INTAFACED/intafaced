@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
-import { PayDetails, PaySection, PayTime } from '../../components';
+import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { validatedMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
@@ -41,8 +41,10 @@ export function linkState(link: Link, now: number) {
  * from a token the service sent. Null when the service sent neither, or the address is not an ordinary web address. Only an
  * active link that has not expired shows it (see the call site).
  */
-export function addressOf(link: Link): string | null {
+export function addressOf(link: { checkoutUrl?: string | null; token?: string | null }): string | null {
   if (link.checkoutUrl && isWebAddress(link.checkoutUrl)) return link.checkoutUrl;
+  // The service sends a path from its public base; the browser's own origin completes it.
+  if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${location.origin}${link.checkoutUrl}`;
   if (link.token) return `${location.origin}/pay/checkout?token=${encodeURIComponent(link.token)}`;
   return null;
 }
@@ -174,7 +176,7 @@ export function LinksView({
                     ],
                     [t('uses'), selected.uses],
                     [t('maxUses'), selected.maxUses ?? t('noUseCap')],
-                    [t('expiry'), selected.expiresAt ? <PayTime value={selected.expiresAt} /> : '—'],
+                    [t('expiry'), selected.expiresAt ? <DateTime value={selected.expiresAt} /> : '—'],
                   ]}
                 />
                 <PaySection title={t('linkDetail')}>
@@ -304,7 +306,7 @@ export function LinksView({
                           {link.uses}
                           {link.maxUses !== null ? ` / ${link.maxUses}` : ''}
                         </td>
-                        <td>{link.expiresAt ? <PayTime value={link.expiresAt} /> : '—'}</td>
+                        <td>{link.expiresAt ? <DateTime value={link.expiresAt} /> : '—'}</td>
                       </tr>
                     ))}
                   </DataTable>
@@ -415,11 +417,67 @@ function LinkChip({ value }: { value: ReturnType<typeof linkState> }) {
     />
   );
 }
+/**
+ * Shown when a create request was sent but its answer was lost. One button sends the very same request again: the service
+ * recognises it, so it returns the link it already made instead of a second one.
+ */
+function LinkRecovery({
+  pay,
+  original,
+  onFinished,
+  onSettled,
+}: {
+  pay: BusinessPayApi;
+  original: () => z.infer<typeof createLinkInputSchema> | null;
+  onFinished: (link: z.infer<typeof s.newLinkSchema>) => void;
+  onSettled: () => void;
+}) {
+  const { t } = w3cCopy.useCopy();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  return (
+    <div className="stack">
+      <p className="pp-callout" role="status">
+        {t('lk_unresolved')}
+      </p>
+      <Button
+        variant="secondary"
+        disabled={busy}
+        onClick={async () => {
+          const body = original();
+          if (!body) {
+            setMessage(t('lk_unresolvedNeedsForm'));
+            return;
+          }
+          setBusy(true);
+          try {
+            const result = definite(
+              await validatedMutation(pay, 'merchant.createLink', body, createLinkInputSchema, s.newLinkSchema, 'pay:write', 'link-create'),
+            );
+            if (result.ok) onFinished(result.data);
+            else setMessage(result.reason === 'uncertain' || result.reason === 'aborted' ? t('lk_stillUnresolved') : result.message);
+            onSettled();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {t('lk_checkOriginal')}
+      </Button>
+      {message && <p role="status">{message}</p>}
+    </div>
+  );
+}
 export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayApi; merchantId: string; portal?: PortalApi }) {
   const { t } = w3cCopy.useCopy();
   const [form, setForm] = useState({ label: '', amount: '', currency: '', profileId: '', expiry: '', maxUses: '' });
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const [sent, setSent] = useState(false);
+  // The details of the request in flight, so "check and finish" can send exactly the same one again.
+  const original = useRef<z.infer<typeof createLinkInputSchema> | null>(null);
+  const [, refreshLock] = useState(0);
+  const lockId = `${pay.authority?.userId}:link-create`;
+  const locked = Boolean(pay.authority && pay.guard.status(lockId));
   const assets = useAssetChoices(portal, merchantId, form.currency);
   const parsed = createLinkInputSchema.safeParse({
     merchantId,
@@ -482,7 +540,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             title={t('reviewLink')}
             description={t('reviewLinkBody')}
             variant="primary"
-            disabled={noWrite || !parsed.success || sent}
+            disabled={noWrite || !parsed.success || sent || locked}
             review={
               <PayDetails
                 values={[
@@ -493,8 +551,9 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
                 ]}
               />
             }
-            perform={async () =>
-              definite(
+            perform={async () => {
+              if (parsed.success) original.current = parsed.data;
+              const result = definite(
                 await validatedMutation(
                   pay,
                   'merchant.createLink',
@@ -504,21 +563,35 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
                   'pay:write',
                   'link-create',
                 ),
-              )
-            }
+              );
+              refreshLock((n) => n + 1);
+              return result;
+            }}
             onConfirmed={(value) => {
               setCreated(value);
               setSent(true);
             }}
           />
         </div>
+        {locked && !created && (
+          <LinkRecovery
+            pay={pay}
+            original={() => original.current ?? (parsed.success ? parsed.data : null)}
+            onFinished={(value) => {
+              setCreated(value);
+              setSent(true);
+              refreshLock((n) => n + 1);
+            }}
+            onSettled={() => refreshLock((n) => n + 1)}
+          />
+        )}
         {created && (
           <PaySection title={t('publishedOnce')} description={t('publishedOnceBody')}>
-            <LinkAddress url={`${location.origin}/pay/checkout?token=${encodeURIComponent(created.token)}`} />
+            <LinkAddress url={addressOf(created) ?? ''} />
             <Facts
               items={[
                 [t('linkId'), <span className="pp-copy pp-mono">{created.id}</span>],
-                [t('expiry'), <PayTime value={created.expiresAt} />],
+                [t('expiry'), <DateTime value={created.expiresAt} />],
                 [t('maxUses'), created.maxUses ?? t('noUseCap')],
               ]}
             />

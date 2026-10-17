@@ -1,15 +1,13 @@
 import { useMemo, useState } from 'react';
 import { LayoutDashboard } from './DashboardHome';
-import { reason } from '../chrome/copy';
-import { portalAmount } from '../presentation';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
 import { PaySection } from '../../components';
-import { AsOf, Chip, NotLive, Gate, Kpi, KpiGrid, Money, MoneyLines } from '../components';
+import { AsOf, Chip, Gate, Kpi, KpiGrid, Money, MoneyLines } from '../components';
 import { portalCopy } from './copy';
-import { bars, utcDay } from '../model';
-import { hasActivity, mixShares, seriesAssets, seriesWindow } from './model';
+import { utcDay } from '../model';
+import { hasActivity, mixShares, seriesWindow } from './model';
 import type { PortalApi } from '../api';
 import type { MemberRole, MerchantRecord, MetricPreset, Series, Snapshot } from '../schemas';
 
@@ -59,19 +57,7 @@ export function Dashboard({
 }
 export { LayoutDashboardView as DashboardView } from './DashboardHome';
 
-export function DashboardInsights({
-  merchant,
-  role,
-  data,
-  retry,
-  todayDay,
-}: {
-  merchant: MerchantRecord | null;
-  role: MemberRole | null;
-  data: DashboardData;
-  retry: () => void;
-  todayDay: string;
-}) {
+export function DashboardInsights({ data, retry }: { data: DashboardData; retry: () => void }) {
   const { t } = portalCopy.useCopy();
   const [period, setPeriod] = useState<MetricPreset>('today');
   const labels: Record<MetricPreset, string> = { today: t('periodToday'), rolling_7d: t('period7d'), rolling_30d: t('period30d') };
@@ -84,60 +70,6 @@ export function DashboardInsights({
     !hasActivity(data.rolling_30d.data);
   return (
     <div className="stack pp-dashboard">
-      <PaySection title={t('accountStatus')} description={t('accountStatusBody')}>
-        <div className="pp-status-strip">
-          {merchant ? (
-            <>
-              <div>
-                <span className="pp-strip-label">{t('stripAccount')}</span>
-                <Chip kind="merchant" value={merchant.status} />
-              </div>
-              <div>
-                <span className="pp-strip-label">{t('stripVerification')}</span>
-                <Chip kind="kyb" value={merchant.kybStatus} />
-              </div>
-              <div>
-                <span className="pp-strip-label">{t('stripMode')}</span>
-                <span>{t(merchant.mode === 'gateway' ? 'modeGateway' : merchant.mode === 'psp' ? 'modePsp' : 'modePayfac')}</span>
-              </div>
-            </>
-          ) : (
-            <div>
-              <span className="pp-strip-label">{t('stripAccount')}</span>
-              <span>{t('teamAccount')}</span>
-            </div>
-          )}
-          {role && (
-            <div>
-              <span className="pp-strip-label">{t('stripRole')}</span>
-              <span>{t(`role_${role}` as 'role_owner')}</span>
-            </div>
-          )}
-          <div>
-            <span className="pp-strip-label">{t('stripTier')}</span>
-            <span className="muted">{t('tierArrivesSoon')}</span>
-          </div>
-          {merchant && (
-            <div>
-              <span className="pp-strip-label">{t('stripFee')}</span>
-              <span>{merchant.feeBps === null ? t('feeNotPublished') : t('feeBps', { bps: merchant.feeBps })}</span>
-            </div>
-          )}
-        </div>
-        {merchant && (merchant.kybStatus !== 'approved' || merchant.status !== 'active') && (
-          <p className="pp-callout" role="note">
-            {t('finishSetupPrompt')}{' '}
-            <a className="text-link" href="/pay/onboarding">
-              {t('continueSetup')}
-            </a>
-          </p>
-        )}
-      </PaySection>
-
-      <NotLive reason={reason('reasonLimits')} title={t('controlSoonTitle')}>
-        {t('controlSoonBody')}
-      </NotLive>
-
       {wholeAccountQuiet ? (
         <EmptyState
           title={t('dashEmptyTitle')}
@@ -207,8 +139,6 @@ export function DashboardInsights({
             <Glance data={data} labels={labels} />
           </PaySection>
 
-          <DailyChart series={data.series} retry={retry} todayDay={todayDay} />
-
           <div className="pp-two">
             <PaySection title={t('mixTitle')} description={t('mixBody')}>
               <Gate resource={data.rolling_30d} retry={retry} rows={3}>
@@ -243,76 +173,6 @@ function Glance({ data, labels }: { data: DashboardData; labels: Record<MetricPr
         })}
       </div>
     </div>
-  );
-}
-
-function DailyChart({ series, retry, todayDay }: { series: Resource<Series>; retry: () => void; todayDay: string }) {
-  const { t } = portalCopy.useCopy();
-  const [days, setDays] = useState<'7' | '30'>('30');
-  const [assetPick, setAssetPick] = useState('');
-  const [asTable, setAsTable] = useState(false);
-  return (
-    <PaySection
-      title={t('chartTitle')}
-      description={t('chartBody')}
-      action={
-        <Tabs
-          items={['7', '30']}
-          value={days}
-          onChange={(v) => setDays(v as '7' | '30')}
-          label={t('chartRange')}
-          labels={{ '7': t('period7d'), '30': t('period30d') }}
-        />
-      }
-    >
-      <Gate resource={series} retry={retry} rows={4}>
-        {(data) => {
-          const assets = seriesAssets(data);
-          if (assets.length === 0)
-            return (
-              <>
-                <AsOf freshness={data.freshness} />
-                <EmptyState title={t('chartEmptyTitle')}>{t('chartEmptyBody')}</EmptyState>
-              </>
-            );
-          const asset = assets.includes(assetPick) ? assetPick : assets[0]!;
-          const rows = bars(data, asset, Number(days), todayDay);
-          return (
-            <>
-              <AsOf freshness={data.freshness} />
-              {assets.length > 1 && <Tabs items={assets} value={asset} onChange={setAssetPick} label={t('chartAsset')} />}
-              <div className="pp-chart" role="img" aria-label={t('chartAria', { asset, days })}>
-                {rows.map((bar) => (
-                  <div key={bar.day} className="pp-bar-slot" title={`${bar.day}: ${portalAmount(bar.volume, asset)} ${asset}`}>
-                    <span
-                      className={`pp-bar${bar.today ? ' pp-bar--today' : ''}`}
-                      style={{ height: `${Math.max(bar.pct, bar.pct > 0 ? 2 : 0)}%` }}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="pp-chart-axis" aria-hidden="true">
-                <span>{rows[0]?.day}</span>
-                <span>{rows[rows.length - 1]?.day}</span>
-              </div>
-              <Button variant="ghost" aria-expanded={asTable} onClick={() => setAsTable(!asTable)}>
-                {asTable ? t('chartHideTable') : t('chartShowTable')}
-              </Button>
-              {asTable && (
-                <DataTable label={t('chartTableLabel', { asset })} headers={[t('colDay'), t('colVolume', { asset })]}>
-                  {[...rows].reverse().map((bar) => (
-                    <tr key={bar.day}>
-                      <td>{bar.day}</td>
-                      <td className="numeric">{portalAmount(bar.volume, asset)}</td>
-                    </tr>
-                  ))}
-                </DataTable>
-              )}
-            </>
-          );
-        }}
-      </Gate>
-    </PaySection>
   );
 }
 

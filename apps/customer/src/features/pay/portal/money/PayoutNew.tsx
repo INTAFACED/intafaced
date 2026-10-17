@@ -247,7 +247,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                             <div>
                               <dt>{t('pnAsOf')}</dt>
                               <dd>
-                                <DateTime value={new Date(now).toISOString()} timeZone="UTC" />
+                                <DateTime value={new Date(now).toISOString()} />
                               </dd>
                             </div>
                           </dl>

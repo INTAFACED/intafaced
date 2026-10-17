@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { StatusTag, Button } from '@intafaced/ui';
 import { Field } from '../ui-kit';
-import { PayTime } from '../components';
+import { DateTime } from './ui/DateTime';
 import { useNow, useUrlParam } from './hooks';
 import { buildCsv, downloadText } from './csv';
 import { NotLive, SelectField } from './components';
@@ -27,7 +27,7 @@ export function ReadStamp({ at }: { at: string | null }) {
   return (
     <div className="pp-asof" role="status">
       <span>
-        {c.t('readAt')} <PayTime value={at} />
+        {c.t('readAt')} <DateTime value={at} />
       </span>
       {now - Date.parse(at) > 300_000 && <p className="pp-callout pp-callout--warn">{c.t('staleRead')}</p>}
     </div>

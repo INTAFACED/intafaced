@@ -5,7 +5,8 @@ import { parseAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import { useSession } from '../session/session';
-import { PayAmount, PayTime } from './components';
+import { PayAmount } from './components';
+import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
 import { refundCopy } from './merchant-refund-copy';
@@ -314,21 +315,25 @@ export function MerchantRefund({
       onBack();
     }
   }
+  // The technical references sit behind a disclosure: support asks for them, a merchant seldom does.
   const references = (reference: string | null) => (
-    <dl>
-      <div>
-        <dt>
-          <Copy k="payment" />
-        </dt>
-        <dd lang="zxx">{paymentId}</dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="reference" />
-        </dt>
-        <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
-      </div>
-    </dl>
+    <details className="merchant-refund-details">
+      <summary>{t('details')}</summary>
+      <dl>
+        <div>
+          <dt>
+            <Copy k="payment" />
+          </dt>
+          <dd lang="zxx">{paymentId}</dd>
+        </div>
+        <div>
+          <dt>
+            <Copy k="reference" />
+          </dt>
+          <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
+        </div>
+      </dl>
+    </details>
   );
   const failure = shown?.failure;
   const authoredFailure = failure?.code?.startsWith('pay.refund_');
@@ -366,7 +371,7 @@ export function MerchantRefund({
             <Copy k="matched" />
           </p>
           <strong>{t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')}</strong>
-          <PayTime value={receipt.ts} />
+          <DateTime value={receipt.ts} />
         </div>
       )}
       {receipt && cleanupPending && (
@@ -430,7 +435,7 @@ export function MerchantRefund({
                 <Copy k="noMatch" />
               </h4>
               <p className="muted">
-                <Copy k="historyWindow" params={{ count: shown.count, limit: 200 }} />
+                <Copy k="historyWindow" params={{ count: shown.count }} />
               </p>
               <p>
                 <Copy k="noProof" />

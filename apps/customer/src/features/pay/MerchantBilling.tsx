@@ -12,6 +12,7 @@ import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
+import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';
 import * as s from './schemas';
@@ -264,6 +265,11 @@ export function cadenceWord(cadence: string): string {
         ? payCopy.t('monthly')
         : cadence;
 }
+/** A time picked in a datetime-local field, shown the way every other date in the portal is. */
+function localTime(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? <DateTime value={date.toISOString()} /> : value;
+}
 export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState('');
@@ -357,7 +363,12 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
                   [payCopy.t('customer'), customer],
                   [payCopy.t('amountCeiling'), `${amount} / ${ceiling || payCopy.t('notSupplied')} ${asset}`],
                   [payCopy.t('cadence'), cadenceWord(cadence)],
-                  [payCopy.t('authorizationWindow'), `${starts} → ${ends || payCopy.t('openEnded')}`],
+                  [
+                    payCopy.t('authorizationWindow'),
+                    <>
+                      {localTime(starts)} → {ends ? localTime(ends) : payCopy.t('openEnded')}
+                    </>,
+                  ],
                 ]}
               />
             }
@@ -413,7 +424,7 @@ export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; r
       )}
       {created && (
         <p className="pay-confirmed" role="status">
-          <PayCopy k="mandateRecorded" /> {created}
+          <PayCopy k="mandateRecorded" />
         </p>
       )}
     </PaySection>

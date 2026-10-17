@@ -24,7 +24,9 @@ import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
 import { assetsOf } from '../model';
+import { formatAmount, parseAmount } from '../../../../shared/money';
 import { ExportResults } from './ExportResults';
+import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
 import { disputeReason } from './dispute-model';
 import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
@@ -105,6 +107,7 @@ export function PaymentsView({
         filters={filters}
         statuses={paymentStatuses.map((s) => [s, t(`chipPayment_${s}` as 'chipPayment_created')] as const)}
         assets={assets}
+        searchHint={t('pay_searchHint')}
         {...(list.status === 'ready' ? { shown: list.items.length, hasMore: list.hasMore } : {})}
       />
       {list.status === 'loading' && <PortalLoading />}
@@ -355,6 +358,14 @@ export function PaymentDetailView({
                       : ([
                           [t('pay_fee'), <Money value={fee.fee} asset={fee.assetId} />],
                           ...(fee.net ? ([[t('pay_net'), <Money value={fee.net} asset={fee.assetId} />]] as const) : []),
+                          ...(fee.net && fee.assetId === p.assetId && parseAmount(p.refundedAmount) > 0n
+                            ? ([
+                                [
+                                  t('pay_netAfterRefunds'),
+                                  <Money value={formatAmount(parseAmount(fee.net) - parseAmount(p.refundedAmount))} asset={fee.assetId} />,
+                                ],
+                              ] as const)
+                            : []),
                           ...(fee.kind === 'rule'
                             ? ([
                                 [
@@ -387,7 +398,7 @@ export function PaymentDetailView({
                         t('notGiven')
                       ),
                     ],
-                    [t('colRail'), `${p.railAdapter} · ${p.method}`],
+                    [t('colRail'), railName(p.railAdapter)],
                     ...(p.description ? ([[t('pay_description'), p.description]] as const) : []),
                   ]}
                 />

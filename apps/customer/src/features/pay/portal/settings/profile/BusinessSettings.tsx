@@ -438,17 +438,21 @@ function SecondApproval({
       <p role="status">
         <strong>{current === null ? t('secondApprovalUnknown') : current ? t('secondApprovalIsOn') : t('secondApprovalIsOff')}</strong>
       </p>
-      <div className="pp-actions">
-        <PortalReview
-          key={turnOn ? 'on' : 'off'}
-          title={turnOn ? t('secondApprovalOn') : t('secondApprovalOff')}
-          description={turnOn ? t('secondApprovalOnBody') : t('secondApprovalOffBody')}
-          perform={() => portal.profileSecondApproval(merchantId, turnOn)}
-          onConfirmed={reload}
-          disabled={!mayEdit}
-          disabledReason={t('whoMayEditNot')}
-        />
-      </div>
+      {current === null ? (
+        <p className="muted pp-note">{t('secondApprovalCantChange')}</p>
+      ) : (
+        <div className="pp-actions">
+          <PortalReview
+            key={turnOn ? 'on' : 'off'}
+            title={turnOn ? t('secondApprovalOn') : t('secondApprovalOff')}
+            description={turnOn ? t('secondApprovalOnBody') : t('secondApprovalOffBody')}
+            perform={() => portal.profileSecondApproval(merchantId, turnOn)}
+            onConfirmed={reload}
+            disabled={!mayEdit}
+            disabledReason={t('whoMayEditNot')}
+          />
+        </div>
+      )}
     </PaySection>
   );
 }

@@ -11,7 +11,8 @@ import * as shared from '../../schemas';
 import type { PortalApi } from '../api';
 import { Chip, Facts, Gate } from '../components';
 import { portalCopy } from '../copy';
-import type { MemberRole, MerchantRecord } from '../schemas';
+import type { ControlProfile, MemberRole, MerchantRecord, PricingRule } from '../schemas';
+import { formatMoney } from '../ui/format';
 import { CopyReference } from '../ui/CopyReference';
 import { DateTime } from '../ui/DateTime';
 import { PortalReview } from '../ui/PortalReview';
@@ -20,13 +21,31 @@ import { paymentsCopy as c } from './copy';
 import { definite } from './not-available';
 import type { CheckoutSettings } from './schemas';
 
+export type FeeLine = { assetCode: string; percent: string; flat: string | null; fromBand: boolean };
+const LAYER_RANK = { merchant: 0, tier: 1, global: 2 } as const;
+/** The price each asset is charged now, from the pricing read: the most specific rule's first band. */
+export function feeLines(rules: ControlProfile['pricing']): FeeLine[] {
+  const best = new Map<string, PricingRule>();
+  for (const rule of rules ?? []) {
+    const have = best.get(rule.assetCode);
+    if (!have || LAYER_RANK[rule.layer] < LAYER_RANK[have.layer]) best.set(rule.assetCode, rule);
+  }
+  return [...best.values()]
+    .sort((a, b) => a.assetCode.localeCompare(b.assetCode))
+    .map((rule) => {
+      const band = rule.bands[0]!;
+      const flat = band.flatFee && /[1-9]/.test(band.flatFee) ? formatMoney(band.flatFee, rule.assetCode) : null;
+      return { assetCode: rule.assetCode, percent: feePercent(band.feeBps), flat, fromBand: rule.bands.length > 1 };
+    });
+}
+
 type Rail = Resource<Array<{ id: string; mode: 'live' | 'sandbox' | 'absent'; usable: boolean; healthy: boolean }>>;
 
 /** The fee as a person says it: 150 basis points is 1.5%. */
 export const feePercent = (bps: number) => `${Number((bps / 100).toFixed(2))}%`;
 
 /** Rails by the names a merchant would use. A rail this page does not know is said as plain words, never as its code. */
-const railName = (id: string) =>
+export const railName = (id: string) =>
   id === 'crypto-native' ? c.t('hp_railCrypto') : id === 'card-sandbox' ? c.t('hp_railCard') : plainCode(id.replace(/-/g, '_'));
 
 /**
@@ -46,10 +65,12 @@ export function HomePanels({
 }) {
   const rails = useResource((s) => portal.rails(s), `portal:home-rails:${merchantId}`);
   const settings = useResource((s) => portal.checkoutSettings(merchantId, s), `portal:home-checkout:${merchantId}`);
+  const pricing = useResource((s) => portal.control(merchantId, s), `portal:home-pricing:${merchantId}`);
   return (
     <HomePanelsView
       merchant={merchant}
       role={role}
+      pricing={pricing.resource}
       rails={rails.resource}
       settings={settings.resource}
       retryRails={rails.reload}
@@ -61,6 +82,7 @@ export function HomePanels({
 export function HomePanelsView({
   merchant,
   role,
+  pricing,
   rails,
   settings,
   retryRails,
@@ -68,6 +90,7 @@ export function HomePanelsView({
 }: {
   merchant: MerchantRecord | null;
   role: MemberRole | null;
+  pricing?: Resource<ControlProfile>;
   rails: Rail;
   settings: Resource<CheckoutSettings>;
   retryRails: () => void;
@@ -84,10 +107,7 @@ export function HomePanelsView({
                   [c.t('hp_status'), <Chip kind="merchant" value={merchant.status} />],
                   [c.t('hp_verification'), <Chip kind="kyb" value={merchant.kybStatus} />],
                   [c.t('hp_mode'), t(merchant.mode === 'gateway' ? 'modeGateway' : merchant.mode === 'psp' ? 'modePsp' : 'modePayfac')],
-                  [
-                    c.t('hp_fee'),
-                    merchant.feeBps === null ? c.t('hp_feeNone') : c.t('hp_feePercent', { percent: feePercent(merchant.feeBps) }),
-                  ],
+                  [c.t('hp_fee'), <FeeText pricing={pricing} />],
                 ] as const)
               : []),
             ...(role ? ([[c.t('hp_role'), t(`role_${role}` as 'role_owner')]] as const) : []),
@@ -134,6 +154,27 @@ export function HomePanelsView({
         </Gate>
       </PaySection>
     </div>
+  );
+}
+
+function FeeText({ pricing }: { pricing?: Resource<ControlProfile> }) {
+  if (!pricing || pricing.status === 'loading') return <>…</>;
+  if (pricing.status === 'failed') return <span className="muted">{c.t('hp_feeUnavailable')}</span>;
+  const lines = feeLines(pricing.data.pricing);
+  if (lines.length === 0) return <span className="muted">{c.t('hp_feeNone')}</span>;
+  return (
+    <>
+      {lines.map((line, i) => (
+        <span key={line.assetCode}>
+          {i > 0 && <br />}
+          {lines.length > 1 && `${line.assetCode}: `}
+          {line.fromBand ? c.t('hp_feeFrom') : ''}
+          {line.flat
+            ? c.t('hp_feePercentFlat', { percent: line.percent, flat: line.flat })
+            : c.t('hp_feePercent', { percent: line.percent })}
+        </span>
+      ))}
+    </>
   );
 }
 

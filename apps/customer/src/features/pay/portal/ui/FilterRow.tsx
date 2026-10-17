@@ -52,6 +52,7 @@ export function FilterRow({
   statuses,
   assets,
   more,
+  searchHint,
   shown,
   hasMore,
   total,
@@ -61,6 +62,8 @@ export function FilterRow({
   statuses?: ReadonlyArray<readonly [value: string, label: string]>;
   assets?: readonly string[];
   more?: ReactNode;
+  /** One line under Search saying what it matches, when it matches less than a person would guess. */
+  searchHint?: string;
   shown?: number;
   hasMore?: boolean;
   total?: number | null;
@@ -72,7 +75,12 @@ export function FilterRow({
   return (
     <div className="pp-filterbar" role="search" aria-label={label}>
       <div className="pp-filter-row">
-        <Field label={t('search')} value={filters.search} onChange={(e) => filters.setSearch(e.target.value)} />
+        <Field
+          label={t('search')}
+          value={filters.search}
+          onChange={(e) => filters.setSearch(e.target.value)}
+          {...(searchHint ? { hint: searchHint } : {})}
+        />
         {statuses && (
           <SelectField
             label={t('status')}

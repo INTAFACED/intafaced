@@ -4,6 +4,7 @@ import { id, subscriptionSchema } from '../../schemas';
 import type { ApiResult } from '../../../../shared/api';
 import { payRefusal } from '../../copy';
 import * as portalSchemas from '../schemas';
+import { plainFailure } from '../refusal';
 import { extensionCopy as c } from './copy';
 import { definite } from './not-available';
 
@@ -21,7 +22,9 @@ export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandat
   const input = z.object({ mandateId: id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }).safeParse({ mandateId, path });
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
   // A call that never ran (the gateway has no such procedure) is a definite refusal, never an outcome to wait for.
-  return definite(await pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`));
+  return plainFailure(
+    definite(await pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`)),
+  );
 }
 
 /**

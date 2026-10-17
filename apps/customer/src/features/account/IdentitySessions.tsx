@@ -15,8 +15,7 @@ import {
   type RevokeMarker,
   type StoredRevoke,
 } from './identity-session-guards';
-import { stamp } from '../../screens/money/time';
-import { usePreferences } from '../../shared/preferences';
+import { formatDateTime } from '../pay/portal/ui/format';
 import './identity-session.css';
 export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
@@ -25,7 +24,6 @@ type Problem = 'changed' | 'seatChanged' | 'storage' | 'another' | 'locks';
 export function IdentitySessions() {
   const { api, userId } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
-  const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50);
   const { resource, reload } = useResource(
     (signal) =>
@@ -241,11 +239,22 @@ export function IdentitySessions() {
             <li className="identity-sessions__row" key={seat.id}>
               <div>
                 <time dateTime={seat.createdAt} lang={requestedLocale}>
-                  {t('createdLabel', { time: stamp(seat.createdAt, timeZone) })}
+                  {t('createdLabel', { time: formatDateTime(seat.createdAt, requestedLocale)?.short ?? seat.createdAt })}
                 </time>
-                <span className="identity-sessions__ref" lang="zxx">
-                  {seat.id}
-                </span>
+                {(seat.current || seat.device || seat.ip || seat.lastSeenAt) && (
+                  <span className="identity-sessions__ref">
+                    {[
+                      seat.current ? t('thisDevice') : null,
+                      seat.device,
+                      seat.ip,
+                      seat.lastSeenAt
+                        ? t('lastSeen', { time: formatDateTime(seat.lastSeenAt, requestedLocale)?.short ?? seat.lastSeenAt })
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                )}
               </div>
               <Button variant="secondary" disabled={blocked} aria-label={t('reviewSeat', { id: seat.id })} onClick={() => open(seat)}>
                 <Copy k="reviewAction" />

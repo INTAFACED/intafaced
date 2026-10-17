@@ -4,7 +4,16 @@ const instant = z
   .string()
   .datetime({ offset: true })
   .refine((value) => Number.isFinite(Date.parse(value)));
-export const identitySeat = z.object({ id: uuid, createdAt: instant, revoked: z.literal(false) });
+// The service lists id and createdAt; a device name, address, last-seen time and a current-session flag are read when it sends them.
+export const identitySeat = z.object({
+  id: uuid,
+  createdAt: instant,
+  revoked: z.literal(false),
+  device: z.string().max(200).nullish(),
+  ip: z.string().max(80).nullish(),
+  lastSeenAt: instant.nullish(),
+  current: z.boolean().nullish(),
+});
 export type IdentitySeat = z.infer<typeof identitySeat>;
 export interface PrivateSessionSource {
   userId: string;

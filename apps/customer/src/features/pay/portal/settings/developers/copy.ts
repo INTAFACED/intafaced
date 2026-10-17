@@ -82,7 +82,7 @@ const en = {
     'Keys made here work with test money. Your business is approved; INTAFACED hasn’t opened live keys yet, and there is nothing for you to do.',
   keysBody: 'Revoking a key stops it working straight away. Open a key to sign its requests or limit where it can be used.',
   keysCount: 'Showing {shown} of {total} keys',
-  newestKeys: 'Newest {n} keys',
+  newestKeys: '{n} keys shown',
   noKeysTitle: 'No API keys yet',
   noKeysBody: 'Make a test key to start calling the API.',
   noKeysMatch: 'No keys match',
@@ -233,7 +233,7 @@ const en = {
   endpointDeliveriesBody: 'The newest deliveries to this address.',
   allDeliveriesFor: 'All deliveries to this endpoint',
   // deliveries
-  newestMore: 'Newest {n} · Load more',
+  newestMore: '{n} shown · Load more',
   newestAll: '{n} shown',
   noDeliveriesTitle: 'No deliveries yet',
   noDeliveriesBody: 'When something happens on your account, each event we send appears here.',

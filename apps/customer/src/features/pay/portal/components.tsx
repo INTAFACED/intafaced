@@ -3,7 +3,7 @@ import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock, StatusTag } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
-import { PayTime } from '../components';
+import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
 import { portalCopy } from './copy';
@@ -162,10 +162,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
     <span className="pp-lines">
       {items.map((item) => (
         <span key={item.assetCode} className="pp-line">
-          <MoneyDisplay value={item.amount} asset={item.assetCode} />{' '}
-          <span className="pp-unit" lang="zxx">
-            {item.assetCode}
-          </span>
+          <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
         </span>
       ))}
     </span>
@@ -174,10 +171,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
 export function Money({ value, asset }: { value: string; asset: string }) {
   return (
     <span className="numeric pp-money">
-      <MoneyDisplay value={value} asset={asset} />{' '}
-      <span className="pp-unit" lang="zxx">
-        {asset}
-      </span>
+      <MoneyDisplay value={value} asset={asset} unit={asset} />
     </span>
   );
 }
@@ -201,7 +195,7 @@ export function AsOf({ freshness }: { freshness: Freshness }) {
         : t('lagHours', { n: lag.n });
   return (
     <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <PayTime value={freshness.asOf!} /> · {lagText}
+      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
       {state.kind === 'stale' && <> · {t('staleWarning')}</>}
     </p>
   );
@@ -223,7 +217,7 @@ export function Timeline({ items, label }: { items: readonly TimelineItem[]; lab
             <strong>{item.title}</strong>
             {item.detail && <p className="muted">{item.detail}</p>}
             <small className="muted">
-              <PayTime value={item.at} />
+              <DateTime value={item.at} />
             </small>
           </div>
         </li>
@@ -309,7 +303,7 @@ export function ReadAt({ at }: { at: string | null }) {
   if (!at) return null;
   return (
     <p className="pp-asof" role="status">
-      {t('readAt')} <PayTime value={at} />
+      {t('readAt')} <DateTime value={at} />
     </p>
   );
 }
@@ -379,7 +373,7 @@ export function HaltBanner({
             <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
             {h.changedAt ? (
               <>
-                {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
+                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
               </>
             ) : null}
             {t('haltEffect')}

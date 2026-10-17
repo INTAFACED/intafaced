@@ -182,6 +182,7 @@ const en = {
   rSignIn: 'Your session ended. Sign in again to continue.',
   tNotAllowed: 'You don’t have access',
   rForbidden: 'Your account does not have access to this. Ask the account owner to change your role if you need it.',
+  rSubmerchantUnknown: 'That sub-account isn’t on your network. Check the link or go back to the network list.',
   rGeneric: 'That did not go through. Check what you entered and try again.',
   tNotConnected: 'Not connected yet',
   rNotConnected: 'INTAFACED hasn’t switched this part of your account on yet.',

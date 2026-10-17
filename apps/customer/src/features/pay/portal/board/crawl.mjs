@@ -18,6 +18,7 @@ const BANNED = [
   /\bfixtures?\b/i,
   /\barrives?\b/i,
   /\bpay\.[a-z_]{3,}/,
+  /crypto-native|card-sandbox|idempotency|sha256|\bbps\b|\bpay\.[a-z_]+|\boperator\b/i,
   /\b[a-z]+_[a-z]+_[a-z]+\b/,
 ];
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { PaymentCell } from '../payments/PaymentCell';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
 import { useSession } from '../../../session/session';
@@ -203,6 +204,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
           { header: t('mnColRefund'), cell: (r) => t('refundName', { when: shortDay(r.createdAt, locale) }) },
           { header: t('colAmount'), cell: (r) => <MoneyText value={r.amount} asset={r.assetId} test={test} /> },
           { header: t('colStatus'), cell: (r) => <RefundChip status={r.status} /> },
+          { header: t('rfPayment'), cell: (r) => <PaymentCell portal={portal} paymentId={r.paymentId} /> },
           { header: t('rfFrom'), cell: (r) => sourceWords(t, r.source ?? null) },
           { header: t('mnColCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
         ]}

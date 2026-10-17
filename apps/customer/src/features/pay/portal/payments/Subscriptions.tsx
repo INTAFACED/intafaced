@@ -4,7 +4,7 @@ import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
-import { PayDetails, PaySection, PayTime } from '../../components';
+import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { CreateMandate } from '../../MerchantBilling';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
@@ -366,7 +366,7 @@ export function SubscriptionDetailView({
             [c.t('mandate'), <CopyReference value={subscription.mandateId} />],
             [c.t('status'), <SubscriptionChip status={subscription.status} />],
             [c.t('chargePath'), pathLabel(subscription.path)],
-            [c.t('nextRun'), subscription.status === 'active' ? <PayTime value={subscription.nextRunAt} /> : c.t('noNextRun')],
+            [c.t('nextRun'), subscription.status === 'active' ? <DateTime value={subscription.nextRunAt} /> : c.t('noNextRun')],
           ]}
         />
         <ReadStamp at={at} />
@@ -396,8 +396,8 @@ export function SubscriptionDetailView({
                 [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
                 [c.t('status'), c.t(`mandate_${m.status}`)],
                 [c.t('cadence'), cadenceLabel(m.cadence)],
-                [c.t('mandateStart'), <PayTime value={m.startsAt} />],
-                [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
+                [c.t('mandateStart'), <DateTime value={m.startsAt} />],
+                [c.t('mandateEnd'), m.endsAt ? <DateTime value={m.endsAt} /> : c.t('openEnded')],
                 [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
               ]}
             />
@@ -415,7 +415,7 @@ export function SubscriptionDetailView({
               <>
                 <DataTable
                   label={c.t('cycleHistory')}
-                  headers={[c.t('occurrence'), c.t('amount'), c.t('status'), c.t('attempts'), c.t('cycleKey'), c.t('payment')]}
+                  headers={[c.t('occurrence'), c.t('amount'), c.t('status'), c.t('attempts'), c.t('payment')]}
                 >
                   {data.cycles.map((cycle) => (
                     <tr key={cycle.occurrence}>
@@ -426,11 +426,10 @@ export function SubscriptionDetailView({
                         {cycle.exhausted && <p className="muted">{c.t('subscriptionRefusal')}</p>}
                       </td>
                       <td>{cycle.attemptCount}</td>
-                      <td>{cycle.idempotencyKey ? <CopyReference value={cycle.idempotencyKey} /> : c.t('unavailable')}</td>
                       <td>
                         {cycle.paymentId ? (
                           <a className="text-link" href={`/pay/payments/${encodeURIComponent(cycle.paymentId)}`}>
-                            {cycle.paymentId}
+                            {c.t('openPayment')}
                           </a>
                         ) : (
                           c.t('noPayment')
@@ -464,7 +463,7 @@ export function SubscriptionDetailView({
                       <CycleChip status={e.status} />
                     </td>
                     <td>
-                      <PayTime value={e.attemptedAt} />
+                      <DateTime value={e.attemptedAt} />
                     </td>
                     <td>
                       {e.paymentId ? (
@@ -547,8 +546,8 @@ export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path
         [c.t('chargePath'), path ? pathLabel(path) : c.t('unavailable')],
         [c.t('amount'), <Money value={m.amount} asset={m.assetId} />],
         [c.t('cadence'), cadenceLabel(m.cadence)],
-        [c.t('mandateStart'), <PayTime value={m.startsAt} />],
-        [c.t('mandateEnd'), m.endsAt ? <PayTime value={m.endsAt} /> : c.t('openEnded')],
+        [c.t('mandateStart'), <DateTime value={m.startsAt} />],
+        [c.t('mandateEnd'), m.endsAt ? <DateTime value={m.endsAt} /> : c.t('openEnded')],
         [c.t('authorizedCeiling'), m.ceiling !== null ? <Money value={m.ceiling} asset={m.assetId} /> : c.t('noCeiling')],
       ]}
     />
@@ -604,7 +603,7 @@ function SubscriptionActions({
                       [c.t('subscriptionId'), s.id],
                       [c.t('customer'), s.customerId],
                       ...(terms ? [[c.t('amount'), <Money value={terms.amount} asset={terms.assetId} />] as [string, ReactNode]] : []),
-                      [c.t('nextRun'), <PayTime value={s.nextRunAt} />],
+                      [c.t('nextRun'), <DateTime value={s.nextRunAt} />],
                       ...(action === 'cancel'
                         ? [
                             [c.t('cancelNextCycle'), s.status === 'active' ? c.t('cancelNextCycleBody') : c.t('cancelPausedBody')] as [
@@ -652,7 +651,7 @@ function SubscriptionActions({
       </div>
       {projected !== undefined && (
         <p role="status">
-          {c.t('projectedEnd')}: {projected ? <PayTime value={projected} /> : c.t('openEnded')}
+          {c.t('projectedEnd')}: {projected ? <DateTime value={projected} /> : c.t('openEnded')}
         </p>
       )}
     </div>
@@ -661,9 +660,11 @@ function SubscriptionActions({
 function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; merchantId: string; pay: BusinessPayApi | null }) {
   const mandates = useResource((signal) => portal.mandates(merchantId, signal), `portal:mandates:${merchantId}`);
   const posture = useResource((signal) => portal.subscriptionPosture(signal), 'portal:subscription-posture');
+  const open = useResource((signal) => portal.subscriptions(merchantId, 200, signal), `portal:subscriptions-open:${merchantId}`);
   return (
     <CreateSubscriptionView
       mandates={mandates.resource}
+      subscriptions={open.resource}
       posture={posture.resource}
       pay={pay}
       portal={portal}
@@ -676,12 +677,15 @@ function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; me
 }
 export function CreateSubscriptionView({
   mandates,
+  subscriptions,
   posture,
   pay,
   portal,
   reload,
 }: {
   mandates: Resource<Mandate[]>;
+  /** The subscriptions already running, so a mandate that has an open one is not offered again. */
+  subscriptions?: Resource<Subscription[]>;
   posture: Resource<z.infer<typeof subscriptionPostureSchema>>;
   pay: BusinessPayApi | null;
   portal?: PortalApi;
@@ -698,7 +702,14 @@ export function CreateSubscriptionView({
   const [created, setCreated] = useState('');
   const [createNotice, setCreateNotice] = useState('');
   useUnsavedForm(Boolean(mandateId || path), c.t('draftWarning'));
-  const choices = mandates.status === 'ready' ? mandates.data.filter((m) => m.status === 'active') : [];
+  const taken = new Set(
+    subscriptions?.status === 'ready'
+      ? subscriptions.data.filter((x) => x.status === 'active' || x.status === 'paused').map((x) => x.mandateId)
+      : [],
+  );
+  // A mandate that already has an open subscription cannot start a second one; the one being recovered stays listed.
+  const choices =
+    mandates.status === 'ready' ? mandates.data.filter((m) => m.status === 'active' && (!taken.has(m.id) || m.id === mandateId)) : [];
   const selected = choices.find((m) => m.id === mandateId);
   const locked = Boolean(pay && mandateId && pay.guard.status(`${pay.authority!.userId}:subscription-create:${mandateId}`));
   const allowed = posture.status === 'ready' && posture.data.paths.some((p) => p.path === path && p.charge !== 'refuse');
@@ -761,9 +772,9 @@ export function CreateSubscriptionView({
                   />
                 )}
                 {createNotice && <p role="status">{createNotice}</p>}
-                {mandateId && (
+                {mandateId && taken.has(mandateId) && (
                   <a className="text-link" href={`/pay/subscriptions?mandateId=${encodeURIComponent(mandateId)}`}>
-                    {c.t('subscriptionsTitle')}
+                    {c.t('openExisting')}
                   </a>
                 )}
                 {pay ? (
@@ -815,7 +826,7 @@ export function CreateSubscriptionView({
         </Gate>
         {created && (
           <a className="text-link" href={`/pay/subscriptions/${encodeURIComponent(created)}`}>
-            {c.t('subscriptionTitle')}: {created}
+            {c.t('openNewSubscription')}
           </a>
         )}
       </PaySection>

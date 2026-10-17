@@ -3,6 +3,10 @@ import { paymentsCopy } from './copy';
 
 /** Plain words for the service's invoice refusals. A code never reaches the screen. */
 registerRefusals({
+  'pay.subscription_already_open': () => paymentsCopy.t('sub_r_alreadyOpen'),
+  'pay.subscription_mandate_open': () => paymentsCopy.t('sub_r_alreadyOpen'),
+  'pay.idempotency_conflict': () => paymentsCopy.t('r_idempotencyConflict'),
+  'pay.idempotency_required': () => paymentsCopy.t('r_idempotencyConflict'),
   'pay.dispute_evidence_upload_off': () => paymentsCopy.t('ev_r_uploadOff'),
   'pay.dispute_evidence_scan_unconfigured': () => paymentsCopy.t('ev_r_uploadOff'),
   'pay.dispute_evidence_scan_failed': () => paymentsCopy.t('ev_r_scanFailed'),

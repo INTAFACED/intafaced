@@ -698,7 +698,7 @@ export function createBusinessPayApi(
     return result;
   }
   /**
-   * `subscription.create` takes `idempotencyKey` on the procedure input.
+   * `subscription.create` and `merchant.createLink` take `idempotencyKey` on the procedure input.
    * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
    * The journal lock stays `${userId}:subscription-create:${mandateId}`.
    * A new create stores a fresh attempt id on that lock and sends
@@ -726,7 +726,8 @@ export function createBusinessPayApi(
     );
     // Pause, resume, and cancel store the expected status in the journal.
     // subscription.create ignores that argument: its reference is the attempt id below.
-    if (procedure !== 'subscription.create') return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
+      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
     const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
       const result = await api.mutate(
@@ -736,7 +737,13 @@ export function createBusinessPayApi(
         outcome,
       );
       if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
-        return { ...result, message: 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.' };
+        return {
+          ...result,
+          message:
+            procedure === 'merchant.createLink'
+              ? 'A request to create this link is already recorded with different details. Open Payment links to check it.'
+              : 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
+        };
       return result;
     };
     // A lost response leaves the attempt id on the lock. Reuse it. Do not mint

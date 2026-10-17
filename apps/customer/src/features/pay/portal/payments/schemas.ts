@@ -98,10 +98,11 @@ export const linkRowSchema = linkSchema.extend({
   // `prefix` (on linkSchema) is the short non-secret start of the token; `token` is the whole secret, only ever sent when the
   // service chooses to. Both are declared here so a parse never strips them.
   token: z.string().min(1).nullish(),
+  // A full web address, or a path from the service's public base ("/checkout?token=…"). Nothing else is accepted.
   checkoutUrl: z
     .string()
-    .url()
-    .refine((value) => /^https?:\/\//i.test(value))
+    .max(2048)
+    .refine((value) => /^https?:\/\/\S+$/i.test(value) || /^\/(?!\/)\S*$/.test(value))
     .nullish(),
 });
 export type LinkRow = z.infer<typeof linkRowSchema>;
