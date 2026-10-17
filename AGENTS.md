@@ -11,7 +11,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
    - No "coming soon" screens. Every room gets its full layout and every control, with an honest empty or refuse state where its data or rail is not wired.
    - No fake balances, books, metrics or sample numbers. Label any illustrative figure TEST.
    - A blank price, limit, fee, sanctions list or provider setting stays blank: refuse with a typed error. Never invent live magnitudes.
-   - INTACHAIN P1 is approved. `/chain`, `/dex` and `/protocol` must be visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
+   - INTACHAIN P1 is approved (owner decision 2026-10-17; ADR update in #4640, which supersedes the "implement parked" lines in `docs/adr/2026-09-03-protocol-rails-until-intachain.md`). `svc-chain`, INTACORE and Predict are @shehzad002's lane unless assigned. `/chain`, `/dex` and `/protocol` must be visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
    - A new look is the owner's call: bring two or three rendered options traced to a measured reference.
 
 ## Money
@@ -33,17 +33,23 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 ## Check, then merge
 
 1. Run the checks on your machine before you push: affected tests, typecheck, and `pnpm exec prettier --check` on every file you changed. Do not add GitHub rules or required checks.
-2. Merge only when both hold: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head, run from a clean, up-to-date `origin/main` checkout (not the PR's branch), and the required independent review passed that same head. The gate waits for finished checks, requires Gitleaks and Dependency audit, verifies CI covers the changed paths, and classifies each failure as introduced, inherited, environmental or unknown. Only a proven inherited failure with an owner and evidence declaration is excused, and never in money or security code. Money and security changes need an independent Claude Opus transcript review of the exact head whose report quotes the gate's canonical patch hash and file list. Format and declarations: [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md).
-3. The gate never merges. A PASS writes an exact-head receipt; run the merge command separately. A PR that changes a gate file (`tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`) needs a `ci:` or `gate:` title and must pass main's copy of the gate. Agent-rule files are never docs-only.
-4. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
-5. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
-6. Never push `main`.
+2. Merge only when both hold: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head, run from a clean, up-to-date `origin/main` checkout (not the PR's branch), and the required independent review passed that same head. The gate waits for finished checks, requires Gitleaks and Dependency audit, verifies CI covers the changed paths, and classifies each failure as introduced, inherited, environmental or unknown. Only a proven inherited failure with an owner and evidence declaration is excused, and never in money or security code. Every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE` (paths named for money, security or auth stay covered) needs an independent Claude Opus transcript review of the exact head, whose report quotes the gate's canonical patch hash and file list. Format and declarations: [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md).
+3. The gate never merges. A PASS writes an exact-head receipt; run the merge command separately. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title and must pass main's copy of the gate. Agent-rule files are never docs-only.
+4. GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass. A gate PASS does not override them. Never bypass them.
+5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
+6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
+7. Never push `main`.
 
 ## Git
 
-1. Work in a worktree, never the main checkout. `pnpm wt <branch>` creates one in the `sovereign-worktrees` folder beside the checkout.
+1. Work in a worktree, never the main checkout. `pnpm wt <branch>` creates one in a `<checkout-folder>-worktrees` folder beside the checkout (`sovereign-worktrees` for the Sovereign checkout).
 2. When your task is merged or handed off, stop any service you started, then remove your own worktree with `git worktree remove <path>`. Never use `--force`.
 3. Never delete a branch. Never run `pnpm wt:rm`, `pnpm wt:gc:apply` or `orca worktree rm`. Leave other agents' worktrees and running work alone.
+
+## Skills and status files
+
+1. This file wins over a skill that says to wait for a person.
+2. Write no status boards and no tracker recooks; spend the session on the product.
 
 ## Where things are
 

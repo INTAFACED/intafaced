@@ -26,7 +26,7 @@ pnpm wt:list                            # what exists
 git worktree remove <worktree-path>     # when your task is merged or handed off
 ```
 
-`pnpm wt` creates the worktree in the `sovereign-worktrees` folder beside the main checkout (`tooling/scripts/worktree.mjs`). Open your editor or agent in the worktree, not in the main checkout.
+`pnpm wt` creates the worktree in a `<checkout-folder>-worktrees` folder beside the main checkout (`tooling/scripts/worktree.mjs`); for the Sovereign checkout that is `sovereign-worktrees`. Open your editor or agent in the worktree, not in the main checkout.
 
 Remove only your own worktree, never with `--force`. Never delete a branch. Never run `pnpm wt:rm`, `pnpm wt:gc:apply` or `orca worktree rm`; they delete branches or force-remove.
 
@@ -36,9 +36,9 @@ Remove only your own worktree, never with `--force`. Never delete a branch. Neve
 
 One service per PR. If describing it needs the word "and", it is two PRs. A cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first.
 
-Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (`tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
+Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
-Review: the author checks their own change, and an independent reviewer checks the exact head. Money, security, sign-in and merge-check code need an Opus-class reviewer. When you review, look in this order:
+Review: the author checks their own change, and an independent reviewer checks the exact head. Every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE` needs an independent Claude Opus transcript review of the exact head, whose report quotes the gate's canonical patch hash and file list. When you review, look in this order:
 
 1. Does it touch money? Read every line, and check the tests cover the failure branches.
 2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.
@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from an up-to-date `origin/main` checkout) and the required review passed (format: [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md)). The gate prints the merge command; run it as its own step.
+Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from a clean, up-to-date `origin/main` checkout, not the PR's branch) and the required independent review passed that same head; the rules are in AGENTS.md ("Check, then merge") and the evidence format is in [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md). The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
 
 ---
 
@@ -69,7 +69,7 @@ CI job names, so you can find a failure fast:
 | `Definition of Done`                                                        | the per-service gate (`pnpm gate`)                                       |
 | `Gitleaks` / `Dependency audit`                                             | secrets and known vulnerabilities                                        |
 
-The merge gate compares your PR with main's latest finished CI run and blocks only on what your PR adds. A red `main` is not your blocker; a new red is.
+The merge gate blocks on failures your PR introduces; the rules are in AGENTS.md ("Check, then merge"). GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass; a gate PASS does not override them, and you never bypass them.
 
 A 403 or 429 from GitHub means stop: report the response, keep working locally, and follow `tooling/agent-protocol/AGENT_PROTOCOL.md` section 3 before you resume. A merge is not a launch: deploys, live credentials, purchases and real funds need the owner.
 

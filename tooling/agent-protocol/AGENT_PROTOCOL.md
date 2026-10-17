@@ -1,6 +1,6 @@
 # Agent protocol
 
-The rules every agent follows are in [`AGENTS.md`](../../AGENTS.md). This file keeps the detail that other files cite by section number (`AGENT_PROTOCOL §1`, `§2`, `§3`, `§5`, `§8`). What is where: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
+The rules every agent follows are in [`AGENTS.md`](../../AGENTS.md). This file keeps the detail that other files cite by section number (`AGENT_PROTOCOL §0`, `§1`, `§2`, `§3`, `§5`, `§8`). What is where: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 
 ---
 
@@ -61,6 +61,8 @@ pnpm gate      # the per-service Definition of Done (section 8)
 CI and `pnpm verify` read the same gate list, `tooling/ci/gates.mjs`. A red gate is not a discussion: fix the cause, never weaken the gate. Merging follows `AGENTS.md` ("Check, then merge").
 
 A 403 or 429 from GitHub means stop GitHub requests and report the response. Do not retry in a loop, switch accounts or create a token. Resume a rate-limited request only after `Retry-After` or the `X-RateLimit-Reset` time; if neither is given, wait at least 60 seconds. Resolve an account or permission restriction before resuming. Independent local work continues.
+
+Actions run only this repo's build, test and publish; operational polling such as live market data runs on our own machines. Pace GitHub API calls and avoid repeated status polling.
 
 ---
 
