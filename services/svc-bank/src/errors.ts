@@ -74,6 +74,16 @@ export type BankErrorCode =
   | 'bank.repayment_id_required'
   /** Draw refused because the loan is not in `pending` — the ordering guard. */
   | 'bank.loan_not_drawable'
+  /**
+   * Abandon refused: the last post attempt on this pending loan is inside the
+   * in-flight bound, so the ledger could still commit it. Wait, then retry.
+   */
+  | 'bank.loan_attempt_too_recent'
+  /**
+   * Recovery will not re-post a collateral lock the ledger definitely refused.
+   * Abandon the pending loan, or have the borrower open a new one.
+   */
+  | 'bank.loan_collateral_rejected'
   /** The requested principal puts the loan over the product's opening LTV. */
   | 'bank.ltv_exceeded'
   /**
@@ -425,7 +435,19 @@ export type BankErrorCode =
    * id is retried or `recover-loan-repayments` re-drives it, so a new event
    * cannot collect the same principal twice.
    */
-  | 'bank.ledger_outcome_unknown';
+  | 'bank.ledger_outcome_unknown'
+  /**
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT=required). This door needs a fresh
+   * same-person approval from identity: none was sent, it is spent, expired,
+   * another user's, or for another session. The client asks the user again.
+   */
+  | 'bank.step_up_required'
+  /** The approval was for a different payload (amount, payee, asset, id, cadence...). Ask again. */
+  | 'bank.step_up_mismatch'
+  /** The approval was already spent on a different operation. Ask again. */
+  | 'bank.step_up_used'
+  /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
+  | 'bank.step_up_unavailable';
 
 export class BankError extends Error {
   constructor(

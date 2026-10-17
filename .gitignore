@@ -90,6 +90,10 @@ docs/ops/RUN-LEDGER.json.tmp
 # on purpose: two agents verifying at once must not read each other's skips.
 .intafaced-run/
 
+# Python bytecode from local SDK runs
+__pycache__/
+*.py[cod]
+
 # Retired Graphify output and installer remnants from older local checkouts.
 /graphify-out/
 /.graphify/

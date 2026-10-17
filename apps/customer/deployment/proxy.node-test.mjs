@@ -152,7 +152,7 @@ test('customer proxy serves React deep links, refuses bare API paths, caches ass
       body: '{"reference":"public-contract-test"}',
     });
     assert.equal(edge.headers.get('cache-control'), 'no-store');
-    // /api/ answers belong to svc-edge (its widget removes X-Frame-Options on purpose), so nginx adds only HSTS there.
+    // /api/ answers belong to svc-edge (its own documents set their framing headers), so nginx adds only HSTS there.
     assert.equal(edge.headers.get('strict-transport-security'), 'max-age=86400');
     assert.equal(edge.headers.get('x-frame-options'), null);
     assert.equal(edge.headers.get('content-security-policy'), null);

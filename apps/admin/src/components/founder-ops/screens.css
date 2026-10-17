@@ -1,0 +1,55 @@
+.fo-directory {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 0;
+}
+.fo-directory a {
+  padding: 9px 12px;
+  border: 1px solid var(--if-border);
+  border-radius: 6px;
+  color: var(--if-text);
+  text-decoration: none;
+}
+.fo-directory a:hover,
+.fo-directory a:focus-visible {
+  border-color: var(--if-accent);
+}
+.fo-dialog {
+  background: var(--if-surface);
+  color: var(--if-text);
+  border: 1px solid var(--if-border);
+  border-radius: 12px;
+  width: min(760px, 90vw);
+}
+.fo-dialog::backdrop {
+  background: rgb(0 0 0 / 70%);
+}
+.fo-filters {
+  border: 0;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fo-filters legend {
+  margin-bottom: 12px;
+  color: var(--if-text-muted);
+}
+.fo-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.fo-section-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.fo-section-links a {
+  padding: 6px 10px;
+  color: var(--if-text-muted);
+}

@@ -14,15 +14,24 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
   const merchantId = pay.authority!.merchantId;
   const [limit, setLimit] = useState(50);
   const [status, setStatus] = useState('');
-  const [openedId, setOpenedId] = useState('');
+  // The portal's payment page links here with ?payment=<id> to refund or capture that payment.
+  const [openedId, setOpenedId] = useState(() => {
+    try {
+      return room === 'payments' ? (new URLSearchParams(location.search).get('payment') ?? '') : '';
+    } catch {
+      return '';
+    }
+  });
   const payments = useResource(
     (signal) =>
-      pay.query(
-        'payment.list',
-        { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
-        z.array(s.paymentSchema),
-        signal,
-      ),
+      pay
+        .query(
+          'payment.list',
+          { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
+          z.object({ items: z.array(s.paymentSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:payments:${merchantId}:${room}:${status}:${limit}`,
   );
   return (
