@@ -274,13 +274,18 @@ export function ListingActions({ row, userId, onChanged }: { row: Row; userId: s
   );
 }
 
-const CARD_COPY: Record<CardStatus, { label: string; consequence: string; danger: boolean }> = {
+export const CARD_COPY: Record<CardStatus, { label: string; consequence: string; danger: boolean }> = {
   frozen: {
     label: 'Freeze',
     consequence: 'The card is frozen and its owner cannot unfreeze it; only an operator can lift it. The owner can still close it.',
     danger: true,
   },
-  active: { label: 'Lift the freeze on', consequence: 'The card works again for its owner.', danger: false },
+  active: {
+    label: 'Lift the freeze on',
+    consequence:
+      'This lifts ANY freeze on the card, including one the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.',
+    danger: true,
+  },
 };
 
 /**

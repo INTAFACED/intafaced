@@ -6,6 +6,7 @@ import {
   AmbassadorActions,
   ResidencyActions,
   AppointAmbassadorAction,
+  CARD_COPY,
   CardStatusAction,
   DisputeActions,
   ListingActions,
@@ -514,6 +515,11 @@ describe('operator reads wired onto the desks', () => {
     expect(html).toContain('Freeze or unfreeze a card');
     expect(html).toContain('its owner cannot unfreeze it');
     expect(html).toContain('the reason is recorded with the freeze but is not part of what they sign');
+  });
+  it('lifting a freeze warns that it lifts any freeze, including one the owner set, and is a danger action', () => {
+    expect(CARD_COPY.active.danger).toBe(true);
+    expect(CARD_COPY.active.consequence).toContain('the owner set themselves');
+    expect(CARD_COPY.active.consequence).toContain('check with the owner first');
   });
   const DISPUTE = {
     id: '5a3b9c10-1111-4222-8333-444455556666',

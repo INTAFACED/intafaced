@@ -116,6 +116,8 @@ describe('the desks cover what the product order asks for', () => {
   });
   it('bank: the windowed reads state their window in the title and stay inside the service’s own limits', () => {
     for (const read of allReads(DESKS.bank).filter((r) => r.windowDays !== undefined)) {
+      // The card counts are all-time; only the authorisations are windowed, and the title says both.
+      if (read.id === 'bank.card-counts') expect(read.title).toMatch(/all time/);
       expect(read.title, read.id).toMatch(/last 30 days/);
       // svc-bank refuses a card programme span over 92 days.
       expect(read.windowDays, read.id).toBeLessThanOrEqual(92);
@@ -258,5 +260,12 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     }
     expect(body.includes('.query('), `${read.procedure} is a query`).toBe(true);
     expect(body.includes('.mutation('), `${read.procedure} is not a mutation`).toBe(false);
+  });
+});
+
+describe('mining pool terms', () => {
+  it('needs only a signed-in session, so its refusal never claims a missing admin permission', () => {
+    const terms = allReads(DESKS.more).find((r) => r.id === 'mining.terms')!;
+    expect(terms.forbiddenText).not.toMatch(/admin:read/);
   });
 });

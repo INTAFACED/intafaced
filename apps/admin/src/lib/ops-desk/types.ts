@@ -59,8 +59,8 @@ export interface ReadSpec {
   readonly procedure: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
-   * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N whole days up to the
-   * moment it reads, adds both to `input`, and the read's title says so. See `inputFor`.
+   * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the
+   * moment it reads (not calendar days), adds both to `input`, and the read's title says so. See `inputFor`.
    */
   readonly windowDays?: number;
   /** Send `{}` as the input when `input` is empty (the procedure's input is an object and refuses none). */

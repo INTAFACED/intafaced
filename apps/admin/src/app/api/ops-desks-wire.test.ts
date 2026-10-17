@@ -351,6 +351,27 @@ describe('more desk: mining, market sales and quant strategies', () => {
   });
 });
 
+describe('POST with a refused session', () => {
+  it('bank and p2p return the gate’s refusal unchanged and call no service', async () => {
+    const refusal = Response.json({ code: 'admin.session_required' }, { status: 401 });
+    const fetchMock = vi.fn(async () => ok({}));
+    vi.stubGlobal('fetch', fetchMock);
+    gate.session.mockResolvedValue(refusal);
+    const bankRes = await bank.POST(post('/api/bank-ops', { step: 'propose' }));
+    expect(bankRes).toBe(refusal);
+    const p2pRes = await p2p.POST(
+      post('/api/p2p-ops', {
+        action: 'p2p.dispute.escalate',
+        disputeId: '5a3b9c10-1111-4222-8333-444455556666',
+        reason: 'overdue and silent seller',
+        clientRequestId: 'console-12345678',
+      }),
+    );
+    expect(p2pRes).toBe(refusal);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST: the actions the new reads carry', () => {
   const CARD = '9f8e7d6c-1111-4222-8333-444455556666';
   it('bank takes only the card freeze request kind, and refuses any other without calling a service', async () => {

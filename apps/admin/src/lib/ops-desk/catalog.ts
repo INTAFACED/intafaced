@@ -217,7 +217,7 @@ const bankSections: readonly DeskSection[] = [
       },
       {
         id: 'bank.card-counts',
-        title: 'Cards issued, last 30 days of activity',
+        title: 'Cards issued (all time) · authorisations, last 30 days',
         note: 'How many cards exist and in what state, across all owners. "Simulated" is the issuer’s own flag: true means no real card was issued.',
         module: 'bank',
         plainName: 'card counts',
@@ -934,6 +934,8 @@ const FORBID_TOKEN_READ =
   'Your console session does not have token read permission yet: svc-token did not accept your founder session for this read (it needs token:read).';
 const FORBID_MARKET_OPS = 'svc-market did not accept your founder session for this read (it needs market:ops).';
 const FORBID_MINING = 'svc-mining-pool did not accept your founder session for this read (it needs admin:read).';
+const FORBID_MINING_TERMS =
+  'svc-mining-pool did not accept your founder session for this read (the pool terms need only a signed-in session, so this is a sign-in or connection problem, not a missing permission).';
 
 const moreSections: readonly DeskSection[] = [
   {
@@ -1047,7 +1049,7 @@ const moreSections: readonly DeskSection[] = [
           text('windowSizeReason', 'Why no window size', { nullable: true }),
         ],
         emptyText: '',
-        forbiddenText: FORBID_MINING,
+        forbiddenText: FORBID_MINING_TERMS,
       },
       {
         id: 'mining.windows',

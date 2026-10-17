@@ -247,7 +247,7 @@ export function describeRequest(request: DeskRequest): string {
     case 'bank.card.status':
       return request.status === 'frozen'
         ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`
-        : `Lift the operator freeze on card ${request.cardId}: it works again for its owner.`;
+        : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
   }

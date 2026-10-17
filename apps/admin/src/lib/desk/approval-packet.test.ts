@@ -226,7 +226,10 @@ describe('card freeze and listing takedown requests', () => {
   it('says in plain words what it does, including what cannot be undone', () => {
     expect(describeRequest(freeze)).toContain(cardId);
     expect(describeRequest(freeze)).toContain('its owner cannot unfreeze it');
-    expect(describeRequest({ ...freeze, status: 'active' })).toContain('Lift the operator freeze');
+    const lift = describeRequest({ ...freeze, status: 'active' });
+    expect(lift).toContain('Lift the freeze on card');
+    expect(lift).toContain('the owner set themselves');
+    expect(lift).toContain('check with the owner first');
     expect(describeRequest(takedown)).toContain('for good');
     expect(describeRequest(takedown)).toContain('nothing is refunded');
   });
