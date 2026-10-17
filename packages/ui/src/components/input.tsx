@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Input: a single-line text field for forms. Two kinds. `text` is a normal
  * string input. `decimal` is for money and quantities: the value is a decimal
