@@ -3,7 +3,7 @@
  * Run: node --test tooling/scripts/local-test-seed.test.mjs
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -173,28 +173,56 @@ function marketMaker(assetId) {
   return { ownerType: 'house', ownerId: 'market-maker', assetId, kind: 'available' };
 }
 
+function userAvailable(userId, assetId) {
+  return { ownerType: 'user', ownerId: userId, assetId, kind: 'available' };
+}
+
+function accountKey(account) {
+  return [account.ownerType, account.ownerId, account.assetId, account.kind, account.purpose ?? ''].join('\0');
+}
+
 function recipesFixture() {
   return {
-    earnPoolFund({ poolId, fundingId, assetId, amount }) {
+    deposit({ userId, assetId, amount, rail, railRef }) {
+      return {
+        idempotencyKey: `deposit:${rail}:${railRef}`,
+        module: 'ledger',
+        reason: 'deposit.credited',
+        meta: { rail, railRef },
+        entries: [
+          { account: { ownerType: 'treasury', ownerId: `rail:${rail}`, assetId, kind: 'available' }, direction: 'credit', amount },
+          { account: userAvailable(userId, assetId), direction: 'debit', amount },
+        ],
+      };
+    },
+    earnPoolFund({ poolId, fundingId, assetId, amount, from }) {
       return {
         idempotencyKey: `bank.earn.fund:${poolId}:${fundingId}`,
         module: 'bank',
         reason: 'bank.earn.pool.funded',
         meta: { poolId, fundingId },
         entries: [
-          { account: { ownerType: 'house', ownerId: 'fees:bank', assetId, kind: 'available' }, direction: 'credit', amount },
+          {
+            account: from ?? { ownerType: 'house', ownerId: 'fees:bank', assetId, kind: 'available' },
+            direction: 'credit',
+            amount,
+          },
           { account: { ownerType: 'module', ownerId: `bank:earn:${poolId}`, assetId, kind: 'available' }, direction: 'debit', amount },
         ],
       };
     },
-    loanReserveFund({ fundingId, debtAssetId, amount }) {
+    loanReserveFund({ fundingId, debtAssetId, amount, from }) {
       return {
         idempotencyKey: `bank.loan.reserve.fund:${debtAssetId}:${fundingId}`,
         module: 'bank',
         reason: 'loan.reserve.funded',
         meta: { fundingId },
         entries: [
-          { account: { ownerType: 'house', ownerId: 'fees:bank', assetId: debtAssetId, kind: 'available' }, direction: 'credit', amount },
+          {
+            account: from ?? { ownerType: 'house', ownerId: 'fees:bank', assetId: debtAssetId, kind: 'available' },
+            direction: 'credit',
+            amount,
+          },
           {
             account: { ownerType: 'module', ownerId: 'bank:loan-reserve', assetId: debtAssetId, kind: 'available' },
             direction: 'debit',
@@ -349,22 +377,37 @@ function memoryLedger() {
         attempts.push({ wire, noop: true });
         return { txId: prev.txId, noop: true };
       }
-      for (const entry of wire.entries) {
-        if (entry.account.ownerType === 'user') throw new Error('user account touched');
-        if (entry.direction === 'debit' && entry.account.ownerType === 'house' && entry.account.ownerId === 'market-maker') {
-          const key = entry.account.assetId;
-          balances.set(key, (balances.get(key) ?? 0n) + parseAmount(entry.amount));
+      const houseInventory = wire.entries.some((entry) => entry.account.ownerType === 'house' && entry.account.ownerId === 'market-maker');
+      if (houseInventory) {
+        for (const entry of wire.entries) {
+          if (entry.account.ownerType === 'user') throw new Error('user account touched');
         }
       }
+      const pending = new Map();
+      for (const entry of wire.entries) {
+        const key = accountKey(entry.account);
+        const amount = parseAmount(entry.amount);
+        const signed = entry.direction === 'debit' ? amount : -amount;
+        const slot = pending.get(key) ?? { ownerType: entry.account.ownerType, next: balances.get(key) ?? 0n };
+        slot.next += signed;
+        pending.set(key, slot);
+      }
+      for (const slot of pending.values()) {
+        if (slot.ownerType !== 'treasury' && slot.next < 0n) {
+          const err = new Error('insufficient funds');
+          err.code = 'ledger.insufficient_funds';
+          throw err;
+        }
+      }
+      for (const [key, slot] of pending) balances.set(key, slot.next);
       const txId = `tx-${seen.size + 1}`;
       seen.set(wire.idempotencyKey, { canonical, txId });
       attempts.push({ wire, noop: false });
       return { txId, noop: false };
     },
     async balance(query) {
-      if (query.ownerType !== 'house' || query.ownerId !== 'market-maker') return { amount: '0' };
-      const value = balances.get(query.assetId);
-      return { amount: value == null ? '0' : formatAmount(value) };
+      const value = balances.get(accountKey(query)) ?? 0n;
+      return { amount: formatAmount(value) };
     },
   };
 }
@@ -380,6 +423,7 @@ function world() {
     instruments,
     ledger,
     recipes: recipesFixture(),
+    userAvailable,
     parseAmount,
     formatAmount,
     async readPools(names) {
@@ -572,7 +616,10 @@ test('earn: first apply creates every pool, second creates none and posts nothin
   assert.deepEqual(listed.map((pool) => pool.name).sort(), TEST_EARN.map((row) => earnPoolName(row)).sort());
   assert.deepEqual(
     ledger.attempts.map((attempt) => attempt.wire.idempotencyKey),
-    TEST_EARN.map((row, index) => `bank.earn.fund:pool-${index + 1}:${earnFundingId(row)}`),
+    TEST_EARN.flatMap((row, index) => [
+      `deposit:local-test:LOCAL-TEST-seed-funder-${row.slug}-v1`,
+      `bank.earn.fund:pool-${index + 1}:${earnFundingId(row)}`,
+    ]),
   );
   for (const row of TEST_EARN) {
     assert.equal(earnFundingId(row), `local-test-seed-${row.slug}`);
@@ -706,7 +753,7 @@ test('house: exact amounts, deterministic ids, second apply is a ledger no-op, h
       [railBoundary(row.assetId), marketMaker(row.assetId)],
     );
     assert.ok(wire.entries.every((entry) => entry.account.ownerType !== 'user'));
-    assert.equal(formatAmount(ledger.balances.get(row.assetId)), row.amount);
+    assert.equal(formatAmount(ledger.balances.get(accountKey(marketMaker(row.assetId)))), row.amount);
   }
   const firstWires = ledger.attempts.map((attempt) => attempt.wire);
   await applyHouse(deps);
@@ -717,7 +764,9 @@ test('house: exact amounts, deterministic ids, second apply is a ledger no-op, h
     second.map((attempt) => attempt.wire),
     firstWires,
   );
-  for (const row of TEST_HOUSE_INVENTORY) assert.equal(formatAmount(ledger.balances.get(row.assetId)), row.amount);
+  for (const row of TEST_HOUSE_INVENTORY) {
+    assert.equal(formatAmount(ledger.balances.get(accountKey(marketMaker(row.assetId)))), row.amount);
+  }
 });
 
 test('house inventory stocks both sides of the stack default markets', () => {
@@ -840,4 +889,91 @@ test('money tables are decimal strings and the seed does not touch service trees
   };
   for (const tree of ['services', 'apps', 'packages']) walk(path.join(repo, tree));
   assert.deepEqual(hits, []);
+});
+
+test('applyAll funds each reserve from a labelled TEST deposit and a second apply is a no-op', async () => {
+  const { deps, ledger } = world();
+  await applyAll(deps);
+  const mod = await import('./local-test-seed.mjs');
+  const funderId = mod.LOCAL_TEST_FUNDER_ID;
+  assert.match(funderId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+  TEST_EARN.forEach((row, index) => {
+    const reserve = {
+      ownerType: 'module',
+      ownerId: `bank:earn:pool-${index + 1}`,
+      assetId: row.assetId,
+      kind: 'available',
+    };
+    assert.equal(formatAmount(ledger.balances.get(accountKey(reserve)) ?? 0n), row.reserve);
+  });
+  assert.equal(
+    formatAmount(
+      ledger.balances.get(accountKey({ ownerType: 'module', ownerId: 'bank:loan-reserve', assetId: 'USDT', kind: 'available' })) ?? 0n,
+    ),
+    LOAN_RESERVE_AMOUNT,
+  );
+
+  const assets = new Set([...TEST_EARN.map((row) => row.assetId), 'USDT', ...TEST_HOUSE_INVENTORY.map((row) => row.assetId)]);
+  for (const assetId of assets) {
+    assert.equal(ledger.balances.get(accountKey(userAvailable(funderId, assetId))) ?? 0n, 0n);
+  }
+
+  const deposited = new Map();
+  for (const row of TEST_EARN) deposited.set(row.assetId, (deposited.get(row.assetId) ?? 0n) + parseAmount(row.reserve));
+  deposited.set('USDT', (deposited.get('USDT') ?? 0n) + parseAmount(LOAN_RESERVE_AMOUNT));
+  const house = new Map(TEST_HOUSE_INVENTORY.map((row) => [row.assetId, parseAmount(row.amount)]));
+  for (const assetId of new Set([...deposited.keys(), ...house.keys()])) {
+    const expected = -((deposited.get(assetId) ?? 0n) + (house.get(assetId) ?? 0n));
+    assert.equal(ledger.balances.get(accountKey(railBoundary(assetId))) ?? 0n, expected);
+  }
+
+  for (const attempt of ledger.attempts) {
+    for (const entry of attempt.wire.entries) {
+      assert.equal(String(entry.account.ownerId).startsWith('fees:'), false);
+    }
+    assert.equal(attempt.wire.meta.label, FUNDS_LABEL);
+  }
+
+  const first = ledger.attempts.length;
+  await applyAll(deps);
+  const replay = ledger.attempts.slice(first);
+  assert.equal(replay.length, first);
+  assert.ok(replay.every((attempt) => attempt.noop));
+});
+
+test('resolvePostgres loads the postgres package svc-bank declares', async () => {
+  const mod = await import('./local-test-seed.mjs');
+  assert.equal(typeof mod.resolvePostgres, 'function');
+  const fixture = tmp();
+  const bare = tmp();
+  try {
+    const bank = path.join(fixture, 'services', 'svc-bank');
+    const stubDir = path.join(bank, 'node_modules', 'postgres');
+    mkdirSync(stubDir, { recursive: true });
+    writeFileSync(path.join(bank, 'package.json'), JSON.stringify({ name: '@intafaced/svc-bank', dependencies: { postgres: '0.0.0' } }));
+    writeFileSync(path.join(stubDir, 'package.json'), JSON.stringify({ name: 'postgres', main: 'index.js' }));
+    writeFileSync(
+      path.join(stubDir, 'index.js'),
+      'function localTestPostgresStub(){ return "local-test-postgres-stub"; }\nmodule.exports = localTestPostgresStub;\n',
+    );
+    const loaded = mod.resolvePostgres(fixture);
+    assert.equal(typeof loaded, 'function');
+    assert.equal(loaded(), 'local-test-postgres-stub');
+
+    const bareBank = path.join(bare, 'services', 'svc-bank');
+    mkdirSync(bareBank, { recursive: true });
+    writeFileSync(path.join(bareBank, 'package.json'), JSON.stringify({ name: '@intafaced/svc-bank' }));
+    assert.throws(
+      () => mod.resolvePostgres(bare),
+      (err) => {
+        assert.match(err.message, /postgres/);
+        assert.doesNotMatch(err.message, /packages are not built/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  }
 });

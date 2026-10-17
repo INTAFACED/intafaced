@@ -17,9 +17,12 @@
  * not read.
  *
  * Money moves only through packages/ledger-client recipes into that local ledger.
+ * Earn and loan reserves are a labelled TEST deposit on rail `local-test` into
+ * `LOCAL_TEST_FUNDER_ID`, then a move from that funder's available balance.
  * Values below are illustrative TEST numbers. They are not production defaults.
  * Docs: docs/LOCAL-TEST-STACK.md (section "Local test content").
  */
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,6 +34,8 @@ const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 export const MARKER_FILE = 'LOCAL-TEST-STACK.json';
 export const MARKER_KIND = 'intafaced-local-test-stack';
 export const FUNDS_LABEL = 'LOCAL TEST FUNDS — not real money';
+/** Labelled local TEST funder. A fixed id written in this file, not a person. */
+export const LOCAL_TEST_FUNDER_ID = '00000000-0000-4000-8000-00000000c0de';
 export const NAME_PREFIX = 'TEST · ';
 export const NAME_SUFFIX = '(local test, not a real rate)';
 export const LOAN_RESERVE_FUNDING_ID = 'local-test-seed-loan-reserve-USDT';
@@ -44,7 +49,8 @@ const DECIMAL = /^\d+(\.\d+)?$/;
 
 /**
  * Illustrative TEST earn rates. Names are built by `earnPoolName`.
- * Reserve amounts are exact decimal strings funded with `recipes.earnPoolFund`.
+ * Reserve amounts are exact decimal strings. Each one is deposited to
+ * `LOCAL_TEST_FUNDER_ID` on rail `local-test`, then moved with `recipes.earnPoolFund`.
  */
 export const TEST_EARN = [
   { slug: 'usdt-flexible', assetId: 'USDT', kind: 'flexible', aprBps: 400, termDays: null, reserve: '1000000' },
@@ -318,6 +324,26 @@ async function openNamed(list, emptyCode) {
 
 // ── Apply ───────────────────────────────────────────────────────────────────
 
+/**
+ * Deposit on rail `local-test` into the TEST funder, then move that balance.
+ * A crash between the two posts leaves the value on the funder. The retry's
+ * deposit is a ledger no-op and its funding post completes, so nothing is
+ * double-posted.
+ */
+async function fundFromLocalTestDeposit(deps, { slug, assetId, amount, recipe }) {
+  await postRecipe(
+    deps,
+    deps.recipes.deposit({
+      userId: LOCAL_TEST_FUNDER_ID,
+      assetId,
+      amount,
+      rail: 'local-test',
+      railRef: `LOCAL-TEST-seed-funder-${slug}-v1`,
+    }),
+  );
+  await postRecipe(deps, recipe(deps.userAvailable(LOCAL_TEST_FUNDER_ID, assetId)));
+}
+
 export async function applyEarn(deps, rows = TEST_EARN) {
   assertTestTables();
   const open = await openNamed(() => deps.earn.listPools(undefined, LIST_LIMIT), 'bank.earn_rate_unset');
@@ -346,15 +372,19 @@ export async function applyEarn(deps, rows = TEST_EARN) {
       openNames.add(name);
     }
     const amount = deps.parseAmount(row.reserve);
-    await postRecipe(
-      deps,
-      deps.recipes.earnPoolFund({
-        poolId: pool.id,
-        fundingId: earnFundingId(row),
-        assetId: row.assetId,
-        amount,
-      }),
-    );
+    await fundFromLocalTestDeposit(deps, {
+      slug: row.slug,
+      assetId: row.assetId,
+      amount,
+      recipe: (from) =>
+        deps.recipes.earnPoolFund({
+          poolId: pool.id,
+          fundingId: earnFundingId(row),
+          assetId: row.assetId,
+          amount,
+          from,
+        }),
+    });
   }
   return { created, skipped };
 }
@@ -385,14 +415,18 @@ export async function applyLoans(deps, rows = TEST_LOANS) {
     created += 1;
   }
   const amount = deps.parseAmount(LOAN_RESERVE_AMOUNT);
-  await postRecipe(
-    deps,
-    deps.recipes.loanReserveFund({
-      fundingId: LOAN_RESERVE_FUNDING_ID,
-      debtAssetId: 'USDT',
-      amount,
-    }),
-  );
+  await fundFromLocalTestDeposit(deps, {
+    slug: 'loan-reserve-USDT',
+    assetId: 'USDT',
+    amount,
+    recipe: (from) =>
+      deps.recipes.loanReserveFund({
+        fundingId: LOAN_RESERVE_FUNDING_ID,
+        debtAssetId: 'USDT',
+        amount,
+        from,
+      }),
+  });
   return { created, skipped };
 }
 
@@ -532,15 +566,29 @@ async function signedCall(plan, contracts, route, body) {
   return JSON.parse(text);
 }
 
+/**
+ * Load `postgres` from svc-bank, the package that declares it.
+ * A script under `tooling/scripts/` cannot resolve that dependency itself.
+ */
+export function resolvePostgres(repo) {
+  const pkg = path.join(repo, 'services', 'svc-bank', 'package.json');
+  try {
+    const loaded = createRequire(pkg)('postgres');
+    return loaded?.default ?? loaded;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`cannot load postgres from ${pkg}: ${message}`);
+  }
+}
+
 export async function openLocal(plan) {
-  let postgres;
+  const postgres = resolvePostgres(REPO);
   let ledgerClient;
   let contracts;
   let EarnService;
   let LoanService;
   let InstrumentService;
   try {
-    postgres = (await import('postgres')).default;
     [ledgerClient, contracts] = await Promise.all([
       importFromRepo('packages/ledger-client/dist/index.js'),
       importFromRepo('packages/contracts/dist/index.js'),
@@ -590,6 +638,7 @@ export async function openLocal(plan) {
       },
     },
     recipes: ledgerClient.recipes,
+    userAvailable: ledgerClient.userAvailable,
     parseAmount: ledgerClient.parseAmount,
     formatAmount: ledgerClient.formatAmount,
     ledger: {

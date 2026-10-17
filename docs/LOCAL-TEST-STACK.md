@@ -127,9 +127,11 @@ Without `--state`, the directory is `~/.intafaced/local-test-stack`. `pnpm local
 
 Undo is `unseed`. It closes matching earn pools and loan products and disables the P2P method. It does not delete rows and it does not reverse ledger credits.
 
+Earn and loan reserves are funded by a labelled TEST deposit on rail `local-test` into a fixed TEST funder, then moved into each reserve. The funder id is `00000000-0000-4000-8000-00000000c0de`. It is a labelled local TEST funder, not a person. Each deposit uses `recipes.deposit` with rail ref `LOCAL-TEST-seed-funder-<slug>-v1`. A repeat of that deposit is a ledger no-op. Earn moves the balance with `recipes.earnPoolFund` from that funder's available balance (funding id `local-test-seed-<slug>`). The USDT loan reserve uses slug `loan-reserve-USDT` and `recipes.loanReserveFund` (funding id `local-test-seed-loan-reserve-USDT`, amount `1000000`). House inventory does not use the funder. It is credited from rail `local-test` straight into the house market-maker account.
+
 Opening a loan still refuses where this stack has no price marks (see Real vs test). The Loans room can list the products below. The seed does not invent marks.
 
-Earn pools (reserve funded with `recipes.earnPoolFund`, funding id `local-test-seed-<slug>`):
+Earn pools (funding id `local-test-seed-<slug>`):
 
 | Name                                                              | Asset | Kind     | Term    | APR     | Reserve   |
 | ----------------------------------------------------------------- | ----- | -------- | ------- | ------- | --------- |
@@ -138,7 +140,7 @@ Earn pools (reserve funded with `recipes.earnPoolFund`, funding id `local-test-s
 | `TEST · USDC flexible 350 bps (local test, not a real rate)`      | USDC  | flexible | —       | 350 bps | `1000000` |
 | `TEST · BTC flexible 100 bps (local test, not a real rate)`       | BTC   | flexible | —       | 100 bps | `10`      |
 
-Loan products (policy copied from the passing `DEFAULT_LIQUIDATION_POLICY` fixture: margin call 7500, liquidation 8500, insolvency 9500, target 6500, penalty 200 bps, tranche 2500 bps, grace 3600 seconds; APR 1000 bps; max LTV 5000 bps). Both borrow and quote USDT. The USDT lending reserve is funded with `1000000` via `recipes.loanReserveFund`, funding id `local-test-seed-loan-reserve-USDT`.
+Loan products (policy copied from the passing `DEFAULT_LIQUIDATION_POLICY` fixture: margin call 7500, liquidation 8500, insolvency 9500, target 6500, penalty 200 bps, tranche 2500 bps, grace 3600 seconds; APR 1000 bps; max LTV 5000 bps). Both borrow and quote USDT. The USDT lending reserve is `1000000`, slug `loan-reserve-USDT`.
 
 | Name                                                                    | Collateral |
 | ----------------------------------------------------------------------- | ---------- |
