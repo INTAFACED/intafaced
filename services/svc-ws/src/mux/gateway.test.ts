@@ -139,6 +139,7 @@ describe('the multiplexed door, over a real socket', () => {
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
       maxConnections: 8,
+      muxMaxConnections: 8,
       marketsRefreshMs: 0,
     });
     tradeHub = new TradeHub({
