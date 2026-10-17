@@ -104,9 +104,7 @@ if (!available) {
   const hashOf = async (userId: string) =>
     (await db.sql<Array<{ password_hash: string }>>`SELECT password_hash FROM users WHERE id = ${userId}`)[0]!.password_hash;
   const liveSessions = async (userId: string) =>
-    (
-      await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM sessions WHERE user_id = ${userId} AND revoked = false`
-    )[0]!.n;
+    (await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM sessions WHERE user_id = ${userId} AND revoked = false`)[0]!.n;
   const refusal = async (promise: Promise<unknown>) => {
     const err = (await promise.then(
       () => undefined,
@@ -214,12 +212,8 @@ if (!available) {
       await anon().auth.completePasswordReset({ email: user.email, code: first, newPassword: NEW });
       const afterFirst = await hashOf(user.userId);
 
-      const otherLink = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: second, newPassword: NEWER }),
-      );
-      const again = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: first, newPassword: NEWER }),
-      );
+      const otherLink = await refusal(anon().auth.completePasswordReset({ email: user.email, code: second, newPassword: NEWER }));
+      const again = await refusal(anon().auth.completePasswordReset({ email: user.email, code: first, newPassword: NEWER }));
 
       expect(otherLink.code).toBe('auth.reset_proof_invalid');
       expect(again.code).toBe('auth.reset_proof_invalid');
@@ -260,9 +254,7 @@ if (!available) {
       await anon().auth.requestPasswordReset({ email: user.email });
       nowMs += RESET_TTL_SECONDS * 1000 + 1000;
 
-      const refused = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW }),
-      );
+      const refused = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW }));
 
       expect(refused.code).toBe('auth.reset_proof_invalid');
       expect(await hashOf(user.userId)).toBe(before);
@@ -316,9 +308,7 @@ if (!available) {
       const before = await hashOf(user.userId);
       await auth.freezeIdentity(user.userId);
 
-      const refused = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW }),
-      );
+      const refused = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW }));
       expect(refused.code).toBe('auth.reset_proof_invalid');
       expect(await hashOf(user.userId)).toBe(before);
 
@@ -340,23 +330,17 @@ if (!available) {
       const before = await hashOf(user.userId);
       await anon().auth.requestPasswordReset({ email: user.email });
 
-      const weak = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: 'short' }),
-      );
+      const weak = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: 'short' }));
       expect(weak.code).toBe('auth.password_policy');
       expect(await hashOf(user.userId)).toBe(before);
 
-      const same = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: OLD }),
-      );
+      const same = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: OLD }));
       expect(same.code).toBe('auth.password_unchanged');
       expect(await hashOf(user.userId)).toBe(before);
 
       await anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW });
       expect(await hashOf(user.userId)).not.toBe(before);
-      const spent = await refusal(
-        anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEWER }),
-      );
+      const spent = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEWER }));
       expect(spent.code).toBe('auth.reset_proof_invalid');
     });
   });

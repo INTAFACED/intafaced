@@ -15,12 +15,7 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
-import {
-  completePasswordReset,
-  publishedPasswordResetTtlSeconds,
-  requestPasswordReset,
-  type PasswordResetMail,
-} from './password-reset.js';
+import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';

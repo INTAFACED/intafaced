@@ -68,10 +68,7 @@ async function rejectInvalidProof(newPassword: string): Promise<never> {
   throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
 }
 
-export async function requestPasswordReset(
-  deps: PasswordResetDeps,
-  input: { email: string },
-): Promise<{ accepted: true }> {
+export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
   const mail = deps.mail;
   const ttlSeconds = publishedPasswordResetTtlSeconds(deps.ttlSeconds);
   if (!mail || ttlSeconds === undefined) {
