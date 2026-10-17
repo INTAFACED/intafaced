@@ -55,6 +55,12 @@ export const tierDefinitionSchema = z
     founderThresholds: z.array(thresholdSchema).min(1).max(32),
     /** How long an approval request stays valid. Bounds are validation, not defaults. */
     approvalTtlSeconds: z.number().int().min(60).max(2_592_000),
+    /**
+     * When true, every merchant may read this tier's commercial terms.
+     * Omitted means false: the tier stays off the ladder except for the merchant
+     * it is assigned to.
+     */
+    merchantVisible: z.boolean().optional(),
   })
   .strict();
 export type TierDefinitionInput = z.infer<typeof tierDefinitionSchema>;
@@ -96,7 +102,9 @@ export const controlConfigureResultSchema = z
   .strict();
 export type ControlConfigureResult = z.infer<typeof controlConfigureResultSchema>;
 
-export const tierViewSchema = tierDefinitionSchema.extend({ version: payVersionSchema, merchants: z.number().int().min(0) }).strict();
+export const tierViewSchema = tierDefinitionSchema
+  .extend({ version: payVersionSchema, merchants: z.number().int().min(0), merchantVisible: z.boolean() })
+  .strict();
 export const tierListInputSchema = z.object({}).strict();
 
 export const pricingRuleViewSchema = controlPricingRuleSchema

@@ -8,7 +8,8 @@ import { payListCursorSchema, payListSearchSchema, payMerchantFailureSchema, pay
  *
  * Money is a decimal string. A field that was never stored is null or a
  * fixed literal (`not_recorded`, `unset`, `not_booked`). Nothing here fills
- * a fee, a cap, a screening verdict, or a default destination.
+ * a fee, a cap, or a screening verdict. `default` is set only when the owner
+ * marked that destination.
  */
 
 const pageLimitSchema = z.number().int().min(1).max(200).optional();
@@ -44,7 +45,8 @@ export const payCheckoutSettingsSchema = z.discriminatedUnion('status', [
 export type PayCheckoutSettings = z.infer<typeof payCheckoutSettingsSchema>;
 
 export const payDestinationScreeningSchema = z.literal('not_recorded');
-export const payDestinationDefaultSchema = z.literal('unset');
+/** `unset` until an owner marks one row. `default` is that mark, never an inferred one. */
+export const payDestinationDefaultSchema = z.enum(['unset', 'default']);
 
 export const payPayoutDestinationItemSchema = z
   .object({

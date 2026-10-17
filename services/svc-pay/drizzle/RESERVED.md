@@ -31,7 +31,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0085      | merchant portal activity, export kinds, webhook ops   | used                                            |
 | 0086      | W6 prelive late-fill horizon, booking, hold timer     | used                                            |
 | 0087      | payment link checkout re-read and create idempotency  | used                                            |
-| 0088+     | unassigned                                            | free; ask W0 before using                       |
+| 0088      | destination default, invoice lines, due date, email   | used                                            |
+| 0089+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 
