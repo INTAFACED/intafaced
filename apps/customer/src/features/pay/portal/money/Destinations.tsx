@@ -12,11 +12,11 @@ import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
 import { PortalReview } from '../ui/PortalReview';
 import { useServerList } from '../ui/useServerList';
-import { ListBody, NamedBlocker, TestBanner } from './common';
+import { ListBody, TestBanner } from './common';
 import { mc } from './copy';
 import { describeDestination, railWords } from './destination';
-import { destinationKindOfRail } from './model';
-import type { DestinationItem } from './schemas';
+import { defaultDestination, destinationKindOfRail } from './model';
+import { isDefaultDestination, type DestinationItem } from './schemas';
 import { useReadAt } from '../hooks';
 
 const EVM = /^0x[0-9a-fA-F]{40}$/;
@@ -33,6 +33,7 @@ export function referenceProblem(kind: 'crypto' | 'bank', ref: string): 'empty' 
 /** `/pay/payouts/destinations`: where your payouts can go. Full numbers and addresses are never shown again once saved. */
 export function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
+  const [said, setSaid] = useState<string | null>(null);
   const list = useServerList(
     (_f, cursor, signal) => portal.destinationPage(merchantId, cursor, signal),
     { m: merchantId },
@@ -45,6 +46,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
     .filter((x): x is string => Boolean(x))
     .sort()
     .at(-1);
+  const defaultRow = defaultDestination(rows);
   const count = list.state.status === 'ready' ? (list.state.hasMore ? t('mnCountNewest', { n: rows.length }) : String(rows.length)) : '—';
   return (
     <div className="stack">
@@ -54,7 +56,13 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         label={t('dstTiles')}
         tiles={[
           { label: t('dstCount'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: count },
-          { label: t('dstDefault'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('mnNotSetUp') },
+          {
+            label: t('dstDefault'),
+            period: t('mnPeriodNow'),
+            href: '/pay/payouts/destinations',
+            value: list.state.status !== 'ready' ? '—' : defaultRow ? defaultRow.destinationMasked : t('dstDefaultNone'),
+            note: defaultRow ? railWords(t, defaultRow.railId) : undefined,
+          },
           {
             label: t('dstLastUsed'),
             period: t('mnPeriodNow'),
@@ -73,7 +81,11 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         rowKey={(d) => d.id}
         columns={[
           { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
-          { header: t('dstDefault'), cell: () => <span className="muted">{t('mnNotSetUp')}</span> },
+          {
+            header: t('dstDefault'),
+            cell: (d) =>
+              isDefaultDestination(d) ? <strong>{t('dstDefaultYes')}</strong> : <span className="muted">{t('dstDefaultNo')}</span>,
+          },
           { header: t('dstScreening'), cell: () => <span className="muted">{t('notRecorded')}</span> },
           { header: t('mnColAdded'), cell: (d) => <DateTime value={d.createdAt} /> },
           {
@@ -84,14 +96,104 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         card={(d) => ({
           title: describeDestination(t, d.kind, d.destinationMasked, d.railId),
           time: <DateTime value={d.createdAt} />,
-          status: <span className="muted">{d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : t('mnNever')}</span>,
+          status: isDefaultDestination(d) ? (
+            <strong>{t('dstDefaultYes')}</strong>
+          ) : (
+            <span className="muted">{d.lastUsedAt ? <DateTime value={d.lastUsedAt} /> : t('mnNever')}</span>
+          ),
         })}
       />
+      {said && (
+        <p className="pp-callout" role="status">
+          {said}
+        </p>
+      )}
+      {rows.length > 0 && (
+        <ManageDestinations portal={portal} merchantId={merchantId} rows={rows} onChanged={list.reload} setSaid={setSaid} />
+      )}
       <AddDestination portal={portal} merchantId={merchantId} onAdded={list.reload} />
-      <NamedBlocker title={t('dstManageTitle')} why="reasonActions" needs="payout destination remove and set default (no service)">
-        {t('dstManageBody')}
-      </NamedBlocker>
     </div>
+  );
+}
+
+/** Choose the default and remove a destination. Owner only on the service; the buttons say so instead of vanishing. */
+function ManageDestinations({
+  portal,
+  merchantId,
+  rows,
+  onChanged,
+  setSaid,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  rows: readonly DestinationItem[];
+  onChanged: () => void;
+  /** Said by the page, so it survives the list reloading. */
+  setSaid: (words: string) => void;
+}) {
+  const { t } = mc.useCopy();
+  const { can } = useMerchantAccess();
+  const owner = can('owner');
+  return (
+    <PaySection title={t('dstManageTitle')} description={t('dstManageBody')}>
+      <ul className="pp-manage" aria-label={t('dstManageLabel')} style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {rows.map((d) => {
+          const name = describeDestination(t, d.kind, d.destinationMasked, d.railId);
+          const isDefault = isDefaultDestination(d);
+          const review = (
+            <dl className="pp-facts">
+              <div>
+                <dt>{t('mnColDestination')}</dt>
+                <dd>{name}</dd>
+              </div>
+              {isDefault && (
+                <div>
+                  <dt>{t('dstDefault')}</dt>
+                  <dd>{t('dstRemoveIsDefault')}</dd>
+                </div>
+              )}
+            </dl>
+          );
+          return (
+            <li key={d.id} className="pp-actions" style={{ justifyContent: 'space-between', gap: 12, padding: '8px 0' }}>
+              <span>
+                {name} {isDefault && <strong>· {t('dstDefaultYes')}</strong>}
+              </span>
+              <span className="pp-actions">
+                {!isDefault && (
+                  <PortalReview
+                    title={t('dstMakeDefault')}
+                    description={t('dstMakeDefaultBody')}
+                    disabled={!owner}
+                    disabledReason={t('dstManageOwnerOnly')}
+                    review={review}
+                    perform={() => portal.destinationSetDefault({ merchantId, destinationId: d.id })}
+                    onConfirmed={() => {
+                      setSaid(t('dstMakeDefaultDone'));
+                      onChanged();
+                    }}
+                  />
+                )}
+                <PortalReview
+                  title={t('dstRemove')}
+                  variant="sell"
+                  description={t('dstRemoveBody')}
+                  disabled={!owner}
+                  disabledReason={t('dstManageOwnerOnly')}
+                  review={review}
+                  perform={() => portal.destinationRemove({ merchantId, destinationId: d.id })}
+                  onConfirmed={() => {
+                    setSaid(t('dstRemoveDone'));
+                    onChanged();
+                  }}
+                />
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {!owner && <p className="muted pp-note">{t('dstManageOwnerOnly')}</p>}
+    </PaySection>
   );
 }
 

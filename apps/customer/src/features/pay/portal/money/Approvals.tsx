@@ -18,6 +18,7 @@ import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
+import { usePayoutPicture } from './payout-picture';
 import { describeDestination } from './destination';
 import { formatMoney } from '../ui/format';
 import {
@@ -72,7 +73,10 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   const oldest = open?.length ? open.reduce((a, b) => (Date.parse(a.createdAt) <= Date.parse(b.createdAt) ? a : b)) : null;
   const minePending = open ? open.filter((a) => me !== null && a.makerUserId === me).length : null;
   const expiring = open ? open.filter((a) => expiresToday(a, now)).length : null;
-  const name = (a: Approval) => payoutName(t, locale, a, a);
+  // A payout is named by its settlement's day, as on Payouts; an approval only knows the day it was asked for.
+  const picture = usePayoutPicture(portal, merchantId);
+  const settledOn = new Map((picture.resource.status === 'ready' ? picture.resource.data.items : []).map((p) => [p.id, p.createdAt]));
+  const name = (a: Approval) => payoutName(t, locale, { createdAt: settledOn.get(a.settlementId) }, a);
   const ageChip = (a: Approval) =>
     a.status === 'pending' ? (
       <span className="pp-agechip" title={t('ageTip')}>

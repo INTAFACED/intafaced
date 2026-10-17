@@ -18,9 +18,18 @@ import { LinkButton, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
-import { approvalsBySettlement, payoutBlock, payoutHeadroom, splitPayable, type PayoutBlock } from './model';
+import {
+  approvalsBySettlement,
+  defaultDestination,
+  destinationOfApproval,
+  isApprovedToSend,
+  payoutBlock,
+  payoutHeadroom,
+  splitPayable,
+  type PayoutBlock,
+} from './model';
 import { settlementName } from './Settlements';
-import type { DestinationItem } from './schemas';
+import { isDefaultDestination, type DestinationItem } from './schemas';
 import type { Settlement } from '../schemas';
 
 /** What a payout submit answers: a request for approval, or money sent straight away. */
@@ -66,10 +75,11 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const pending = useResource(
-    (s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s),
-    `money:approvals-pending:${merchantId}`,
-  );
+  // Every request, newest first: a settlement already approved is sent, not asked for again, and one waiting is left out.
+  const requests = useResource(async (s) => {
+    const read = await portal.approvalPage(merchantId, {}, undefined, s);
+    return read.ok ? { ok: true as const, data: 'items' in read.data ? read.data.items : read.data } : read;
+  }, `money:approvals-all:${merchantId}`);
   const [done, setDone] = useState<PayoutOutcome | null>(null);
   useUnsavedForm(Boolean(destPicked) && !done, t('mnUnsaved'));
   const reload = () => {
@@ -77,7 +87,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
     destinations.reload();
     usage.reload();
     halts.reload();
-    pending.reload();
+    requests.reload();
   };
   if (done)
     return (
@@ -99,14 +109,20 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
       <TestBanner />
       <Gate resource={ready.resource} retry={reload} rows={3}>
         {(page) => {
-          const waiting =
-            pending.resource.status === 'ready'
-              ? approvalsBySettlement('items' in pending.resource.data ? pending.resource.data.items : pending.resource.data)
-              : null;
+          const waiting = requests.resource.status === 'ready' ? approvalsBySettlement(requests.resource.data) : null;
           const { payable, waitingN } = splitPayable(page.items, waiting);
           const settlement: Settlement | null = payable.find((s) => s.id === picked) ?? null;
           const dests: DestinationItem[] | null = destinations.resource.status === 'ready' ? destinations.resource.data.items : null;
-          const dest = dests?.find((d) => d.id === destPicked) ?? (dests && dests.length === 1 ? dests[0]! : null);
+          // An approved settlement is already bound to one destination; otherwise the owner's default is chosen for them.
+          const approved = settlement && isApprovedToSend(waiting?.get(settlement.id)) ? waiting!.get(settlement.id)! : null;
+          const approvedDest = destinationOfApproval(dests, approved);
+          const dest =
+            dests?.find((d) => d.id === destPicked) ??
+            approvedDest ??
+            defaultDestination(dests) ??
+            (dests && dests.length === 1 ? dests[0]! : null);
+          // Sending uses the approval only when it is for this very destination; any other choice starts a new request.
+          const sending = approved !== null && approvedDest !== null && dest?.id === approvedDest.id;
           const headroom = settlement && usage.resource.status === 'ready' ? payoutHeadroom(usage.resource.data, settlement.assetId) : null;
           const paused =
             halts.resource.status === 'ready'
@@ -174,7 +190,13 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                         onChange={setDest}
                         options={[
                           ['', t('pnChoose')],
-                          ...(dests ?? []).map((d) => [d.id, describeDestination(t, d.kind, d.destinationMasked, d.railId)] as const),
+                          ...(dests ?? []).map(
+                            (d) =>
+                              [
+                                d.id,
+                                `${describeDestination(t, d.kind, d.destinationMasked, d.railId)}${isDefaultDestination(d) ? ` · ${t('dstDefaultYes')}` : ''}`,
+                              ] as const,
+                          ),
                         ]}
                       />
                     )}
@@ -198,11 +220,16 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                               <NotConfigured>{t('pnLimitNone')}</NotConfigured>
                             ),
                           ],
-                          [t('pnApproval'), t('pnApprovalBody')],
+                          [t('pnApproval'), sending ? t('pnApprovedFor') : t('pnApprovalBody')],
                         ]}
                       />
                     ) : (
                       <p className="muted">{t('pnBlock_nothing')}</p>
+                    )}
+                    {approved && !sending && dest && (
+                      <p className="pp-callout" role="note">
+                        {t('pnApprovedOther')}
+                      </p>
                     )}
                     {problem && (
                       <p className="pp-callout pp-callout--warn" role="note">
@@ -210,9 +237,9 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       </p>
                     )}
                     <PortalReview<PayoutOutcome>
-                      title={t('pnSubmit')}
+                      title={sending ? t('pnSend') : t('pnSubmit')}
                       variant="primary"
-                      description={t('pnReviewBody')}
+                      description={sending ? t('pnSendReviewBody') : t('pnReviewBody')}
                       disabled={problem !== null}
                       disabledReason={problem ?? undefined}
                       review={
@@ -242,7 +269,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                             </div>
                             <div>
                               <dt>{t('pnApproval')}</dt>
-                              <dd>{t('pnApprovalBody')}</dd>
+                              <dd>{sending ? t('pnApprovedFor') : t('pnApprovalBody')}</dd>
                             </div>
                             <div>
                               <dt>{t('pnAsOf')}</dt>
@@ -256,13 +283,22 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       perform={async () => {
                         if (!settlement || !dest)
                           return { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('pnPickDestination') };
+                        const send = async () => {
+                          const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
+                          return sent.ok ? { ok: true as const, data: { route: 'sent' as const, id: sent.data.id } } : sent;
+                        };
+                        // Already approved for this destination: use that approval and send, do not ask again.
+                        if (sending) return send();
                         const asked = await portal.requestPayoutApproval({ merchantId, settlementId: settlement.id, railId: dest.railId });
-                        if (asked.ok) return { ok: true as const, data: { route: 'approval' as const, id: asked.data.settlementId } };
+                        // The service hands back the live request when one exists. An approved one is sent; a waiting one is not.
+                        if (asked.ok)
+                          return asked.data.status === 'approved'
+                            ? send()
+                            : { ok: true as const, data: { route: 'approval' as const, id: asked.data.settlementId } };
                         // Below the approval limit the service says no approval is needed; the same reviewed payout is then sent directly.
                         if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required'))
                           return asked;
-                        const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
-                        return sent.ok ? { ok: true as const, data: { route: 'sent' as const, id: sent.data.id } } : sent;
+                        return send();
                       }}
                       onConfirmed={setDone}
                     />

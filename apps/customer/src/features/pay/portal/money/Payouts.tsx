@@ -26,7 +26,7 @@ import { ExportButton, LinkButton, ListBody, payoutName, TestBanner, useListQuer
 import { mc } from './copy';
 import { describeDestination, railWords } from './destination';
 import {
-  approvalsBySettlement,
+  isApprovedToSend,
   latestApproval,
   limitRows,
   payoutHeadroom,
@@ -35,6 +35,7 @@ import {
   waitingFrom,
   type RoleLike,
 } from './model';
+import { PAYOUT_STATUSES, pictureCount, usePayoutPicture } from './payout-picture';
 import { settlementHref } from './Settlements';
 import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
 import type { Lifecycle, PayoutItem } from './schemas';
@@ -42,7 +43,6 @@ import { Facts, NotConfigured, UsageBar } from '../components';
 import type { PayoutState } from '../model';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 
-const PAYOUT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
 const stateOfStatus = { pending: 'not_ready', posted: 'ready', paid_out: 'paid_out', failed: 'failed' } as const;
 
 /** `/pay/payouts`: money leaving your balance, and where each payout is in approval. */
@@ -53,22 +53,8 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   const filters = useListFilters();
   const query = useListQuery(filters);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const pending = useResource(
-    (s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s),
-    `money:approvals-pending:${merchantId}`,
-  );
-  const counts = useResource(async (s) => {
-    const reads = await Promise.all(PAYOUT_STATUSES.map((status) => portal.payoutPage({ status }, undefined, s, 25)));
-    const bad = reads.find((r) => !r.ok);
-    if (bad && !bad.ok) return bad;
-    const n = (i: number) => {
-      const r = reads[i]!;
-      if (!r.ok) return { n: 0, more: false };
-      const page = 'items' in r.data ? r.data : { items: r.data, nextCursor: null };
-      return { n: page.items.length, more: page.nextCursor !== null };
-    };
-    return { ok: true as const, data: { pending: n(0), posted: n(1), paid_out: n(2), failed: n(3) } };
-  }, `money:payout-counts:${merchantId}`);
+  // One read behind the counts and every row's state, shared with Settlements and Balances.
+  const picture = usePayoutPicture(portal, merchantId);
   // Where the payouts list is not released, the page falls back to settlements that are no longer pending, headed "Newest".
   const list = useServerList(
     async (f, cursor, signal) => {
@@ -110,11 +96,13 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   const rows = list.state.status === 'ready' ? list.state.items : [];
   const assets = [...new Set(rows.map((r) => r.assetId))].sort();
-  const p = pending.resource.status === 'ready' ? pending.resource.data : null;
-  const approvals = p ? approvalsBySettlement('items' in p ? p.items : p) : null;
-  const c = counts.resource.status === 'ready' ? counts.resource.data : undefined;
-  const count = (x: { n: number; more: boolean } | undefined) => (x ? (x.more ? t('mnCountNewest', { n: x.n }) : String(x.n)) : '—');
-  const waitingN = p ? ('items' in p ? p.items : p).length : null;
+  const pic = picture.resource.status === 'ready' ? picture.resource.data : null;
+  const approvals = pic?.approvals ?? null;
+  const count = (state: 'ready' | 'awaiting_approval' | 'approved' | 'paid_out' | 'failed' | 'not_ready') => {
+    if (!pic) return '—';
+    const c = pictureCount(pic, state);
+    return c.newest ? t('mnCountNewest', { n: c.n }) : String(c.n);
+  };
   return (
     <div className="stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
@@ -123,29 +111,39 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
       <KpiStrip
         label={t('payTiles')}
         tiles={[
-          { label: t('payReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=posted', value: count(c?.posted) },
+          { label: t('payReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=posted', value: count('ready') },
           {
             label: t('payWaiting'),
             period: t('mnPeriodNow'),
             href: '/pay/approvals?status=pending',
-            value: waitingN === null ? '—' : String(waitingN),
-            tone: waitingN ? 'attention' : undefined,
+            value: count('awaiting_approval'),
+            tone: pic && pic.tally.awaiting_approval > 0 ? 'attention' : undefined,
           },
-          { label: t('payPaid'), period: t('mnPeriodNewest'), href: '/pay/payouts?status=paid_out', value: count(c?.paid_out) },
+          {
+            label: t('payApproved'),
+            period: t('mnPeriodNow'),
+            href: '/pay/approvals?status=approved',
+            value: count('approved'),
+            note: pic && pic.tally.approved > 0 ? t('payApprovedNote') : undefined,
+            tone: pic && pic.tally.approved > 0 ? 'attention' : undefined,
+          },
+          { label: t('payPaid'), period: t('mnPeriodNewest'), href: '/pay/payouts?status=paid_out', value: count('paid_out') },
           {
             label: t('payFailed'),
             period: t('mnPeriodNow'),
             href: '/pay/payouts?status=failed',
-            value: count(c?.failed),
-            tone: c && c.failed.n > 0 ? 'attention' : undefined,
+            value: count('failed'),
+            tone: pic && pic.tally.failed > 0 ? 'attention' : undefined,
           },
-          { label: t('payNotReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=pending', value: count(c?.pending) },
+          { label: t('payNotReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=pending', value: count('not_ready') },
         ]}
       />
       <FilterRow
         filters={filters}
         label={t('payFilters')}
-        statuses={PAYOUT_STATUSES.map((s) => [s, t(`chipPayout_${stateOfStatus[s]}` as 'chipPayout_ready')] as const)}
+        statuses={PAYOUT_STATUSES.map(
+          (s) => [s, s === 'posted' ? t('payFilterPosted') : t(`chipPayout_${stateOfStatus[s]}` as 'chipPayout_ready')] as const,
+        )}
         assets={assets}
         shown={rows.length}
         hasMore={list.state.status === 'ready' && list.state.hasMore}
@@ -333,12 +331,16 @@ export function PayoutDetailView({
             : latest
               ? destination(latest)
               : null;
+          // The account owner is the only person who can send a payout; a role we could not read is left to the service.
+          const maySend = role === null || role === 'owner';
+          const waitingToSend = state === 'approved' && isApprovedToSend(latest);
           const action =
-            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) ? (
+            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) || (waitingToSend && maySend) ? (
               <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
-                {t(state === 'failed' ? 'pdoRetry' : 'pdoRequest')}
+                {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
               </LinkButton>
             ) : undefined;
+          const reversed = lc?.events.some((e) => e.kind === 'payout.reversed') ?? false;
           return (
             <>
               <DetailHeader
@@ -355,9 +357,16 @@ export function PayoutDetailView({
                   {t('voidBanner')}
                 </p>
               )}
+              {waitingToSend && latest && (
+                <p className="pp-callout" role="note">
+                  {t('apvApprovedBy', { who: whoIs(latest.checkerUserId ?? latest.makerUserId, me, names, t('mnMe')) })}{' '}
+                  {maySend ? t('apvSendBefore') : t('apvAskOwner')} <DateTime value={latest.expiresAt} />.
+                </p>
+              )}
               {state === 'failed' && (
                 <p className="pp-callout pp-callout--warn" role="alert">
-                  {t('payoutFailedBody')} {lc?.failure?.message ?? s.failure?.message ?? ''}
+                  {t('payoutFailedBody')} {lc?.failure?.message ?? s.failure?.message ?? ''}{' '}
+                  {reversed ? t('payoutFailedBack', { asset: s.assetId }) : t('payoutFailedBalanceUnknown', { asset: s.assetId })}
                   {!PAYOUT_RETRY_ENABLED && (
                     <>
                       {' '}
@@ -399,7 +408,7 @@ export function PayoutDetailView({
                 {lifecycle.status === 'loading' || approvals.status === 'loading' ? (
                   <PortalLoading rows={3} />
                 ) : lifecycle.status === 'ready' ? (
-                  <LifecycleTrail lifecycle={lifecycle.data} approvals={trail} me={me} names={names} />
+                  <LifecycleTrail lifecycle={lifecycle.data} approvals={trail} me={me} names={names} settlement={s} />
                 ) : approvals.status === 'failed' && !isNotLive(approvals.failure) ? (
                   <PortalFailure result={approvals.failure} retry={reload} />
                 ) : (
@@ -444,8 +453,12 @@ export function PayoutDetailView({
                       remaining={usage.status === 'ready' ? (payoutHeadroom(usage.data, s.assetId)?.remaining ?? null) : null}
                       onDone={reload}
                     />
-                    <h3 className="pp-sub">{t('cancelTitle')}</h3>
-                    <CancelRequest portal={portal} approval={latest} me={me} onDone={reload} />
+                    {me !== null && latest.makerUserId === me && (
+                      <>
+                        <h3 className="pp-sub">{t('cancelTitle')}</h3>
+                        <CancelRequest portal={portal} approval={latest} me={me} onDone={reload} />
+                      </>
+                    )}
                   </>
                 )}
               </PaySection>

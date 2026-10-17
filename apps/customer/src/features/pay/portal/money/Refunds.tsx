@@ -118,6 +118,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
             value: snap ? <MoneyList items={snap.refunded} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
+            note: t('rfRefundedNote'),
           },
           {
             label: t('rfCaptured'),

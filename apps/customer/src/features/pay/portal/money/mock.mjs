@@ -1,6 +1,7 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, hex, iso, ok, page, refuse, startOfDay } from '../mock/shared.mjs';
 import { RULE, fromU, toU } from '../mock/world.mjs';
+import { createAnalyticsMock } from '../settings/analytics/mock.mjs';
 
 /** Settlements, approvals, pricing and limits. */
 export function createMoneyMock(ctx) {
@@ -10,9 +11,12 @@ export function createMoneyMock(ctx) {
   const world = ctx.world;
   const settlements = world.settlements;
   const HASH = (c) => `sha256:${c.repeat(64)}`;
-  const DEST = (({ railId, kind, destinationMasked }) => ({ railId, destinationKind: kind, destinationMasked }))(
-    world.destinations[0] ?? { railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x7a3f…4421' },
-  );
+  const asDest = ({ railId, kind, destinationMasked }) => ({ railId, destinationKind: kind, destinationMasked });
+  const DEST = asDest(world.destinations[0] ?? { railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x7a3f…4421' });
+  /** A US dollar payout goes to the bank account, a USDT payout to the wallet: never a dollar payout to a crypto address. */
+  const destFor = (assetId) => (assetId === 'USD' && world.destinations[1] ? asDest(world.destinations[1]) : DEST);
+  // The fee-rate read is the fees page's own answer with the service's per-asset rate added (#4919).
+  const analytics = createAnalyticsMock(ctx);
   const settlementNo = (short) => settlements.find((x) => x.short === short);
   // Every approval is placed on its own settlement's timeline: a request is made after the statement is finalised, and a
   // payout is sent only after the approval that let it go. [id, settlement, status, maker, checker, created, decided or
@@ -23,12 +27,15 @@ export function createMoneyMock(ctx) {
   const APPROVAL_LIFE = 48 * 3600_000;
   // The payout of the oldest settlement predates approvals, so it has none. The one before it was asked for, turned down,
   // asked for again and then approved: the rejected request and the approved one are on the same settlement.
+  // The failed USD payout was asked for, approved and sent before the bank refused it, in that order after its statement.
+  const failedUsd = activity ? settlementNo('bb000005') : null;
+  if (failedUsd) Object.assign(failedUsd, { sentAt: iso(after('bb000005', 4)), failedAt: iso(after('bb000005', 5)) });
   const approvals = activity
     ? [
         ['cc000001', 'bb000003', 'pending', finance, null, ago(5), null, 'a'],
         ['cc000002', 'bb000004', 'pending', USER_ID, null, ago(1.5), null, 'b', now + 22 * 3600_000],
         ['cc000003', 'bb000002', 'consumed', finance, USER_ID, after('bb000002', 5), after('bb000002', 20), 'c'],
-        ['cc000004', 'bb000005', 'voided', USER_ID, null, ago(72), ago(72) + 600_000, 'd'],
+        ['cc000004', 'bb000005', 'consumed', USER_ID, finance, after('bb000005', 1), after('bb000005', 3), 'd'],
         ['cc000005', 'bb000002', 'rejected', USER_ID, finance, after('bb000002', 1), after('bb000002', 3), 'e'],
       ].map(([short, stl, status, maker, checker, createdAt, decidedAt, hash, expiresAt]) => {
         const settlement = settlementNo(stl);
@@ -45,7 +52,7 @@ export function createMoneyMock(ctx) {
           createdAt: iso(createdAt),
           decidedAt: decidedAt === null ? null : iso(decidedAt),
           expiresAt: iso(expiresAt ?? createdAt + APPROVAL_LIFE),
-          ...DEST,
+          ...destFor(settlement.assetId),
         };
       })
     : [];
@@ -108,7 +115,7 @@ export function createMoneyMock(ctx) {
     return {
       merchantId: MERCHANT_ID,
       tierId: control.tierId,
-      asOf: iso(now - 20_000),
+      asOf: iso(Date.now() - 20_000),
       rows: configured
         ? [
             { kind: 'per_payment', assetCode: 'USDT', limit: '5000', used: null, remaining: null, resetsAt: null },
@@ -204,6 +211,46 @@ export function createMoneyMock(ctx) {
   const inWindow = (at, input) => (!input.from || at >= input.from) && (!input.to || at < input.to);
   const refunds = world.refunds;
   const destinations = world.destinations;
+  // The saved destinations as the owner has left them in this session: one may be marked default, and one may be removed.
+  const removedDestinations = new Set();
+  let defaultDestinationId = null;
+  const lastUsed = new Map();
+  let sentCount = 0;
+  const destinationRows = () => {
+    const saved = state.destination
+      ? [
+          {
+            id: 'dd100009-0000-4000-8000-000000000009',
+            merchantId: MERCHANT_ID,
+            railId: state.destination.railId,
+            kind: state.destination.kind,
+            destinationMasked: `${state.destination.ref.slice(0, 6)}…${state.destination.ref.slice(-4)}`,
+            screeningState: 'not_recorded',
+            defaultFlag: 'unset',
+            createdAt: iso(now),
+            lastUsedAt: null,
+          },
+        ]
+      : [];
+    const usedRails = new Set();
+    return [...destinations, ...saved]
+      .filter((d) => !removedDestinations.has(d.id))
+      .map((d) => {
+        const stamp = lastUsed.get(d.railId);
+        const first = stamp && !usedRails.has(d.railId);
+        if (first) usedRails.add(d.railId);
+        return { ...d, defaultFlag: d.id === defaultDestinationId ? 'default' : 'unset', lastUsedAt: first ? stamp : d.lastUsedAt };
+      });
+  };
+  /** A request that is waiting or approved and has not run out keeps its destination from being removed. */
+  const destinationInFlight = (d) =>
+    approvals.some(
+      (a) =>
+        (a.status === 'pending' || a.status === 'approved') &&
+        Date.parse(a.expiresAt) > Date.now() &&
+        a.railId === d.railId &&
+        a.destinationMasked === d.destinationMasked,
+    );
   const orders = (state.conversions ??= activity
     ? [
         {
@@ -363,8 +410,12 @@ export function createMoneyMock(ctx) {
           // The timeline is drawn from the settlement's own dates and its approvals, so every settlement tells its own story:
           // it opens with its oldest payment, is finalised when its statement is posted, is asked for, approved or turned
           // down in between, and is sent and confirmed only after the approval that let it go.
-          const dest = DEST;
           const own = approvals.filter((a) => a.settlementId === x.id).sort((p, q) => p.createdAt.localeCompare(q.createdAt));
+          const dest =
+            x.paidTo ??
+            (own[0]
+              ? asDest({ railId: own[0].railId, kind: own[0].destinationKind, destinationMasked: own[0].destinationMasked })
+              : destFor(x.assetId));
           const raw = [
             { kind: 'settlement.opened', at: x.openedAt },
             ...(x.status === 'paid_out' ? [] : [{ kind: 'settlement.posted', at: x.createdAt }]),
@@ -392,6 +443,12 @@ export function createMoneyMock(ctx) {
                   { kind: 'rail.confirmed', at: x.settledAt, ...dest },
                 ]
               : []),
+            ...(x.status === 'failed' && x.sentAt
+              ? [
+                  { kind: 'rail.sent', at: x.sentAt, ...dest },
+                  { kind: 'rail.refused', at: x.failedAt, ...dest, failure: x.failure },
+                ]
+              : []),
           ]
             .filter((e) => e.kind && e.at)
             .sort((p, q) => p.at.localeCompare(q.at));
@@ -413,7 +470,7 @@ export function createMoneyMock(ctx) {
             screening: 'not_recorded',
             fee: x.fees,
             destination:
-              x.status === 'paid_out'
+              x.status === 'paid_out' || x.status === 'failed'
                 ? { railId: dest.railId, kind: dest.destinationKind, destinationMasked: dest.destinationMasked }
                 : null,
             failure: x.status === 'failed' ? x.failure : null,
@@ -437,37 +494,92 @@ export function createMoneyMock(ctx) {
           const r = refunds.find((x) => x.id === input.refundEventId);
           return r ? ok(route, r) : refuse(route, 404, 'pay.refund_not_found');
         }
-        case 'merchant.payoutDestinations.list': {
-          const saved = state.destination
-            ? [
-                {
-                  id: 'dd100009-0000-4000-8000-000000000009',
-                  merchantId: MERCHANT_ID,
-                  railId: state.destination.railId,
-                  kind: state.destination.kind,
-                  destinationMasked: `${state.destination.ref.slice(0, 6)}…${state.destination.ref.slice(-4)}`,
-                  screeningState: 'not_recorded',
-                  defaultFlag: 'unset',
-                  createdAt: iso(now),
-                  lastUsedAt: null,
-                },
-              ]
-            : [];
-          return ok(route, page([...destinations, ...saved], input));
+        case 'merchant.payoutDestinations.list':
+          return ok(route, page(destinationRows(), input));
+        case 'merchant.payoutDestinations.setDefault': {
+          const d = destinationRows().find((x) => x.id === input.destinationId);
+          if (!d) return refuse(route, 404, 'pay.payout_destination_not_found');
+          defaultDestinationId = d.id;
+          return ok(route, { ...d, defaultFlag: 'default' });
         }
-        case 'merchantControl.tiers.list':
+        case 'merchant.payoutDestinations.remove': {
+          const d = destinationRows().find((x) => x.id === input.destinationId);
+          if (!d) return refuse(route, 404, 'pay.payout_destination_not_found');
+          if (destinationInFlight(d)) return refuse(route, 409, 'pay.payout_destination_in_flight');
+          removedDestinations.add(d.id);
+          if (defaultDestinationId === d.id) defaultDestinationId = null; // another one is never promoted
+          return ok(route, { removed: true });
+        }
+        case 'merchantAnalytics.fees': {
+          let answer = null;
+          await analytics.handle(procedure, input, { fulfill: (r) => (answer = JSON.parse(r.body).result.data) });
+          if (!answer) return NOT_MINE;
+          // The service's own rate per asset over the whole window: fees ÷ gross, rounded down to 6 places.
+          const by = new Map();
+          for (const row of answer.items) {
+            const cur = by.get(row.assetCode) ?? { gross: 0n, fees: 0n };
+            by.set(row.assetCode, { gross: cur.gross + toU(row.gross), fees: cur.fees + toU(row.fees) });
+          }
+          const rates = [...by.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([assetCode, { gross, fees }]) => {
+              if (gross === 0n) return { assetCode, fees: fromU(fees), gross: '0', rate: null, rateStatus: 'no_volume' };
+              const q = (fees * 1_000_000n) / gross;
+              const exact = (fees * 1_000_000n) % gross === 0n;
+              const fraction = (q % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
+              return {
+                assetCode,
+                fees: fromU(fees),
+                gross: fromU(gross),
+                rate: fraction ? `${q / 1_000_000n}.${fraction}` : `${q / 1_000_000n}`,
+                rateStatus: exact ? 'exact' : 'rounded',
+              };
+            });
+          return ok(route, { ...answer, rates });
+        }
+        case 'merchantControl.tiers.list': {
+          // The ladder: every tier INTAFACED shows merchants (TEST names and figures), the merchant's own marked by id.
+          const usdt = (kind, limit) => ({ kind, assetCode: 'USDT', limit });
           return ok(
             route,
-            control.tierId
+            configured
               ? {
                   status: 'configured',
                   ownTierId: control.tierId,
                   tiers: [
                     {
-                      id: control.tierId,
+                      id: 'test-tier-a',
                       name: 'Standard (test)',
                       archetype: 'standard',
                       caps: control.caps,
+                      reserve: control.reserve,
+                      version: 'v1',
+                    },
+                    {
+                      id: 'test-tier-b',
+                      name: 'Growth (test)',
+                      archetype: 'standard',
+                      caps: [
+                        usdt('per_payment', '25000'),
+                        usdt('daily_intake', '100000'),
+                        usdt('monthly_intake', '1000000'),
+                        usdt('daily_payout', '25000'),
+                        { kind: 'beneficiaries_per_day', limit: 10 },
+                      ],
+                      reserve: { rollingReserveBps: 300, holdDays: 5 },
+                      version: 'v1',
+                    },
+                    {
+                      id: 'test-tier-c',
+                      name: 'Scale (test)',
+                      archetype: 'standard',
+                      caps: [
+                        usdt('per_payment', '100000'),
+                        usdt('daily_intake', '500000'),
+                        usdt('monthly_intake', '5000000'),
+                        usdt('daily_payout', '100000'),
+                        { kind: 'beneficiaries_per_day', limit: 25 },
+                      ],
                       reserve: null,
                       version: 'v1',
                     },
@@ -475,6 +587,7 @@ export function createMoneyMock(ctx) {
                 }
               : { status: 'not_configured', ownTierId: null },
           );
+        }
         case 'merchantControl.pricing.history':
           return ok(
             route,
@@ -519,6 +632,23 @@ export function createMoneyMock(ctx) {
           if (!x) return refuse(route, 404, 'pay.settlement_not_found');
           if (x.status !== 'posted' && x.status !== 'failed') return refuse(route, 412, 'pay.settlement_not_payable');
           if (Number(x.net) < 1000) return refuse(route, 412, 'pay.approval_not_required');
+          const dest = destinationRows().find((d) => d.railId === input.railId);
+          if (!dest) return refuse(route, 412, 'pay.payout_destination_missing');
+          const live = approvals.find(
+            (a) =>
+              a.settlementId === x.id &&
+              (a.status === 'pending' || a.status === 'approved') &&
+              a.railId === dest.railId &&
+              a.destinationMasked === dest.destinationMasked,
+          );
+          // The same request asked again is the live one, whatever state it is in (as the service does).
+          if (live) return ok(route, live);
+          // A request for a different destination makes the earlier ones void.
+          for (const a of approvals)
+            if (a.settlementId === x.id && (a.status === 'pending' || a.status === 'approved')) {
+              a.status = 'voided';
+              a.decidedAt = iso(Date.now());
+            }
           const a = {
             approvalId: hex('cc', approvals.length + 10),
             merchantId: MERCHANT_ID,
@@ -532,7 +662,7 @@ export function createMoneyMock(ctx) {
             createdAt: iso(Date.now()),
             decidedAt: null,
             expiresAt: iso(Date.now() + 48 * 3600_000),
-            ...DEST,
+            ...asDest(dest),
           };
           approvals.unshift(a);
           return ok(route, a);
@@ -541,15 +671,33 @@ export function createMoneyMock(ctx) {
           const x = SETTLEMENT(input.settlementId);
           if (!x) return refuse(route, 404, 'pay.settlement_not_found');
           if (x.status !== 'posted' && x.status !== 'failed') return refuse(route, 412, 'pay.settlement_not_payable');
+          const dest = destinationRows().find((d) => d.railId === input.railId);
+          if (!dest) return refuse(route, 412, 'pay.payout_destination_missing');
+          // Above the approval limit a payout needs an approval that was decided, for this destination, and not used yet.
+          if (Number(x.net) >= 1000) {
+            const usable = approvals.find(
+              (a) =>
+                a.settlementId === x.id &&
+                a.status === 'approved' &&
+                a.railId === dest.railId &&
+                a.destinationMasked === dest.destinationMasked &&
+                Date.parse(a.expiresAt) > Date.now(),
+            );
+            if (!usable) return refuse(route, 412, 'pay.approval_required');
+            usable.status = 'consumed';
+          }
+          const sentAt = iso(Date.now());
           Object.assign(x, {
             failedAt: null,
             failure: null,
             status: 'paid_out',
             payoutMethod: input.railId,
-            payoutRef: 'TEST-tx-0x999',
-            sentAt: iso(Date.now()),
-            settledAt: iso(Date.now()),
+            payoutRef: `TEST-tx-sent-${(sentCount += 1)}`,
+            sentAt,
+            settledAt: sentAt,
+            paidTo: asDest(dest),
           });
+          lastUsed.set(dest.railId, sentAt);
           return ok(route, x);
         }
         case 'conversion.list':

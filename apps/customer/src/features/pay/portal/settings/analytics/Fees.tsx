@@ -5,6 +5,8 @@ import { reason } from '../../chrome/copy';
 import { PortalFailure, PortalLoading } from '../../components';
 import { EntityList } from '../../ui/EntityList';
 import { EffectiveFeeRates } from '../../ui/FeeRate';
+import { EffectiveRatesList, type EffectiveRate } from '../../money/fee-rate';
+import { mc as moneyCopy } from '../../money/copy';
 import { Freshness } from '../../ui/Freshness';
 import { useDayText } from '../../ui/DateTime';
 import { KpiStrip } from '../../ui/Kpi';
@@ -23,6 +25,8 @@ type Loaded = {
   complete: boolean;
   freshness: { asOf: string | null; lagSeconds: number | null };
   effectiveRate: unknown;
+  /** The service's own rate per asset over the whole window; undefined on an older service. */
+  rates?: EffectiveRate[];
   conversionCost: unknown;
 };
 
@@ -45,11 +49,13 @@ export function Fees({
     if (!w) return { ok: false, reason: 'error', message: '', code: 'portal.local' } as ApiResult<Loaded>;
     const q = { merchantId, from: w.from, to: w.to, bucket: state.bucket, ...(state.asset ? { assetId: state.asset } : {}) };
     let rate: unknown = null;
+    let rates: EffectiveRate[] | undefined;
     let conversion: unknown = null;
     const read = await readAll((cursor) =>
       api.analyticsFees(q, cursor, signal).then((r) => {
         if (r.ok) {
           rate = r.data.effectiveRate ?? null;
+          rates ??= r.data.rates;
           conversion = r.data.conversionCost ?? null;
         }
         return r;
@@ -63,6 +69,7 @@ export function Fees({
         complete: read.data.complete,
         freshness: read.data.freshness,
         effectiveRate: rate,
+        rates,
         conversionCost: conversion,
       },
     };
@@ -109,6 +116,7 @@ export function FeesView({
 
 function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; test: boolean }) {
   const { t } = c.useCopy();
+  const { t: mt } = moneyCopy.useCopy();
   const dayText = useDayText();
   const { points } = data;
   if (points.length === 0)
@@ -151,7 +159,11 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
         ]}
       />
       <PaySection title={t('rateTitle')}>
-        {rate ? (
+        {data.rates ? (
+          <EffectiveRatesList rates={data.rates}>
+            <p className="muted pp-note">{mt('rateWindowShown')}</p>
+          </EffectiveRatesList>
+        ) : rate ? (
           <p>{t('rateIs', { rate })}</p>
         ) : open ? (
           <EffectiveFeeRates gross={totals.gross} fees={totals.fees} />

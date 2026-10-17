@@ -547,7 +547,8 @@ describe('the stand-in never contradicts itself', () => {
     for (const a of approvals) {
       const s = byId.get(a.settlementId)!;
       const later = approvals.filter((x) => x.settlementId === a.settlementId && x.createdAt > a.createdAt);
-      if (a.status === 'consumed' || a.status === 'approved') expect(s.status, `${a.approvalId} used`).toBe('paid_out');
+      // a used approval is a payout that was sent: paid out, or refused by the payment network after it was sent
+      if (a.status === 'consumed' || a.status === 'approved') expect(['paid_out', 'failed'], `${a.approvalId} used`).toContain(s.status);
       // a payout that went ahead after a rejection or a withdrawal was asked for again, and that later request was approved
       if (a.status === 'rejected' || a.status === 'voided' || a.status === 'pending') {
         if (s.status === 'paid_out')

@@ -18,6 +18,7 @@ export const moneyContract: ContractPart = {
     { method: 'refundPage', run: (p) => p.refundPage(M, {}, undefined) },
     { method: 'refundGet', run: (p) => p.refundGet('cc100001-0000-4000-8000-000000000101') },
     { method: 'destinationPage', run: (p) => p.destinationPage(M, undefined) },
+    { method: 'feeRates', run: (p) => p.feeRates({ merchantId: M, ...range }) },
     { method: 'approvalPage', run: (p) => p.approvalPage(M, { status: 'pending' }, undefined) },
     { method: 'refundablePayments', run: (p) => p.refundablePayments(M, '') },
     { method: 'control', run: (p) => p.control(M) },
@@ -31,6 +32,8 @@ export const moneyContract: ContractPart = {
     { method: 'conversionGet', run: (p) => p.conversionGet('ee100001-0000-4000-8000-000000000001') },
   ],
   notMocked: {
+    destinationSetDefault: 'a write: the stand-in answers it, and the Playwright run exercises it',
+    destinationRemove: 'a write: the stand-in answers it, and the Playwright run exercises it',
     decideApproval: 'a write: the stand-in answers it, and the Playwright run exercises it',
     cancelApproval: 'a write: the stand-in answers it, and the Playwright run exercises it',
     requestPayoutApproval: 'a write: the stand-in answers it, and the Playwright run exercises it',

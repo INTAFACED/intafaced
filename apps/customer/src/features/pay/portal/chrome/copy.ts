@@ -4,7 +4,6 @@ import { defineCopy } from '../../../../shared/i18n';
 const en = {
   // Why a part of the portal is not live yet. A card names its blocker; it never just says "not yet".
   reasonFees: 'Pricing not set yet: INTAFACED is finalising merchant fees',
-  reasonLimits: 'Limits not set yet: INTAFACED is finalising account tiers',
   reasonDocuments: 'Document checks not connected yet',
   reasonVerified: 'Available after your business is verified',
   reasonHistory: 'History not connected yet: INTAFACED doesn’t record past changes yet. Nothing for you to set up.',

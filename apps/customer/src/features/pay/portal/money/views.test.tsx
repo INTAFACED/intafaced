@@ -26,6 +26,9 @@ import { ApprovalDecision } from './Approvals';
 import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
 import { PayoutDetailView } from './Payouts';
+import { TierLadder } from './Limits';
+import { EffectiveFeeView, EffectiveRatesList } from './fee-rate';
+import type { TierList } from './schemas';
 import { NoPayable } from './PayoutNew';
 import { RefundChip } from './Refunds';
 import { statementColumns } from './Statement';
@@ -203,7 +206,7 @@ describe('approval review', () => {
         onDone={noop}
       />,
     );
-    expect(out).toContain('Destination not shown for this request');
+    expect(out).toContain('Not shown here yet');
   });
   const decide = (remaining: string | null) =>
     renderToString(
@@ -313,5 +316,191 @@ describe('a busy statement', () => {
     expect(html).toContain('Statement is being prepared, try again in a minute.');
     expect(html).toContain('Try again');
     expect(html).not.toContain('already in progress');
+  });
+});
+
+describe('an approved payout is not a dead end', () => {
+  const approved = approval({
+    status: 'approved',
+    checkerUserId: 'TEST-checker',
+    decidedAt: '2026-10-15T10:00:00.000Z',
+    expiresAt: '2026-10-17T10:00:00.000Z',
+  });
+  const posted = settlement({ status: 'posted', settledAt: null, sentAt: null, payoutMethod: null, payoutRef: null });
+  const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved]) =>
+    renderToString(
+      <PayoutDetailView
+        portal={portal}
+        settlement={ready(posted)}
+        lifecycle={noLifecycle}
+        approvals={ready(approvals)}
+        usage={noUsage}
+        halts={noHalts}
+        role={role}
+        now={NOW}
+        names={new Map()}
+        readAt={null}
+        reload={noop}
+      />,
+    );
+  it('offers the owner "Send this payout" and says who approved it and until when', () => {
+    const out = render('owner').replace(/<!-- -->/g, '');
+    expect(out).toContain('Send this payout');
+    expect(out).toContain('href="/pay/payouts/new?settlement=bb000002-0000-4000-8000-000000000002"');
+    expect(out).toContain('Approved by TEST-che');
+    expect(out).toContain('The money has not been sent yet.');
+    expect(out).toContain('Send it before');
+    expect(out).not.toContain('Request this payout');
+  });
+  it('tells anyone but the owner that only the owner can send it, and offers no button', () => {
+    const out = render('finance').replace(/<!-- -->/g, '');
+    expect(out).not.toContain('href="/pay/payouts/new');
+    expect(out).toContain('Only the account owner can send a payout. Ask them to send it before');
+  });
+  it('leaves a role the portal could not read to the service', () => {
+    expect(render(null)).toContain('Send this payout');
+  });
+  it('says approving does not send it, so the dialog matches what happens next', () => {
+    // The dialog's wording is printed by the review dialog itself; here it is the words the page hands it.
+    const words = mc.t('approveBody');
+    expect(words).toContain('does not send it: the account owner still has to send it before the approval expires');
+    expect(words).not.toContain('go ahead');
+  });
+  it('headlines the payout by its own status, not by the settlement’s "Ready to pay out"', () => {
+    const waiting = render('owner', [approval({ status: 'pending' })]).replace(/<!-- -->/g, '');
+    expect(waiting).toContain('Waiting for approval');
+    // the trail no longer opens with a second, disagreeing status chip
+    expect(waiting).not.toContain('Ready to pay out');
+  });
+});
+
+describe('who may take a request back', () => {
+  const mine = approval({ makerUserId: ME });
+  const others = approval({ makerUserId: 'TEST-maker' });
+  const render = (a: Approval) =>
+    renderToString(
+      <PayoutDetailView
+        portal={portal}
+        settlement={ready(settlement({ status: 'posted', settledAt: null, sentAt: null, payoutMethod: null, payoutRef: null }))}
+        lifecycle={noLifecycle}
+        approvals={ready([a])}
+        usage={noUsage}
+        halts={noHalts}
+        role="owner"
+        now={NOW}
+        names={new Map()}
+        readAt={null}
+        reload={noop}
+      />,
+    );
+  it('shows "Cancel my request" to the person who asked', () => {
+    expect(render(mine)).toContain('Cancel my request');
+  });
+  it('shows nothing about cancelling to anyone else', () => {
+    const out = render(others);
+    expect(out).not.toContain('Cancel my request');
+    expect(out).not.toContain('Reason for cancelling');
+  });
+});
+
+describe('a failed payout says where the money is, only as far as it is known', () => {
+  const failed = settlement({
+    status: 'failed',
+    settledAt: null,
+    sentAt: '2026-10-05T09:30:00.000Z',
+    failedAt: '2026-10-05T10:00:00.000Z',
+    failure: { code: 'pay.rail_declined', message: 'The payment network declined this payout.' },
+  });
+  const lifecycle = (reversed: boolean): Resource<Lifecycle> =>
+    ready({
+      settlementId: failed.id,
+      status: 'failed',
+      events: [
+        { id: 'e1', at: '2026-10-05T09:30:00.000Z', timeKnown: true, kind: 'rail.sent' },
+        ...(reversed ? [{ id: 'e2', at: '2026-10-05T10:00:00.000Z', timeKnown: true, kind: 'payout.reversed' }] : []),
+      ],
+    });
+  const render = (lc: Resource<Lifecycle>) =>
+    renderToString(
+      <PayoutDetailView
+        portal={portal}
+        settlement={ready(failed)}
+        lifecycle={lc}
+        approvals={ready([])}
+        usage={noUsage}
+        halts={noHalts}
+        role="owner"
+        now={NOW}
+        names={new Map()}
+        readAt={null}
+        reload={noop}
+      />,
+    );
+  it('claims the money is back in the balance only when the payout was reversed', () => {
+    expect(render(lifecycle(true))).toContain('The money is back in your USDT balance.');
+    const unknown = render(lifecycle(false));
+    expect(unknown).not.toContain('The money is back');
+    expect(unknown).toContain('We can’t tell from this page whether the money is back in your USDT balance.');
+  });
+  it('ends the trail on the refusal, with its time, when the read left the closing step out', () => {
+    const out = render(lifecycle(false)).replace(/<!-- -->/g, '');
+    const trail = out.slice(out.indexOf('What happened'), out.indexOf('Approval requests'));
+    expect(trail.lastIndexOf('The payment network refused it')).toBeGreaterThan(trail.lastIndexOf('Sent to the payment network'));
+    expect(trail).not.toContain('Time not recorded');
+  });
+});
+
+describe('the tier ladder', () => {
+  const caps = [{ kind: 'per_payment' as const, assetCode: 'USDT', limit: '5000' }];
+  const list = (patch: Partial<Extract<TierList, { status: 'configured' }>> = {}): Resource<TierList> =>
+    ready({
+      status: 'configured',
+      ownTierId: 'a',
+      tiers: [
+        { id: 'a', name: 'Standard (test)', caps, reserve: { rollingReserveBps: 500, holdDays: 7 } },
+        { id: 'b', name: 'Growth (test)', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '25000' }], reserve: null },
+      ],
+      ...patch,
+    });
+  it('lists every tier with its limits and marks the merchant’s own', () => {
+    const out = renderToString(<TierLadder tiers={list()} retry={noop} test={false} />).replace(/<!-- -->/g, '');
+    expect(out).toContain('Standard (test)');
+    expect(out).toContain('Growth (test)');
+    expect(out).toContain('Your tier');
+    expect(out).toContain('5,000');
+    expect(out).toContain('25,000');
+    expect(out).toContain('5.00%');
+    expect(out).not.toContain('Limits not set yet');
+  });
+  it('says so when the account is on none of the listed tiers', () => {
+    expect(renderToString(<TierLadder tiers={list({ ownTierId: null })} retry={noop} test={false} />)).toContain(
+      'Your account is not on one of the listed tiers.',
+    );
+  });
+  it('says nothing is published rather than inventing a tier', () => {
+    const out = renderToString(<TierLadder tiers={ready({ status: 'not_configured', ownTierId: null })} retry={noop} test={false} />);
+    expect(out).toContain('INTAFACED has not published any tiers to compare with yet.');
+  });
+});
+
+describe('the effective fee rate', () => {
+  it('shows the service’s rate per asset: exact as is, rounded down said so, no volume said so', () => {
+    const out = renderToString(
+      <EffectiveRatesList
+        rates={[
+          { assetCode: 'USDT', fees: '3', gross: '200', rate: '0.015', rateStatus: 'exact' },
+          { assetCode: 'USD', fees: '1', gross: '63', rate: '0.015873', rateStatus: 'rounded' },
+          { assetCode: 'EUR', fees: '0', gross: '0', rate: null, rateStatus: 'no_volume' },
+        ]}
+      />,
+    );
+    expect(out).toContain('1.50%');
+    expect(out).toContain('1.5873% (rounded down)');
+    expect(out).toContain('No payments in this period');
+  });
+  it('falls back to what the caller shows while the service does not send rates', () => {
+    const out = renderToString(<EffectiveFeeView resource={ready(null)} fallback={<p>From 1.5% + 0.30</p>} note="note" />);
+    expect(out).toContain('From 1.5% + 0.30');
+    expect(out).not.toContain('note');
   });
 });
