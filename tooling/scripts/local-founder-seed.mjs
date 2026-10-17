@@ -38,7 +38,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const ENV_FILE = '.env.founder.local';
-export const SECRETS_FILE = '.env.founder-secrets.local';
+export const FOUNDER_VAULT_PATH = '.env.founder-secrets.local';
 export const LOCAL_FLAG = 'INTAFACED_LOCAL_FOUNDER';
 export const ADMIN_ORIGIN = 'http://localhost:3100';
 export const WEBAUTHN_ORIGINS = 'http://localhost:8090,http://localhost:3100';
@@ -278,7 +278,7 @@ async function call(edge, procedure, input, token, fetchImpl = fetch) {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 function paths(root) {
-  return { env: join(root, ENV_FILE), secrets: join(root, SECRETS_FILE), dotenv: join(root, '.env') };
+  return { env: join(root, ENV_FILE), secrets: join(root, FOUNDER_VAULT_PATH), dotenv: join(root, '.env') };
 }
 const readDotenv = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : null);
 
@@ -295,7 +295,7 @@ export function init({ root, env, now = new Date(), rand = randomBytes, force = 
   if (existing.length > 0) {
     if (!force) {
       throw new GuardError(
-        `refusing: ${ENV_FILE} or ${SECRETS_FILE} already exists. Overwriting would change IDENTITY_TOTP_SECRET_KEY and lock out any founder already enrolled in the existing database. Re-run with --force only on a fresh database (pnpm platform:reset).`,
+        `refusing: ${ENV_FILE} or ${FOUNDER_VAULT_PATH} already exists. Overwriting would change IDENTITY_TOTP_SECRET_KEY and lock out any founder already enrolled in the existing database. Re-run with --force only on a fresh database (pnpm platform:reset).`,
       );
     }
     // The secrets file is the only copy of the founders' passwords and 2FA secrets. If it names a
@@ -308,7 +308,7 @@ export function init({ root, env, now = new Date(), rand = randomBytes, force = 
     }
     if (created && !forceNewDb) {
       throw new GuardError(
-        `refusing: ${SECRETS_FILE} records founders that may already exist in the database (or cannot be read). --force would orphan them. If the database is being wiped (pnpm platform:reset), add --force-new-db; the old files are kept as .bak copies either way.`,
+        `refusing: ${FOUNDER_VAULT_PATH} records founders that may already exist in the database (or cannot be read). --force would orphan them. If the database is being wiped (pnpm platform:reset), add --force-new-db; the old files are kept as .bak copies either way.`,
       );
     }
     for (const f of existing) {
@@ -332,7 +332,7 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
   const p = paths(root);
   assertLocalOnly({ env, dotenvText: readDotenv(p.dotenv), needEdge: true });
   if (!existsSync(p.env) || !existsSync(p.secrets))
-    throw new GuardError(`refusing: run "init" first (${ENV_FILE} / ${SECRETS_FILE} missing).`);
+    throw new GuardError(`refusing: run "init" first (${ENV_FILE} / ${FOUNDER_VAULT_PATH} missing).`);
   const edge = (env.INTAFACED_LOCAL_EDGE_URL ?? DEFAULT_EDGE_URL).replace(/\/$/, '');
   const secrets = JSON.parse(readFileSync(p.secrets, 'utf8'));
   const save = () => writePrivate(p.secrets, `${JSON.stringify(secrets, null, 2)}\n`, { overwrite: true });
@@ -363,7 +363,7 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
         if (!(err instanceof TrpcError) || err.intafacedCode !== 'auth.mfa_required') throw err;
         if (!f.totpSecret)
           throw new Error(
-            `${f.key} already has an authenticator on the server but its secret is not in ${SECRETS_FILE}; wipe the database (pnpm platform:reset) and run init --force --force-new-db`,
+            `${f.key} already has an authenticator on the server but its secret is not in ${FOUNDER_VAULT_PATH}; wipe the database (pnpm platform:reset) and run init --force --force-new-db`,
           );
         f.totpConfirmed = true;
         save();
@@ -406,7 +406,7 @@ export async function enrol({ root, env, now = () => new Date(), fetchImpl = fet
 export function currentCode({ root, env, who, at = new Date() }) {
   const p = paths(root);
   assertLocalOnly({ env, dotenvText: readDotenv(p.dotenv) });
-  if (!existsSync(p.secrets)) throw new GuardError(`refusing: ${SECRETS_FILE} not found. Run "init" and "enrol" first.`);
+  if (!existsSync(p.secrets)) throw new GuardError(`refusing: ${FOUNDER_VAULT_PATH} not found. Run "init" and "enrol" first.`);
   const f = JSON.parse(readFileSync(p.secrets, 'utf8')).founders.find((x) => x.key === who);
   if (!f) throw new GuardError('usage: code nitro|phantom');
   if (!f.totpSecret) throw new GuardError(`${who} has no authenticator yet; run "enrol" first.`);

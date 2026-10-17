@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ENV_FILE,
   GuardError,
-  SECRETS_FILE,
+  FOUNDER_VAULT_PATH,
   assertLocalOnly,
   base32Decode,
   base32Encode,
@@ -145,9 +145,9 @@ test('init: writes two 0600 files, prints no secret, refuses to overwrite withou
   try {
     const out = [];
     init({ root, env: LOCAL, rand: seeded(), log: (l) => out.push(l) });
-    for (const f of [ENV_FILE, SECRETS_FILE]) assert.equal(statSync(join(root, f)).mode & 0o777, 0o600, f);
+    for (const f of [ENV_FILE, FOUNDER_VAULT_PATH]) assert.equal(statSync(join(root, f)).mode & 0o777, 0o600, f);
     const envText = readFileSync(join(root, ENV_FILE), 'utf8');
-    const secrets = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8'));
+    const secrets = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8'));
     const env = parseDotenv(envText);
     assert.equal(Buffer.from(env.IDENTITY_TOTP_SECRET_KEY, 'base64').length, 32);
     assert.match(env.ADMIN_SESSION_SECRET, /^[A-Za-z0-9_-]{43}$/);
@@ -183,7 +183,7 @@ test('init: refuses outside the local guard before writing anything', () => {
     refuses(() => init({ root, env: { APP_ENV: 'dev' }, log() {} }), /INTAFACED_LOCAL_FOUNDER/);
     refuses(() => init({ root, env: { ...LOCAL, APP_ENV: 'prod' }, log() {} }), /APP_ENV/);
     assert.equal(existsSync(join(root, ENV_FILE)), false);
-    assert.equal(existsSync(join(root, SECRETS_FILE)), false);
+    assert.equal(existsSync(join(root, FOUNDER_VAULT_PATH)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -263,14 +263,14 @@ test('enrol: registers both founders through the real procedures, enrols TOTP, w
       'totp.enrol',
       'totp.confirm',
     ]);
-    const secrets = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8'));
+    const secrets = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8'));
     const env = parseDotenv(readFileSync(join(root, ENV_FILE), 'utf8'));
     assert.equal(env.IDENTITY_FOUNDER_NITRO_USER_ID, secrets.founders[0].userId);
     assert.equal(env.IDENTITY_FOUNDER_PHANTOM_USER_ID, secrets.founders[1].userId);
     assert.notEqual(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
     assert.ok(secrets.founders.every((f) => f.totpConfirmed === true && f.totpSecret && f.recoveryCodes.length === 2));
     assert.equal(statSync(join(root, ENV_FILE)).mode & 0o777, 0o600);
-    assert.equal(statSync(join(root, SECRETS_FILE)).mode & 0o777, 0o600);
+    assert.equal(statSync(join(root, FOUNDER_VAULT_PATH)).mode & 0o777, 0o600);
     // The invite codes sent to the service were the generated ones; the log shows none of the secrets.
     assert.deepEqual(
       [...edge.users.values()].map((u) => u.invite),
@@ -295,12 +295,12 @@ test('enrol: resumes after a failed confirm without losing the TOTP secret or re
     const edge = fakeEdge({ failConfirm: 'before' });
     const now = () => edge.clock.t;
     await assert.rejects(enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now, log() {} }), /INTERNAL_SERVER_ERROR/);
-    const saved = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8')).founders[0];
+    const saved = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8')).founders[0];
     assert.ok(saved.userId && saved.totpSecret && saved.totpConfirmed === false);
     await enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now, log() {} });
     assert.equal(edge.calls.filter((c) => c === 'auth.registerFounder').length, 2);
     assert.equal(edge.calls.filter((c) => c === 'totp.enrol').length, 2, 'the still-pending secret was reused, not re-enrolled');
-    assert.ok(JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8')).founders.every((f) => f.totpConfirmed === true));
+    assert.ok(JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8')).founders.every((f) => f.totpConfirmed === true));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -316,7 +316,7 @@ test('enrol: a lost confirm reply (server enrolled, auth.mfa_required on login) 
     assert.equal([...edge.users.values()][0].enrolled, true, 'precondition: the server did enrol');
     const out = [];
     await enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now, log: (l) => out.push(l) });
-    const secrets = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8'));
+    const secrets = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8'));
     assert.ok(secrets.founders.every((f) => f.totpConfirmed === true && f.totpSecret));
     assert.match(out.join('\n'), /already enrolled/);
     assert.equal(edge.calls.filter((c) => c === 'totp.enrol').length, 2, 'founder 1 was not enrolled a second time');
@@ -333,10 +333,10 @@ test('enrol: a pending TOTP older than 15 minutes is replaced by a fresh enrolme
     const edge = fakeEdge({ failConfirm: 'before' });
     const now = () => edge.clock.t;
     await assert.rejects(enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now, log() {} }), /INTERNAL_SERVER_ERROR/);
-    const stale = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8')).founders[0].totpSecret;
+    const stale = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8')).founders[0].totpSecret;
     edge.clock.t = new Date(edge.clock.t.getTime() + 16 * 60 * 1000);
     await enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now, log() {} });
-    const secrets = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8'));
+    const secrets = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8'));
     assert.ok(secrets.founders.every((f) => f.totpConfirmed === true));
     assert.notEqual(secrets.founders[0].totpSecret, stale);
     assert.equal(edge.calls.filter((c) => c === 'totp.enrol').length, 3);
@@ -359,19 +359,19 @@ test('init --force: refuses while founders were created unless --force-new-db; a
     // After enrolment the secrets file names real users: --force alone must refuse and change nothing.
     const edge = fakeEdge();
     await enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now: () => edge.clock.t, log() {} });
-    const secretsBefore = readFileSync(join(root, SECRETS_FILE), 'utf8');
+    const secretsBefore = readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8');
     const envBefore = readFileSync(join(root, ENV_FILE), 'utf8');
     refuses(() => init({ root, env: LOCAL, force: true, log() {} }), /--force-new-db/);
-    assert.equal(readFileSync(join(root, SECRETS_FILE), 'utf8'), secretsBefore);
+    assert.equal(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8'), secretsBefore);
     assert.equal(readFileSync(join(root, ENV_FILE), 'utf8'), envBefore);
     // With both flags the old secrets survive as a backup and new ones are written.
     init({ root, env: LOCAL, force: true, forceNewDb: true, now: new Date('2026-10-17T02:00:00Z'), log() {} });
     const bakSecrets = join(root, '.env.founder-secrets.bak-2026-10-17T02-00-00-000Z.local');
     assert.equal(readFileSync(bakSecrets, 'utf8'), secretsBefore);
     assert.equal(statSync(bakSecrets).mode & 0o777, 0o600);
-    assert.equal(JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8')).founders[0].userId, null);
+    assert.equal(JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8')).founders[0].userId, null);
     // An unreadable secrets file is treated as "may hold founders".
-    writeFileSync(join(root, SECRETS_FILE), '{not json');
+    writeFileSync(join(root, FOUNDER_VAULT_PATH), '{not json');
     refuses(() => init({ root, env: LOCAL, force: true, log() {} }), /--force-new-db/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -408,7 +408,7 @@ test('code: returns the current one-time code for an enrolled founder only', asy
     await enrol({ root, env: LOCAL, fetchImpl: edge.fetchImpl, now: () => edge.clock.t, log() {} });
     const at = new Date('2026-10-17T00:00:10Z');
     const { code, secondsLeft } = currentCode({ root, env: LOCAL, who: 'phantom', at });
-    const secret = JSON.parse(readFileSync(join(root, SECRETS_FILE), 'utf8')).founders[1].totpSecret;
+    const secret = JSON.parse(readFileSync(join(root, FOUNDER_VAULT_PATH), 'utf8')).founders[1].totpSecret;
     assert.equal(code, totpNow(secret, at));
     assert.match(code, /^\d{6}$/);
     assert.equal(secondsLeft, 20);
@@ -432,7 +432,7 @@ test('unwrapTrpc: unwraps data / json, and errors carry codes only (never the bo
 test('CLI: refuses without the LOCAL flag, in production, and with a prod APP_ENV; writes nothing', () => {
   // The CLI resolves the real repo root, so prove the refusals leave it exactly as found.
   const repo = resolve(here, '../..');
-  const files = [ENV_FILE, SECRETS_FILE].map((f) => join(repo, f));
+  const files = [ENV_FILE, FOUNDER_VAULT_PATH].map((f) => join(repo, f));
   const before = files.map((f) => existsSync(f));
   const home = tmp();
   try {
