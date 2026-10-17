@@ -111,6 +111,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -299,6 +300,15 @@ const copy = new CopyService(ledger, {
     const createdAt = row.created_at instanceof Date ? row.created_at : new Date(row.created_at);
     return { fillId: row.id, userId: row.user_id, feeAsset: row.fee_asset, feeAmount: parseAmount(row.fee_amount), createdAt };
   },
+  sql,
+  mirrorEvents: new SqlMirrorEventLog(sql),
+  lookupMark: async (marketId) => {
+    const depth = await matching.depth(marketId, 1);
+    const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
+    const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
+    if (bid === null || ask === null || bid <= 0n || ask <= 0n) return null;
+    return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
+  },
   lookupLeaderFill: async (fillId) => {
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
@@ -325,6 +335,7 @@ const copy = new CopyService(ledger, {
     };
   },
 });
+trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -867,6 +878,7 @@ registerPrivateRest(app, {
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
+  copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });
