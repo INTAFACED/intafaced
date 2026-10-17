@@ -22,6 +22,9 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
+import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
+import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
 import { createApiKeyIpRouter } from './api-key-ip-router.js';
 import { createApiKeyOriginRouter } from './api-key-origin-router.js';
 import { createApiKeyAccountRouter } from './api-key-account-router.js';
@@ -335,6 +338,11 @@ const actionApprovals = new ActionApprovalService(
     }),
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
+await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
 const profile = new ProfileService(sql);
 // Phone codes have no provider. account.phone.begin refuses auth.change_unwired
 // until an owner installs a PhoneCodeSender. This process does not send SMS.
@@ -368,6 +376,7 @@ export const appRouter = mergeRouters(
     actionApprovals,
     founderControls,
     privilegedUserIds: founderPair ?? [],
+    assertStaffSessionLive: (sessionId, userId) => assertStaffSessionLive(createSqlTradeIdentityStore(sql), sessionId, userId),
     profile,
     account,
   }),
@@ -415,6 +424,14 @@ export const appRouter = mergeRouters(
     },
   }),
   createStepUpRouter(customerStepUp),
+  createTradeIdentityAuthRouter(sql, {
+    tokens: {
+      secret: env.JWT_ACCESS_SECRET,
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
+      accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 
@@ -537,7 +554,8 @@ app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (r
 
 /**
  * Service-to-service sub-account ownership (svc-trade placeOrder gate).
- * Fail-closed at the caller: missing credentials → 401; unknown id → 404.
+ * Fail-closed at the caller: missing credentials → 401; unknown id → 404;
+ * frozen → 423. A freeze read that throws answers 5xx, never 200.
  * Body is the published `subAccountOwnershipSchema` contract.
  */
 app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccountId', async (req, reply) => {
@@ -553,7 +571,9 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   if (!row) {
     return reply.code(404).send({ error: 'sub-account not found', code: 'identity.sub_account_not_found' });
   }
-  return row;
+  const gated = await gateFrozenSubAccount(sql, row);
+  if (gated.status !== 200) return reply.code(gated.status).send(gated.body);
+  return gated.body;
 });
 
 /**

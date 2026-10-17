@@ -159,6 +159,25 @@ export function subAccountHold(subAccountId: string, assetId: string, purpose: s
   };
 }
 
+/** Sub-account collateral FOR ONE CLAIM. Same pairing rule as `userCollateral`. */
+export function subAccountCollateral(subAccountId: string, assetId: string, purpose: string): AccountRef {
+  if (!purpose?.trim()) {
+    throw new Error('subAccountCollateral requires a purpose (P0-3) — e.g. `position:<id>`');
+  }
+  return {
+    ownerType: 'subaccount',
+    ownerId: subAccountId,
+    assetId,
+    kind: 'collateral',
+    purpose: purpose.trim(),
+  };
+}
+
+/** Margin collateral securing ONE futures position on a named sub-account. */
+export function subAccountPositionCollateral(subAccountId: string, assetId: string, positionId: string): AccountRef {
+  return subAccountCollateral(subAccountId, assetId, `position:${positionId}`);
+}
+
 /** Where a module's fee revenue lands. Staking yield is distributed from here (§4.3). */
 export function houseFees(module: string, assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: `fees:${module}`, assetId, kind: 'available' };
@@ -167,6 +186,14 @@ export function houseFees(module: string, assetId: string): AccountRef {
 /** Futures insurance fund backstop (§5.2). */
 export function insuranceFund(assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: 'insurance-fund', assetId, kind: 'available' };
+}
+
+/**
+ * Realized futures loss sink. Not `houseFees('trade')` — a fee total is only fees.
+ * A loss debits this pot. It is hard non-negative, same as every other house pot.
+ */
+export function futuresLossSink(assetId: string): AccountRef {
+  return { ownerType: 'house', ownerId: 'futures-loss', assetId, kind: 'available' };
 }
 
 /** Rewards engine — the pot real-yield and cashback are paid from. */

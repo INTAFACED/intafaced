@@ -18,6 +18,7 @@ import { orderHoldAmend } from './order-hold-amend.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
+import { tradeFillFeeCorrection } from './fill-correction.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -26,6 +27,7 @@ import {
 } from './escrow-dispute-law.js';
 import {
   burnAccount,
+  futuresLossSink,
   houseFees,
   merchantClearing,
   merchantProceeds,
@@ -33,6 +35,8 @@ import {
   mintBoundary,
   orderHoldAccount,
   positionCollateralAccount,
+  subAccountAvailable,
+  subAccountPositionCollateral,
   insuranceFund,
   railBoundary,
   marketMaker,
@@ -46,6 +50,7 @@ import {
 
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
+export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -66,6 +71,41 @@ function requirePositive(name: string, value: Amount): void {
   if (value <= 0n) throw new InvalidEntryError(`${name} must be positive`);
 }
 
+function namedSubAccount(subAccountId: string | undefined): string {
+  return subAccountId?.trim() ?? '';
+}
+
+/** Tagged deposits credit the named sub-account. Untagged deposits credit the user pot. */
+function depositCreditedAccount(input: { userId: string; assetId: string; subAccountId?: string }): AccountRef {
+  const subAccountId = namedSubAccount(input.subAccountId);
+  if (subAccountId) return subAccountAvailable(subAccountId, input.assetId);
+  return userAvailable(input.userId, input.assetId);
+}
+
+function assertDepositConfirmed(input: { confirmed?: boolean }): void {
+  if (input.confirmed === false) throw new InvalidEntryError('An unconfirmed deposit credits no pot');
+}
+
+function marginPots(input: { userId: string; assetId: string; positionId: string; subAccountId?: string }): {
+  subAccountId: string;
+  available: AccountRef;
+  collateral: AccountRef;
+} {
+  const subAccountId = namedSubAccount(input.subAccountId);
+  if (subAccountId) {
+    return {
+      subAccountId,
+      available: subAccountAvailable(subAccountId, input.assetId),
+      collateral: subAccountPositionCollateral(subAccountId, input.assetId, input.positionId),
+    };
+  }
+  return {
+    subAccountId: '',
+    available: userAvailable(input.userId, input.assetId),
+    collateral: positionCollateralAccount(input.userId, input.assetId, input.positionId),
+  };
+}
+
 // ── Deposits & withdrawals ───────────────────────────────────────────────────
 
 export interface DepositInput {
@@ -76,20 +116,30 @@ export interface DepositInput {
   rail: string;
   /** Rail's own reference (tx hash, PSP id) — this is what makes it idempotent. */
   railRef: string;
+  /**
+   * When set, the credit lands on this sub-account's available pot.
+   * The parent user pot is not credited.
+   */
+  subAccountId?: string;
+  /**
+   * A tagged deposit credits only after confirmation.
+   * `false` posts nothing: neither the sub-account nor the parent user pot.
+   * Omitted means confirmed, so existing callers are unchanged.
+   */
+  confirmed?: boolean;
 }
 
 /** Value enters the book from the outside world. */
 export function deposit(input: DepositInput): PostRequest {
   requirePositive('deposit amount', input.amount);
+  assertDepositConfirmed(input);
+  const subAccountId = namedSubAccount(input.subAccountId);
   return {
     idempotencyKey: `deposit:${input.rail}:${input.railRef}`,
     module: 'ledger',
     reason: 'deposit.credited',
-    meta: { rail: input.rail, railRef: input.railRef },
-    entries: [
-      credit(railBoundary(input.rail, input.assetId), input.amount),
-      debit(userAvailable(input.userId, input.assetId), input.amount),
-    ],
+    meta: { rail: input.rail, railRef: input.railRef, ...(subAccountId ? { subAccountId } : {}) },
+    entries: [credit(railBoundary(input.rail, input.assetId), input.amount), debit(depositCreditedAccount(input), input.amount)],
   };
 }
 
@@ -106,17 +156,16 @@ export interface DepositReverseInput extends DepositInput {
  */
 export function depositReverse(input: DepositReverseInput): PostRequest {
   requirePositive('deposit reversal amount', input.amount);
+  assertDepositConfirmed(input);
   const depositId = input.depositId.trim();
   if (!depositId) throw new InvalidEntryError('deposit reversal requires a deposit id');
+  const subAccountId = namedSubAccount(input.subAccountId);
   return {
     idempotencyKey: `deposit.reverse:${depositId}`,
     module: 'ledger',
     reason: 'deposit.reversed',
-    meta: { rail: input.rail, railRef: input.railRef, depositId },
-    entries: [
-      debit(railBoundary(input.rail, input.assetId), input.amount),
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-    ],
+    meta: { rail: input.rail, railRef: input.railRef, depositId, ...(subAccountId ? { subAccountId } : {}) },
+    entries: [debit(railBoundary(input.rail, input.assetId), input.amount), credit(depositCreditedAccount(input), input.amount)],
   };
 }
 
@@ -471,20 +520,22 @@ export interface FuturesMarginInput {
   /** Margin asset (typically quote, e.g. USDT). */
   assetId: string;
   amount: Amount;
+  /**
+   * When set, the margin pot is this sub-account. The parent user pot is not used.
+   */
+  subAccountId?: string;
 }
 
 /** Lock margin into purpose-keyed collateral for one position. */
 export function futuresMarginLock(input: FuturesMarginInput): PostRequest {
   requirePositive('futures margin lock amount', input.amount);
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.lock:${input.positionId}`,
     module: 'trade',
     reason: 'futures.margin.lock',
-    meta: { positionId: input.positionId },
-    entries: [
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-      debit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-    ],
+    meta: { positionId: input.positionId, ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}) },
+    entries: [credit(pots.available, input.amount), debit(pots.collateral, input.amount)],
   };
 }
 
@@ -495,30 +546,30 @@ export function futuresMarginLock(input: FuturesMarginInput): PostRequest {
 export function futuresMarginAdd(input: FuturesMarginInput & { sequence: number }): PostRequest {
   requirePositive('futures margin add amount', input.amount);
   if (input.sequence < 1) throw new InvalidEntryError('futures margin add sequence must be >= 1');
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.add:${input.positionId}:${input.sequence}`,
     module: 'trade',
     reason: 'futures.margin.add',
-    meta: { positionId: input.positionId, sequence: input.sequence },
-    entries: [
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-      debit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-    ],
+    meta: {
+      positionId: input.positionId,
+      sequence: input.sequence,
+      ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}),
+    },
+    entries: [credit(pots.available, input.amount), debit(pots.collateral, input.amount)],
   };
 }
 
 /** Release remaining margin on close / cancel before open risk. */
 export function futuresMarginRelease(input: FuturesMarginInput & { sequence?: number }): PostRequest {
   requirePositive('futures margin release amount', input.amount);
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.release:${input.positionId}:${input.sequence ?? 0}`,
     module: 'trade',
     reason: 'futures.margin.release',
-    meta: { positionId: input.positionId },
-    entries: [
-      credit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-      debit(userAvailable(input.userId, input.assetId), input.amount),
-    ],
+    meta: { positionId: input.positionId, ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}) },
+    entries: [credit(pots.collateral, input.amount), debit(pots.available, input.amount)],
   };
 }
 
@@ -530,32 +581,49 @@ export interface FuturesLossInput {
   fromMargin: Amount;
   /** Residual loss taken from insurance fund (may be 0n — then omit by not calling). */
   fromInsurance: Amount;
-  /** Realized PnL sink: house trade fees pot until a dedicated PnL account exists. */
+  /** Idempotency id. A retry of this id posts once. */
   lossId: string;
+  /**
+   * When set, margin leaves this sub-account's position pot, never the parent user pot.
+   */
+  subAccountId?: string;
+  /**
+   * Pot the caller asks to draw. It must be `subAccountId`.
+   * Any other id is a sibling partition and is refused before an entry is built.
+   */
+  drawSubAccountId?: string;
 }
 
 /**
  * Realize a loss against position margin (+ optional insurance).
  *
- * Entries balance per asset: margin (+ insurance) leave user/house pots into
- * house fees:trade as the temporary realized-loss sink (engine names the amounts).
- * Full insurance accounting may refine the sink later without changing the lock shape.
+ * The debit is `futuresLossSink`, not `houseFees('trade')`. A fee total stays fees.
+ * Engine names the amounts. A sub-account loss stays on that sub-account's pot.
  */
 export function futuresRealizeLoss(input: FuturesLossInput): PostRequest {
+  const named = namedSubAccount(input.subAccountId);
+  const draw = namedSubAccount(input.drawSubAccountId);
+  if (draw && draw !== named) {
+    throw new InvalidEntryError('A futures loss cannot draw a sibling sub-account pot');
+  }
   if (input.fromMargin < 0n || input.fromInsurance < 0n) {
     throw new InvalidEntryError('futures loss legs must be non-negative');
   }
   const total = input.fromMargin + input.fromInsurance;
   requirePositive('futures realized loss total', total);
 
+  const collateral = named
+    ? subAccountPositionCollateral(named, input.assetId, input.positionId)
+    : positionCollateralAccount(input.userId, input.assetId, input.positionId);
+
   const entries: EntryInput[] = [];
   if (input.fromMargin > 0n) {
-    entries.push(credit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.fromMargin));
+    entries.push(credit(collateral, input.fromMargin));
   }
   if (input.fromInsurance > 0n) {
     entries.push(credit(insuranceFund(input.assetId), input.fromInsurance));
   }
-  entries.push(debit(houseFees('trade', input.assetId), total));
+  entries.push(debit(futuresLossSink(input.assetId), total));
 
   return {
     idempotencyKey: `futures.loss:${input.lossId}`,
@@ -565,6 +633,7 @@ export function futuresRealizeLoss(input: FuturesLossInput): PostRequest {
       positionId: input.positionId,
       fromMargin: input.fromMargin.toString(),
       fromInsurance: input.fromInsurance.toString(),
+      ...(named ? { subAccountId: named } : {}),
     },
     entries,
   };
@@ -582,10 +651,10 @@ export interface FuturesProfitInput {
 /**
  * Realize a profit on voluntary close (trade.futures residual).
  *
- * Symmetric counterpart of futuresRealizeLoss: house trade fees pot (temporary
- * PnL counterpart until a dedicated futures PnL account exists) pays the user's
- * available balance. Engine names the amount from an **external** exit mark —
- * this recipe never invents a price.
+ * House trade fees still pay the user's available balance. The loss recipe
+ * debits the futures-loss sink instead, so a winning close is not the mirror
+ * of a loss. Engine names the amount from an **external** exit mark — this
+ * recipe never invents a price.
  */
 export function futuresRealizeProfit(input: FuturesProfitInput): PostRequest {
   requirePositive('futures realized profit', input.amount);
@@ -1217,6 +1286,7 @@ export const recipes = {
   withdrawSettle,
   withdrawReverse,
   tradeFill,
+  tradeFillFeeCorrection,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

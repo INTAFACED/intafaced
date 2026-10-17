@@ -69,8 +69,6 @@ const FACTS: Array<[phrase: string, why: string]> = [
   ['You haven’t made a request in this browser yet.', 'an empty list of the customer’s own requests'],
   ['Aún no se cerró la sesión.', 'Spanish of the allowed “Not signed out yet” line'],
   ['Vous n’êtes pas encore déconnecté.', 'French of the allowed “Not signed out yet” line'],
-  ['aún no tienen registro de progreso', 'Spanish: lessons with no progress record'],
-  ['pas encore d’enregistrement de progression', 'French: lessons with no progress record'],
   ['Aún no se te ha pagado ningún crédito', 'Spanish: an empty payout list'],
   ['Ne l’enregistrez pas encore une deuxième fois.', 'French of the allowed “Do not save it again yet”'],
   ['Tu n’as pas encore de worker', 'French: an empty worker list'],
