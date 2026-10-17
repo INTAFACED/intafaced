@@ -8,7 +8,7 @@ import { ConfirmAction } from './confirm-action';
 
 /**
  * A human decision on one case. There is no sanction or fine field on purpose, and nothing here decides for the
- * operator. Today the console answers with the typed blocker surveillance_not_routed; no decision is recorded.
+ * operator. Today the console answers with the typed blocker surveillance_adjudicate_not_exposed (svc-edge has no such route, on purpose); no decision is recorded.
  */
 export function SurveillanceAdjudicate({ caseId: selectedId }: { caseId: string }) {
   const [caseId, setCaseId] = useState(selectedId);
