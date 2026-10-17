@@ -29,11 +29,16 @@ export const LIMIT_FIELDS: readonly LimitFieldInfo[] = [
     kind: 'decimal',
   },
   { field: 'minNotional', label: 'Min notional', meaning: 'Smallest order value (price x quantity) in the quote asset.', kind: 'decimal' },
-  { field: 'makerBps', label: 'Maker fee (bps)', meaning: 'Fee on resting orders, in basis points (whole number).', kind: 'bps' },
+  {
+    field: 'makerBps',
+    label: 'Listing maker fee (bps)',
+    meaning: 'Listing metadata, not charged. Customers pay the owner fee schedule shown above.',
+    kind: 'bps',
+  },
   {
     field: 'takerBps',
-    label: 'Taker fee (bps)',
-    meaning: 'Fee on orders that take liquidity, in basis points (whole number).',
+    label: 'Listing taker fee (bps)',
+    meaning: 'Listing metadata, not charged. Customers pay the owner fee schedule shown above.',
     kind: 'bps',
   },
 ];

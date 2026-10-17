@@ -23,6 +23,7 @@ import {
   type MarketFilter,
   type MarketRowView,
 } from '@/lib/trade-ops/markets-model';
+import { feeCellSortValue, feeCellText } from '@/lib/trade-ops/fees-model';
 import { LifecycleBadge, RecordStatusBadge } from './markets-lifecycle-badge';
 
 /**
@@ -71,12 +72,13 @@ const columns: readonly TableColumn<MarketRowView>[] = [
   { id: 'minNotional', header: 'Min notional', numeric: true, width: 140, value: (r) => r.market.minNotional, sortable: true },
   {
     id: 'fees',
-    header: 'Maker / taker bps',
+    header: 'Fee charged (maker / taker)',
     numeric: true,
     sortable: true,
-    sortValue: (r) => String(r.market.makerBps),
-    cell: (r) => `${r.market.makerBps} / ${r.market.takerBps}`,
-    width: 160,
+    sortType: 'decimal',
+    sortValue: (r) => feeCellSortValue(r.fee),
+    cell: (r) => feeCellText(r.fee),
+    width: 290,
   },
   {
     id: 'open',

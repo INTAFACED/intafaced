@@ -491,7 +491,7 @@ elsewhere and neither is invented here.`,
 
   // ── foundations ───────────────────────────────────────────────────────────
 
-  'foundations-position-sizing': `# Position sizing without invent
+  'foundations-position-sizing': `# Position sizing without inventing numbers
 
 Size is not a feeling. It is arithmetic you can do before you have an opinion
 about direction, and it is the only part of a trade you fully control.

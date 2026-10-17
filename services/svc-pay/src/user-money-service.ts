@@ -10,8 +10,10 @@ import {
   withdrawalHoldAccount,
   type Amount,
   type LedgerClient,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
+import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
@@ -207,8 +209,21 @@ export class UserMoneyService {
     rail: string;
     railRef: string;
     creditedBy: string;
+    /** A sandbox API key cannot credit a live balance. */
+    keyEnv?: 'sandbox';
   }): Promise<DepositRecord> {
     if (input.amount <= 0n) throw new PayError('Deposit amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox') {
+      refuseSandboxLive(
+        recipes.deposit({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail: input.rail,
+          railRef: input.railRef,
+        }),
+      );
+    }
 
     // The rail must be one the platform actually has, so `railBoundary(rail)` is
     // a boundary account reconciliation already knows about. The adapter is NOT
@@ -343,8 +358,21 @@ export class UserMoneyService {
     rail: string;
     destination: { kind: string; ref: string };
     clientRef: string;
+    /** A sandbox API key cannot debit a live balance. */
+    keyEnv?: 'sandbox';
   }): Promise<WithdrawalRecord> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox') {
+      refuseSandboxLive(
+        recipes.withdrawHold({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail: input.rail,
+          withdrawalId: input.clientRef,
+        }),
+      );
+    }
 
     // Resolved before a row exists, so an unknown or payout-incapable rail fails
     // before anything is claimed — and long before anything is held.
@@ -806,4 +834,12 @@ function toWithdrawal(row: WithdrawalRow): WithdrawalRecord {
     status: row.status,
     createdAt: row.created_at,
   };
+}
+
+function refuseSandboxLive(request: PostRequest): void {
+  const live = liveAccountsIn(request);
+  if (live.length === 0) return;
+  throw new PayError('A sandbox payment cannot post to a live ledger account. NOTHING WAS POSTED.', 'pay.sandbox_live_account_refused', {
+    accounts: live.map((account) => `${account.ownerType}:${account.ownerId}:${account.kind}`),
+  });
 }

@@ -24,6 +24,7 @@ export const NOTIFICATION_KINDS = [
   'operator_pause',
   'export_ready',
   'team_change',
+  'payout_destination',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
