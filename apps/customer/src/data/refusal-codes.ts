@@ -43,6 +43,7 @@ export type RefusalKind =
   | 'notFound'
   | 'duplicate'
   | 'notSetUp'
+  | 'chartRange'
   | 'unknown';
 
 /** Exact codes first. */
@@ -134,6 +135,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+  'trade.candles_range_point_cap': 'chartRange',
 };
 
 /** Prefix rules, checked in order after the exact table. */

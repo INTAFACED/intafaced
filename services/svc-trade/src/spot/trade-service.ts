@@ -25,9 +25,10 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
-import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
+import { queryCandlesFromFills, queryTakerVolumeFromFills, assertCandleRangeWithinCap, exportOhlcv } from './candles.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
+import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
 import {
   assertMarketOpen,
@@ -135,7 +136,6 @@ import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
-  type Candle,
   type FillRecord,
   type Market,
   type MarketKind,
@@ -4455,15 +4455,17 @@ export class TradeService {
            ORDER BY f.sequence DESC
            LIMIT ${capped}
         `;
-    return rows.map((row) => ({
-      id: row.id,
-      side: row.side,
-      price: parseAmount(row.price),
-      qty: parseAmount(row.qty),
-      quoteAmount: parseAmount(row.quote_amount),
-      sequence: row.sequence,
-      ts: row.ts,
-    }));
+    return rows.map((row) =>
+      publicTapePrint({
+        id: row.id,
+        side: row.side,
+        price: parseAmount(row.price),
+        qty: parseAmount(row.qty),
+        quoteAmount: parseAmount(row.quote_amount),
+        sequence: row.sequence,
+        ts: row.ts,
+      }),
+    );
   }
 
   /**
@@ -4475,9 +4477,14 @@ export class TradeService {
    *
    * Limit is required — same inner door as HTTP OHLCV. Missing / non-integer /
    * out of 1..1000 refuses via `queryCandlesFromFills` (never invent 500).
+   * A declared since→now window over 300 points refuses before SQL (no partial series).
+   * The export flags the open bucket and keeps at most the 720 newest rows.
    */
-  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number): Promise<Candle[]> {
-    return queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number) {
+    const endMs = this.now().getTime();
+    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs);
+    const rows = await queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+    return exportOhlcv(rows, timeframe, endMs);
   }
 
   // ── Algo TWAP (D-S-04) — schedule emits children; parent holds no value ─────

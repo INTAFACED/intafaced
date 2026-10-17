@@ -86,6 +86,13 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
       body: 'Ask them to open INTAFACED once, then try again.',
     });
   });
+  it('a chart window past the published point cap asks for a shorter range', () => {
+    expect(classifyRefusal('trade.candles_range_point_cap')).toBe('chartRange');
+    expect(refusalCopy('trade.candles_range_point_cap')).toEqual({
+      title: 'That chart range is too long',
+      body: 'Choose a shorter range and try again.',
+    });
+  });
   it('anything else uses the last row, with support only when Help is live', () => {
     expect(refusalCopy('something.never_seen')).toEqual({
       title: "This can't be done right now",
