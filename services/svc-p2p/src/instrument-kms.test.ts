@@ -24,5 +24,6 @@ describe('live offers refuse until OWNER KMS', () => {
     const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
     expect(envTs).not.toMatch(/P2P_KMS/);
     expect(envTs).not.toMatch(/INSTRUMENT_KMS/);
+    expect(envTs).not.toMatch(/LOCAL_TEST_KMS/);
   });
 });

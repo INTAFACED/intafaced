@@ -265,6 +265,8 @@ export type LedgerOperatorCall = (
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
   authenticate(header: string | undefined): Promise<Principal>;
+  /** Verify an Authorization header for founder reads. `admin:read`, no MFA. */
+  authenticateRead(header: string | undefined): Promise<Principal>;
   /** Verify an Authorization header for treasury control, or throw `AuthError`. */
   authenticateTreasury(header: string | undefined): Promise<Principal>;
   /** Current kill-switch state and its audit trail, as the console renders it. */
@@ -371,6 +373,13 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       // Order matters only for the message the operator sees; both throw.
       requireScope(principal, 'admin:write');
       requireMfa(principal);
+      if (deps.sessionLive) await deps.sessionLive(principal);
+      return principal;
+    },
+
+    async authenticateRead(header) {
+      const principal = await verify(header);
+      requireScope(principal, 'admin:read');
       if (deps.sessionLive) await deps.sessionLive(principal);
       return principal;
     },

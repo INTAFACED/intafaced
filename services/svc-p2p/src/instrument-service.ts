@@ -18,6 +18,12 @@ import {
 } from './instruments.js';
 import { recordSwallowed, withSpan } from './tracing.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
+import {
+  instrumentDetailsAad,
+  isSealedInstrumentDetails,
+  parseOpenedInstrumentDetails,
+  type InstrumentKeyProvider,
+} from './instrument-key-provider.js';
 
 /**
  * PAYMENT INSTRUMENTS — storage, disclosure, and the record of both.
@@ -87,6 +93,11 @@ export interface InstrumentServiceOptions {
    * Blank / omit is unset: purge refuses rather than inventing 90d.
    */
   retentionDays?: number | null;
+  /**
+   * Local-test seal. Absent: new rows stay plaintext, and a sealed row refuses
+   * `p2p.instrument_kms_required` instead of returning the blob as details.
+   */
+  keyProvider?: InstrumentKeyProvider | null;
 }
 
 /** Who was looking. Recorded on every access-log row, allowed or refused. */
@@ -270,12 +281,36 @@ export function assertPurgeExpiredSnapshotsLimit(limit: number | undefined): num
 
 export class InstrumentService {
   private readonly retentionDays: number | null;
+  private readonly keyProvider: InstrumentKeyProvider | null;
 
   constructor(
     private readonly sql: Sql,
     options: InstrumentServiceOptions = {},
   ) {
     this.retentionDays = options.retentionDays ?? null;
+    this.keyProvider = options.keyProvider ?? null;
+  }
+
+  /** Fingerprint is already computed from plaintext. Seal only the stored copy. */
+  private detailsForStore(instrumentId: string, ownerId: string, details: InstrumentDetails): InstrumentDetails {
+    if (!this.keyProvider) return details;
+    const sealed = this.keyProvider.seal(JSON.stringify(details), instrumentDetailsAad(instrumentId, ownerId));
+    return Object.freeze({ _sealed: sealed });
+  }
+
+  /**
+   * Plaintext rows pass through with or without a provider. A sealed row opens
+   * with this instrument's id and owner id, or refuses. The sealed text is
+   * never returned as account details.
+   */
+  private detailsFromStore(instrumentId: string, ownerId: string, stored: Record<string, string> | null): InstrumentDetails {
+    if (stored == null) throw notFound(instrumentId);
+    if (!isSealedInstrumentDetails(stored)) return Object.freeze({ ...stored });
+    if (!this.keyProvider) {
+      throw new P2pError(resolveP2pCopy(P2P_COPY.instrumentKmsRequired), 'p2p.instrument_kms_required');
+    }
+    const plain = this.keyProvider.open(stored._sealed, instrumentDetailsAad(instrumentId, ownerId));
+    return parseOpenedInstrumentDetails(plain);
   }
 
   // ── The operator's registry (§6.2 "any payment method", as data) ───────────
@@ -418,13 +453,14 @@ export class InstrumentService {
     const schema = await this.schemaFor(methodId, country);
     const details = validateDetails(schema, input.details);
     const fingerprint = fingerprintDetails(methodId, country, details);
+    const stored = this.detailsForStore(instrumentId, input.ownerId, details);
 
     try {
       const rows = await this.sql<InstrumentRow[]>`
         INSERT INTO p2p.payment_instruments (id, owner_id, method_id, country, fiat_currency, label, details, fingerprint, status)
         VALUES (
           ${instrumentId}, ${input.ownerId}, ${methodId}, ${country}, ${fiatCurrency},
-          ${(input.label ?? '').trim().slice(0, 120)}, ${this.sql.json(details as never)}, ${fingerprint}, 'active'
+          ${(input.label ?? '').trim().slice(0, 120)}, ${this.sql.json(stored as never)}, ${fingerprint}, 'active'
         )
         RETURNING *
       `;
@@ -459,11 +495,12 @@ export class InstrumentService {
       details = validateDetails(schema, input.details);
       fingerprint = fingerprintDetails(current.method_id, current.country, details);
     }
+    const stored = details === null ? current.details : this.detailsForStore(input.instrumentId, input.ownerId, details);
 
     const rows = await this.sql<InstrumentRow[]>`
       UPDATE p2p.payment_instruments
          SET label = ${input.label === undefined ? current.label : input.label.trim().slice(0, 120)},
-             details = ${details === null ? this.sql.json(current.details as never) : this.sql.json(details as never)},
+             details = ${this.sql.json(stored as never)},
              fingerprint = ${fingerprint},
              updated_at = now()
        WHERE id = ${input.instrumentId} AND owner_id = ${input.ownerId} AND status = 'active'
@@ -604,7 +641,7 @@ export class InstrumentService {
         await this.logDenied({ viewerId: input.viewerId, viewerRole: 'other', reason: 'not_the_owner' });
         throw notFound(input.instrumentId);
       }
-      return { ...toHeader(row), details: Object.freeze({ ...row.details }), loggedAt: row.logged_at };
+      return { ...toHeader(row), details: this.detailsFromStore(row.id, row.owner_id, row.details), loggedAt: row.logged_at };
     });
   }
 
@@ -938,7 +975,7 @@ export class InstrumentService {
         country: row.country,
         fiatCurrency: row.fiat_currency,
         label: row.label,
-        details: Object.freeze({ ...row.details }),
+        details: this.detailsFromStore(row.instrument_id, row.owner_id, row.details),
         fingerprint: row.fingerprint,
         attachedAt: row.attached_at,
         loggedAt: row.logged_at,

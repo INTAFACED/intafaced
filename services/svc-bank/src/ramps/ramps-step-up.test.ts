@@ -101,7 +101,13 @@ describe('bank ramps money-out needs a step-up', () => {
   it('manifest: every mutation on the ramps router refuses a plain session, except the listed ones', async () => {
     const { router } = fixture();
     // `live` always answers { ramp: null } and moves nothing: there is no live ramp to reach.
-    const NOT_VALUE_OUT = new Set(['ramps.live']);
+    const NOT_VALUE_OUT = new Set([
+      'ramps.live',
+      // Customer on-ramp is bank:write (money in, partner instruction). It does not send funds out.
+      'ramps.onrampCreate',
+      // Removing a saved destination does not send money.
+      'ramps.destinations.remove',
+    ]);
     const procedures = (router as unknown as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures;
     const mutations = Object.entries(procedures)
       .filter(([path, p]) => path.startsWith('ramps.') && p._def.type === 'mutation')

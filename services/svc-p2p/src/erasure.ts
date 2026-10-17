@@ -148,6 +148,15 @@ export class P2pErasure {
         `,
       ]);
 
+      // The column list above is the export reader. `details` is not selected, so a
+      // sealed blob cannot leave as if it were account text. Reveal is the logged
+      // open. If a row ever carries `details`, refuse rather than return it.
+      for (const row of instruments) {
+        if (row !== null && typeof row === 'object' && 'details' in row) {
+          throw new P2pError('p2p.instrument_kms_required', 'p2p.instrument_kms_required');
+        }
+      }
+
       return {
         userId,
         at: new Date(),

@@ -506,7 +506,9 @@ async function readStatementWindow(
   }
   for (const row of disputes) {
     keys.push({ key: `pay.chargeback.open:${row.dispute_id}`, assetId: row.currency, settlementId: null });
+    keys.push({ key: `pay.chargeback.shortfall:${row.dispute_id}`, assetId: row.currency, settlementId: null });
     keys.push({ key: `pay.chargeback.won:${row.dispute_id}`, assetId: row.currency, settlementId: null });
+    keys.push({ key: `pay.chargeback.shortfall.recovered:${row.dispute_id}`, assetId: row.currency, settlementId: null });
   }
   for (const row of payouts) {
     const withdrawalId = `${row.settlement_id}:${row.attempt}`;

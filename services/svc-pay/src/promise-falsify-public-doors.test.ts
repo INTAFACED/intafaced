@@ -14,7 +14,7 @@
  *     reconsent, fee_unpublished, and pay.mandate_rail_absent by code on the
  *     mounted path.
  *   · dispute **case** procedures may exist (D26-P1-P5); merchant REST still
- *     has no reverse-money dispute door; chargeback ledger recipes stay unwired.
+ *     has no reverse-money dispute door. Chargeback posts go through chargeback-ledger.ts.
  *   · submerchantPermission.grant refuses self / lateral / unknown area over
  *     the wire; pay:* remains WITHHELD_FROM_SESSION (no invent grant).
  * Class: N (honesty) / M surface (no invent fees or reverse-money). Leverage:
@@ -558,10 +558,12 @@ describe('D26-P2-01b public doors — dispute refuse invent reverse-money', () =
     const paySrc = readFileSync(join(here, 'payment-service.ts'), 'utf8');
 
     expect(routerSrc).toMatch(/openDispute|contestDispute|getDispute/);
-    expect(routerSrc).not.toMatch(/chargebackWon|chargebackShortfall|recipes\.chargeback/);
+    expect(routerSrc).not.toMatch(/recipes\.chargeback/);
     // Merchant public REST still has no dispute / chargeback reverse-money door.
     expect(restSrc).not.toMatch(/\/dispute|chargeback/i);
-    expect(paySrc).not.toMatch(/recipes\.chargeback|chargebackWon|chargebackShortfall/);
+    expect(paySrc).not.toMatch(/recipes\.chargeback/);
+    expect(paySrc).toMatch(/postDisputeWon/);
+    expect(paySrc).toMatch(/postDisputeShortfall/);
   });
 
   it('payment status disputed is case-reachable; merchant REST has no reverse-money dispute door', () => {

@@ -234,8 +234,13 @@ const conversion = new ConversionService({
   placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
 });
 const disputeCases = new PostgresDisputeCaseStore(sql);
+const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
+if (chargebackOutcomeSlots < 1) {
+  throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
+}
 const pay = new PayService(sql, ledger, rails, {
   disputeCases,
+  chargebackOutcomeSlots,
   guards: payGuards,
   haltStore,
   identityOperationAdmission: identityAdmission,
