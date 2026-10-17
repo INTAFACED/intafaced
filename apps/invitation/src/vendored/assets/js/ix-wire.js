@@ -137,7 +137,9 @@ function decimalRule(signed) {
     if (overlong) {
       return fail(
         path,
-        'has ' + overlong[1].length + ' decimal places; the ledger carries at most 18, so the extra digits are precision this platform does not have'
+        'has ' +
+          overlong[1].length +
+          ' decimal places; the ledger carries at most 18, so the extra digits are precision this platform does not have',
       );
     }
     if (!signed && value.charAt(0) === '-') {
@@ -358,8 +360,8 @@ var market = shape({
       shape({
         price: optional(nullable(tickOrPlaceCount)),
         amount: optional(nullable(tickOrPlaceCount)),
-      })
-    )
+      }),
+    ),
   ),
   limits: optional(
     nullable(
@@ -368,8 +370,8 @@ var market = shape({
         price: optional(nullable(limitPair)),
         cost: optional(nullable(limitPair)),
         leverage: optional(nullable(limitPair)),
-      })
-    )
+      }),
+    ),
   ),
 });
 
@@ -458,8 +460,8 @@ var trade = shape({
         cost: decimal,
         currency: text,
         rate: optional(nullable(signedDecimal)),
-      })
-    )
+      }),
+    ),
   ),
 });
 
@@ -522,7 +524,7 @@ var balances = shape({
       free: decimal,
       used: decimal,
       total: decimal,
-    })
+    }),
   ),
 });
 
@@ -587,7 +589,7 @@ var kycStatus = shape({
       jurisdiction: text,
       status: oneOf(['pending', 'approved', 'rejected', 'expired']),
       createdAt: text,
-    })
+    }),
   ),
 });
 

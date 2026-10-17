@@ -454,18 +454,33 @@ async function main() {
   assert.equal(uiStore.getItem(intake.STORAGE_KEY), null, 'forget clears local capability and unsent forms');
   let deniedRemovalStore = storage();
   deniedRemovalStore.setItem(intake.STORAGE_KEY, 'retained-local-fixture');
-  deniedRemovalStore.removeItem = function () { throw new Error('Storage removal denied'); };
+  deniedRemovalStore.removeItem = function () {
+    throw new Error('Storage removal denied');
+  };
   let protectedStorage = await require('./outreach-draft-storage.js').createDraftStorage({
-    session: deniedRemovalStore, indexedDB: null, crypto: require('node:crypto').webcrypto,
-    storageKey: intake.STORAGE_KEY, now: Date.now,
+    session: deniedRemovalStore,
+    indexedDB: null,
+    crypto: require('node:crypto').webcrypto,
+    storageKey: intake.STORAGE_KEY,
+    now: Date.now,
   });
-  await assert.rejects(protectedStorage.removeItem(intake.STORAGE_KEY), /draft_storage_unavailable/,
-    'forget must refuse if a retained tab draft cannot be removed');
-  assert.equal(protectedStorage.getItem(intake.STORAGE_KEY), 'retained-local-fixture', 'failed forgetting preserves in-memory recovery state');
+  await assert.rejects(
+    protectedStorage.removeItem(intake.STORAGE_KEY),
+    /draft_storage_unavailable/,
+    'forget must refuse if a retained tab draft cannot be removed',
+  );
+  assert.equal(
+    protectedStorage.getItem(intake.STORAGE_KEY),
+    'retained-local-fixture',
+    'failed forgetting preserves in-memory recovery state',
+  );
   let racingStore = storage();
   let racingStorage = await require('./outreach-draft-storage.js').createDraftStorage({
-    session: racingStore, indexedDB: null, crypto: require('node:crypto').webcrypto,
-    storageKey: intake.STORAGE_KEY, now: Date.now,
+    session: racingStore,
+    indexedDB: null,
+    crypto: require('node:crypto').webcrypto,
+    storageKey: intake.STORAGE_KEY,
+    now: Date.now,
   });
   let pendingWrite = racingStorage.setItem(intake.STORAGE_KEY, JSON.stringify({ ui: { remember: false } }));
   let pendingForget = racingStorage.removeItem(intake.STORAGE_KEY);

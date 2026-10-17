@@ -25,9 +25,13 @@ function requestResult(request) {
       clearTimeout(timer);
       resolve(request.result);
     };
-    request.onerror = function () { unavailable(request.error); };
+    request.onerror = function () {
+      unavailable(request.error);
+    };
     // Reading request.error while an open is pending throws InvalidStateError.
-    request.onblocked = function () { unavailable(); };
+    request.onblocked = function () {
+      unavailable();
+    };
   });
 }
 async function openDatabase(indexedDB) {
@@ -129,8 +133,11 @@ async function createDraftStorage(options) {
           // queued write can recreate the tab capability after forgetting it.
           let sessionFailure = false;
           if (options.session) {
-            try { options.session.removeItem(storageKey); }
-            catch (e) { sessionFailure = true; }
+            try {
+              options.session.removeItem(storageKey);
+            } catch (e) {
+              sessionFailure = true;
+            }
           }
           if (database) await transaction(database, 'delete');
           if (sessionFailure) throw new Error('draft_storage_unavailable');
