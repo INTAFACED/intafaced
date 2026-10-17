@@ -1,5 +1,7 @@
 # SPEC — Rebar all-out (hardened 2026-09-17, audit-3)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** WAITING **start**. Do not execute writers. Audit-5: this is a **work queue + coverage ledger + idle watchdog**, not a graph and not an unbounded loop.  
 **Peace file (for the mill / next agent, not homework):** [`ops/boom/REBAR-STATUS.md`](ops/boom/REBAR-STATUS.md)  
 **Tip at this rewrite:** `origin/main` `426ea9d43`. Grok door is dirty — ignore it.  

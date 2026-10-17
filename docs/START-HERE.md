@@ -1,5 +1,7 @@
 # START HERE — plain map of INTAFACED (for Nitro)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **One page.** Read this when confused. Agents: load this _after_ `AGENTS.md` if the human needs orientation, not instead of the law.
 
 **Ship rules (Denon / Shehzad / Nitro agents):** [`CONTRIBUTING.md`](../CONTRIBUTING.md) §0 — review and verify your change, then merge your own PR when required protection checks pass; do not wait for full CI green or Nitro; `audited:true` is not a coding gate.
@@ -12,7 +14,7 @@
 [`ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md`](ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md) ·  
 [`REDUNDANT-VS-PORT-2026-08-03.md`](REDUNDANT-VS-PORT-2026-08-03.md) ·  
 [`DENON-CALL-EXTRACT-2026-08-03.md`](DENON-CALL-EXTRACT-2026-08-03.md).  
-**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Removal is attended-only and needs the explicit `pnpm wt:gc:apply -- --yes`; `--apply` on its own prints the plan and refuses. Read that plan before you pass `--yes` — this tool has deleted live work ([`LANE-CLOSEOUT-OPS-2026-08-08.md`](LANE-CLOSEOUT-OPS-2026-08-08.md)). It never deletes branches, only checkouts, and `pnpm wt <branch>` restores one. Never code on the main checkout. After merge, preserve any remaining local work, remove the finished worktree from its home checkout with `git worktree remove --force <path>`, and keep the local branch.
+**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Remove only your own worktree, with `git worktree remove <path>` (never `--force`). Never code on the main checkout. After merge, preserve any remaining local work, remove the finished worktree with `git worktree remove <path>` (never `--force`), and keep the branch.
 Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md).
 
 ---

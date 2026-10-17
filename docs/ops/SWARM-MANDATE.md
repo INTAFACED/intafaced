@@ -1,5 +1,7 @@
 # Swarm mandate scope
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 ## ONE SURFACE — read before any front-end work (mandatory)
 
 `vendor/upstream-exchange/05_Web_Front`, served on `:8090`, is the **sole product surface**.

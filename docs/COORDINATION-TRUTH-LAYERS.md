@@ -1,5 +1,7 @@
 # Coordination truth layers (binding)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING · **auto-load enforced** (full access · no human gate before code)  
 **Home for this fact:** this file. Pointers only elsewhere.  
 **Intent:** Denon multi-dev context + zero agent conflict **without** slowing parallel autonomous ship.  
