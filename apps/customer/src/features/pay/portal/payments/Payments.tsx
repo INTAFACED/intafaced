@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { plainCode } from '../ui/plain-code';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { reason } from '../chrome/copy';
 import { Button, DataTable, EmptyState, Field, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
 import {
   AsOf,
   BackLink,
   Chip,
-  ComingSoon,
+  NotLive,
   Facts,
   Gate,
   HaltBanner,
@@ -465,12 +467,12 @@ export function PaymentDetailView({
                     [t('stillRefundable'), <Money value={refundable(p)} asset={p.assetId} />],
                   ]}
                 />
-                <ComingSoon title={t('feeSoonTitle')}>
+                <NotLive reason={reason('reasonFees')} title={t('feeSoonTitle')}>
                   {t('feeSoonBody')}{' '}
                   <a className="text-link" href="/pay/pricing">
                     {t('seePricing')}
                   </a>
-                </ComingSoon>
+                </NotLive>
               </PaySection>
 
               <PaySection title={t('timelineTitle')} description={t('paymentTimelineBody')}>
@@ -567,7 +569,9 @@ export function PaymentDetailView({
                 />
               </PaySection>
 
-              <ComingSoon title={t('ledgerSoonTitle')}>{t('ledgerSoonBody')}</ComingSoon>
+              <NotLive reason={reason('reasonDetail')} title={t('ledgerSoonTitle')}>
+                {t('ledgerSoonBody')}
+              </NotLive>
             </>
           );
         }}
@@ -605,7 +609,7 @@ function DisputeCard({ dispute, status, retry }: { dispute: Resource<DisputeDeta
         items={[
           [t('colStatus'), <Chip kind="dispute" value={d.status} />],
           [t('colAmount'), <Money value={d.amount} asset={d.assetId} />],
-          [t('colReason'), d.reasonCode ?? t('notGiven')],
+          [t('colReason'), d.reasonCode ? plainCode(d.reasonCode) : t('notGiven')],
           [t('colDue'), d.responseDueAt ? <PayTime value={d.responseDueAt} /> : <NotConfigured>{t('noDeadline')}</NotConfigured>],
         ]}
       />

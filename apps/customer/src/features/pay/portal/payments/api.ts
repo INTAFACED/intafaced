@@ -1,12 +1,17 @@
 import { z } from 'zod';
 import * as p from '../schemas';
-import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, linkSchema } from '../../schemas';
+import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, linkSchema, listed } from '../../schemas';
 import { cycleSchema } from './billing-schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 
 export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query('subscription.list', { merchantId, limit }, z.array(subscriptionSchema.refine((row) => row.merchantId === merchantId)), signal),
+    query(
+      'subscription.list',
+      { merchantId, limit },
+      p.page(subscriptionSchema.refine((row) => row.merchantId === merchantId)),
+      signal,
+    ).then(listed),
   subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
     query(
       'subscription.get',
@@ -15,7 +20,9 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   mandates: (merchantId: string, signal?: AbortSignal) =>
-    query('mandate.list', { merchantId, limit: 200 }, z.array(mandateSchema.refine((row) => row.merchantId === merchantId)), signal),
+    query('mandate.list', { merchantId, limit: 200 }, p.page(mandateSchema.refine((row) => row.merchantId === merchantId)), signal).then(
+      listed,
+    ),
   mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
     query(
       'mandate.get',
@@ -39,7 +46,7 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   links: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
+    query('merchant.listLinks', { merchantId, limit }, p.page(linkSchema), signal).then(listed),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
     list('merchantOps.disputes.list', p.disputeSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),

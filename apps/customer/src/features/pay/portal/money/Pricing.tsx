@@ -142,7 +142,7 @@ function HistoryTable({ history, retry }: { history: ReturnType<typeof useResour
   if (history.status === 'loading') return <PortalLoading rows={2} />;
   if (history.status === 'failed')
     return isComingSoon(history.failure) ? (
-      <NamedBlocker title={t('historyTitle')} blocker={t('blockerPricingHistory')}>
+      <NamedBlocker title={t('historyTitle')} why="reasonHistory" needs="merchantControl.pricing.history">
         {t('historyBlocked')}
       </NamedBlocker>
     ) : (

@@ -9,6 +9,8 @@ import { EntityList, type EntityCard, type EntityColumn } from '../ui/EntityList
 import { dateRange, type ListFilters } from '../ui/FilterRow';
 import type { PortalApi } from '../api';
 import type { ApiResult } from '../../../../shared/api';
+import { NotLiveCard } from '../chrome/NotLiveCard';
+import { reason, type ReasonKey } from '../chrome/copy';
 import { mc } from './copy';
 import type { ListQuery } from './api';
 
@@ -46,19 +48,14 @@ export function TestBanner() {
 }
 
 /**
- * The one card for something that genuinely cannot be done yet, and it names what it is waiting for. It is never
- * captioned "coming soon" and never stands in for a page whose service already exists.
+ * The one card for something that genuinely cannot be done yet. It names what it is waiting for (`why`, from
+ * `chrome/copy.ts`) and is never a stand-in for a page whose service already exists. `needs` is for the review board.
  */
-export function NamedBlocker({ title, blocker, children }: { title: string; blocker: string; children?: ReactNode }) {
-  const { t } = mc.useCopy();
+export function NamedBlocker({ title, why, needs, children }: { title: string; why: ReasonKey; needs: string; children?: ReactNode }) {
   return (
-    <section className="mn-blocker" aria-label={title}>
-      <h3>{title}</h3>
-      {children && <p>{children}</p>}
-      <p className="muted">
-        <strong>{t('blockedBy')}</strong> {blocker}
-      </p>
-    </section>
+    <NotLiveCard reason={reason(why)} title={title} needs={needs}>
+      {children}
+    </NotLiveCard>
   );
 }
 

@@ -1,9 +1,11 @@
 import {
   Activity,
   Bell,
+  Building2,
   ChartNoAxesColumn,
   ChevronDown,
   CircleHelp,
+  GraduationCap,
   House,
   LayoutGrid,
   type LucideIcon,
@@ -34,7 +36,9 @@ export type ShellIconName =
   | 'search'
   | 'bell'
   | 'user'
-  | 'chevron';
+  | 'chevron'
+  | 'academy'
+  | 'merchant';
 
 const icons: Record<ShellIconName, LucideIcon> = {
   home: House,
@@ -53,6 +57,8 @@ const icons: Record<ShellIconName, LucideIcon> = {
   bell: Bell,
   user: User,
   chevron: ChevronDown,
+  academy: GraduationCap,
+  merchant: Building2,
 };
 
 export function ShellIcon({ name, size = 20 }: { name: ShellIconName; size?: number }) {

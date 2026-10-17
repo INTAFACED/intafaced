@@ -62,7 +62,7 @@ function TestNotice() {
 function Off() {
   const { t } = mc.useCopy();
   return (
-    <NamedBlocker title={t('cvOffTitle')} blocker={t('blockerConversion')}>
+    <NamedBlocker title={t('cvOffTitle')} why="reasonService" needs="conversion switched on (PAY_CONVERSION_MODE=sandbox)">
       {t('cvOffBody')}
     </NamedBlocker>
   );

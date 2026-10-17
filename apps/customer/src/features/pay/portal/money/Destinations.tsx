@@ -64,7 +64,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         label={t('dstTable')}
         rowKey={(d) => d.id}
         blocked={
-          <NamedBlocker title={t('dstTable')} blocker={t('blockerDestinations')}>
+          <NamedBlocker title={t('dstTable')} why="reasonLists" needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)">
             {t('dstListBlocked')}
           </NamedBlocker>
         }
@@ -82,7 +82,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         })}
       />
       <AddDestination portal={portal} merchantId={merchantId} onAdded={list.reload} />
-      <NamedBlocker title={t('dstManageTitle')} blocker={t('blockerDestinationEdit')}>
+      <NamedBlocker title={t('dstManageTitle')} why="reasonActions" needs="payout destination remove and set default (no service)">
         {t('dstManageBody')}
       </NamedBlocker>
     </div>

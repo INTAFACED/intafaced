@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui';
 import { WithAccount } from '../access/WithAccount';
 import { Gate } from '../components';
 import { extensionCopy, portalCopy, settingsCopy, w3cCopy } from './copy';
-import { comingSoonRoom } from '../ui/comingSoonRoom';
+import { notLiveRoom } from '../ui/notLiveRoom';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Compliance } from './Compliance';
 import { Developers, developerHeader } from './Developers';
@@ -12,7 +12,8 @@ import { Notifications } from './Notifications';
 import { Onboarding } from './Onboarding';
 import { Reports } from './Reports';
 import { Settings, SettingsNav } from './Settings';
-import { Team } from './Team';
+import { NoBusiness } from '../access/NoBusiness';
+import { InvitationsOnly, Team } from './Team';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -79,6 +80,7 @@ export const settingsRooms: RoomTable = {
     render: (_route, { portal }) => <Exports portal={portal} />,
   },
   onboarding: {
+    withoutBusiness: 'render',
     header: (route) => ({
       title: route.step
         ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
@@ -102,62 +104,97 @@ export const settingsRooms: RoomTable = {
   },
   team: {
     header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite'), 'primary') }),
+    withoutBusiness: ({ portal }) => (
+      <NoBusiness>
+        <InvitationsOnly portal={portal} />
+      </NoBusiness>
+    ),
     render: (_route, { portal }) => <Team portal={portal} />,
   },
   notifications: {
     header: () => ({ title: t('pageNotifications'), purpose: t('purposeNotifications') }),
     render: (_route, { portal }) => <Notifications portal={portal} />,
   },
-  network: comingSoonRoom(() => ({
-    title: settingsCopy.t('networkTitle'),
-    purpose: settingsCopy.t('networkPurpose'),
-    body: settingsCopy.t('networkSoon'),
-  })),
-  'network-child': comingSoonRoom(
+  network: notLiveRoom(
+    () => ({
+      title: settingsCopy.t('networkTitle'),
+      purpose: settingsCopy.t('networkPurpose'),
+      body: settingsCopy.t('networkSoon'),
+    }),
+    'reasonNetwork',
+    undefined,
+    'the network list page (Package 3); submerchant.list is on main',
+  ),
+  'network-child': notLiveRoom(
     () => ({
       title: settingsCopy.t('networkChildTitle'),
       purpose: settingsCopy.t('networkChildPurpose'),
       body: settingsCopy.t('networkChildSoon'),
     }),
+    'reasonNetwork',
     '/pay/network',
+    'the sub-merchant page (Package 3); submerchant.get is on main',
   ),
-  permissions: comingSoonRoom(() => ({
-    title: settingsCopy.t('permissionsTitle'),
-    purpose: settingsCopy.t('permissionsPurpose'),
-    body: settingsCopy.t('permissionsSoon'),
-  })),
-  'developer-sandbox': comingSoonRoom(
+  permissions: notLiveRoom(
+    () => ({
+      title: settingsCopy.t('permissionsTitle'),
+      purpose: settingsCopy.t('permissionsPurpose'),
+      body: settingsCopy.t('permissionsSoon'),
+    }),
+    'reasonNetwork',
+    undefined,
+    'the permissions page (Package 3); submerchantPermission.list is on main',
+  ),
+  'developer-sandbox': notLiveRoom(
     () => ({ title: settingsCopy.t('sandboxTitle'), purpose: settingsCopy.t('sandboxPurpose'), body: settingsCopy.t('sandboxSoon') }),
+    'reasonActions',
     '/pay/developer/keys',
+    'sandbox procedures callable from the portal',
   ),
-  'developer-docs': comingSoonRoom(
+  'developer-docs': notLiveRoom(
     () => ({ title: settingsCopy.t('docsTitle'), purpose: settingsCopy.t('docsPurpose'), body: settingsCopy.t('docsSoon') }),
+    'reasonDocs',
     '/pay/developer/keys',
+    'static developer docs (Package 3)',
   ),
-  analytics: comingSoonRoom(() => ({
-    title: settingsCopy.t('analyticsTitle'),
-    purpose: settingsCopy.t('analyticsPurpose'),
-    body: settingsCopy.t('analyticsSoon'),
-  })),
-  'analytics-fees': comingSoonRoom(
+  analytics: notLiveRoom(
+    () => ({
+      title: settingsCopy.t('analyticsTitle'),
+      purpose: settingsCopy.t('analyticsPurpose'),
+      body: settingsCopy.t('analyticsSoon'),
+    }),
+    'reasonLists',
+    undefined,
+    'merchantAnalytics.volume (feat/pay-portal-be-profile-analytics)',
+  ),
+  'analytics-fees': notLiveRoom(
     () => ({
       title: settingsCopy.t('analyticsFeesTitle'),
       purpose: settingsCopy.t('analyticsFeesPurpose'),
       body: settingsCopy.t('analyticsFeesSoon'),
     }),
+    'reasonLists',
     '/pay/analytics',
+    'merchantAnalytics.fees (feat/pay-portal-be-profile-analytics)',
   ),
-  'settings-security': comingSoonRoom(
+  'settings-security': notLiveRoom(
     () => ({
       title: settingsCopy.t('securityTitle'),
       purpose: settingsCopy.t('securityPurpose'),
       body: settingsCopy.t('securitySoon'),
     }),
+    'reasonSecurity',
     '/pay/settings/security',
+    'the security page (Package 3); identity session reads are on main',
   ),
-  activity: comingSoonRoom(() => ({
-    title: settingsCopy.t('activityTitle'),
-    purpose: settingsCopy.t('activityPurpose'),
-    body: settingsCopy.t('activitySoon'),
-  })),
+  activity: notLiveRoom(
+    () => ({
+      title: settingsCopy.t('activityTitle'),
+      purpose: settingsCopy.t('activityPurpose'),
+      body: settingsCopy.t('activitySoon'),
+    }),
+    'reasonHistory',
+    undefined,
+    'merchantOps.activity.list (feat/pay-portal-be-audit-exports-webhooks)',
+  ),
 };

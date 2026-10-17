@@ -257,7 +257,7 @@ function RecentMovements({ portal, merchantId, asset, test }: { portal: PortalAp
         <PortalLoading rows={3} />
       ) : r.status === 'failed' ? (
         isComingSoon(r.failure) ? (
-          <NamedBlocker title={t('balMovementsTitle')} blocker={t('blockerStatement')}>
+          <NamedBlocker title={t('balMovementsTitle')} why="reasonLists" needs="merchant.statement.list (feat/pay-portal-be-reads-money)">
             {t('balMovementsBlocked')}
           </NamedBlocker>
         ) : (

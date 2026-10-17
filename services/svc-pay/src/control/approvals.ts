@@ -8,6 +8,7 @@ import { payoutPayloadHash, voidStaleApprovals, type PayoutPayload } from './app
 import { writeAudit } from './audit.js';
 import type { ControlAccessPorts } from './access.js';
 import { ControlError } from './errors.js';
+import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
 import { maskDestination, safeDestinationLabel } from './mask-destination.js';
 import { loadMerchantControl } from './store.js';
 
@@ -254,18 +255,61 @@ export class ApprovalService {
 
   async list(
     principal: Principal,
-    input: { merchantId: string; status?: PayoutApproval['status']; limit: number },
-  ): Promise<ApprovalDetail[]> {
+    input: {
+      merchantId: string;
+      status?: PayoutApproval['status'];
+      limit: number;
+      cursor?: string;
+      search?: string;
+      from?: string;
+      to?: string;
+    },
+  ): Promise<{ items: ApprovalDetail[]; nextCursor: string | null }> {
     this.actorId(principal);
     if (!(await this.options.access.canViewMerchant(principal, input.merchantId))) throw new ControlError('pay.merchant_not_found');
+    let filters;
+    try {
+      filters = parseListFilters(input);
+    } catch (error) {
+      if (error instanceof ListQueryError) throw new ControlError('pay.control_invalid');
+      throw error;
+    }
     const at = this.now();
-    const rows = await this.sql<ApprovalRow[]>`
-      SELECT * FROM pay.control_payout_approvals WHERE merchant_id = ${input.merchantId} ORDER BY seq DESC LIMIT ${input.limit * 4}
+    const status = input.status ?? null;
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<ApprovalRow & { created_at_cursor: string }>>`
+      SELECT id, seq, merchant_id, settlement_id, asset_code, amount::text, rail_id, destination_kind, destination_ref,
+             payload_hash, status, founder_required, maker_user_id, checker_user_id, checker_reason, checker_decided_at,
+             founder_first_user_id, founder_second_user_id, created_at, decided_at, expires_at,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.control_payout_approvals
+       WHERE merchant_id = ${input.merchantId}
+         AND (
+           ${status}::text IS NULL
+           OR (${status} = 'expired' AND (status = 'expired' OR (status IN ('pending', 'approved') AND expires_at <= ${at})))
+           OR (${status} <> 'expired' AND status = ${status} AND NOT (status IN ('pending', 'approved') AND expires_at <= ${at}))
+         )
+         AND (
+           ${filters.search}::text IS NULL
+           OR id::text = lower(${filters.search})
+           OR settlement_id::text = lower(${filters.search})
+         )
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (
+           ${cursorAt}::text IS NULL
+           OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${input.limit + 1}
     `;
-    return rows
-      .map((r) => toApprovalView(r, at))
-      .filter((a) => input.status === undefined || a.status === input.status)
-      .slice(0, input.limit);
+    const page = rows.slice(0, input.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => toApprovalView(row, at)),
+      nextCursor: rows.length > input.limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
   }
 
   /** Merchant-side checker decision. */

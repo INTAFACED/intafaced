@@ -102,7 +102,7 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         <p className="muted pp-note">{t('usageHow')}</p>
       </PaySection>
 
-      <NamedBlocker title={t('tierLadderTitle')} blocker={t('blockerTierLadder')}>
+      <NamedBlocker title={t('tierLadderTitle')} why="reasonLimits" needs="tier ladder (only your own tier is readable)">
         {t('tierLadderBody')}
       </NamedBlocker>
 
@@ -218,7 +218,7 @@ function RequestIncrease({
         <PortalLoading rows={2} />
       ) : open.status === 'failed' ? (
         isComingSoon(open.failure) ? (
-          <NamedBlocker title={t('lrTitle')} blocker={t('blockerLimits')}>
+          <NamedBlocker title={t('lrTitle')} why="reasonActions" needs="merchantControl.limits.open">
             {t('lrBlocked')}
           </NamedBlocker>
         ) : (

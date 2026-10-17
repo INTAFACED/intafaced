@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { reason } from '../chrome/copy';
 import { Button } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { Chip, Gate, Kpi, KpiGrid, ListShell, MoreFooter, Timeline } from '../components';
@@ -81,7 +82,7 @@ export function ComplianceView({
         </Gate>
       </PaySection>
       <div id="compliance-gaps">
-        <Arrives>{c.t('complianceGap')}</Arrives>
+        <Arrives reason={reason('reasonDocuments')}>{c.t('complianceGap')}</Arrives>
       </div>
       <PaySection title={c.t('complianceHistory')} description={c.t('complianceHistoryBody')}>
         <ListShell

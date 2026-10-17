@@ -178,7 +178,9 @@ function JobRow({ job, portal }: { job: ExportJob; portal: PortalApi }) {
             )}
           </>
         ) : (
-          <small className="muted">{job.status === 'failed' ? t('noDownload') : t('buildingNow')}</small>
+          <small className="muted">
+            {job.status === 'failed' ? t('noDownload') : job.status === 'expired' ? t('exportExpired') : t('buildingNow')}
+          </small>
         )}
       </td>
     </tr>
@@ -197,7 +199,7 @@ function RequestForm({ portal, onRequested }: { portal: PortalApi; onRequested: 
   const [assetId, setAssetId] = useState('');
   // One id per request: a double click or retry returns the same job instead of building two.
   const [requestId, setRequestId] = useState(newRequestId);
-  const statuses = kind === 'payments' ? paymentStatuses : settlementStatuses;
+  const statuses = kind === 'payments' ? paymentStatuses : kind === 'settlements' || kind === 'payouts' ? settlementStatuses : [];
   const bad = from && to && from >= to ? t('err_range') : undefined;
   const filters = {
     ...(dayStart(from) ? { from: dayStart(from) } : {}),

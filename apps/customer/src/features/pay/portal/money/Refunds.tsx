@@ -82,7 +82,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
   const rate = refunded !== null && captured !== null ? refundRate(refunded, captured) : null;
   const n = newest.resource.status === 'ready' ? newest.resource.data : null;
   const blocked = (
-    <NamedBlocker title={t('rfTitle')} blocker={t('blockerRefunds')}>
+    <NamedBlocker title={t('rfTitle')} why="reasonLists" needs="payment.refunds.list (feat/pay-portal-be-reads-money)">
       {t('rfListBlocked')}
     </NamedBlocker>
   );
@@ -225,7 +225,7 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
         <a className="text-link" href="/pay/refunds">
           {t('backRefunds')}
         </a>
-        <NamedBlocker title={t('rfDetailTitle')} blocker={t('blockerRefunds')}>
+        <NamedBlocker title={t('rfDetailTitle')} why="reasonDetail" needs="payment.refunds.get (feat/pay-portal-be-reads-money)">
           {t('rfDetailBlocked')}
         </NamedBlocker>
       </div>

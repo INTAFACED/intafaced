@@ -128,7 +128,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                     {destinations.resource.status === 'loading' ? (
                       <PortalLoading rows={1} />
                     ) : destMissing ? (
-                      <NamedBlocker title={t('pnStep2')} blocker={t('blockerDestinations')}>
+                      <NamedBlocker title={t('pnStep2')} why="reasonLists" needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)">
                         {t('pnDestBlocked')}
                       </NamedBlocker>
                     ) : destinations.resource.status === 'failed' ? (

@@ -2,6 +2,7 @@
 
 from intafaced_pay.client import DEFAULT_MAX_RETRIES, PayClient
 from intafaced_pay.operations import PayOperations
+from intafaced_pay.payment_links_page import PayPaymentLinkPage, payment_link_page_from_response
 from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response
 from intafaced_pay.sign import (
     REQUEST_SIGN_VERSION,
@@ -14,9 +15,11 @@ __all__ = [
     "DEFAULT_MAX_RETRIES",
     "PayClient",
     "PayOperations",
+    "PayPaymentLinkPage",
     "PayPaymentPage",
     "REQUEST_SIGN_VERSION",
     "REQUEST_SIGN_WINDOW_SECONDS",
+    "payment_link_page_from_response",
     "payment_page_from_response",
     "sign_pay_request",
     "signatures_equal",
