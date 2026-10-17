@@ -46,6 +46,7 @@ import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import { sqlAcceptedMarkStore } from './accepted-mark.js';
 import { durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
 import { DEFAULT_FUTURES_MARK_POLICY, acceptableForMarking, type FuturesMarkProvenance } from './mark-policy.js';
+import { liquidationJobAlerts } from './futures-jobs-health.js';
 export { runDatedFuturesExpiryTick } from './dated-futures.js';
 
 export interface FuturesJobsConfig {
@@ -157,6 +158,8 @@ export interface FuturesJobsHandle {
    * publishes the D3 table (then nothing is rated, and the old equity-only gate applies).
    */
   ladderGate: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
+  /** Operator alerts. Non-empty while the liquidation tick is not scheduled. */
+  alerts: ReturnType<typeof liquidationJobAlerts>;
   stop(): void;
 }
 
@@ -293,6 +296,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       marks,
       marginCalls,
       ladderGate,
+      alerts: liquidationJobAlerts(false),
       stop: () => host.stopAll(),
     };
   }
@@ -400,6 +404,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     marks,
     marginCalls,
     ladderGate,
+    alerts: liquidationJobAlerts(true),
     stop: () => host.stopAll(),
   };
 }

@@ -1,14 +1,14 @@
 'use client';
 
-import { useMemo, useRef, useState, useTransition } from 'react';
+import { useMemo, useState } from 'react';
 import { Panel, StatBlock } from '@intafaced/ui';
 import type { Drop, ModuleId } from '@intafaced/config';
 import { Chip } from '@/components/chip';
 import { consoleCopy } from '@/lib/console-copy';
 import { dropLabel } from '@/lib/drops';
 import { ModuleStateInspector } from '@/components/module-state-inspector';
-import { MODULE_WRITE_UNAVAILABLE, decodeSnapshot, unavailable, type ToggleInput } from '@/lib/control-plane-contract';
-import { type ControlPlaneState, type KillSwitchSnapshot, postKillSwitch } from '@/lib/control-plane-browser';
+import { decodeSnapshot } from '@/lib/control-plane-contract';
+import type { ControlPlaneState } from '@/lib/control-plane-browser';
 import {
   CONTROL_EFFECT_LABEL,
   CRITICAL_FLAG_KEY,
@@ -29,8 +29,9 @@ import {
  *
  * Two kinds of switch on one board, and telling them apart is the whole job:
  *
- *   · MODULE rows inspect svc-edge. New writes require a human operator session,
- *     an identity-issued approval and original operation context, unavailable here.
+ *   · MODULE rows inspect svc-edge, and the module controls ask TWO founders to kill or re-enable
+ *     one: the first asks, a different founder approves through identity, and svc-edge spends the
+ *     approval once. The page shows what the edge returns, never a state it advanced itself.
  *   · FLAG rows are a session preview of what an override WOULD do. There is no
  *     durable flag store yet (§13), so flipping one changes this browser tab and
  *     nothing else, for ever, no matter how the console is configured.
@@ -73,37 +74,19 @@ export interface KillSwitchBoardProps {
   flagEnv: Record<string, string>;
   /** Server-loaded snapshot so first paint matches the edge. */
   initialControlPlane: ControlPlaneState;
+  /** Why module kill and re-enable are switched off on this deployment, or null when they can send. */
+  moduleWritesBlocked: string | null;
+  /** The signed-in founder's identity user id: tells the requester from the second founder. */
+  userId: string;
 }
 
-export function moduleTogglePhrase(module: ModuleId, currentlyDisabled: boolean): string {
-  return currentlyDisabled ? `RE-ENABLE ${module}` : `KILL ${module}`;
-}
-
-export interface ModuleCommandReceipt {
-  readonly module: ModuleId;
-  readonly disabled: boolean;
-  readonly status: number;
-  /** The snapshot returned by svc-edge, never a locally advanced state. */
-  readonly snapshot: KillSwitchSnapshot;
-}
-
-export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwitchBoardProps) {
+export function KillSwitchBoard({ drop, flagEnv, initialControlPlane, moduleWritesBlocked, userId }: KillSwitchBoardProps) {
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [plane, setPlane] = useState(initialControlPlane);
-  const [pendingModule, setPendingModule] = useState<ModuleId | null>(null);
-  const [reason, setReason] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<ModuleCommandReceipt | null>(null);
-  const [unresolvedIntent, setUnresolvedIntent] = useState<ToggleInput | null>(null);
   const [criticalArmed, setCriticalArmed] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const moduleCommandLockRef = useRef(false);
 
   const liveModules = plane.status === 'reachable' && decodeSnapshot(plane.snapshot) !== null;
   const disabledModules: ModuleId[] = liveModules ? [...plane.snapshot.disabledModules] : [];
-  // Deployment credentials and a readable snapshot do not provide human authority.
-  const moduleWritesAvailable = false;
 
   const baseline = useMemo(() => flagStates({ drop, env: flagEnv }), [drop, flagEnv]);
   const staged = useMemo(() => flagStates({ drop, env: flagEnv, overrides, disabledModules }), [drop, flagEnv, overrides, disabledModules]);
@@ -132,77 +115,9 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
     });
   }
 
-  function requestModuleToggle(module: ModuleId) {
-    if (!moduleWritesAvailable || !liveModules || unresolvedIntent) return;
-    setPendingModule(module);
-    setReason('');
-    setConfirmation('');
-    setActionError(null);
-    setReceipt(null);
-  }
-
-  function applyModuleToggle() {
-    if (!moduleWritesAvailable || unresolvedIntent) return;
-    if (!pendingModule) return;
-    if (moduleCommandLockRef.current) return;
-    const trimmed = reason.trim();
-    if (trimmed.length < 12) {
-      setActionError('Reason must be at least 12 characters — an outage nobody can explain is worse.');
-      return;
-    }
-
-    const nextDisabled = !disabledModules.includes(pendingModule);
-    const expectedPhrase = moduleTogglePhrase(pendingModule, !nextDisabled);
-    if (confirmation !== expectedPhrase) {
-      setActionError(`Type ${expectedPhrase} exactly to confirm.`);
-      return;
-    }
-
-    const commandModule = pendingModule;
-    moduleCommandLockRef.current = true;
-    setReceipt(null);
-    startTransition(async () => {
-      let outcomeUnresolved = false;
-      try {
-        const result = await postKillSwitch({ module: commandModule, disabled: nextDisabled, reason: trimmed });
-        if (!result.ok) {
-          if (result.uncertain) {
-            outcomeUnresolved = true;
-            setUnresolvedIntent(result.intent ?? { module: commandModule, disabled: nextDisabled, reason: trimmed });
-            setPlane(
-              unavailable(
-                'unreachable',
-                result.detail ?? 'Original module outcome is unresolved.',
-                result.code ?? 'admin.kill_outcome_unknown',
-              ),
-            );
-          }
-          setActionError(result.detail ?? `kill-switch refused (${result.status})`);
-          return;
-        }
-        setPlane({ status: 'reachable', snapshot: result.snapshot, detail: null });
-        setReceipt({ module: commandModule, disabled: nextDisabled, status: result.status, snapshot: result.snapshot });
-        setPendingModule(null);
-        setReason('');
-        setConfirmation('');
-        setActionError(null);
-      } finally {
-        // A transport failure does not authorize replay. The helper retains its
-        // original intent; a later read or audit cannot settle that operation.
-        if (!outcomeUnresolved) moduleCommandLockRef.current = false;
-      }
-    });
-  }
-
   function reset() {
-    if (unresolvedIntent || moduleCommandLockRef.current) return;
     setOverrides({});
     setCriticalArmed(false);
-    setPendingModule(null);
-    setReason('');
-    setConfirmation('');
-    setActionError(null);
-    setReceipt(null);
   }
 
   return (
@@ -214,7 +129,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
         </div>
       </div>
 
-      <ModuleStateInspector plane={plane} onRead={setPlane} />
+      <ModuleStateInspector plane={plane} onRead={setPlane} writesBlocked={moduleWritesBlocked} userId={userId} />
 
       <details className="mi-registry">
         <summary>Flag registry and session previews</summary>
@@ -232,12 +147,7 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
             </p>
           </div>
           <div className="adm-inline">
-            <button
-              type="button"
-              className="adm-btn"
-              onClick={reset}
-              disabled={!!unresolvedIntent || (changes.length === 0 && !pendingModule)}
-            >
+            <button type="button" className="adm-btn" onClick={reset} disabled={changes.length === 0 && !criticalArmed}>
               Reset staged flags
             </button>
           </div>
@@ -266,86 +176,6 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
             <StatBlock label="Env overrides" value={Object.keys(flagEnv).length} deltaLabel="INTAFACED_FLAG_*" />
           </div>
         </Panel>
-
-        {pendingModule && (
-          <Panel
-            title={`Confirm module ${disabledModules.includes(pendingModule) ? 're-enable' : 'kill'}: ${pendingModule}`}
-            className="adm-panel--warn"
-          >
-            <div className="adm-stack">
-              <p className="adm-footnote">
-                This hits <code>POST /api/kill-switch</code> → svc-edge. Cancels and reads still pass; new commitments on this module refuse
-                with 503. Reason is required on the edge (≥ 12 characters).
-              </p>
-              <label className="adm-stack">
-                <span className="adm-meta">Reason</span>
-                <textarea
-                  className="adm-textarea"
-                  rows={3}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. incident: halt new trade risk while investigating fill anomaly"
-                  disabled={isPending}
-                />
-              </label>
-              <div className="adm-field">
-                <label htmlFor="module-toggle-confirmation">
-                  Type <code>{moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))}</code> to confirm
-                </label>
-                <input
-                  id="module-toggle-confirmation"
-                  className="adm-input"
-                  value={confirmation}
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={isPending}
-                  onChange={(event) => setConfirmation(event.target.value)}
-                />
-              </div>
-              {actionError && (
-                <div className="adm-callout" data-tone="danger">
-                  <strong>{unresolvedIntent ? 'Original outcome unresolved' : 'Request refused'}</strong>
-                  {actionError}
-                </div>
-              )}
-              <div className="adm-inline">
-                <button
-                  type="button"
-                  className="adm-btn"
-                  data-tone="danger"
-                  onClick={applyModuleToggle}
-                  disabled={
-                    !moduleWritesAvailable ||
-                    !!unresolvedIntent ||
-                    isPending ||
-                    reason.trim().length < 12 ||
-                    confirmation !== moduleTogglePhrase(pendingModule, disabledModules.includes(pendingModule))
-                  }
-                >
-                  {isPending ? 'Sending…' : disabledModules.includes(pendingModule) ? 'Re-enable module' : 'Kill module now'}
-                </button>
-                <button
-                  type="button"
-                  className="adm-btn"
-                  onClick={() => {
-                    setPendingModule(null);
-                    setConfirmation('');
-                    setActionError(null);
-                  }}
-                  disabled={isPending || !!unresolvedIntent}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </Panel>
-        )}
-
-        {receipt && (
-          <Panel title="Returned service snapshot" actions={<Chip tone="info">transport answered</Chip>}>
-            <ModuleCommandReceiptView receipt={receipt} />
-          </Panel>
-        )}
 
         {critical && <CriticalSwitch state={critical} armed={criticalArmed} onArm={setCriticalArmed} onSet={setFlag} onClear={clearFlag} />}
 
@@ -460,17 +290,9 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
                         ) : (
                           <Chip tone="warn">Not edge-enforced</Chip>
                         )}
-                        <Chip tone="warn">Module write unavailable</Chip>
-                        <Switch
-                          on={!group.killed}
-                          onLabel={liveModules ? 'Not listed as killed' : 'Unknown'}
-                          offLabel="Listed as killed"
-                          disabled={!moduleWritesAvailable || isPending || !!unresolvedIntent}
-                          // The reason travels with the control. A disabled switch
-                          // with no explanation reads as a broken console.
-                          title={MODULE_WRITE_UNAVAILABLE}
-                          onToggle={() => requestModuleToggle(group.module)}
-                        />
+                        <a className="adm-btn" href={`#module=${group.module}`} title="Select this module in the controls above">
+                          Module controls
+                        </a>
                       </span>
                     </td>
                   </tr>
@@ -517,38 +339,6 @@ export function KillSwitchBoard({ drop, flagEnv, initialControlPlane }: KillSwit
   );
 }
 
-export function ModuleCommandReceiptView({ receipt }: { receipt: ModuleCommandReceipt }) {
-  const audit = receipt.snapshot.audit.find((entry) => entry.module === receipt.module);
-  const returnedDisabled = receipt.snapshot.disabledModules.includes(receipt.module);
-
-  return (
-    <div className="adm-stack" data-testid="module-command-receipt">
-      <p className="adm-footnote">
-        Returned snapshot only. Historical audit is not a current command receipt. The original operation and current human identity cannot
-        be looked up through this contract.
-      </p>
-      <dl className="adm-kv">
-        <dt>Module</dt>
-        <dd>{receipt.module}</dd>
-        <dt>Requested</dt>
-        <dd>{receipt.disabled ? 'killed' : 'live'}</dd>
-        <dt>Returned state</dt>
-        <dd>{returnedDisabled ? 'killed' : 'live'}</dd>
-        <dt>Transport</dt>
-        <dd>HTTP {receipt.status}</dd>
-        <dt>Historical change</dt>
-        <dd>{audit ? (audit.changed ? 'changed' : 'no-op') : 'not returned'}</dd>
-        <dt>Historical actor</dt>
-        <dd>{audit?.actor ?? 'not returned'}</dd>
-        <dt>Historical time</dt>
-        <dd>{audit?.at ?? 'not returned'}</dd>
-        <dt>Historical reason</dt>
-        <dd>{audit?.reason ?? receipt.snapshot.reasons[receipt.module] ?? 'not returned'}</dd>
-      </dl>
-    </div>
-  );
-}
-
 function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
   const tone = plane.status === 'reachable' ? 'info' : plane.status === 'unconfigured' ? 'warn' : 'danger';
   const title = consoleCopy(
@@ -567,7 +357,7 @@ function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
           {plane.status === 'reachable' && (
             <>
               This snapshot was read from svc-edge. It reports <b>{plane.snapshot.disabledModules.length}</b> modules listed as killed; it
-              does not report fleet or service health. {MODULE_WRITE_UNAVAILABLE} Per-flag staging stays local.
+              does not report fleet or service health. Per-flag staging stays local.
             </>
           )}
           {plane.status === 'unconfigured' && (
@@ -575,14 +365,14 @@ function ControlPlanePanel({ plane }: { plane: ControlPlaneState }) {
               {/* `detail` names the variable that is ACTUALLY missing. The old
                   copy always said "set EDGE_URL and ADMIN_OPERATOR_TOKEN", which
                   sends an operator to check a setting that was already right. */}
-              {plane.detail ?? 'This console holds no credential for the control plane.'} No current module state was read.{' '}
-              {MODULE_WRITE_UNAVAILABLE}
+              {plane.detail ?? 'This console holds no credential for the control plane.'} No current module state was read, and module kill
+              and re-enable are switched off.
             </>
           )}
           {plane.status !== 'reachable' && plane.status !== 'unconfigured' && (
             <>
-              {plane.detail ?? 'No valid current module snapshot was returned.'} No current module state is shown.{' '}
-              {MODULE_WRITE_UNAVAILABLE}
+              {plane.detail ?? 'No valid current module snapshot was returned.'} No current module state is shown, and no kill or re-enable
+              can be requested until a read succeeds.
             </>
           )}
         </div>
@@ -599,7 +389,7 @@ const FLAG_COUNT_COPY = 'Every flag declared in the registry, grouped by the mod
 
 const stageNotice =
   'Per-flag switches stage a preview in this browser session and are read by no service — there is no durable flag store yet (§13 socket). ' +
-  'Module writes are unavailable here until real operator, approval and original operation prerequisites are supplied. ' +
+  'Module kill and re-enable are real, but they are the controls above: they need two founders and are not these switches. ' +
   consoleCopy('admin.console.transport.treasury.inspect.notice') +
   ' ' +
   'And note that the flag store would change nothing for a flag marked "Not a control": no service resolves flags, ' +

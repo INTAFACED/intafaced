@@ -1,4 +1,7 @@
 import type { Sql } from 'postgres';
+import { MetricsError } from '../metrics/errors.js';
+import { resolveRange } from '../metrics/window.js';
+import { decodeSeriesCursor, encodeSeriesCursor } from '../merchant-portal/series-cursor.js';
 import { MerchantOpsError } from './errors.js';
 import { iso, money } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
@@ -165,6 +168,74 @@ export class CustomerDirectory {
     };
   }
 
+  /**
+   * Captured count and volume for one customer, one period, one asset.
+   * The period is the captured event's UTC day or ISO week. Assets are not summed.
+   */
+  async series(
+    caller: MerchantCaller,
+    input: {
+      customerRef: string;
+      from: string;
+      to: string;
+      bucket: 'day' | 'week';
+      limit?: number;
+      cursor?: string;
+      assetId?: string;
+    },
+  ) {
+    assertPermission(caller, 'customers.read');
+    const limit = requireLimit(input.limit);
+    const range = customerRange(input.from, input.to);
+    const cursor = input.cursor === undefined ? null : customerCursor(input.cursor);
+    const asset = input.assetId === undefined ? null : customerAsset(input.assetId);
+    const sql = this.sql;
+    const found = await sql<Array<{ n: number }>>`
+      WITH r AS (${refs(sql, caller.merchantId)})
+      SELECT count(*)::int AS n FROM r WHERE ref = ${input.customerRef}`;
+    if (!found[0] || found[0].n === 0) throw new MerchantOpsError('pay.customer_not_found', 'not_found');
+    const period =
+      input.bucket === 'week' ? sql`date_trunc('week', ts AT TIME ZONE 'UTC')::date` : sql`date_trunc('day', ts AT TIME ZONE 'UTC')::date`;
+    const rows = await sql<Array<{ period: string; asset_code: string; count: number; volume: string }>>`
+      WITH r AS (${refs(sql, caller.merchantId)}),
+      hits AS (
+        SELECT p.id, p.currency AS asset_code, ev.ts,
+               (ev.payload->>'amount')::numeric AS amount
+          FROM r
+          JOIN pay.payments p ON p.id::text = r.source_id AND r.source = 'payment' AND p.merchant_id = ${caller.merchantId}
+          JOIN pay.payment_events ev ON ev.payment_id = p.id AND ev.event = 'captured'
+         WHERE r.ref = ${input.customerRef}
+           AND ev.ts >= ${range.from + 'T00:00:00.000Z'}::timestamptz
+           AND ev.ts < ${range.to + 'T00:00:00.000Z'}::timestamptz
+           AND ev.payload->>'amount' ~ '^[0-9]+(\\.[0-9]+)?$'
+           ${asset ? sql`AND p.currency = ${asset}` : sql``}
+      )
+      SELECT to_char(period, 'YYYY-MM-DD') AS period, asset_code, count, volume FROM (
+        SELECT ${period} AS period, asset_code, count(DISTINCT id)::int AS count, sum(amount)::text AS volume
+          FROM hits
+         GROUP BY 1, asset_code
+      ) grouped
+      ${cursor ? sql`WHERE (period, asset_code) < (${cursor.period}::date, ${cursor.assetCode})` : sql``}
+      ORDER BY period DESC, asset_code DESC
+      LIMIT ${limit + 1}`;
+    const hasMore = rows.length > limit;
+    const kept = hasMore ? rows.slice(0, limit) : rows;
+    const last = kept[kept.length - 1];
+    return {
+      customerRef: input.customerRef,
+      bucket: input.bucket,
+      from: range.from,
+      to: range.to,
+      items: kept.map((row) => ({
+        period: row.period,
+        assetCode: row.asset_code,
+        count: row.count,
+        volume: money(row.volume),
+      })),
+      nextCursor: hasMore && last ? encodeSeriesCursor(last.period, last.asset_code) : null,
+    };
+  }
+
   private async totalsFor(merchantId: string, customerRefs: string[]): Promise<Map<string, CustomerTotals[]>> {
     const out = new Map<string, CustomerTotals[]>();
     if (customerRefs.length === 0) return out;
@@ -193,4 +264,34 @@ export class CustomerDirectory {
     }
     return out;
   }
+}
+
+function customerRange(from: string, to: string) {
+  try {
+    return resolveRange(from, to);
+  } catch (err) {
+    if (err instanceof MetricsError) {
+      const code =
+        err.code === 'pay.metrics_window_unaligned'
+          ? 'pay.customer_series_window_unaligned'
+          : err.code === 'pay.metrics_window_too_wide'
+            ? 'pay.customer_series_window_too_wide'
+            : 'pay.customer_series_window_invalid';
+      throw new MerchantOpsError(code, 'bad_request');
+    }
+    throw err;
+  }
+}
+
+function customerCursor(raw: string) {
+  try {
+    return decodeSeriesCursor(raw);
+  } catch {
+    throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
+  }
+}
+
+function customerAsset(assetId: string): string {
+  if (!/^[A-Za-z0-9._-]{1,16}$/.test(assetId)) throw new MerchantOpsError('pay.customer_series_asset_invalid', 'bad_request');
+  return assetId;
 }
