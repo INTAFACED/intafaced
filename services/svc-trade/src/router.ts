@@ -20,9 +20,15 @@ import { OTC_DESK_LAW_RESIDUAL, OtcError } from './otc/errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-routing.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
-import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_RESIDUAL } from './copy/auto-mirror-place.js';
-import { copyLawStatusLine } from './copy/fee-share-law.js';
-import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './copy/errors.js';
+import { copyDetachOutput, copyFlattenOutput, copyPauseOutput, copyResumeOutput, copyStopOutput } from './copy/copy-control-wire.js';
+import {
+  copyDeskStatusOutput,
+  copyOpsStatusOutput,
+  presentCopyOpsStatus,
+  presentCustomerCopyDesk,
+  unmountedCopyDeskFacts,
+} from './copy/desk-status.js';
+import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -324,6 +330,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_fill_not_found':
       case 'trade.copy_auto_mirror_place_socket':
       case 'trade.copy_place_disabled':
+      case 'trade.copy_unavailable':
       case 'trade.copy_session_key_missing':
       case 'trade.copy_session_key_revoked':
       case 'trade.copy_paused':
@@ -931,32 +938,13 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
     copy: router({
       policy: publicProcedure.query(() => describeCopyPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' }).query(() => {
-        if (!copy) {
-          return {
-            sovereign: {
-              shape: 'sovereign' as const,
-              custody: false,
-              feeModel: 'protocol_fee_share' as const,
-              pnlFeeForbidden: true,
-              rankingForbidden: true,
-              killUnfollowReal: true,
-            },
-            feeSharePublished: false,
-            leaderShareBps: null,
-            jurisdictionPublished: false,
-            statusLine: copyLawStatusLine({ published: false }, { published: false }),
-            residual: COPY_LAW_RESIDUAL,
-            residuals: {
-              rates: COPY_FEE_SHARE_RESIDUAL,
-              jurisdiction: COPY_JURISDICTION_RESIDUAL,
-              autoMirrorPlace: COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-            },
-            autoMirrorPlace: autoMirrorPlaceStatus(false),
-          };
-        }
-        return copy.deskStatus();
-      }),
+      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
+        .output(copyDeskStatusOutput)
+        .query(() => (copy ? copy.deskStatus() : presentCustomerCopyDesk(unmountedCopyDeskFacts()))),
+
+      opsStatus: scopedProcedure('admin:read')
+        .output(copyOpsStatusOutput)
+        .query(() => (copy ? copy.opsStatus() : presentCopyOpsStatus(unmountedCopyDeskFacts()))),
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(
@@ -1033,6 +1021,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       pause: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyPauseOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1044,6 +1033,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       stop: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyStopOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1055,6 +1045,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       detach: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyDetachOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1066,6 +1057,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       flatten: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFlattenOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1077,6 +1069,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       resume: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyResumeOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
