@@ -219,7 +219,7 @@ test('the Mining liveness read still distinguishes responding process from absen
     await page.locator('.mining-room summary').click();
     await expect(page.getByText('mining.ledger_unavailable', { exact: true })).toHaveCount(0);
     await expect(page.locator('.mining-room')).toContainText('have not been tested');
-    await expect(page.locator('.mining-room')).toContainText('Nothing can be submitted here until your account is connected to the pool');
+    await expect(page.locator('.mining-room')).toContainText('The pool offers no customer access, so nothing can be submitted here');
     expect(state.reads.filter((r) => r.procedure === 'health')).toHaveLength(1);
   });
 });

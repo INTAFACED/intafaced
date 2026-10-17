@@ -8,7 +8,8 @@ import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, St
 import { createProtocolApi, type DexQuote } from './api';
 import {
   blockersFor,
-  isServiceNotRunning,
+  chainReasonWords,
+  isServiceNotConnected,
   networkLabel,
   SUBNAV,
   tabFromSubPath,
@@ -36,7 +37,7 @@ function toSource<T>(value: Resource<T>): Source<T> {
     ? { status: 'loading' }
     : resource.status === 'ready'
       ? { status: 'ok', data: resource.data }
-      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, httpStatus: resource.failure.status };
+      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
 /**
@@ -50,9 +51,12 @@ export function Answer<T>({
   t,
   children,
   shell,
+  service,
 }: {
   value: Resource<T>;
   source: string;
+  /** The service behind this answer, named in the "not connected" sentence. Defaults to Protocol. */
+  service?: string;
   t: Translate;
   children: (data: T) => ReactNode;
   shell?: { label: string; headers: readonly ReactNode[] };
@@ -60,10 +64,11 @@ export function Answer<T>({
   const { resource, reload } = value;
   if (resource.status === 'loading') return <Loading label={t('checking', { source })} />;
   if (resource.status === 'failed') {
-    const notRunning = isServiceNotRunning(resource.failure.status);
-    const reason = notRunning ? (
+    const notConnected = isServiceNotConnected(resource.failure.code);
+    const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
+    const reason = notConnected ? (
       <div className="failure" role="status">
-        <p>{t('serviceNotRunning')}</p>
+        <p>{words}</p>
       </div>
     ) : (
       <Failure result={resource.failure} retry={reload} />
@@ -73,7 +78,7 @@ export function Answer<T>({
         <div className="protocol-refuse" data-source={source}>
           <DataTable label={shell.label} headers={shell.headers}>
             <tr>
-              <td colSpan={shell.headers.length}>{notRunning ? <EmptyState title={t('serviceNotRunning')} /> : reason}</td>
+              <td colSpan={shell.headers.length}>{notConnected ? <EmptyState title={words} /> : reason}</td>
             </tr>
           </DataTable>
         </div>
@@ -301,7 +306,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
               [t('tokenFactoryDeployed'), flag(t, c.tokenFactoryDeployed)],
               [t('usable'), flag(t, c.usable)],
               [t('launchUsable'), flag(t, c.launchUsable)],
-              ...(c.reason ? ([[t('refusalReason'), c.reason]] as const) : []),
+              ...(c.refusalCode || c.reason ? ([[t('refusalReason'), chainReasonWords(c.refusalCode)]] as const) : []),
             ]}
           />
         )}
@@ -329,7 +334,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
-      <Answer value={indexer} source={t('src_indexer')} t={t}>
+      <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
         {(i) => (
           <>
             <Rows
@@ -343,7 +348,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           </>
         )}
       </Answer>
-      <Answer value={dex} source={t('src_dex')} t={t}>
+      <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
         {(d) => (
           <Rows
             t={t}
@@ -371,7 +376,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
             </td>
           </tr>
         </DataTable>
-        <Answer value={indexer} source={t('src_indexer')} t={t}>
+        <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
           {(i) => (
             <>
               <Rows
@@ -418,7 +423,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
             </td>
           </tr>
         </DataTable>
-        <Answer value={dex} source={t('src_dex')} t={t}>
+        <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
           {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
         </Answer>
       </Panel>

@@ -680,11 +680,13 @@ test('token funds actions refuse when the public contract omits the configured a
     await route.fulfill({ json: { result: { data } } });
   });
   await page.goto('/token');
-  await expect(page.getByText('Staking and unstaking are off because the token has not been published.', { exact: true })).toBeVisible({
+  await expect(
+    page.getByText('Staking and unstaking are off because INTAFACED does not say which token balance they would move.', { exact: true }),
+  ).toBeVisible({
     timeout: 3000,
   });
   await expect(page.getByRole('button', { name: 'Review stake' })).toHaveCount(0);
-  await expect(page.getByText('17.125 · unit not published', { exact: true })).toBeVisible();
+  await expect(page.getByText('17.125 · token not named', { exact: true })).toBeVisible();
   expect(writes).toBe(0);
 });
 test('market purchase refuses a changed listing before moving value', async ({ page }) => {

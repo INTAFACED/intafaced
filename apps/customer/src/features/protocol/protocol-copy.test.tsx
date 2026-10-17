@@ -11,13 +11,14 @@ vi.mock('../session/session', async (original) => {
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
   return { ...real, useApi: () => api as never };
 });
-import { blockersFor, plainReason, type ProtocolSnapshot } from './blockers';
+import { blockersFor, chainReasonWords, plainReason, type ProtocolSnapshot } from './blockers';
 import { protocolCopy } from './copy';
 import { Answer, ParkedProtocolRoom } from './ParkedProtocolRoom';
 import type { ApiResult } from '../../shared/api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 const t = protocolCopy.forLocale('en').t;
+const down = { status: 'down' as const, reason: 'unreachable', message: 'x' };
 const failed = (failure: Partial<Refusal>) => ({
   resource: { status: 'failed' as const, failure: { ok: false as const, reason: 'error' as const, message: 'Refused', ...failure } },
   reload: () => undefined,
@@ -46,8 +47,13 @@ describe('Protocol rooms speak plainly', () => {
   });
 
   it('offers Try again only when the service could not be reached', () => {
-    expect(render(failed({ reason: 'unreachable', status: 503 }))).not.toMatch(/Try again|Retry/);
-    expect(render(failed({ reason: 'unreachable', status: 502 }))).toContain(t('serviceNotRunning'));
+    expect(render(failed({ reason: 'unreachable', status: 503, code: 'edge.upstream_unwired' }))).not.toMatch(/Try again|Retry/);
+    expect(render(failed({ reason: 'unreachable', status: 503, code: 'edge.upstream_unwired' }))).toContain(
+      'The Protocol service is not connected here',
+    );
+    // A 502 or 504 is a crash, a restart or a timeout: a second attempt can help, so Retry stays.
+    expect(render(failed({ reason: 'unreachable', status: 502, code: 'edge.upstream_unavailable' }))).toMatch(/Try again|Retry/);
+    expect(render(failed({ reason: 'unreachable', status: 504 }))).toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'unreachable', message: 'The service could not be reached.' }))).toContain('Try again');
     expect(render(failed({ reason: 'error', code: 'protocol.chain_unset' }))).not.toMatch(/Try again|Retry/);
     expect(render(failed({ reason: 'not_mounted', status: 404 }))).not.toMatch(/Try again|Retry/);
@@ -62,10 +68,10 @@ describe('Protocol rooms speak plainly', () => {
     expect((html.match(/Not confirmed as INTACHAIN/gi) ?? []).length).toBe(0);
   });
 
-  it('keeps the table headers and says why the table is empty when the service is not running', () => {
+  it('keeps the table headers and says why the table is empty when the service is not connected here', () => {
     const html = renderToStaticMarkup(
       <Answer
-        value={failed({ reason: 'unreachable', status: 502 }) as never}
+        value={failed({ reason: 'unreachable', status: 503, code: 'edge.upstream_unwired' }) as never}
         source={t('src_chain')}
         t={t}
         shell={{ label: 'Status', headers: [t('hdr_check'), t('hdr_result')] }}
@@ -75,7 +81,7 @@ describe('Protocol rooms speak plainly', () => {
     );
     expect(html).toContain('<th scope="col">Check</th>');
     expect(html).toContain('<th scope="col">Result</th>');
-    expect(html).toContain(t('serviceNotRunning'));
+    expect(html).toContain('The Protocol service is not connected here, so there is nothing to show.');
     expect(html).not.toMatch(/Try again|Retry/);
   });
 
@@ -86,14 +92,67 @@ describe('Protocol rooms speak plainly', () => {
     const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
     const found = blockersFor('swap', snapshot)[0]!;
     const sentence = t(found.key, found.params);
-    expect(sentence).toBe('Cannot confirm: network status did not answer (The service refused this request).');
+    expect(sentence).toBe('Cannot confirm: network status did not answer (the service refused this request).');
     expect(sentence).not.toMatch(/502|\.\)\./);
   });
 
-  it('says the service is not running here when the gateway reports it down', () => {
-    const down = { status: 'down' as const, reason: 'unreachable', message: 'x', httpStatus: 502 };
-    const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+  it('says the service is not connected here only for the gateway\'s own "not connected" answer', () => {
+    const unwired = { status: 'down' as const, reason: 'unreachable', message: 'x', code: 'edge.upstream_unwired' };
+    const snapshot = { chain: unwired, audit: unwired, indexer: unwired, dex: unwired, health: unwired } as unknown as ProtocolSnapshot;
     const found = blockersFor('swap', snapshot)[0]!;
-    expect(t(found.key, found.params)).toBe('The network status service is not running here.');
+    expect(t(found.key, found.params)).toBe('The Protocol service is not connected here.');
+    const dexSnapshot = {
+      ...snapshot,
+      chain: { status: 'ok', data: { reachable: true, configuredChainId: 84532, observedChainId: 84532 } },
+    };
+    const dexFound = blockersFor('addLiquidity', dexSnapshot as unknown as ProtocolSnapshot).find(
+      (entry) => entry.code === 'source_not_connected',
+    )!;
+    expect(dexFound.params.service).toBe('DEX');
+    // A 502 that carries another code is a plain "did not answer", never "not connected".
+    const crashed = {
+      status: 'down' as const,
+      reason: 'unreachable',
+      message: 'The service could not be reached.',
+      code: 'edge.upstream_unavailable',
+    };
+    const crashedSnapshot = { ...snapshot, chain: crashed } as unknown as ProtocolSnapshot;
+    expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_down');
+  });
+
+  it('never prints the chain status reason: no address, no spec text', () => {
+    const chain = {
+      reachable: false,
+      configuredChainId: 84532,
+      observedChainId: null,
+      blockNumber: null,
+      suiteConfigured: true,
+      suiteDeployed: false,
+      tokenFactoryConfigured: true,
+      tokenFactoryDeployed: false,
+      refusalCode: 'protocol.chain_unreachable',
+      reason: 'status: no answer from the EVM RPC at https://rpc.example/key123 No chain state was read (SOCKET §13 socket.evm-rpc)',
+      usable: false,
+      launchUsable: false,
+    };
+    const value = { resource: { status: 'ready' as const, data: chain }, reload: () => undefined };
+    const html = renderToStaticMarkup(
+      <Answer value={value as never} source={t('src_chain')} t={t}>
+        {(c: typeof chain) => <p>{chainReasonWords(c.refusalCode)}</p>}
+      </Answer>,
+    );
+    expect(html).toContain('The network did not answer.');
+    expect(html).not.toMatch(/https?:|SOCKET|rpc\.example|key123/i);
+    const snapshot = {
+      chain: { status: 'ok', data: chain },
+      audit: down,
+      indexer: down,
+      dex: down,
+      health: down,
+    } as unknown as ProtocolSnapshot;
+    const found = blockersFor('swap', snapshot)[0]!;
+    expect(t(found.key, found.params)).toBe('The chain is unreachable. The network did not answer.');
+    expect(chainReasonWords('protocol.contract_not_deployed')).toBe('The contracts are not on this network.');
+    expect(chainReasonWords(null)).toBe('The network gave no usable answer.');
   });
 });

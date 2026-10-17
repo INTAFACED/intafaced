@@ -65,6 +65,9 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(html).not.toContain('fee_discount_schedule');
     expect(html).toContain('Not set up yet');
     expect(html).not.toContain('Try again');
+    // Ordinary text that looks like a setting name is left alone, with or without a code.
+    const file = renderToStaticMarkup(<Failure result={refusal({ message: 'Upload id_card.png failed' })} retry={() => undefined} />);
+    expect(file).toContain('Upload id_card.png failed');
     const plain = renderToStaticMarkup(<Failure result={refusal({ message: 'Version 1.2 is not available' })} retry={() => undefined} />);
     expect(plain).toContain('Version 1.2 is not available');
   });

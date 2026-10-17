@@ -26,7 +26,7 @@ const en = {
   noJobs: 'No jobs registered',
   refresh: 'Refresh service status',
   boundaries:
-    'Connections that are set up have not been tested. A registered job does not prove a successful run or a payment. Nothing can be submitted here until your account is connected to the pool.',
+    'Connections that are set up have not been tested. A registered job does not prove a successful run or a payment. The pool offers no customer access, so nothing can be submitted here.',
   more: 'Explore More →',
 } as const;
 const es = {
@@ -56,7 +56,7 @@ const es = {
   noJobs: 'No hay tareas registradas',
   refresh: 'Actualizar el estado del servicio',
   boundaries:
-    'Las conexiones configuradas no se han probado. Una tarea registrada no prueba una ejecución correcta ni un pago. No se puede enviar nada aquí hasta que tu cuenta esté conectada al pool.',
+    'Las conexiones configuradas no se han probado. Una tarea registrada no prueba una ejecución correcta ni un pago. El pool no ofrece acceso a los clientes, así que no se puede enviar nada aquí.',
   more: 'Explorar More →',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -87,7 +87,7 @@ const fr = {
   noJobs: 'Aucune tâche enregistrée',
   refresh: 'Actualiser l’état du service',
   boundaries:
-    'Les connexions configurées n’ont pas été testées. Une tâche enregistrée ne prouve ni exécution réussie ni paiement. Rien ne peut être soumis ici tant que ton compte n’est pas connecté au pool.',
+    'Les connexions configurées n’ont pas été testées. Une tâche enregistrée ne prouve ni exécution réussie ni paiement. Le pool n’offre aucun accès aux clients : rien ne peut être soumis ici.',
   more: 'Explorer More →',
 } satisfies Record<keyof typeof en, string>;
 export const miningCopy = defineCopy('more.mining.availability', en, { es, fr });

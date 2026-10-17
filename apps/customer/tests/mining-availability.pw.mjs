@@ -279,7 +279,7 @@ test('guest return and unreadable original storage do not confer customer submis
     await openStatus(page, 320);
     await expect(room(page).getByText('Responding', { exact: true })).toBeVisible();
     await expect(room(page).getByRole('form')).toHaveCount(0);
-    await expect(room(page)).toContainText('Nothing can be submitted here until your account is connected to the pool');
+    await expect(room(page)).toContainText('The pool offers no customer access, so nothing can be submitted here');
     expect(state.healthReads).toBe(1);
   });
 });

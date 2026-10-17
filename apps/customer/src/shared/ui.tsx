@@ -114,7 +114,7 @@ function embeddedKey(message: string): string | undefined {
 }
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : embeddedKey(result.message);
+  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);

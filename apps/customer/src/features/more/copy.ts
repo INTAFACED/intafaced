@@ -281,7 +281,7 @@ const messages = {
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
     'The mining pool can accept shares and scheduled payouts, but it doesn’t show you your workers, share history, hashrate, reward balance or payouts.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'This room can show your miners or accept an instruction only once your account is connected to the pool. Share submission is an internal pool job, not a form for customers.',
+    'The pool offers no customer access, so this room cannot show your miners or accept an instruction. Share submission is an internal pool job, not a form for customers.',
   'availabilityrooms.ask.about.pool.access': 'Ask about pool access',
   'availabilityrooms.your.launch.participation': 'Your Launch participation',
   'availabilityrooms.issue.and.list.an.asset': 'Issue and list an asset',
@@ -719,14 +719,15 @@ const messages = {
   'token.unlock': 'Unlock',
   'token.action': 'Action',
   'token.your.token.stakes': 'Your token stakes',
-  'token.asset.identity.unavailable': ' · unit not published',
-  'token.unstake.unavailable.asset.identity.missing': 'Unstaking is off: the token is not published',
+  'token.asset.identity.unavailable': ' · token not named',
+  'token.unstake.unavailable.asset.identity.missing': 'Unstaking is off: INTAFACED does not say which token balance would move',
   'token.staking.asset.identity': 'Which token is staked',
-  'token.staking.and.unstaking.are.unavailable.until.the': 'Staking and unstaking are off because the token has not been published.',
+  'token.staking.and.unstaking.are.unavailable.until.the':
+    'Staking and unstaking are off because INTAFACED does not say which token balance they would move.',
   'token.the.token.asset.is.deployment.configurable.stake':
     'Your stake and access readings show amounts only and do not name the token. Without a named token we do not guess which balance would move.',
   'token.your.existing.stake.records.remain.readable.a':
-    'You can still see your existing stake. Staking and unstaking stay off while the token is unpublished.',
+    'You can still see your existing stake. Staking and unstaking stay off until the token balance is named.',
   'token.proposals': 'Proposals',
   'token.no.proposals.are.published': 'No proposals are published',
   'token.proposal': 'Proposal',
@@ -936,7 +937,7 @@ const messages = {
   'market.seconds.one.paid.period': '{seconds} seconds · one paid period',
   'quant.simulated.units': '{amount} simulated units',
   'quant.historical.quote.units': '{amount} historical quote units',
-  'token.asset.identity.unavailable.2': '{amount} · unit not published',
+  'token.asset.identity.unavailable.2': '{amount} · token not named',
   'token.basis.points': '{bps} basis points',
   'token.filter.all': 'All',
   'token.status.active': 'Active',
@@ -1234,7 +1235,7 @@ const es = {
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
     'El pool de minería puede aceptar aportaciones y pagos programados, pero no te muestra tus trabajadores, historial de aportaciones, tasa de hash, saldo de recompensas ni pagos.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'Esta sala solo podrá mostrar tus mineros o aceptar una instrucción cuando tu cuenta esté conectada al pool. El envío de aportaciones es una tarea interna del pool, no un formulario para clientes.',
+    'El pool no ofrece acceso a los clientes, así que esta sala no puede mostrar tus mineros ni aceptar una instrucción. El envío de aportaciones es una tarea interna del pool, no un formulario para clientes.',
   'availabilityrooms.ask.about.pool.access': 'Consultar sobre el acceso al pool',
   'availabilityrooms.your.launch.participation': 'Tu participación en Launch',
   'availabilityrooms.issue.and.list.an.asset': 'Emitir y listar un activo',
@@ -1689,15 +1690,16 @@ const es = {
   'token.unlock': 'Desbloqueo',
   'token.action': 'Acción',
   'token.your.token.stakes': 'Tu staking de tokens',
-  'token.asset.identity.unavailable': ' · unidad no publicada',
-  'token.unstake.unavailable.asset.identity.missing': 'La retirada del staking está desactivada: el token no está publicado',
+  'token.asset.identity.unavailable': ' · token sin nombrar',
+  'token.unstake.unavailable.asset.identity.missing':
+    'La retirada del staking está desactivada: INTAFACED no indica qué saldo de token se movería',
   'token.staking.asset.identity': 'Qué token está en staking',
   'token.staking.and.unstaking.are.unavailable.until.the':
-    'El staking y su retirada están desactivados porque el token no se ha publicado.',
+    'El staking y su retirada están desactivados porque INTAFACED no indica qué saldo de token moverían.',
   'token.the.token.asset.is.deployment.configurable.stake':
     'Las lecturas de tu staking y acceso muestran solo importes y no nombran el token. Sin un token nombrado, no suponemos qué saldo se movería.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Sigues viendo tu stake actual. El staking y su retirada siguen desactivados mientras el token no esté publicado.',
+    'Sigues viendo tu stake actual. El staking y su retirada siguen desactivados hasta que se nombre el saldo de token.',
   'token.proposals': 'Propuestas',
   'token.no.proposals.are.published': 'No hay propuestas publicadas',
   'token.proposal': 'Propuesta',
@@ -1913,7 +1915,7 @@ const es = {
   'market.seconds.one.paid.period': '{seconds} segundos · un periodo pagado',
   'quant.simulated.units': '{amount} unidades simuladas',
   'quant.historical.quote.units': '{amount} unidades históricas de cotización',
-  'token.asset.identity.unavailable.2': '{amount} · unidad no publicada',
+  'token.asset.identity.unavailable.2': '{amount} · token sin nombrar',
   'token.basis.points': '{bps} puntos básicos',
   'token.filter.all': 'Todos',
   'token.status.active': 'Activo',
@@ -2213,7 +2215,7 @@ const fr = {
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
     'Le pool de minage peut accepter des shares et des paiements planifiés, mais il ne te montre pas tes workers, ton historique de shares, ton taux de hachage, ton solde de récompenses ni tes paiements.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
-    'Cette salle ne peut afficher tes mineurs ou accepter une instruction que lorsque ton compte est connecté au pool. L’envoi de shares est une tâche interne du pool, pas un formulaire client.',
+    'Le pool n’offre aucun accès aux clients : cette salle ne peut donc ni afficher tes mineurs ni accepter une instruction. L’envoi de shares est une tâche interne du pool, pas un formulaire client.',
   'availabilityrooms.ask.about.pool.access': 'Se renseigner sur l’accès au pool',
   'availabilityrooms.your.launch.participation': 'Ta participation à Launch',
   'availabilityrooms.issue.and.list.an.asset': 'Émettre et lister un actif',
@@ -2668,14 +2670,16 @@ const fr = {
   'token.unlock': 'Déblocage',
   'token.action': 'Action',
   'token.your.token.stakes': 'Ton staking de tokens',
-  'token.asset.identity.unavailable': ' · unité non publiée',
-  'token.unstake.unavailable.asset.identity.missing': 'Le retrait du staking est désactivé : le token n’est pas publié',
+  'token.asset.identity.unavailable': ' · token non nommé',
+  'token.unstake.unavailable.asset.identity.missing':
+    'Le retrait du staking est désactivé : INTAFACED n’indique pas quel solde de token bougerait',
   'token.staking.asset.identity': 'Quel token est en staking',
-  'token.staking.and.unstaking.are.unavailable.until.the': 'Le staking et son retrait sont désactivés car le token n’a pas été publié.',
+  'token.staking.and.unstaking.are.unavailable.until.the':
+    'Le staking et son retrait sont désactivés car INTAFACED n’indique pas quel solde de token ils feraient bouger.',
   'token.the.token.asset.is.deployment.configurable.stake':
     'Les relevés de ton staking et de ton accès n’affichent que des montants et ne nomment pas le token. Sans token nommé, nous ne devinons pas quel solde bougerait.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Tu vois toujours ton stake actuel. Le staking et son retrait restent désactivés tant que le token n’est pas publié.',
+    'Tu vois toujours ton stake actuel. Le staking et son retrait restent désactivés tant que le solde de token n’est pas nommé.',
   'token.proposals': 'Propositions',
   'token.no.proposals.are.published': 'Aucune proposition n’est publiée',
   'token.proposal': 'Proposition',
@@ -2890,7 +2894,7 @@ const fr = {
   'market.seconds.one.paid.period': '{seconds} secondes · une période payée',
   'quant.simulated.units': '{amount} unités simulées',
   'quant.historical.quote.units': '{amount} unités historiques de cotation',
-  'token.asset.identity.unavailable.2': '{amount} · unité non publiée',
+  'token.asset.identity.unavailable.2': '{amount} · token non nommé',
   'token.basis.points': '{bps} points de base',
   'token.filter.all': 'Tous',
   'token.status.active': 'Actif',
