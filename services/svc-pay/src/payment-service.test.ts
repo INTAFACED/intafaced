@@ -24,6 +24,7 @@ import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
+import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -86,6 +87,7 @@ const migrations = [
   // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
   '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
+  '0090_pay_payout_destination_verified.sql',
   '0018_pay_founder_controls_admission.sql',
   // Payment and settlement reads select the stored pricing row. The table is empty here.
   '0050_pay_control_tiers.sql',
@@ -214,7 +216,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       checkoutSessionTtlSeconds: 900,
       maxOpenSessionsPerLink: 25,
     });
+    restorePayoutShim = installPayoutDestinationShim(sql);
   }, 30_000);
+
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
 
   afterAll(async () => {
     await db?.drop();
@@ -2868,13 +2877,12 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const settlement = await settle(m.id, 'payout-cutoff-race');
       const destinations = new MerchantPayoutDestinationStore(sql);
       const originalDestination = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' };
-      await destinations.persist({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
+      await destinations.seedVerified({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
       const guardedPay = new PayService(sql, ledger, rails, { payoutDestinations: destinations });
       const cutoff = await beginMerchantCutoff(m.id, 'suspended');
       const payout = guardedPay.payoutSettlement({
         settlementId: settlement.id,
         railId: 'crypto-native',
-        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
       });
       const result = expect(payout).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
       try {
@@ -2952,10 +2960,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       };
       await expect(pay.payoutSettlement(request)).rejects.toThrow('test.hold_crash');
       await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
-      await expect(
-        pay.payoutSettlement({ ...request, destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' } }),
-      ).rejects.toMatchObject({ code: 'pay.payout_recovery_conflict' });
-      await expect(pay.payoutSettlement({ ...request, railId: 'card-sandbox' })).rejects.toMatchObject({
+      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'card-sandbox' })).rejects.toMatchObject({
         code: 'pay.payout_recovery_conflict',
       });
       expect((await dests.require({ merchantId: m.id, railId: 'crypto-native' })).ref).toBe(request.destination.ref);
@@ -3451,7 +3456,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
           railId: 'crypto-native',
           destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
         }),
-      ).rejects.toMatchObject({ code: 'pay.destination_kind_mismatch' });
+      ).rejects.toMatchObject({ code: 'pay.payout_destination_not_allowed' });
 
       expect(await proceedsOf(m.id)).toBe('12');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
@@ -3485,7 +3490,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment = await cryptoPayment(m.id, '11');
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'w-payout-stored');
-      await dests.persist({
+      await dests.seedVerified({
         merchantId: m.id,
         railId: 'crypto-native',
         kind: 'crypto',

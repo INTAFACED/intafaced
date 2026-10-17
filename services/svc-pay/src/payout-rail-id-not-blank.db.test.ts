@@ -34,6 +34,7 @@ const CLOSING_DOWN = '0036_pay_merchant_payout_destinations_rail_id_not_blank.do
 
 const RAIL_ID_CK = 'merchant_payout_destinations_rail_id_not_blank';
 const KIND_CK = 'merchant_payout_destinations_kind_not_blank';
+const PENDING_CK = 'merchant_payout_destinations_pending_complete';
 const REF_CK = 'merchant_payout_destinations_ref_not_blank';
 const MERCHANT_IDX = 'merchant_payout_destinations_merchant_idx';
 const TABLE = 'merchant_payout_destinations';
@@ -312,12 +313,13 @@ describe('a payout rail id cannot be blank', () => {
     const indexesBefore = await indexes();
     const columnsBefore = await columns();
     const primaryKeyBefore = await primaryKey();
-    expect(checksBefore.map((row) => row.conname)).toEqual([KIND_CK, REF_CK]);
+    expect(checksBefore.map((row) => row.conname)).toEqual([KIND_CK, PENDING_CK, REF_CK]);
     expect(checksBefore.find((row) => row.conname === KIND_CK)?.def).toBe('CHECK ((length(btrim(kind)) > 0))');
     expect(checksBefore.find((row) => row.conname === REF_CK)?.def).toBe('CHECK ((length(btrim(ref)) > 0))');
     expect(primaryKeyBefore).toBe('PRIMARY KEY (merchant_id, rail_id)');
     // 0080 appends a uuid page key and its unique index. 0088 appends is_default
-    // and one partial unique index. The rail_id check is unchanged.
+    // and one partial unique index. 0090 appends verified and the pending columns.
+    // The rail_id check is unchanged.
     expect(indexesBefore.map((row) => row.name)).toEqual([
       'merchant_payout_destinations_id_idx',
       MERCHANT_IDX,
@@ -325,7 +327,21 @@ describe('a payout rail id cannot be blank', () => {
       'merchant_payout_destinations_pkey',
     ]);
     expect(indexesBefore.every((row) => !/btrim/i.test(row.def))).toBe(true);
-    expect(columnsBefore).toEqual(['merchant_id', 'rail_id', 'kind', 'ref', 'created_at', 'updated_at', 'id', 'is_default']);
+    expect(columnsBefore).toEqual([
+      'merchant_id',
+      'rail_id',
+      'kind',
+      'ref',
+      'created_at',
+      'updated_at',
+      'id',
+      'is_default',
+      'verified',
+      'verified_at',
+      'pending_kind',
+      'pending_ref',
+      'pending_activates_at',
+    ]);
     expect(columnsBefore).not.toContain('amount');
 
     async function expectAddRefused(): Promise<void> {
@@ -372,7 +388,7 @@ describe('a payout rail id cannot be blank', () => {
     expect(await columns()).toEqual(columnsBefore);
 
     const checksAfter = await checks();
-    expect(checksAfter.map((row) => row.conname)).toEqual([KIND_CK, RAIL_ID_CK, REF_CK]);
+    expect(checksAfter.map((row) => row.conname)).toEqual([KIND_CK, PENDING_CK, RAIL_ID_CK, REF_CK]);
     expect(checksAfter.filter((row) => row.conname !== RAIL_ID_CK)).toEqual(checksBefore);
     expect(checksAfter.find((row) => row.conname === RAIL_ID_CK)?.def).toBe('CHECK ((length(btrim(rail_id)) > 0))');
 

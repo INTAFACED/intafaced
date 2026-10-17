@@ -53,7 +53,6 @@ import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from './me
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
-  assertPersistableDestination,
   PayoutDestinationMissingError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
@@ -330,6 +329,8 @@ export type PayErrorCode =
   | 'pay.payout_destination_not_found'
   /** Remove refused: a payout that still names this destination has not finished. */
   | 'pay.payout_destination_in_flight'
+  /** Remove refused: a verified destination changes only through step-up plus the hold. */
+  | 'pay.payout_destination_verified_locked'
   /** Refund list page size unpublished. Blank is not 50. */
   | 'pay.refund_list_limit_unset'
   /** Statement page size unpublished. Blank is not 50. */
@@ -384,8 +385,20 @@ export type PayErrorCode =
    */
   | 'pay.destination_kind_mismatch'
   | 'pay.invalid_destination_ref'
-  /** Crypto payout has no stored EVM dest — refused BEFORE withdrawHold. */
+  /** Crypto payout has no stored verified dest — refused BEFORE withdrawHold. */
   | 'pay.payout_destination_missing'
+  /** settlement.payout named a destination. A payout cannot choose or change one. */
+  | 'pay.payout_destination_not_allowed'
+  /** PAY_DESTINATION_HOLD_SECONDS is blank. A destination change is refused. */
+  | 'pay.destination_hold_unset'
+  /** Destination add/change had no usable step-up approval. */
+  | 'pay.destination_step_up_required'
+  /** An API key cannot add or change a payout destination. */
+  | 'pay.destination_api_key_refused'
+  /** The session is not interactive (no MFA, or a sub-account). */
+  | 'pay.destination_session_required'
+  /** The caller is not an owner or admin of this merchant. */
+  | 'pay.destination_role_forbidden'
   | 'pay.subscription_not_found'
   /** mandate.list page size unpublished. Blank is not 50. */
   | 'pay.subscription_mandate_list_limit_unset'
@@ -1248,6 +1261,11 @@ export class PayService {
     this.chargebackOutcomeHeld = 0;
     this.chargebackOutcomeWaiters = [];
     this.chargebackOutcomeTails = new Map();
+  }
+
+  /** The book `payoutSettlement` reads. Tests use it to store a verified destination. */
+  destinationBook(): MerchantPayoutDestinations {
+    return this.payoutDestinations;
   }
 
   /**
@@ -4517,6 +4535,9 @@ export class PayService {
     destination?: { kind: string; ref: string };
     identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
   }): Promise<SettlementRecord> {
+    if (input.destination !== undefined) {
+      throw new PayError('A payout cannot name a destination', 'pay.payout_destination_not_allowed');
+    }
     return withMoneySpan(
       'pay.payoutSettlement',
       { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
@@ -4527,9 +4548,6 @@ export class PayService {
           if (admission) {
             if (
               admission.rail_id !== input.railId ||
-              (input.destination &&
-                (input.destination.kind.trim() !== admission.destination_kind ||
-                  input.destination.ref.trim() !== admission.destination_ref)) ||
               parseAmount(admission.net) !== settlement.net ||
               admission.asset_id !== settlement.assetId ||
               admission.window !== settlement.window ||
@@ -4562,7 +4580,7 @@ export class PayService {
               window: settlement.window,
               assetId: settlement.assetId,
             });
-            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination, connection);
+            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);
             admission = await insertPayoutAdmission(
               connection,
               {
@@ -4593,9 +4611,6 @@ export class PayService {
                   Number(locked[0].payout_attempts) !== settlement.payoutAttempts
                 )
                   throw new PayError('Settlement changed before admission', 'pay.payout_recovery_conflict');
-                if (adapter.id === 'crypto-native' && input.destination) {
-                  await this.payoutDestinations.persist({ merchantId: merchant.id, railId: adapter.id, ...destination, connection: tx });
-                }
                 await this.guards.beforePayoutAdmit({
                   tx,
                   settlementId: settlement.id,
@@ -4940,51 +4955,24 @@ export class PayService {
   }
 
   /**
-   * Resolve the original destination without writing before the merchant guard.
-   * Crypto-native stores an offered destination inside admission preparation.
-   * Refuse closed if no destination is offered or stored.
-   * Does not invent a PSP. Does not live-wire bank-payout.
+   * The stored verified destination for this rail. An offered destination is
+   * refused before this runs. Unverified rows (saved by payouts before D-142)
+   * are not payable. Does not write. Does not invent a PSP.
    */
-  private async resolvePayoutDestination(
-    railId: string,
-    merchantId: string,
-    offered?: { kind: string; ref: string },
-    connection?: Sql,
-  ): Promise<{ kind: string; ref: string }> {
-    if (railId === 'crypto-native') {
-      try {
-        if (offered) {
-          return assertPersistableDestination(railId, offered);
-        }
-        const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
-        assertPayoutDestinationKind(railId, stored);
-        return stored;
-      } catch (err) {
-        if (err instanceof PayoutDestinationMissingError) {
-          throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
-        }
-        if (err instanceof DestinationKindError) {
-          throw new PayError(err.message, err.code);
-        }
-        throw err;
-      }
-    }
-
-    if (!offered) {
-      throw new PayError(`Merchant ${merchantId} has no payout destination for rail ${railId}`, 'pay.payout_destination_missing', {
-        merchantId,
-        railId,
-      });
-    }
+  private async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
     try {
-      assertPayoutDestinationKind(railId, offered);
+      const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
+      assertPayoutDestinationKind(railId, stored);
+      return stored;
     } catch (err) {
+      if (err instanceof PayoutDestinationMissingError) {
+        throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
+      }
       if (err instanceof DestinationKindError) {
         throw new PayError(err.message, err.code);
       }
       throw err;
     }
-    return offered;
   }
 
   async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
@@ -5809,7 +5797,7 @@ export class PayService {
     return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
 
-  /** Owner write. Refuses while a payout that names this destination is in flight. */
+  /** Unverified rows only. A verified destination is refused. An in-flight payout still blocks an unverified row. */
   removePayoutDestination(input: { merchantId: string; destinationId: string }) {
     return removeMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
