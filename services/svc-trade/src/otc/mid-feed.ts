@@ -9,10 +9,11 @@
  * exists. Default remains OFF. Never invent mids; unmapped / dark book → null.
  */
 
+import { logRefusalSpec } from '../refusal-spec-log.js';
+
 export const OTC_MID_FEED_SOCKET = 'socket.otc-mid-feed' as const;
 
-export const OTC_MID_FEED_RESIDUAL =
-  'Live OTC mid feed is refuse-closed until TRADE_OTC_MID_FROM_VENUE + a known public venue adapter — SOCKET §13 socket.otc-mid-feed; boot TRADE_OTC_MIDS map is not a live feed; never invent mids';
+export const OTC_MID_FEED_RESIDUAL = 'A live OTC reference price is not available yet. The desk will not guess a price.';
 
 export const OTC_MID_FEED_FLAG_ON_VENUE_UNWIRED =
   'TRADE_OTC_MID_FROM_VENUE is on but no public venue adapter is installed — refuse-closed; boot TRADE_OTC_MIDS map is not a live feed';
@@ -73,6 +74,7 @@ export function otcMidFeedStatus(liveObservationFeed = false) {
       liveObservationFeed: true as const,
     };
   }
+  logRefusalSpec('trade.otc_no_reference_price');
   return {
     published: false as const,
     socket: OTC_MID_FEED_SOCKET,

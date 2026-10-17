@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { localStackState, assertActiveLocalStack, processRecordMatches, readProcessIdentity } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -52,7 +53,7 @@ const LABEL = 'LOCAL TEST MARKET — TEST PRICES, not a market feed, not real mo
 export class GuardError extends Error {}
 
 export function stackPaths(home = os.homedir()) {
-  const stateDir = path.join(home, '.intafaced', 'local-test-stack');
+  const stateDir = localStackState(home);
   return {
     stateDir,
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
@@ -289,6 +290,7 @@ class EdgeClient {
     this.tokenAt = 0;
   }
   async http(method, route, body, { auth = true } = {}) {
+    if (method !== 'GET') assertActiveLocalStack();
     if (auth && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: DEFAULT_CUSTOMER_ORIGIN, ...(body ? { 'content-type': 'application/json' } : {}) };
     if (auth) headers.authorization = `Bearer ${this.token}`;
@@ -486,6 +488,7 @@ async function discoverMarkets(edge, wanted) {
 async function runLoop(opts, home) {
   const { paths: p } = assertLocalTarget({ home, urls: [opts.edge] });
   installExitLogging(p.log, { echo: ECHO });
+  assertActiveLocalStack({ stateDir: p.stateDir });
   const accounts = loadAccounts(p);
   const maker = new EdgeClient(opts.edge, accounts.maker);
   const taker = new EdgeClient(opts.edge, accounts.taker);
@@ -598,9 +601,6 @@ async function runLoop(opts, home) {
 // ── Process control ─────────────────────────────────────────────────────────
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
-const psCommand = (pid) => spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
-// Matched on the file name, not the full path: a copy started from another checkout or worktree is still the market.
-const isMarketCommand = (cmd) => cmd.includes('local-test-market.mjs') && cmd.includes('__run');
 function readRecord(p) {
   try {
     const rec = JSON.parse(fs.readFileSync(p.pidFile, 'utf8'));
@@ -611,7 +611,10 @@ function readRecord(p) {
 }
 function runningPid(p) {
   const rec = readRecord(p);
-  return rec && isMarketCommand(psCommand(rec.pid)) ? rec.pid : null;
+  if (!rec) return null;
+  // Older records stored options only; they may identify this checkout, never a basename match in another checkout.
+  const argv = rec.argv ?? [process.execPath, SCRIPT, '__run', ...(rec.args ?? [])];
+  return processRecordMatches({ ...rec, argv }, readProcessIdentity(rec.pid)) ? rec.pid : null;
 }
 
 /**
@@ -673,15 +676,16 @@ async function startBackground(p, args, { wait }) {
   try {
     if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)}); log ${p.log}`);
     const fd = fs.openSync(p.log, 'a', 0o600);
-    const child = spawn(process.execPath, [SCRIPT, '__run', ...args], {
+    const argv = [process.execPath, SCRIPT, '__run', ...args];
+    const child = spawn(argv[0], argv.slice(1), {
       cwd: REPO,
       detached: true,
       stdio: ['ignore', fd, fd],
-      env: { PATH: process.env.PATH, HOME: os.homedir() },
+      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir },
     });
     child.unref();
     fs.closeSync(fd);
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args }), { mode: 0o600 });
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args, argv }), { mode: 0o600 });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();

@@ -152,46 +152,6 @@ const KNOWN = {
     module: 'undici',
     note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
   },
-  'GHSA-qw65-cvwx-89v3': {
-    severity: 'high',
-    module: 'fast-uri',
-    note: 'fastify > ajv > fast-uri. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-58mr-gqgx-xq4g': {
-    severity: 'high',
-    module: 'fast-uri',
-    note: 'fastify > ajv > fast-uri. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-hrr3-gc8f-f4qj': {
-    severity: 'moderate',
-    module: 'fast-uri',
-    note: 'fastify > ajv > fast-uri. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-jvvf-x445-j334': {
-    severity: 'moderate',
-    module: 'fast-uri',
-    note: 'fastify > ajv > fast-uri. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-rpw4-54j3-4h4q': {
-    severity: 'moderate',
-    module: 'ip-address',
-    note: '@fastify/rate-limit > ip-address. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-2vr4-cq9g-pvrc': {
-    severity: 'moderate',
-    module: 'ip-address',
-    note: '@fastify/rate-limit > ip-address. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-j6r3-76f7-8jcv': {
-    severity: 'moderate',
-    module: 'ip-address',
-    note: '@fastify/rate-limit > ip-address. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
-  'GHSA-h3mg-xc3c-68pw': {
-    severity: 'moderate',
-    module: 'ip-address',
-    note: '@fastify/rate-limit > ip-address. On the service request path. Advisory published after the freeze; bump is a separate PR.',
-  },
   'GHSA-q2hr-2g5m-vwhr': {
     severity: 'moderate',
     module: 'brace-expansion',

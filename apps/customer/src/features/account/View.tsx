@@ -187,7 +187,7 @@ export function View() {
             onClick={() => {
               save({
                 theme: 'dark',
-                layoutMode: 'simple',
+                layoutMode: 'pro',
                 language: 'en',
                 hideBalances: false,
                 displayCurrency: 'USD',

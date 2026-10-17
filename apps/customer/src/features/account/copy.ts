@@ -77,7 +77,7 @@ const messages = {
   'accountroutes.the.service.returned.a.50.key.window': 'The service returned a 50-key window.',
   'accountroutes.sessions': 'Sessions',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'Session refresh follows the identity service. Credentials stay in memory; reloading this app requires sign-in.',
+    'Session refresh follows the identity service. Your sign-in is kept in a secure browser cookie that page scripts cannot read, so reloading this app keeps you signed in.',
   'accountroutes.sign.out.everywhere': 'Sign out everywhere',
   'accountroutes.two.factor.verification': 'Two-factor verification',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':
@@ -346,7 +346,7 @@ const es = {
   'accountroutes.the.service.returned.a.50.key.window': 'El servicio ha devuelto un intervalo de 50 claves.',
   'accountroutes.sessions': 'Sesiones',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'La renovación de sesión sigue el servicio de identidad. Las credenciales permanecen en memoria; recargar esta aplicación requiere iniciar sesión.',
+    'La renovación de sesión sigue el servicio de identidad. Tu inicio de sesión se guarda en una cookie segura del navegador que los scripts de la página no pueden leer, así que recargar esta aplicación te mantiene con la sesión iniciada.',
   'accountroutes.sign.out.everywhere': 'Cerrar sesión en todas partes',
   'accountroutes.two.factor.verification': 'Verificación de dos factores',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':
@@ -615,7 +615,7 @@ const fr = {
   'accountroutes.the.service.returned.a.50.key.window': 'Le service a renvoyé une fenêtre de 50 clés.',
   'accountroutes.sessions': 'Sessions',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'Le renouvellement de session suit le service d’identité. Les identifiants d’accès restent en mémoire ; recharger cette application nécessite une connexion.',
+    'Le renouvellement de session suit le service d’identité. Votre connexion est conservée dans un cookie sécurisé du navigateur que les scripts de la page ne peuvent pas lire ; recharger cette application vous laisse donc connecté.',
   'accountroutes.sign.out.everywhere': 'Se déconnecter partout',
   'accountroutes.two.factor.verification': 'Vérification à deux facteurs',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':

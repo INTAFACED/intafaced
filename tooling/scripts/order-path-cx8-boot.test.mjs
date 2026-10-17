@@ -21,3 +21,11 @@ test('each booted process spreads that role env', () => {
     assert.match(src, new RegExp(`start\\('${role}'[\\s\\S]*?\\.\\.\\.cx8RoleEnv\\('${role}'\\)`));
   }
 });
+
+test('matching boots after founder enrolment and is given exactly the two smoke founder ids (#4724)', () => {
+  const src = readFileSync(new URL('./order-path-cx8-boot.mjs', import.meta.url), 'utf8');
+  const enrol = src.indexOf('await enrolFoundersAndRestartIdentity()');
+  const matching = src.indexOf("start('matching'");
+  assert.ok(enrol > 0 && matching > enrol, 'matching must start after the founders are enrolled');
+  assert.match(src, /MATCHING_OPERATOR_IDS: founders\.map\(\(f\) => f\.userId\)\.join\(','\)/);
+});

@@ -379,6 +379,7 @@ MIT text remains verbatim in the vendored file, which is what MIT requires.
 
 --------------------------------------------------------------------------------
 3.9 · iconfont icon font — PROVENANCE AND LICENCE UNDETERMINED
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
      Path         05_Web_Front/src/assets/icons/iconfont.{eot,svg,ttf,woff,woff2}
      Evidence     SVG <metadata> contains only "Created by iconfont".
                   Comment: "2013-9-30: Created."
@@ -391,12 +392,14 @@ MIT text remains verbatim in the vendored file, which is what MIT requires.
                   not recoverable from the artefact.
 
 3.10 · Ionicons — LICENCE NOT STATED IN THE ARTEFACT
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Path        05_Web_Front/src/assets/css/fonts/ionicons.ttf
                   (TTF only; no SVG/metadata copy in this directory)
       Assessment  Identified by filename and by the matching SVG in the admin
                   front end (§4.2). No licence statement accompanies the file.
 
 3.11 · mui.ttf — PROVENANCE AND LICENCE UNDETERMINED
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Path        05_Web_Front/src/assets/fonts/mui.ttf
       Assessment  A TTF with no accompanying SVG, no CSS reference found in the
                   tree, and no metadata sidecar. Nothing identifies the
@@ -404,6 +407,7 @@ MIT text remains verbatim in the vendored file, which is what MIT requires.
 
 --------------------------------------------------------------------------------
 3.12 · Third-party brand marks in raster assets
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Path        05_Web_Front/src/assets/images/ (part of 204 committed PNG/JPG)
       Examples    A named payment provider's logo; messaging-app QR codes and
                   logos; the upstream operator's own wordmark and app icons.
@@ -413,6 +417,7 @@ MIT text remains verbatim in the vendored file, which is what MIT requires.
                   should reach a shipped surface.
 
 3.13 · Upstream operator screenshots
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Path        vendor/upstream-exchange/09_DOC/ — product screenshots of the
                   upstream operator's live site, carrying their branding.
       Assessment  Documentation-only. Redistributed under §1's Apache-2.0
@@ -423,9 +428,10 @@ MIT text remains verbatim in the vendored file, which is what MIT requires.
 ================================================================================
 §4 · BROWSER ASSETS REDISTRIBUTED IN THE ADMIN FRONT END
 ================================================================================
-Path: vendor/upstream-exchange/04_Web_Admin/
+Path: vendor/upstream-exchange/04_Web_Admin/ — REMOVED 2026-10-17 (D-140); the whole section is historical.
 
 4.1 · iview-admin — MIT
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Evidence    package.json declares
                     "license": "MIT"
                     "repository": { "type": "git",
@@ -446,6 +452,7 @@ Path: vendor/upstream-exchange/04_Web_Admin/
                   attributions may be owed.
 
 4.2 · Ionicons — LICENCE NOT STATED IN THE ARTEFACT
+      STATUS      Removed from the tree 2026-10-17 (D-140, vendor slim); the record stays for history.
       Path        04_Web_Admin/src/styles/fonts/ionicons.{eot,svg,ttf,woff}
       Evidence    SVG <metadata>, verbatim:
                     Created by FontForge 20120731 at Thu Dec  4 09:51:48 2014
