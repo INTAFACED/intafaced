@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { requireDualControl } from '../dual-control.js';
 import { consumePayApproval, payActionPayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
+import { registryChangeFields } from '../approval-bindings.js';
 import { RegistryError } from './errors.js';
 import { compareDecimal } from './decimal.js';
 import {
@@ -193,7 +194,16 @@ export class RegistryService {
     this.checkVersion(before, input.expectedVersion);
     this.checkInertCreate(before, after.enabled);
     const beforeState = before && store.stateOf(before);
-    return this.plan('venue', input.venueId, before, beforeState, after, input.expectedVersion, venueDualReasons(beforeState, after));
+    return this.plan(
+      'venue',
+      input.venueId,
+      before,
+      beforeState,
+      after,
+      input.expectedVersion,
+      venueDualReasons(beforeState, after),
+      input.reason,
+    );
   }
 
   private async planNetwork(input: NetworkSaveInput): Promise<Plan<NetworkState>> {
@@ -210,7 +220,16 @@ export class RegistryService {
     this.checkVersion(before, input.expectedVersion);
     this.checkInertCreate(before, after.enabled);
     const beforeState = before && store.stateOf(before);
-    return this.plan('network', input.networkId, before, beforeState, after, input.expectedVersion, networkDualReasons(beforeState, after));
+    return this.plan(
+      'network',
+      input.networkId,
+      before,
+      beforeState,
+      after,
+      input.expectedVersion,
+      networkDualReasons(beforeState, after),
+      input.reason,
+    );
   }
 
   private async planWalletRoute(input: WalletRouteSaveInput): Promise<Plan<WalletRouteState>> {
@@ -240,6 +259,7 @@ export class RegistryService {
       after,
       input.expectedVersion,
       walletRouteDualReasons(beforeState, after),
+      input.reason,
     );
   }
 
@@ -251,6 +271,7 @@ export class RegistryService {
     after: S,
     expectedVersion: number | null,
     reasons: string[],
+    reason: string,
   ): Plan<S> {
     return {
       registry,
@@ -259,7 +280,13 @@ export class RegistryService {
       beforeState,
       after,
       reasons,
-      hashFields: { registry, key, expectedVersion: String(expectedVersion), after: JSON.stringify(after) },
+      hashFields: registryChangeFields({
+        registry,
+        key,
+        expectedVersion: String(expectedVersion),
+        after: JSON.stringify(after),
+        reason,
+      }),
     };
   }
 
