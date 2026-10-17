@@ -57,6 +57,14 @@ export interface BankServices {
   readonly business: BusinessService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
+  /**
+   * Operator transfer reads. The same connection the services use.
+   * The procedures only SELECT. They do not post.
+   */
+  readonly transferOps: {
+    readonly sql: Sql;
+    readonly handles?: PartyHandlePort;
+  };
 }
 
 export interface BankServiceOptions {
@@ -210,6 +218,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     business,
     bills,
     globalSend,
+    transferOps: { sql, handles: options.handles },
   };
 }
 
