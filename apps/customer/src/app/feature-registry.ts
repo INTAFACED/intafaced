@@ -131,8 +131,8 @@ export const features: readonly Feature[] = [
   },
   {
     id: 'margin-futures-options',
-    label: 'Margin, Futures, Options',
-    paths: ['/trade/margin', '/trade/futures', '/trade/options'],
+    label: 'Options',
+    paths: ['/trade/options'],
     status: 'hidden',
     reason: 'Contracts or flags not live',
     unlock: 'per contract',

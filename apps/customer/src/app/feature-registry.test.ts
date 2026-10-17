@@ -27,7 +27,7 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/uc/withdraw/address',
       '/portfolio/BTC/repeat-buy',
       '/bank/earn',
-      '/trade/margin',
+      '/trade/options',
       '/otc',
       '/otc/tradeInfo',
       '/pay/request',
