@@ -8,9 +8,11 @@
  * in memory. Fee *amounts* stay ledger decimal strings via `mulBps`.
  */
 
+import { logRefusalSpec } from '../refusal-spec-log.js';
+
 export const TRADE_FEE_SCHEDULE_ENV = 'TRADE_FEE_SCHEDULE' as const;
 
-export const FEE_SCHEDULE_RESIDUAL = 'PTX-M21 fee/rebate schedule is owner-only — refuse-closed (never invent bps)';
+export const FEE_SCHEDULE_RESIDUAL = 'Trading fees are not available yet: the maker and taker schedule is not set.';
 
 export type FeeScheduleErrorCode = 'trade.fee_schedule_blank' | 'trade.fee_schedule_invalid';
 
@@ -117,7 +119,8 @@ export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker
  */
 export function requirePublishedFeeSchedule(schedule: OwnerFeeSchedule): Extract<OwnerFeeSchedule, { published: true }> {
   if (schedule.published !== true) {
-    throw new FeeScheduleError('published fee schedule is unavailable', 'trade.fee_schedule_blank');
+    logRefusalSpec('trade.fee_schedule_blank');
+    throw new FeeScheduleError('Trading fees are not available yet: the maker and taker schedule is not set.', 'trade.fee_schedule_blank');
   }
   return schedule;
 }

@@ -1,4 +1,4 @@
-import type { SupportComment, SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
+import type { SupportCaseFile, SupportComment, SupportKbArticle, SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
 
 export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
@@ -36,4 +36,26 @@ export interface TicketDetail {
 export interface SupportTicketView {
   readonly asOf: string;
   readonly detail: Part<TicketDetail>;
+}
+
+/** A customer's rating of a finished ticket, as svc-support's operator read returns it. */
+export interface SupportRating {
+  readonly ticketId: string;
+  readonly userId: string;
+  readonly score: number;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
+/** The two operator-only reads on a ticket. Each is its own part, so one failing never hides the other or the ticket. */
+export interface TicketExtrasView {
+  readonly asOf: string;
+  readonly caseFile: Part<SupportCaseFile | null>;
+  readonly rating: Part<SupportRating | null>;
+}
+
+export interface SupportKbView {
+  readonly asOf: string;
+  /** Published articles only: svc-support has no read for an unpublished one. */
+  readonly articles: Part<readonly SupportKbArticle[]>;
 }

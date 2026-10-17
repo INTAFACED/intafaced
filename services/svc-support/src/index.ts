@@ -54,7 +54,8 @@ await sql`SELECT 1 FROM support.staff LIMIT 1`.catch(() => {
 const store = new PostgresSupportStore(sql);
 // Account state is READ from svc-identity per request, never cached here.
 const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const support = new SupportService(store, accounts, new SqlStaffBook(sql));
+// Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth.
+const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql));
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({

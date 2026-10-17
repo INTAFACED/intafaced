@@ -308,7 +308,7 @@ test('display: dark only, six choices that save to this device, no internal word
   await shootBoth(page, 'display-loaded');
   await body.getByRole('button', { name: 'Restore defaults' }).click();
   const restored = JSON.parse(await page.evaluate((key) => localStorage.getItem(key), preferenceKey));
-  expect(restored).toMatchObject({ upColor: 'green', layoutMode: 'simple', hideBalances: false, theme: 'dark' });
+  expect(restored).toMatchObject({ upColor: 'green', layoutMode: 'pro', hideBalances: false, theme: 'dark' });
   expect(errors).toEqual([]);
 });
 

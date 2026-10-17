@@ -29,10 +29,37 @@ async function guest(context, language = 'en') {
   await context.addInitScript((language) => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ language })), language);
   const state = { writes: [], pageErrors: 0 };
   await context.route('**/api/**', (route) => {
-    if (route.request().method() === 'POST') state.writes.push(new URL(route.request().url()).pathname.split('/').at(-1));
+    const procedure = new URL(route.request().url()).pathname.split('/').at(-1);
+    // The boot refresh is not a user write. A guest has no `ifc_rt` cookie, so the server answers session_invalid.
+    if (procedure === 'auth.refresh') return route.fulfill({ status: 401, json: refusal });
+    if (route.request().method() === 'POST') state.writes.push(procedure);
     return route.fulfill({ status: 503, json: { error: { message: 'Isolated unavailable' } } });
   });
   return state;
+}
+const refusal = { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } };
+const USER = '11111111-1111-4111-8111-111111111111';
+/** A browser whose HttpOnly `ifc_rt` cookie is valid (`cookie.valid`): auth.refresh answers with a new access token only. */
+async function restorable(context, cookie) {
+  const refreshes = [];
+  await context.route('**/api/**', (route) => {
+    const request = route.request(),
+      procedure = new URL(request.url()).pathname.split('/').at(-1);
+    if (procedure === 'auth.refresh') {
+      refreshes.push({ body: request.postData(), authorization: request.headers().authorization });
+      if (!cookie.valid) return route.fulfill({ status: 401, json: refusal });
+      return route.fulfill({
+        status: 200,
+        json: {
+          result: {
+            data: { userId: USER, accessToken: 'restored-' + refreshes.length, expiresAt: new Date(Date.now() + 900000).toISOString() },
+          },
+        },
+      });
+    }
+    return route.fulfill({ status: 503, json: { error: { message: 'Isolated unavailable' } } });
+  });
+  return refreshes;
 }
 async function matches(page, path, destination, invite) {
   return page.evaluate(
@@ -84,6 +111,9 @@ for (const language of ['en', 'es', 'fr'])
         expect(
           await page.evaluate((destination) => !JSON.stringify({ ...localStorage, ...sessionStorage }).includes(destination), destination),
         ).toBe(true);
+        expect(
+          await page.evaluate(() => /accessToken|refreshToken|ifc_rt/.test(JSON.stringify({ ...localStorage, ...sessionStorage }))),
+        ).toBe(false);
       });
 
 for (const [label, target] of [
@@ -533,4 +563,35 @@ test('held actual native credential after ABA cannot start verification or alter
   expect(state.privateReads).toBe(0);
   expect(await page.evaluate(() => location.pathname === '/login')).toBe(true);
   await cdp.detach();
+});
+
+test('typing a private URL or reloading keeps the sign-in while the refresh cookie is valid, and stores no token', async ({
+  page,
+  context,
+}) => {
+  const cookie = { valid: true },
+    refreshes = await restorable(context, cookie);
+  await page.goto('/money');
+  await expect.poll(() => refreshes.length).toBe(1);
+  await expect(page.getByText('Sign in to continue', { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect.poll(() => refreshes.length).toBe(2);
+  await expect(page.getByText('Sign in to continue', { exact: true })).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe('/money');
+  // Cookie only: the page sends no refresh token and no bearer, and keeps none in storage.
+  for (const call of refreshes) {
+    expect(call.body ?? '{}').not.toMatch(/refreshToken/);
+    expect(call.authorization).toBeUndefined();
+  }
+  expect(
+    await page.evaluate(() => /restored-|accessToken|refreshToken|ifc_rt/.test(JSON.stringify({ ...localStorage, ...sessionStorage }))),
+  ).toBe(false);
+  expect(await page.evaluate(() => document.cookie.includes('ifc_rt'))).toBe(false);
+});
+test('an expired or missing refresh cookie lands signed out with the return URL kept', async ({ page, context }) => {
+  const cookie = { valid: false };
+  await restorable(context, cookie);
+  await page.goto('/money?asset=BTC');
+  await expect(page.getByText('Sign in to continue', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in' }).first()).toHaveAttribute('href', /^\/login\?redirect=%2Fmoney/);
 });

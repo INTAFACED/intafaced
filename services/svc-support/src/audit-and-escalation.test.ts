@@ -280,6 +280,13 @@ describe('escalation carries its case file', () => {
       getPublishedKb: (id) => base.getPublishedKb(id),
       listKbVersions: (id) => base.listKbVersions(id),
       putKbRevision: (i) => base.putKbRevision(i),
+      closeByOwner: (i) => base.closeByOwner(i),
+      rateByOwner: (i) => base.rateByOwner(i),
+      readRating: (i) => base.readRating(i),
+      readReceipt: (procedure, actorId, clientRequestId) => base.readReceipt(procedure, actorId, clientRequestId),
+      recordAttachment: (i) => base.recordAttachment(i),
+      readAttachment: (i) => base.readAttachment(i),
+      recordKbFeedback: (i) => base.recordKbFeedback(i),
     };
     const support = new SupportService(store, new FixedAccountState({ userId: USER, status: 'active', kycTier: 'basic' }));
     const t = await support.createTicket({

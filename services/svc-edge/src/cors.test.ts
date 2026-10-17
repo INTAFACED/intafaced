@@ -29,8 +29,8 @@ import { KillSwitchState } from './kill-switch.js';
  *   · a refused origin answered with a PERMISSIVE header instead of none,
  *   · `*` emitted anywhere, which the spec forbids alongside credentials and
  *     which would make the allowlist decorative,
- *   · `Access-Control-Allow-Credentials` appearing because a library defaulted
- *     it on, which is a cross-site door for a mechanism we do not even use,
+ *   · `Access-Control-Allow-Credentials` beside a wildcard, or on an origin
+ *     that is not on the allowlist,
  *   · a preflight that reaches the proxy, which is an unauthenticated request
  *     touching upstreams,
  *   · a preflight whose answer varies by path, which is the route table read out
@@ -559,7 +559,7 @@ describe('deliberately closed', () => {
 // THE INVARIANT. Nothing above may violate this, and nothing added later either.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('invariant — no wildcard, and never with credentials', () => {
+describe('invariant — no wildcard, credentials only for an allowlisted origin', () => {
   const surfaces = [
     '/api/v1/markets',
     '/api/trade/trpc/orders.create',
@@ -570,9 +570,10 @@ describe('invariant — no wildcard, and never with credentials', () => {
   ];
   const origins = [APP, OTHER, EVIL, 'null', 'http://localhost:3000', undefined];
 
-  it('across every surface, origin and method, ACAO is never `*` and credentials are never announced', async () => {
+  it('across every surface, origin and method, ACAO is never `*` and credentials follow the allowlist', async () => {
     const { app } = await edge();
     let checked = 0;
+    const allowlisted = new Set([APP, OTHER]);
 
     for (const url of surfaces) {
       for (const origin of origins) {
@@ -585,13 +586,19 @@ describe('invariant — no wildcard, and never with credentials', () => {
 
         for (const res of responses) {
           const acao = res.headers['access-control-allow-origin'];
+          const credentials = res.headers['access-control-allow-credentials'];
           expect(acao).not.toBe('*');
-          // The forbidden combination, stated as itself: a credentialed response
-          // may never carry a wildcard, and the safest way to hold that is to
-          // emit neither. If a future change adds credentials support it will
-          // fail here first.
-          expect(res.headers['access-control-allow-credentials']).toBeUndefined();
-          if (acao !== undefined) expect(origins).toContain(acao);
+          if (acao !== undefined) expect(allowlisted.has(String(acao))).toBe(true);
+          // Credentials only beside an exact allowlisted origin. Never with `*`,
+          // never for a stranger, never when there is no allow-origin header.
+          if (credentials !== undefined) {
+            expect(credentials).toBe('true');
+            expect(acao).toBeDefined();
+            expect(allowlisted.has(String(acao))).toBe(true);
+          }
+          const corsSurface = url.startsWith('/api/') || url === '/health' || url === '/ready';
+          if (corsSurface && origin && allowlisted.has(origin)) expect(credentials).toBe('true');
+          if (!origin || !allowlisted.has(origin ?? '')) expect(credentials).toBeUndefined();
           checked++;
         }
       }

@@ -167,6 +167,32 @@ export interface SupportStore {
    * unpublished. Stale baseRevision refuses.
    */
   putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult>;
+  /**
+   * Owner close. Replay of the same client request returns the stored ticket
+   * and writes nothing. A transition the lifecycle table refuses writes nothing.
+   */
+  closeByOwner(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<CloseByOwnerResult>;
+  rateByOwner(input: {
+    userId: string;
+    ticketId: string;
+    score: number;
+    note?: string | null;
+    clientRequestId: string;
+  }): Promise<RateByOwnerResult>;
+  /** Owner, or an operator when `asOperator` is set. Someone else's ticket is not_found. */
+  readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult>;
+  readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null>;
+  recordAttachment(input: {
+    id: string;
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    storeKey: string;
+    contentType: string;
+    byteLength: number;
+  }): Promise<RecordAttachmentResult>;
+  readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult>;
+  recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
 }
 
 export type PutKbRevisionInput =
@@ -176,12 +202,66 @@ export type PutKbRevisionInput =
       published: true;
       titleKey: string;
       bodyKey: string;
+      category?: string | null;
+      tags?: readonly string[] | null;
     }
   | {
       id: string;
       baseRevision: number;
       published: false;
     };
+
+/** Event-trail note bound (`supportTicketEventSchema.note`). A rating note uses the same bound. */
+export const RATING_NOTE_MAX = 500;
+/** No customer rating range exists on this service. Integers 1 through 5. */
+export const RATING_SCORE_MIN = 1;
+export const RATING_SCORE_MAX = 5;
+
+export type TicketRating = {
+  ticketId: string;
+  userId: string;
+  score: number;
+  note: string | null;
+  createdAt: string;
+};
+
+export type AttachmentMeta = {
+  id: string;
+  ticketId: string;
+  ownerId: string;
+  contentType: string;
+  byteLength: number;
+  storeKey: string;
+  createdAt: string;
+};
+
+export type KbFeedbackVote = {
+  articleId: string;
+  version: number;
+  userId: string;
+  helpful: boolean;
+};
+
+export type CloseByOwnerResult =
+  | { readonly status: 'ok'; readonly ticket: SupportTicket }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'illegal_transition' | 'same_status' | 'settle' };
+
+export type RateByOwnerResult =
+  | { readonly status: 'ok'; readonly rating: TicketRating }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'status' | 'already_rated' | 'score' | 'note' };
+
+export type ReadRatingResult =
+  { readonly status: 'ok'; readonly rating: TicketRating | null } | { readonly status: 'refuse'; readonly reason: 'not_found' };
+
+export type RecordAttachmentResult =
+  | { readonly status: 'ok'; readonly attachment: AttachmentMeta; readonly replay: boolean }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' };
+
+export type ReadAttachmentResult =
+  { readonly status: 'ok'; readonly attachment: AttachmentMeta } | { readonly status: 'refuse'; readonly reason: 'not_found' };
+
+export type RecordFeedbackResult =
+  { readonly status: 'ok'; readonly vote: KbFeedbackVote } | { readonly status: 'refuse'; readonly reason: 'not_published' };
 
 export type PutKbRevisionResult =
   | { readonly status: 'ok'; readonly article: SupportKbArticle }
@@ -318,7 +398,18 @@ type PgKb = {
   revision: number;
   published: boolean;
   updated_at: Date;
+  category?: string | null;
+  tags?: string[] | null;
 };
+
+function topicOn(article: { category?: string | null; tags?: readonly string[] | null }): { category?: string; tags?: string[] } {
+  const category = article.category?.trim() ?? '';
+  const tags = (article.tags ?? []).map((tag) => tag.trim()).filter((tag) => tag.length > 0);
+  return {
+    ...(category ? { category } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
+  };
+}
 
 function kbFromPg(row: PgKb): SupportKbArticle {
   const revision = Number(row.revision);
@@ -329,6 +420,7 @@ function kbFromPg(row: PgKb): SupportKbArticle {
     version: revision,
     revision,
     published: row.published,
+    ...topicOn(row),
   });
 }
 
@@ -337,6 +429,8 @@ type PgKbVersion = {
   title_key: string;
   body_key: string;
   version: number;
+  category?: string | null;
+  tags?: string[] | null;
 };
 
 function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
@@ -347,6 +441,7 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
     bodyKey: row.body_key,
     version,
     revision: version,
+    ...topicOn(row),
   });
 }
 
@@ -417,6 +512,10 @@ export class MemorySupportStore implements SupportStore {
   private readonly cases = new Map<string, SupportCaseFile[]>();
   private readonly kb = new Map<string, SupportKbArticle>();
   private readonly kbVersions = new Map<string, SupportKbArticle[]>();
+  private readonly receipts = new Map<string, unknown>();
+  private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
+  private readonly attachments = new Map<string, AttachmentMeta & { clientRequestId: string }>();
+  private readonly feedback = new Map<string, KbFeedbackVote & { clientRequestId: string }>();
 
   constructor() {
     for (const article of PLATFORM_KB_SPINE) {
@@ -743,6 +842,7 @@ export class MemorySupportStore implements SupportStore {
           version: 1,
           revision: 1,
           published: true,
+          ...topicOn(input),
         });
         this.kb.set(input.id, created);
         this.rememberVersion(created);
@@ -757,6 +857,7 @@ export class MemorySupportStore implements SupportStore {
         version: nextVersion,
         revision: nextVersion,
         published: true,
+        ...topicOn(input),
       });
       this.kb.set(input.id, next);
       this.rememberVersion(next);
@@ -774,10 +875,175 @@ export class MemorySupportStore implements SupportStore {
       version: nextRevision,
       revision: nextRevision,
       published: false,
+      ...topicOn(current),
     });
     this.kb.set(input.id, hidden);
     this.rememberVersion(hidden);
     return { status: 'ok', article: { ...hidden } };
+  }
+
+  private receiptKey(procedure: string, actorId: string, clientRequestId: string): string {
+    return `${procedure}\0${actorId}\0${clientRequestId}`;
+  }
+
+  async readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null> {
+    return this.receipts.get(this.receiptKey(procedure, actorId, clientRequestId)) ?? null;
+  }
+
+  async closeByOwner(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<CloseByOwnerResult> {
+    const stored = this.receipts.get(this.receiptKey('support.close', input.userId, input.clientRequestId));
+    if (stored) return stored as CloseByOwnerResult;
+
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+
+    const reasons = (this.cases.get(input.ticketId) ?? []).map((file) => file.reason);
+    const settle = settlementRefusal({ toStatus: 'closed', category: ticket.category, note: null, reasons });
+    if (settle) return settle;
+
+    const check = checkTransition(ticket.status, 'closed');
+    if (check.status === 'refuse') {
+      return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
+    }
+
+    const now = new Date().toISOString();
+    const updated: SupportTicket = { ...ticket, status: 'closed', updatedAt: now };
+    this.tickets.set(ticket.id, updated);
+    this.record({
+      ticketId: ticket.id,
+      kind: 'status_changed',
+      actorId: input.userId,
+      actorRole: 'user',
+      fromStatus: ticket.status,
+      toStatus: 'closed',
+      note: null,
+      at: now,
+    });
+    const ok: CloseByOwnerResult = { status: 'ok', ticket: updated };
+    this.receipts.set(this.receiptKey('support.close', input.userId, input.clientRequestId), ok);
+    return ok;
+  }
+
+  async rateByOwner(input: {
+    userId: string;
+    ticketId: string;
+    score: number;
+    note?: string | null;
+    clientRequestId: string;
+  }): Promise<RateByOwnerResult> {
+    const stored = this.receipts.get(this.receiptKey('support.rate', input.userId, input.clientRequestId));
+    if (stored) return stored as RateByOwnerResult;
+
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+
+    const existing = this.ratings.get(input.ticketId);
+    if (existing) {
+      if (existing.clientRequestId === input.clientRequestId) {
+        const ok: RateByOwnerResult = { status: 'ok', rating: existing };
+        return ok;
+      }
+      return { status: 'refuse', reason: 'already_rated' };
+    }
+
+    if (ticket.status !== 'resolved' && ticket.status !== 'closed') return { status: 'refuse', reason: 'status' };
+    if (!Number.isInteger(input.score) || input.score < RATING_SCORE_MIN || input.score > RATING_SCORE_MAX) {
+      return { status: 'refuse', reason: 'score' };
+    }
+    const note = input.note ?? null;
+    if (note != null && note.length > RATING_NOTE_MAX) return { status: 'refuse', reason: 'note' };
+
+    const rating: TicketRating & { clientRequestId: string } = {
+      ticketId: input.ticketId,
+      userId: input.userId,
+      score: input.score,
+      note,
+      createdAt: new Date().toISOString(),
+      clientRequestId: input.clientRequestId,
+    };
+    this.ratings.set(input.ticketId, rating);
+    const ok: RateByOwnerResult = { status: 'ok', rating };
+    this.receipts.set(this.receiptKey('support.rate', input.userId, input.clientRequestId), ok);
+    return ok;
+  }
+
+  async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (!input.asOperator && ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+    const rating = this.ratings.get(input.ticketId) ?? null;
+    return { status: 'ok', rating };
+  }
+
+  async recordAttachment(input: {
+    id: string;
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    storeKey: string;
+    contentType: string;
+    byteLength: number;
+  }): Promise<RecordAttachmentResult> {
+    const stored = this.receipts.get(this.receiptKey('support.attach', input.userId, input.clientRequestId));
+    if (stored) return { status: 'ok', attachment: (stored as { attachment: AttachmentMeta }).attachment, replay: true };
+
+    const ticket = this.tickets.get(input.ticketId);
+    if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+
+    const attachment: AttachmentMeta & { clientRequestId: string } = {
+      id: input.id,
+      ticketId: input.ticketId,
+      ownerId: input.userId,
+      contentType: input.contentType,
+      byteLength: input.byteLength,
+      storeKey: input.storeKey,
+      createdAt: new Date().toISOString(),
+      clientRequestId: input.clientRequestId,
+    };
+    this.attachments.set(attachment.id, attachment);
+    this.receipts.set(this.receiptKey('support.attach', input.userId, input.clientRequestId), { attachment });
+    return { status: 'ok', attachment, replay: false };
+  }
+
+  async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
+    const attachment = this.attachments.get(input.attachmentId);
+    if (!attachment) return { status: 'refuse', reason: 'not_found' };
+    const ticket = this.tickets.get(attachment.ticketId);
+    if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    if (attachment.ownerId === input.userId) return { status: 'ok', attachment };
+    if (input.asOperator && ticket.assigneeId === input.userId) return { status: 'ok', attachment };
+    return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async recordKbFeedback(input: {
+    userId: string;
+    articleId: string;
+    helpful: boolean;
+    clientRequestId: string;
+  }): Promise<RecordFeedbackResult> {
+    const stored = this.receipts.get(this.receiptKey('support.kbFeedback', input.userId, input.clientRequestId));
+    if (stored) return stored as RecordFeedbackResult;
+
+    const article = this.kb.get(input.articleId);
+    if (!article || article.published !== true) return { status: 'refuse', reason: 'not_published' };
+    const version = kbVersionOf(article);
+    const key = `${input.userId}\0${input.articleId}\0${version}`;
+    const existing = this.feedback.get(key);
+    if (existing) {
+      const ok: RecordFeedbackResult = { status: 'ok', vote: existing };
+      return ok;
+    }
+    const vote: KbFeedbackVote & { clientRequestId: string } = {
+      articleId: input.articleId,
+      version,
+      userId: input.userId,
+      helpful: input.helpful,
+      clientRequestId: input.clientRequestId,
+    };
+    this.feedback.set(key, vote);
+    const ok: RecordFeedbackResult = { status: 'ok', vote };
+    this.receipts.set(this.receiptKey('support.kbFeedback', input.userId, input.clientRequestId), ok);
+    return ok;
   }
 }
 
@@ -1228,16 +1494,18 @@ export class PostgresSupportStore implements SupportStore {
     const rows =
       options?.limit === undefined
         ? await this.sql<PgKb[]>`
-            SELECT id, title_key, body_key, revision, published, updated_at
-            FROM support.kb_articles
-            WHERE published = true
-            ORDER BY id
+            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
+            FROM support.kb_articles AS a
+            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
+            WHERE a.published = true
+            ORDER BY a.id
           `
         : await this.sql<PgKb[]>`
-            SELECT id, title_key, body_key, revision, published, updated_at
-            FROM support.kb_articles
-            WHERE published = true
-            ORDER BY id
+            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
+            FROM support.kb_articles AS a
+            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
+            WHERE a.published = true
+            ORDER BY a.id
             LIMIT ${options.limit}
           `;
     return rows.map(kbFromPg);
@@ -1245,9 +1513,10 @@ export class PostgresSupportStore implements SupportStore {
 
   async getPublishedKb(id: string): Promise<SupportKbArticle | null> {
     const rows = await this.sql<PgKb[]>`
-      SELECT id, title_key, body_key, revision, published, updated_at
-      FROM support.kb_articles
-      WHERE id = ${id} AND published = true
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
+      FROM support.kb_articles AS a
+      LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
+      WHERE a.id = ${id} AND a.published = true
       LIMIT 1
     `;
     return rows[0] ? kbFromPg(rows[0]) : null;
@@ -1255,7 +1524,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listKbVersions(id: string): Promise<SupportKbArticle[]> {
     const rows = await this.sql<PgKbVersion[]>`
-      SELECT id, title_key, body_key, version
+      SELECT id, title_key, body_key, version, category, tags
       FROM support.kb_article_versions
       WHERE id = ${id}
       ORDER BY version
@@ -1276,6 +1545,9 @@ export class PostgresSupportStore implements SupportStore {
       if (input.published) {
         const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey });
         if (bad) return bad;
+        const topic = topicOn(input);
+        const category = topic.category ?? null;
+        const tags = topic.tags ? tx.json(topic.tags) : null;
         if (!current) {
           if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
           const rows = await tx<PgKb[]>`
@@ -1284,10 +1556,10 @@ export class PostgresSupportStore implements SupportStore {
             RETURNING id, title_key, body_key, revision, published, updated_at
           `;
           await tx`
-            INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
-            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey})
+            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
+            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
           `;
-          return { status: 'ok', article: kbFromPg(rows[0]!) };
+          return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic }) };
         }
         if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
         const rows = await tx<PgKb[]>`
@@ -1303,14 +1575,20 @@ export class PostgresSupportStore implements SupportStore {
         if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
         const bumped = kbFromPg(rows[0]);
         await tx`
-          INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
-          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey})
+          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
+          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
         `;
-        return { status: 'ok', article: bumped };
+        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic }) };
       }
 
       if (!current) return { status: 'refuse', reason: 'invalid' };
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
+      const prev = await tx<{ category: string | null; tags: string[] | null }[]>`
+        SELECT category, tags
+        FROM support.kb_article_versions
+        WHERE id = ${input.id} AND version = ${current.revision}
+      `;
+      const carried = topicOn(prev[0] ?? {});
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
         SET revision = revision + 1,
@@ -1322,12 +1600,303 @@ export class PostgresSupportStore implements SupportStore {
       if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
       const hidden = kbFromPg(rows[0]);
       // 0008 refuses a revision change that has no matching version row.
-      // Copy the stored keys; do not write a new title or body.
+      // Copy the stored keys and the stored topic; do not write a new title or body.
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
-        VALUES (${input.id}, ${kbVersionOf(hidden)}, ${hidden.titleKey}, ${hidden.bodyKey})
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
+        VALUES (
+          ${input.id},
+          ${kbVersionOf(hidden)},
+          ${hidden.titleKey},
+          ${hidden.bodyKey},
+          ${carried.category ?? null},
+          ${carried.tags ? tx.json(carried.tags) : null}
+        )
       `;
-      return { status: 'ok', article: hidden };
+      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried }) };
     });
   }
+
+  async readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null> {
+    const rows = await this.sql<{ result: unknown }[]>`
+      SELECT result FROM support.write_receipts
+      WHERE procedure = ${procedure} AND actor_id = ${actorId} AND client_request_id = ${clientRequestId}
+      LIMIT 1
+    `;
+    return rows[0]?.result ?? null;
+  }
+
+  async closeByOwner(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<CloseByOwnerResult> {
+    return this.sql.begin(async (tx): Promise<CloseByOwnerResult> => {
+      const locked = await tx<PgTicket[]>`
+        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        FROM support.tickets
+        WHERE id = ${input.ticketId}
+        FOR UPDATE
+      `;
+      const prior = await tx<{ result: CloseByOwnerResult }[]>`
+        SELECT result FROM support.write_receipts
+        WHERE procedure = 'support.close' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
+      `;
+      if (prior[0]) return prior[0].result;
+
+      if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+      const ticket = ticketFromPg(locked[0]);
+      const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
+        SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}
+      `;
+      const settle = settlementRefusal({
+        toStatus: 'closed',
+        category: ticket.category,
+        note: null,
+        reasons: reasonRows.map((row) => row.reason),
+      });
+      if (settle) return settle;
+
+      const check = checkTransition(ticket.status, 'closed');
+      if (check.status === 'refuse') {
+        return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
+      }
+
+      const rows = await tx<PgTicket[]>`
+        UPDATE support.tickets
+        SET status = 'closed', updated_at = now()
+        WHERE id = ${input.ticketId}
+        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+      `;
+      if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
+      await insertEvent(tx, {
+        ticketId: input.ticketId,
+        kind: 'status_changed',
+        actorId: input.userId,
+        actorRole: 'user',
+        fromStatus: ticket.status,
+        toStatus: 'closed',
+        note: null,
+      });
+      const ok: CloseByOwnerResult = { status: 'ok', ticket: ticketFromPg(rows[0]) };
+      await tx`
+        INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+        VALUES ('support.close', ${input.userId}, ${input.clientRequestId}, ${tx.json(ok as never)})
+      `;
+      return ok;
+    });
+  }
+
+  async rateByOwner(input: {
+    userId: string;
+    ticketId: string;
+    score: number;
+    note?: string | null;
+    clientRequestId: string;
+  }): Promise<RateByOwnerResult> {
+    return this.sql.begin(async (tx): Promise<RateByOwnerResult> => {
+      const locked = await tx<PgTicket[]>`
+        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        FROM support.tickets
+        WHERE id = ${input.ticketId}
+        FOR UPDATE
+      `;
+      const prior = await tx<{ result: RateByOwnerResult }[]>`
+        SELECT result FROM support.write_receipts
+        WHERE procedure = 'support.rate' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
+      `;
+      if (prior[0]) return prior[0].result;
+      if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+
+      const existing = await tx<PgRating[]>`
+        SELECT ticket_id, user_id, score, note, created_at, client_request_id
+        FROM support.ticket_ratings
+        WHERE ticket_id = ${input.ticketId}
+        LIMIT 1
+      `;
+      if (existing[0]) {
+        if (existing[0].client_request_id === input.clientRequestId) {
+          return { status: 'ok', rating: ratingFromPg(existing[0]) };
+        }
+        return { status: 'refuse', reason: 'already_rated' };
+      }
+
+      if (locked[0].status !== 'resolved' && locked[0].status !== 'closed') return { status: 'refuse', reason: 'status' };
+      if (!Number.isInteger(input.score) || input.score < RATING_SCORE_MIN || input.score > RATING_SCORE_MAX) {
+        return { status: 'refuse', reason: 'score' };
+      }
+      const note = input.note ?? null;
+      if (note != null && note.length > RATING_NOTE_MAX) return { status: 'refuse', reason: 'note' };
+
+      const rows = await tx<PgRating[]>`
+        INSERT INTO support.ticket_ratings (ticket_id, user_id, score, note, client_request_id)
+        VALUES (${input.ticketId}, ${input.userId}, ${input.score}, ${note}, ${input.clientRequestId})
+        RETURNING ticket_id, user_id, score, note, created_at, client_request_id
+      `;
+      const ok: RateByOwnerResult = { status: 'ok', rating: ratingFromPg(rows[0]!) };
+      await tx`
+        INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+        VALUES ('support.rate', ${input.userId}, ${input.clientRequestId}, ${tx.json(ok as never)})
+      `;
+      return ok;
+    });
+  }
+
+  async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
+    const ticket = await this.sql<{ user_id: string }[]>`
+      SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} LIMIT 1
+    `;
+    if (!ticket[0]) return { status: 'refuse', reason: 'not_found' };
+    if (!input.asOperator && ticket[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+    const rows = await this.sql<PgRating[]>`
+      SELECT ticket_id, user_id, score, note, created_at, client_request_id
+      FROM support.ticket_ratings
+      WHERE ticket_id = ${input.ticketId}
+      LIMIT 1
+    `;
+    return { status: 'ok', rating: rows[0] ? ratingFromPg(rows[0]) : null };
+  }
+
+  async recordAttachment(input: {
+    id: string;
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    storeKey: string;
+    contentType: string;
+    byteLength: number;
+  }): Promise<RecordAttachmentResult> {
+    return this.sql.begin(async (tx): Promise<RecordAttachmentResult> => {
+      const locked = await tx<{ user_id: string }[]>`
+        SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      `;
+      const prior = await tx<{ result: { attachment: AttachmentMeta } }[]>`
+        SELECT result FROM support.write_receipts
+        WHERE procedure = 'support.attach' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
+      `;
+      if (prior[0]) return { status: 'ok', attachment: prior[0].result.attachment, replay: true };
+      if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+
+      const rows = await tx<PgAttachment[]>`
+        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length)
+        VALUES (
+          ${input.id},
+          ${input.ticketId},
+          ${input.userId},
+          ${input.clientRequestId},
+          ${input.storeKey},
+          ${input.contentType},
+          ${input.byteLength}
+        )
+        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, created_at
+      `;
+      const attachment = attachmentFromPg(rows[0]!);
+      await tx`
+        INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+        VALUES ('support.attach', ${input.userId}, ${input.clientRequestId}, ${tx.json({ attachment } as never)})
+      `;
+      return { status: 'ok', attachment, replay: false };
+    });
+  }
+
+  async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
+    const rows = await this.sql<(PgAttachment & { assignee_id: string | null })[]>`
+      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.created_at, t.assignee_id
+      FROM support.ticket_attachments AS a
+      JOIN support.tickets AS t ON t.id = a.ticket_id
+      WHERE a.id = ${input.attachmentId}
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return { status: 'refuse', reason: 'not_found' };
+    if (row.owner_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
+    if (input.asOperator && row.assignee_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
+    return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async recordKbFeedback(input: {
+    userId: string;
+    articleId: string;
+    helpful: boolean;
+    clientRequestId: string;
+  }): Promise<RecordFeedbackResult> {
+    return this.sql.begin(async (tx): Promise<RecordFeedbackResult> => {
+      const prior = await tx<{ result: RecordFeedbackResult }[]>`
+        SELECT result FROM support.write_receipts
+        WHERE procedure = 'support.kbFeedback' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
+      `;
+      if (prior[0]) return prior[0].result;
+
+      const head = await tx<{ revision: number; published: boolean }[]>`
+        SELECT revision, published FROM support.kb_articles WHERE id = ${input.articleId} FOR UPDATE
+      `;
+      if (!head[0] || head[0].published !== true) return { status: 'refuse', reason: 'not_published' };
+      const version = Number(head[0].revision);
+      const existing = await tx<{ helpful: boolean; version: number }[]>`
+        SELECT helpful, version FROM support.kb_feedback
+        WHERE user_id = ${input.userId} AND article_id = ${input.articleId} AND version = ${version}
+        LIMIT 1
+      `;
+      if (existing[0]) {
+        const ok: RecordFeedbackResult = {
+          status: 'ok',
+          vote: { articleId: input.articleId, version, userId: input.userId, helpful: existing[0].helpful },
+        };
+        return ok;
+      }
+      await tx`
+        INSERT INTO support.kb_feedback (article_id, version, user_id, helpful, client_request_id)
+        VALUES (${input.articleId}, ${version}, ${input.userId}, ${input.helpful}, ${input.clientRequestId})
+      `;
+      const ok: RecordFeedbackResult = {
+        status: 'ok',
+        vote: { articleId: input.articleId, version, userId: input.userId, helpful: input.helpful },
+      };
+      await tx`
+        INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+        VALUES ('support.kbFeedback', ${input.userId}, ${input.clientRequestId}, ${tx.json(ok as never)})
+      `;
+      return ok;
+    });
+  }
+}
+
+type PgRating = {
+  ticket_id: string;
+  user_id: string;
+  score: number;
+  note: string | null;
+  created_at: Date;
+  client_request_id: string;
+};
+
+function ratingFromPg(row: PgRating): TicketRating {
+  return {
+    ticketId: row.ticket_id,
+    userId: row.user_id,
+    score: Number(row.score),
+    note: row.note,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+type PgAttachment = {
+  id: string;
+  ticket_id: string;
+  owner_id: string;
+  content_type: string;
+  byte_length: number;
+  store_key: string;
+  created_at: Date;
+};
+
+function attachmentFromPg(row: PgAttachment): AttachmentMeta {
+  return {
+    id: row.id,
+    ticketId: row.ticket_id,
+    ownerId: row.owner_id,
+    contentType: row.content_type,
+    byteLength: Number(row.byte_length),
+    storeKey: row.store_key,
+    createdAt: toIso(row.created_at),
+  };
 }

@@ -1,4 +1,4 @@
-import type { PayoutApproval } from '@intafaced/contracts';
+import type { FounderMerchantSection, PayoutApproval } from '@intafaced/contracts';
 import type { FounderScreen } from '@/lib/founder-ops/screens';
 import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { OpsData, FraudRow } from '@/lib/founder-ops/loaders';
@@ -11,6 +11,10 @@ import { HaltHistoryTable, HaltStatesTable } from '@/components/merchants/halts-
 import { TreasuryView } from '@/components/merchants/treasury-view';
 import { LiveRefresh } from './navigation';
 import { MetricsCharts } from './metrics';
+import { NotesPanel } from './notes-panel';
+import { SectionKpis, SectionPanel } from './section-panels';
+import { DisputesView, LiveView, PayoutsView, RecentMerchantsView, RiskView } from './wired-screens';
+import { SCREEN_SECTIONS, slugOf, type Query } from '@/lib/founder-ops/read-model';
 import './screens.css';
 
 export function Arrives({ reason }: { reason: string }) {
@@ -35,6 +39,7 @@ export function FounderScreenView({
   resourceId,
   merchantId,
   merchantFilter = '',
+  query,
 }: {
   screen: FounderScreen;
   data: OpsData;
@@ -42,8 +47,15 @@ export function FounderScreenView({
   resourceId?: string | undefined;
   merchantId?: string | undefined;
   merchantFilter?: string | undefined;
+  query?: Query | undefined;
 }) {
   const isList = screen.type === 'LIST' || screen.type === 'QUEUE';
+  const slug = merchantId ? slugOf(screen.route) : '';
+  const sectionList = merchantId ? SCREEN_SECTIONS[slug] : undefined;
+  /** Pages whose data now comes from the founder reads: they show real lists, not the "arrives" state. */
+  const wired = ['F02', 'F03', 'F05', 'F32', 'F37'].includes(screen.id);
+  const drilled = sectionList !== undefined || (merchantId !== undefined && ['F22'].includes(screen.id));
+  const handled = wired || drilled;
   const fraud = data.fraud?.kind === 'ok' ? data.fraud.data : null;
   const review = resourceId ? fraud?.find((r) => r.id === resourceId) : undefined;
   const approval = data.approvals?.kind === 'ok' ? data.approvals.data.approvals.find((a) => a.approvalId === resourceId) : undefined;
@@ -76,7 +88,7 @@ export function FounderScreenView({
                 {r[2]}
               </a>
             ))}
-            {['controls', 'approvals', 'halts'].map((tab) => (
+            {['notes', 'controls', 'approvals', 'halts'].map((tab) => (
               <a key={tab} href={`/merchants/${merchantId}?tab=${tab}`}>
                 {tab}
               </a>
@@ -93,6 +105,15 @@ export function FounderScreenView({
         </div>
       ) : null}
       {screen.id === 'F02' ? <LiveRefresh readAt={data.readAt} /> : null}
+      {screen.id === 'F02' ? <LiveView data={data} path={path} /> : null}
+      {screen.id === 'F03' ? <RiskView data={data} path={path} /> : null}
+      {screen.id === 'F05' ? <RecentMerchantsView data={data} path={path} query={query} /> : null}
+      {screen.id === 'F32' ? <DisputesView data={data} path={path} query={query} /> : null}
+      {screen.id === 'F37' ? <PayoutsView data={data} path={path} query={query} /> : null}
+      {merchantId && sectionList ? (
+        <DrilldownSections screen={screen} sections={sectionList} data={data} path={path} query={query} merchantId={merchantId} />
+      ) : null}
+      {merchantId && screen.id === 'F22' ? <NotesPanel merchantId={merchantId} result={data.notes} path={path} query={query} /> : null}
       {data.fraud && data.fraud.kind !== 'ok' ? <FailureState failure={data.fraud} what="Open fraud reviews" retryHref={path} /> : null}
       {fraud && !resourceId ? (
         <FraudQueue rows={fraud} readAt={data.readAt} merchantFilter={merchantFilter} testData={data.testData ?? false} />
@@ -141,7 +162,10 @@ export function FounderScreenView({
           </>
         )
       ) : null}
-      <Arrives reason={screen.gap} />
+      {!handled && !noArrives(screen.id) ? <Arrives reason={screen.gap} /> : null}
+      {screen.id === 'F05' ? <NamedBlocker title="Creating a merchant is not in the pay service yet" reason={screen.gap} /> : null}
+      {screen.id === 'F12' ? <NamedBlocker title="Conversion orders reader not built yet" reason={screen.gap} /> : null}
+      {screen.id === 'F13' || screen.id === 'F14' ? <ControlsPointer merchantId={merchantId} what={screen.title} /> : null}
       {screen.id === 'F65' ? (
         <StateBlock kind="info" title="Enabling is configuration only">
           No enable control is provided. Licence attestation, a bank rail and matched bank-statement reconciliation must be verified before
@@ -154,7 +178,7 @@ export function FounderScreenView({
           launched here.
         </StateBlock>
       ) : null}
-      {isList && screen.id !== 'F30' && screen.id !== 'F73' ? (
+      {isList && screen.id !== 'F30' && screen.id !== 'F73' && !handled ? (
         <>
           <div className="mp-kpis">
             {screen.sections.slice(0, 4).map((label) => (
@@ -224,7 +248,7 @@ export function FounderScreenView({
           </Card>
         </>
       ) : null}
-      {!isList && !data.metrics && !data.treasury && !fraud && !data.approvals ? (
+      {!isList && !handled && !noArrives(screen.id) && !data.metrics && !data.treasury && !fraud && !data.approvals ? (
         <div className="fo-sections">
           {screen.sections.map((title) => (
             <Card key={title} title={title}>
@@ -233,7 +257,7 @@ export function FounderScreenView({
           ))}
         </div>
       ) : null}
-      {screen.type === 'DASH' && !data.metrics ? (
+      {screen.type === 'DASH' && !data.metrics && !handled ? (
         <Card title="Daily volume and count" sub="Charts need verified series; gaps are never rendered as zeros.">
           <nav className="mp-pills" aria-label="Reporting periods">
             {['Today', '7d', '30d', 'Lifetime'].map((s) => (
@@ -245,7 +269,7 @@ export function FounderScreenView({
           <p className="mp-footnote">Table fallback and per-asset series arrive with the analytics reader.</p>
         </Card>
       ) : null}
-      {['FORM', 'CONFIG', 'DETAIL'].includes(screen.type) ? (
+      {['FORM', 'CONFIG', 'DETAIL'].includes(screen.type) && !handled && !noArrives(screen.id) ? (
         <Card
           title="Change review and audit"
           sub="No change can be submitted from this screen until the required reads and approval context are available."
@@ -270,8 +294,13 @@ export function FounderScreenView({
         </Card>
       ) : null}
       <p className="mp-footnote">
-        As of: unavailable for unbuilt projections. Snapshot request: <time dateTime={data.readAt}>{data.readAt}</time>. Unknown freshness
-        is never displayed as live. Missing thresholds stay not configured.
+        {handled || noArrives(screen.id)
+          ? 'Read from the pay service at '
+          : 'As of: unavailable for unbuilt projections. Snapshot request: '}
+        <time dateTime={data.readAt}>{data.readAt}</time>
+        {handled || noArrives(screen.id)
+          ? '. Each list shows exactly what the service returned at that moment; nothing is estimated and missing values stay missing.'
+          : '. Unknown freshness is never displayed as live. Missing thresholds stay not configured.'}
       </p>
     </div>
   );
@@ -466,6 +495,131 @@ function ApprovalFacts({ approval: a }: { approval: PayoutApproval }) {
       <a className="mp-btn" href="/merchants/approvals">
         Open existing decision flow
       </a>
+    </Card>
+  );
+}
+
+/** F13 and F14 read their data in the merchant's Controls tab, so these pages point there instead of repeating it. */
+function noArrives(id: string): boolean {
+  return id === 'F12' || id === 'F13' || id === 'F14' || id === 'F23';
+}
+
+/** A genuine external blocker, named: what is missing, and that nothing is shown in its place. */
+export function NamedBlocker({ title, reason }: { title: string; reason: string }) {
+  return (
+    <StateBlock kind="not_built" title={title}>
+      {reason} Nothing is shown in its place.
+    </StateBlock>
+  );
+}
+
+function ControlsPointer({ merchantId, what }: { merchantId: string | undefined; what: string }) {
+  return (
+    <Card title={what} sub="Read in the merchant's Controls tab, next to the change flow that edits it.">
+      <p className="mp-muted">
+        Effective pricing rules (global, tier and merchant layers), cap usage and the tier all load in Controls from the same founder reads.
+        Fee snapshots for individual payments and settlements are on the payments and settlements pages.
+      </p>
+      {merchantId ? (
+        <a className="mp-btn mp-btn--primary" href={`/merchants/${merchantId}?tab=controls`}>
+          Open Controls
+        </a>
+      ) : null}
+    </Card>
+  );
+}
+
+function DrilldownSections({
+  screen,
+  sections,
+  data,
+  path,
+  query,
+  merchantId,
+}: {
+  screen: FounderScreen;
+  sections: readonly FounderMerchantSection[];
+  data: OpsData;
+  path: string;
+  query: Query | undefined;
+  merchantId: string;
+}) {
+  const results = data.sections ?? {};
+  return (
+    <>
+      <SectionKpis sections={sections} results={results} />
+      {screen.id === 'F11' ? <Balances result={data.balances} path={path} /> : null}
+      {sections.map((section) => (
+        <SectionPanel
+          key={section}
+          section={section}
+          result={results[section]}
+          path={path}
+          query={query}
+          readAt={data.readAt}
+          testData={data.testData ?? false}
+        />
+      ))}
+      {screen.id === 'F23' ? (
+        <Card title="Change this merchant" sub="Status, archetype, pricing and caps change only through the hash-bound two-founder flow.">
+          <p className="mp-muted">{screen.gap}</p>
+          <a className="mp-btn mp-btn--primary" href={`/merchants/${merchantId}?tab=controls`}>
+            Open Controls
+          </a>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+function Balances({ result, path }: { result: OpsData['balances']; path: string }) {
+  if (!result) return null;
+  return (
+    <Card
+      id="balances"
+      title="Balances"
+      sub="Per asset, from the merchant's 30-day snapshot. Clearing is captured and not yet settled; available can be paid out."
+    >
+      {result.kind !== 'ok' ? (
+        <FailureState failure={result} what="The merchant's balances" retryHref={path} />
+      ) : result.data.balances.length === 0 ? (
+        <StateBlock kind="empty" title="No balances yet">
+          A balance appears after this merchant&apos;s first captured payment.
+        </StateBlock>
+      ) : (
+        <>
+          <AsOf freshness={result.data.freshness} label="Balances" />
+          <div className="mp-scroll" tabIndex={0} role="region" aria-label="Balances, scrolls sideways on small screens">
+            <table className="mp-table">
+              <caption className="mp-visually-hidden">Merchant balances per asset</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Asset</th>
+                  <th scope="col" className="mp-right">
+                    Clearing
+                  </th>
+                  <th scope="col" className="mp-right">
+                    Available
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.data.balances.map((b) => (
+                  <tr key={b.assetCode}>
+                    <th scope="row">{b.assetCode}</th>
+                    <td className="mp-right">
+                      <MoneyText amount={b.clearing} assetCode={b.assetCode} />
+                    </td>
+                    <td className="mp-right">
+                      <MoneyText amount={b.available} assetCode={b.assetCode} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </Card>
   );
 }

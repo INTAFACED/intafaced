@@ -168,7 +168,7 @@ describe('POST claim', () => {
       vi.fn(async () => trpcErr(403, 'Missing scope')),
     );
     const json = await (await post({ action: 'claim', ticketId: T1 })).json();
-    expect(json.refusal.title).toContain('support-staff permission');
+    expect(json.refusal.title).toBe('Your console session does not have support operations permission yet');
   });
   it('a dropped connection is "not known"', async () => {
     vi.stubGlobal(
@@ -193,5 +193,277 @@ describe('POST claim', () => {
       ticketId: T1,
       outcome: 'ok',
     });
+  });
+});
+
+describe('GET extras and articles', () => {
+  const caseFile = {
+    ticketId: T1,
+    escalatedBy: FOUNDER,
+    reason: 'other',
+    citations: [{ kind: 'ticket_comment', ref: U, digest: 'a'.repeat(64), readAt: '2026-10-17T03:00:00.000Z' }],
+    grounding: { status: 'unread', reason: 'plane_dark' },
+    summary: 'Needs identity review',
+    createdAt: '2026-10-17T03:00:00.000Z',
+  };
+  const rating = { ticketId: T1, userId: U, score: 4, note: 'ok', createdAt: '2026-10-17T04:00:00.000Z' };
+
+  it('reads the case file and the rating as the founder, each on its own', async () => {
+    const fn = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/caseFile') ? ok(caseFile) : ok(rating)));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=extras&id=${T1}`)).json();
+    expect(json.caseFile).toMatchObject({ kind: 'ok', data: { summary: 'Needs identity review' } });
+    expect(json.rating).toMatchObject({ kind: 'ok', data: { score: 4 } });
+    const urls = fn.mock.calls.map((c) => c[0]);
+    expect(urls).toContain(`http://edge:4000/api/support/trpc/caseFile?input=${encodeURIComponent(JSON.stringify({ ticketId: T1 }))}`);
+    expect(urls).toContain(`http://edge:4000/api/support/trpc/ratingOps?input=${encodeURIComponent(JSON.stringify({ ticketId: T1 }))}`);
+  });
+  it('null from the service means "never escalated" and "not rated", and nothing else does', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(null)),
+    );
+    const json = await (await get(`?view=extras&id=${T1}`)).json();
+    expect(json.caseFile).toEqual({ kind: 'ok', data: null });
+    expect(json.rating).toEqual({ kind: 'ok', data: null });
+  });
+  it('a forbidden session is shown as forbidden on both parts, never as "none"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'scope.denied')),
+    );
+    const json = await (await get(`?view=extras&id=${T1}`)).json();
+    for (const part of [json.caseFile, json.rating]) {
+      expect(part).toMatchObject({ kind: 'failed', forbidden: true });
+      expect(part.message).toContain('Your console session does not have support operations permission yet');
+      expect(part).not.toHaveProperty('data');
+    }
+  });
+  it('a malformed rating is a failure, not "no rating"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.includes('/caseFile') ? ok(null) : ok({ ticketId: T1, score: 99 }))),
+    );
+    const json = await (await get(`?view=extras&id=${T1}`)).json();
+    expect(json.rating).toMatchObject({ kind: 'failed' });
+  });
+  it('rejects a ticket id that is not a UUID before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get('?view=extras&id=nope')).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it('lists the published articles with their revisions', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) =>
+      ok([
+        { id: 'kb-account-access', titleKey: 'support.kb.account_access.title', bodyKey: 'support.kb.account_access.body', revision: 3 },
+      ]),
+    );
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get('?view=kb')).json();
+    expect(json.articles).toMatchObject({ kind: 'ok', data: [{ id: 'kb-account-access', revision: 3 }] });
+    expect(fn.mock.calls[0]![0]).toBe(`http://edge:4000/api/support/trpc/listKb?input=${encodeURIComponent('{"limit":100}')}`);
+  });
+});
+
+describe('POST desk writes', () => {
+  const calls = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse((c[1] as RequestInit).body as string) }));
+  const comment = {
+    id: '44444444-4444-4444-8444-444444444444',
+    ticketId: T1,
+    authorId: FOUNDER,
+    authorRole: 'operator',
+    body: 'Hello',
+    createdAt: '2026-10-17T03:00:00.000Z',
+  };
+  const kbArticle = (over: Record<string, unknown> = {}) => ({
+    id: 'kb-a',
+    titleKey: 'support.kb.a.title',
+    bodyKey: 'support.kb.a.body',
+    version: 2,
+    revision: 2,
+    published: true,
+    ...over,
+  });
+
+  it('replies as the founder through support.comment', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(comment));
+    vi.stubGlobal('fetch', fn);
+    const res = await post({ action: 'reply', ticketId: T1, body: '  Hello  ' });
+    expect(await res.json()).toMatchObject({ ok: true, action: 'reply' });
+    expect(calls(fn)).toEqual([{ url: 'http://edge:4000/api/support/trpc/comment', body: { ticketId: T1, body: 'Hello' } }]);
+    expect((fn.mock.calls[0]![1]!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
+  });
+
+  it('sets a status through support.setStatus, with the reason only when given, and reports the service’s own status', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(ticket({ status: 'resolved' })));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await post({ action: 'status', ticketId: T1, status: 'resolved', note: 'Fixed' })).json();
+    expect(json.summary).toBe('svc-support says the ticket is now resolved.');
+    await post({ action: 'status', ticketId: T1, status: 'resolved' });
+    expect(calls(fn).map((c) => c.body)).toEqual([
+      { ticketId: T1, status: 'resolved', note: 'Fixed' },
+      { ticketId: T1, status: 'resolved' },
+    ]);
+    expect(calls(fn)[0]!.url).toBe('http://edge:4000/api/support/trpc/setStatus');
+  });
+
+  it('escalates through support.escalate with the reason, summary and cited articles', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) =>
+      ok({
+        ticketId: T1,
+        escalatedBy: FOUNDER,
+        reason: 'technical',
+        citations: [{ kind: 'ticket_comment', ref: U, digest: 'b'.repeat(64), readAt: '2026-10-17T03:00:00.000Z' }],
+        grounding: { status: 'unread', reason: 'plane_dark' },
+        summary: 'Looks like a bug',
+        createdAt: '2026-10-17T03:00:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const json = await (
+      await post({ action: 'escalate', ticketId: T1, reason: 'technical', summary: 'Looks like a bug', citedArticleIds: ['kb-a'] })
+    ).json();
+    expect(json).toMatchObject({ ok: true, action: 'escalate', summary: 'svc-support filed the case file with 1 citations.' });
+    expect(calls(fn)).toEqual([
+      {
+        url: 'http://edge:4000/api/support/trpc/escalate',
+        body: { ticketId: T1, reason: 'technical', summary: 'Looks like a bug', citedArticleIds: ['kb-a'] },
+      },
+    ]);
+  });
+
+  it('publishes and unpublishes an article, quoting the revision', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(kbArticle()));
+    vi.stubGlobal('fetch', fn);
+    const pub = await (
+      await post({
+        action: 'kb_publish',
+        id: 'kb-a',
+        titleKey: 'support.kb.a.title',
+        bodyKey: 'support.kb.a.body',
+        baseRevision: 1,
+        tags: ['x'],
+      })
+    ).json();
+    expect(pub.summary).toBe('svc-support says kb-a is published at revision 2.');
+    const unpub = await (await post({ action: 'kb_unpublish', id: 'kb-a', baseRevision: 2 })).json();
+    expect(unpub.summary).toContain('is hidden from customers');
+    expect(calls(fn)).toEqual([
+      {
+        url: 'http://edge:4000/api/support/trpc/publishKb',
+        body: { id: 'kb-a', titleKey: 'support.kb.a.title', bodyKey: 'support.kb.a.body', baseRevision: 1, tags: ['x'] },
+      },
+      { url: 'http://edge:4000/api/support/trpc/unpublishKb', body: { id: 'kb-a', baseRevision: 2 } },
+    ]);
+  });
+
+  it('refuses a malformed write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const body of [
+      { action: 'reply', ticketId: 'x', body: 'hi' },
+      { action: 'reply', ticketId: T1, body: '   ' },
+      { action: 'status', ticketId: T1, status: 'deleted' },
+      { action: 'escalate', ticketId: T1, reason: 'refund', summary: 's' },
+      { action: 'escalate', ticketId: T1, reason: 'other', summary: '' },
+      { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: -1 },
+      { action: 'kb_unpublish', id: 'a', baseRevision: 0 },
+      { action: 'settle', ticketId: T1 },
+    ]) {
+      const res = await post(body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ ok: false, refusal: { changed: 'no' } });
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['reply', { action: 'reply', ticketId: T1, body: 'Hello' }],
+    ['status', { action: 'status', ticketId: T1, status: 'closed' }],
+    ['escalate', { action: 'escalate', ticketId: T1, reason: 'other', summary: 's' }],
+    ['kb_publish', { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 0 }],
+    ['kb_unpublish', { action: 'kb_unpublish', id: 'a', baseRevision: 1 }],
+  ])('%s: a founder without the permission is told so and nothing is shown as done', async (_name, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'scope.denied')),
+    );
+    const res = await post(body);
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      ok: false,
+      refusal: { title: 'Your console session does not have support operations permission yet', changed: 'no' },
+    });
+    expect(json).not.toHaveProperty('summary');
+  });
+
+  it('a signed-out session (401) is not reported as a missing permission', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(401, 'Sign in')),
+    );
+    const res = await post({ action: 'reply', ticketId: T1, body: 'Hello' });
+    expect(res.status).toBe(401);
+    expect((await res.json()).refusal.title).toBe('You are signed out');
+  });
+
+  it('turns svc-support’s typed refusals into plain words and says nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.transition_illegal')),
+    );
+    const res = await post({ action: 'status', ticketId: T1, status: 'open' });
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.refusal).toMatchObject({
+      title: 'svc-support does not allow that status change',
+      code: 'support.transition_illegal',
+      changed: 'no',
+    });
+    expect(JSON.stringify(json)).not.toMatch(/\bsupport\.transition_illegal\b.*\bsupport\.transition_illegal\b/);
+  });
+
+  it('a stale article revision is a conflict that overwrote nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'support.kb.revision_stale')),
+    );
+    const json = await (await post({ action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 1 })).json();
+    expect(json.refusal).toMatchObject({ title: 'Someone changed this article first', changed: 'no' });
+  });
+
+  it('a dropped connection on a write is "not known", never failed or done', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('hang up');
+      }),
+    );
+    const res = await post({ action: 'reply', ticketId: T1, body: 'Hello' });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
+
+  it('a success the console cannot read is "not known", not done', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ nonsense: true })),
+    );
+    const res = await post({ action: 'reply', ticketId: T1, body: 'Hello' });
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
+
+  it('logs the founder and the target, never the words that were written', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(comment)),
+    );
+    await post({ action: 'reply', ticketId: T1, body: 'a secret sentence' });
+    const line = String(vi.mocked(console.warn).mock.calls.at(-1)?.[0]);
+    expect(JSON.parse(line)).toMatchObject({ audit: 'admin.support_reply', founder: FOUNDER, target: T1, outcome: 'ok' });
+    expect(line).not.toContain('secret');
   });
 });

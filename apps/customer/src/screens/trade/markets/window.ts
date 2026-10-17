@@ -12,9 +12,14 @@ export function partialWindowStart(ticker: { windowStart: number | null } | unde
   return start !== null && start > nowMs - DAY_MS ? start : null;
 }
 
+/** The IANA zone name for a chosen zone; undefined for the device's own. */
+export function ianaZone(zone: Preferences['timeZone']): string | undefined {
+  return zone === 'UTC' ? 'UTC' : zone === 'UTC+8' ? 'Etc/GMT-8' : undefined;
+}
+
 /** "19:29" in the person's zone (named when it is not the device's own, as the desk ticker does). */
 export function sinceLabel(at: number, zone: Preferences['timeZone']): string {
-  const name = zone === 'UTC' ? 'UTC' : zone === 'UTC+8' ? 'Etc/GMT-8' : undefined;
+  const name = ianaZone(zone);
   const text = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: name }).format(at);
   return zone === 'device' ? text : `${text} ${zone}`;
 }

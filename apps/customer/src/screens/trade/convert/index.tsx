@@ -34,8 +34,11 @@ import { usePendingNote } from '../buy/order-flow';
 import { useAvailable, useMarketLimits } from '../buy/quote-flow';
 import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
 import { convertCopy } from './copy';
+import { KeyValue, StatusChip, type KeyValueItem } from './deps';
+import { RecentConversions } from './RecentConversions';
+import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
-import { acceptQuote, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
+import { acceptQuote, holdMs, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
 
 const ACTIVITY_HREF = '/money/activity?tab=all';
@@ -43,17 +46,44 @@ const ACTIVITY_HREF = '/money/activity?tab=all';
 const BALANCE_PLACES = 8;
 const isDollar = (asset: string) => asset === 'USDT' || asset === 'USDC' || asset === 'USD';
 
-/** Spread in basis points as a percent: 20 is "0.20%". Whole numbers only. */
-function spreadText(bps: number): string {
-  const whole = Math.floor(bps / 100);
-  const part = String(bps % 100).padStart(2, '0');
-  return `${whole}.${part}%`;
-}
-
 /** "$2,608.05" for a dollar-quoted market, "0.0123 BTC" otherwise. */
 function priceText(price: string, market: MarketRow): string {
   const shown = fmtPrice(price, market.tickSize);
   return isDollar(market.quote) ? `$${shown}` : `${shown} ${market.quote}`;
+}
+
+type T = ReturnType<typeof convertCopy.useCopy>['t'];
+
+/** The cost rows shown in the card and in the review dialog. A blank figure draws a dash, never 0. */
+function breakdownItems(
+  quote: Quote,
+  market: MarketRow,
+  placesFor: (asset: string) => number,
+  secondsLeft: number | null,
+  expired: boolean,
+  t: T,
+): KeyValueItem[] {
+  const amountRow = (value: string, asset: string, side: 'pay' | 'get') =>
+    dec(value) === null ? null : `${reviewAmount(value, placesFor(asset), side)} ${asset}`;
+  const clock = validUntilClock(quote.expiresAt);
+  const percent = spreadPercent(quote.convertSpreadBps);
+  return [
+    { key: 'pay', label: t('You pay'), value: amountRow(quote.inAmount, quote.inAsset, 'pay') },
+    { key: 'get', label: t('You get'), value: amountRow(quote.outAmount, quote.outAsset, 'get') },
+    {
+      key: 'rate',
+      label: t('Rate'),
+      value: dec(quote.avgPrice) === null ? null : t('1 {base} ≈ {price}', { base: market.base, price: priceText(quote.avgPrice, market) }),
+    },
+    { key: 'spread', label: t('House spread'), value: percent, hint: percent ? t('Included in the rate') : undefined },
+    { key: 'fee', label: t('Fee'), value: t('None separate') },
+    { key: 'source', label: t('Price source'), value: t('House quote') },
+    {
+      key: 'valid',
+      label: t('Valid until'),
+      value: expired ? t('Valid until expired') : clock ? t('Valid until value', { time: clock, n: secondsLeft ?? 0 }) : null,
+    },
+  ];
 }
 
 function readSearch(search: string) {
@@ -69,6 +99,7 @@ function readSearch(search: string) {
 export default function TradeConvertScreen({ search }: ScreenProps) {
   const { t } = convertCopy.useCopy();
   const markets = useMarkets();
+  const { session: signedIn } = useSession();
   const asked = useMemo(() => readSearch(search), [search]);
   const all = useMemo(() => (markets.status === 'ready' ? edges(markets.data) : []), [markets]);
   const pair = useMemo(() => defaultPair(all, asked), [all, asked]);
@@ -123,6 +154,7 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
         </header>
         {card}
       </div>
+      {signedIn ? <RecentConversions /> : null}
       <section className="cvt-faq" aria-labelledby="cvt-faq-title">
         <h2 id="cvt-faq-title">{t('Questions')}</h2>
         <Accordion>
@@ -303,13 +335,13 @@ function ConvertCard({
   }
 
   function openReview() {
-    if (!quote || expired) return;
+    if (!quote || expired || !canAccept(quote)) return;
     setDialogMessage(null);
     setReviewing({ quote, changed: false });
   }
 
   async function onConvert() {
-    if (!reviewing || accepting || !quote || expired || state.status !== 'ready') return;
+    if (!reviewing || accepting || !quote || expired || state.status !== 'ready' || !canAccept(quote)) return;
     // The customer confirms the numbers they SEE. If a fresh quote with other numbers replaced the reviewed one, this
     // click only acknowledges it; the next click converts.
     if (numbersChanged(reviewing.quote, quote)) {
@@ -349,7 +381,10 @@ function ConvertCard({
         return;
       case 'refused': {
         const action = outcome.copy.action;
-        setDialogMessage({ text: `${outcome.copy.title}. ${outcome.copy.body}`, action });
+        setDialogMessage({
+          text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
+          action,
+        });
         setAttempt(null);
         // The balance may be why: read it again now rather than in half a minute.
         if (userId) defaultPoller().refresh(`balance:${userId}`);
@@ -398,6 +433,7 @@ function ConvertCard({
     !expired &&
     !insufficient &&
     !quoteOverBalance &&
+    canAccept(quote) &&
     !signedOut &&
     note.state === 'none' &&
     available.state === 'ready' &&
@@ -533,6 +569,12 @@ function ConvertCard({
         </div>
       </div>
 
+      {quote ? (
+        <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
+          <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
+        </div>
+      ) : null}
+
       {rate ? (
         <div className="cvt-rate">
           <span className="cvt-rate__line">
@@ -541,12 +583,24 @@ function ConvertCard({
               <TooltipTrigger className="cvt-rate__tip" render={<button type="button" aria-label={t('Rate label')} />}>
                 <Info size={14} aria-hidden="true" />
               </TooltipTrigger>
-              <TooltipContent side="top">{t('Rate tip', { spread: spreadText(quote!.convertSpreadBps) })}</TooltipContent>
+              <TooltipContent side="top">{t('Rate tip', { spread: spreadPercent(quote!.convertSpreadBps) ?? '—' })}</TooltipContent>
             </Tooltip>
+            <StatusChip
+              asOf={quote!.source.asOf}
+              staleAfterMs={holdMs(quote!) || 15_000}
+              refused={state.status === 'refused'}
+              density="dense"
+            />
           </span>
           <span className="cvt-rate__hold" data-testid="hold">
             {expired ? t('Price expired') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
           </span>
+          <HoldBar secondsLeft={secondsLeft} holdLengthMs={holdMs(quote!)} label={t('Price held bar')} />
+          {expired ? (
+            <Button variant="secondary" size={40} onClick={retry}>
+              {t('Get a new price')}
+            </Button>
+          ) : null}
         </div>
       ) : state.status === 'loading' ? (
         <p className="cvt-rate cvt-rate--wait">{t('Getting your price')}</p>
@@ -558,7 +612,7 @@ function ConvertCard({
           className="buy-state"
           title={state.copy.title}
           body={state.copy.body}
-          code={state.copy.reference}
+          code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
           action={state.copy.action}
         />
       ) : null}
@@ -634,24 +688,9 @@ function ConvertCard({
             <AlertDialogDescription>{t('Review hint')}</AlertDialogDescription>
           </AlertDialogHeader>
           {quote ? (
-            <dl className="buy-dialog__rows" aria-busy={expired || undefined}>
-              <div className="buy-dialog__row">
-                <dt>{t('You pay')}</dt>
-                <dd data-testid="dlg-pay" title={`${quote.inAmount} ${quote.inAsset}`}>
-                  {reviewAmount(quote.inAmount, placesFor(quote.inAsset), 'pay')} {quote.inAsset}
-                </dd>
-              </div>
-              <div className="buy-dialog__row" data-strong="true">
-                <dt>{t('You get')}</dt>
-                <dd data-testid="dlg-get" title={`${quote.outAmount} ${quote.outAsset}`}>
-                  {reviewAmount(quote.outAmount, placesFor(quote.outAsset), 'get')} {quote.outAsset}
-                </dd>
-              </div>
-              <div className="buy-dialog__row">
-                <dt>{t('Rate')}</dt>
-                <dd data-testid="dlg-rate">{t('1 {base} ≈ {price}', { base: market.base, price: priceText(quote.avgPrice, market) })}</dd>
-              </div>
-            </dl>
+            <div data-testid="dlg-breakdown" aria-busy={expired || undefined}>
+              <KeyValue items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
+            </div>
           ) : (
             <p className="buy-dialog__note" role="status">
               {t('Waiting for price')}
@@ -660,6 +699,11 @@ function ConvertCard({
           {quote ? (
             <p className="cvt-hold" data-testid="dlg-hold">
               {expired ? t('Waiting for price') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
+            </p>
+          ) : null}
+          {quote && !canAccept(quote) ? (
+            <p className="buy-dialog__error" role="alert" data-testid="dlg-missing">
+              <strong>{t('Missing price details')}.</strong> {t('Missing price body')}
             </p>
           ) : null}
           {reviewing?.changed || (reviewing && quote && numbersChanged(reviewing.quote, quote)) ? (
@@ -676,7 +720,7 @@ function ConvertCard({
             <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={accepting}>
               {t('Cancel')}
             </AlertDialogClose>
-            <Button variant="primary" size={40} loading={accepting} disabled={!quote || expired} onClick={onConvert}>
+            <Button variant="primary" size={40} loading={accepting} disabled={!quote || expired || !canAccept(quote)} onClick={onConvert}>
               {accepting
                 ? t('Sending')
                 : reviewing && quote && numbersChanged(reviewing.quote, quote)
@@ -698,6 +742,25 @@ function ConvertCard({
         onPick={(asset) => pick(picker === 'to' ? 'to' : 'from', asset)}
       />
     </section>
+  );
+}
+
+/** The remaining hold as a bar. The kit has no progress part, so this is a plain div with the progressbar role. */
+function HoldBar({ secondsLeft, holdLengthMs, label }: { secondsLeft: number | null; holdLengthMs: number; label: string }) {
+  const { now, max } = holdProgress(secondsLeft, holdLengthMs);
+  return (
+    <div
+      className="cvt-holdbar"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={now}
+      aria-valuetext={`${now}s`}
+      data-testid="hold-bar"
+    >
+      <div className="cvt-holdbar__fill" style={{ width: `${Math.round((now / max) * 100)}%` }} />
+    </div>
   );
 }
 
