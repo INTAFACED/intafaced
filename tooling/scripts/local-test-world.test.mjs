@@ -55,6 +55,21 @@ import {
   pickReusableKybApproval,
   planKybFounderApproval,
   planMerchantPopulate,
+  MERCHANT_DISPUTE,
+  MERCHANT_PAYOUT_FALLBACK_RAIL,
+  MERCHANT_SETTLEMENT_ASSET,
+  OPEN_DISPUTE_ACTION,
+  merchantDisputeId,
+  merchantSettlementWindows,
+  openDisputeApprovalFields,
+  openDisputeApprovalSql,
+  openDisputeHashedBody,
+  openDisputePayloadHash,
+  planMerchantDispute,
+  planMerchantPayoutRequest,
+  planMerchantSettlement,
+  planPairApproval,
+  utcDayLabel,
   populateTransferId,
   populateUuid,
   publishedStarterFeeBps,
@@ -441,6 +456,156 @@ try {
   assert.deepEqual(filled.actions, []);
   assert.equal(merchantInvoiceId(userId, 1), merchantInvoiceId(userId, 1));
 
+  // ── populate: settlement, payout request and dispute read first and never repeat ──
+  assert.equal(utcDayLabel('2026-10-17T23:59:59.000Z'), '2026-10-17');
+  assert.equal(utcDayLabel('2026-10-18T01:00:00+08:00'), '2026-10-17');
+  assert.equal(utcDayLabel('nope'), null);
+  const seedPay = (n, status, createdAt, capturedAmount = '1') => ({ id: merchantPaymentId(userId, n), status, createdAt, capturedAmount });
+  // Only the spec payments that reach captured count; a failed or refunded one never opens a window.
+  assert.deepEqual(
+    merchantSettlementWindows(userId, [
+      seedPay(3, 'captured', '2026-10-17T10:00:00Z'),
+      seedPay(7, 'settled', '2026-10-16T10:00:00Z'),
+      seedPay(5, 'refunded', '2026-10-15T10:00:00Z'),
+      seedPay(4, 'failed', '2026-10-14T10:00:00Z'),
+    ]),
+    ['2026-10-16', '2026-10-17'],
+  );
+  assert.deepEqual(merchantSettlementWindows(userId, [seedPay(3, 'created', '2026-10-17T10:00:00Z')]), []);
+  const dsPosted = { id: 's1', window: '2026-10-17', assetId: 'USDT', status: 'posted', net: '29.25' };
+  const dsFirstRun = planMerchantSettlement({ windows: ['2026-10-17'], settlements: [] });
+  assert.deepEqual(dsFirstRun, { run: ['2026-10-17'], exists: [] });
+  const dsRerun = planMerchantSettlement({ windows: ['2026-10-17'], settlements: [dsPosted] });
+  assert.deepEqual(dsRerun.run, [], 'a window that already has a settlement is never run again');
+  assert.equal(dsRerun.exists[0].id, 's1');
+  assert.deepEqual(planMerchantSettlement({ windows: ['2026-10-17'], settlements: [{ ...dsPosted, assetId: 'EUR' }] }).run, ['2026-10-17']);
+  assert.equal(MERCHANT_SETTLEMENT_ASSET, 'USDT');
+
+  assert.deepEqual(planMerchantPayoutRequest({ settlements: [], approvals: [] }), { target: null, existing: null });
+  assert.equal(
+    planMerchantPayoutRequest({ settlements: [{ ...dsPosted, status: 'paid_out' }], approvals: [] }).target,
+    null,
+    'a sent payout is not requested again',
+  );
+  assert.equal(planMerchantPayoutRequest({ settlements: [{ ...dsPosted, net: '0' }], approvals: [] }).target, null);
+  const dsAsked = planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [] });
+  assert.equal(dsAsked.target.id, 's1');
+  assert.equal(dsAsked.existing, null);
+  for (const status of ['pending', 'approved', 'consumed']) {
+    assert.equal(
+      planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a1', settlementId: 's1', status }] }).existing
+        .approvalId,
+      'a1',
+    );
+  }
+  for (const status of ['expired', 'rejected', 'voided']) {
+    assert.equal(
+      planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a1', settlementId: 's1', status }] }).existing,
+      null,
+    );
+  }
+  assert.equal(
+    planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a2', settlementId: 'other', status: 'pending' }] })
+      .existing,
+    null,
+  );
+  assert.equal(MERCHANT_PAYOUT_FALLBACK_RAIL, 'crypto-native');
+
+  const dsMId = '44444444-4444-4444-8444-444444444444';
+  const disputeFields = {
+    disputeId: merchantDisputeId(userId),
+    paymentId: merchantPaymentId(userId, MERCHANT_DISPUTE.n),
+    merchantId: dsMId,
+    amount: '12',
+    assetId: 'USDT',
+  };
+  assert.equal(merchantDisputeId(userId), merchantDisputeId(userId));
+  assert.ok(merchantDisputeId(userId).startsWith(POPULATE_PREFIX));
+  assert.equal(MERCHANT_PAYMENTS.find((p) => p.n === MERCHANT_DISPUTE.n).want, 'captured', 'only a captured payment is disputed');
+  const openPlan = planMerchantDispute({
+    userId,
+    merchantId: dsMId,
+    payments: [seedPay(3, 'captured', '2026-10-17T10:00:00Z', '12')],
+    existing: null,
+  });
+  assert.equal(openPlan.kind, 'open');
+  assert.deepEqual(openPlan.fields, disputeFields);
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'settled', '2026-10-17T10:00:00Z', '12')], existing: null })
+      .kind,
+    'open',
+  );
+  assert.equal(
+    planMerchantDispute({
+      userId,
+      merchantId: dsMId,
+      payments: [seedPay(3, 'captured', '2026-10-17T10:00:00Z', '12')],
+      existing: { status: 'open' },
+    }).kind,
+    'exists',
+  );
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'created', '2026-10-17T10:00:00Z', '0')], existing: null }).kind,
+    'skip',
+  );
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'disputed', '2026-10-17T10:00:00Z', '12')], existing: null })
+      .kind,
+    'skip',
+  );
+  assert.equal(planMerchantDispute({ userId, merchantId: dsMId, payments: [], existing: null }).kind, 'skip');
+  // The approval binding matches svc-pay `payActionPayloadHash('pay.fraud_open_dispute', { disputeId, paymentId, merchantId, amount, assetId })`.
+  assert.equal(OPEN_DISPUTE_ACTION, 'pay.fraud_open_dispute');
+  assert.deepEqual(Object.keys(openDisputeApprovalFields(disputeFields)), ['disputeId', 'paymentId', 'merchantId', 'amount', 'assetId']);
+  assert.deepEqual(Object.keys(openDisputeHashedBody(disputeFields)), [
+    'actionType',
+    'disputeId',
+    'paymentId',
+    'merchantId',
+    'amount',
+    'assetId',
+  ]);
+  const disputeHash = openDisputePayloadHash(disputeFields);
+  assert.equal(
+    disputeHash,
+    `sha256:${createHash('sha256')
+      .update(JSON.stringify({ actionType: OPEN_DISPUTE_ACTION, ...disputeFields }))
+      .digest('hex')}`,
+  );
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...disputeFields, amount: '13' }));
+  const dsDsql = openDisputeApprovalSql(disputeHash);
+  assert.match(dsDsql, /action_type = 'pay\.fraud_open_dispute'/);
+  assert.match(dsDsql, /status IN \('PENDING', 'APPROVED'\)/);
+  assert.throws(() => openDisputeApprovalSql("x' OR 1=1 --"), /not sha256/);
+  // Pair approval: no proposal without two distinct approvers; an open dsRow is dsReused, never filed twice.
+  const dsPairA = { userId: 'op-a' };
+  const dsPairB = { userId: 'op-b' };
+  const dsBase = { actionType: OPEN_DISPUTE_ACTION, payloadHash: disputeHash, policyVersion: 'v1', missing: 'no pair' };
+  assert.deepEqual(planPairApproval({ ...dsBase, pair: [dsPairA], open: [] }), { propose: false, refusal: 'no pair' });
+  assert.deepEqual(planPairApproval({ ...dsBase, pair: [dsPairA, { userId: 'op-a' }], open: [] }), { propose: false, refusal: 'no pair' });
+  const dsFresh = planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [] });
+  assert.equal(dsFresh.propose, true);
+  assert.equal(dsFresh.proposal.targetId, OPEN_DISPUTE_ACTION);
+  assert.equal(dsFresh.proposerUserId, 'op-a');
+  assert.equal(dsFresh.approverUserId, 'op-b');
+  const dsRow = {
+    approvalId: 'ap',
+    operationId: 'op',
+    actionType: OPEN_DISPUTE_ACTION,
+    payloadHash: disputeHash,
+    status: 'PENDING',
+    requesterId: 'op-a',
+  };
+  const dsReused = planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [dsRow] });
+  assert.equal(dsReused.propose, false);
+  assert.equal(dsReused.reuse.approvalId, 'ap');
+  assert.equal(dsReused.approverUserId, 'op-b');
+  assert.equal(planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [{ ...dsRow, requesterId: 'stranger' }] }).propose, false);
+  assert.equal(
+    planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [{ ...dsRow, payloadHash: `sha256:${'cd'.repeat(32)}` }] }).propose,
+    true,
+  );
+
   // ── live KYB: hash field set matches svc-pay, and an open proposal is not filed again ──
   const identityHash = `sha256:${'ab'.repeat(32)}`;
   const merchantId = '33333333-3333-4333-8333-333333333333';
@@ -626,6 +791,42 @@ try {
   assert.match(merchantFn, /pay:onboard/);
   const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
   assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
+
+  // ── populate: the new merchant block never sends a payout, never refunds, reads before it writes ──
+  const moneyFn = worldSrc.slice(worldSrc.indexOf('async function populateMerchantMoneyBlock'), worldSrc.indexOf('function trpcData'));
+  assert.ok(moneyFn.length > 500);
+  assert.equal(/settlement\.payout|payment\.refund|refund-payment/.test(moneyFn), false, 'no payout send and no refund here');
+  assert.equal(/'settlement\.payout'/.test(worldSrc), false, 'populate never calls settlement.payout');
+  assert.match(moneyFn, /'settlement\.list'/);
+  assert.match(moneyFn, /'merchantControl\.approvals\.list'/);
+  assert.match(moneyFn, /'fraud\.getDispute'/);
+  assert.ok(moneyFn.indexOf("'settlement.list'") < moneyFn.indexOf("'settlement.run'"), 'settlement is read before it is run');
+  assert.ok(
+    moneyFn.indexOf("'merchantControl.approvals.list'") < moneyFn.indexOf("'merchantControl.approvals.request'"),
+    'approvals are read before a request',
+  );
+  assert.ok(
+    moneyFn.indexOf("'fraud.getDispute'") < moneyFn.indexOf('openDisputeByApprovalPair('),
+    'a dispute is read before the approvers sign in',
+  );
+  assert.match(moneyFn, /'exists'/);
+  assert.match(moneyFn, /'refused'/);
+  assert.ok(moneyFn.indexOf('planMerchantSettlement') < moneyFn.indexOf("'settlement.run'"));
+  assert.ok(moneyFn.indexOf("'settlement.run'") < moneyFn.indexOf("'merchantControl.approvals.request'"));
+  assert.ok(
+    moneyFn.indexOf("'merchantControl.approvals.request'") < moneyFn.indexOf('openDisputeByApprovalPair('),
+    'dispute comes after settlement and request',
+  );
+  const disputeFn = worldSrc.slice(
+    worldSrc.indexOf('async function openDisputeByApprovalPair'),
+    worldSrc.indexOf('async function populateMerchantMoneyBlock'),
+  );
+  assert.match(disputeFn, /signInTestOperatorPair/);
+  assert.match(disputeFn, /loadEnrolledFounders/);
+  assert.match(disputeFn, /'admin:treasury'/);
+  assert.equal(/local_nitro|local_phantom/.test(disputeFn), false, "never the founders' real accounts");
+  assert.ok(disputeFn.indexOf('planPairApproval') < disputeFn.indexOf("'fraud.openDispute'"));
+  assert.match(worldSrc, /if \(merchantId && moneyOpen\) await populateMerchantMoneyBlock\(ctx, merchantId\)/);
 
   // ── Owner second factor: login with TOTP, outbox link, enrolment store ───
   assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }), { identifier: 'o@x.invalid', password: 'pw' });
