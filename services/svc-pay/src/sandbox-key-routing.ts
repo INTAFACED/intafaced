@@ -5,6 +5,8 @@ import { PayError } from './payment-service.js';
  *
  * Sandbox is a rail posture, not a second deployment. A sandbox principal
  * routes to the sandbox rail; a live principal may not name one.
+ * The same key stamps an immutable sandbox flag on the payment.
+ * `sandbox-ledger-guard.ts` then refuses that flag on any live account.
  * `assertRailMayMoveValue` remains the second gate for value-leaving
  * capabilities — this helper is the REST translation that picks the rail
  * before PayService runs.

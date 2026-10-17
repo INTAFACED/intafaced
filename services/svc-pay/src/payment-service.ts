@@ -35,7 +35,10 @@ import {
   type Amount,
   type LedgerClient,
   type LedgerTx,
+  type PostRequest,
 } from '@intafaced/ledger-client';
+import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProbe } from './sandbox-ledger-guard.js';
+import { isSandboxRailId } from './sandbox-key-routing.js';
 import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
@@ -372,6 +375,12 @@ export type PayErrorCode =
    * Sandbox credentials must not look live (ADR §2.5).
    */
   | 'pay.sandbox_looks_live'
+  /**
+   * A sandbox key, or a payment created with one, named a recipe whose
+   * accounts are the live book (clearing, proceeds, the owner's balance,
+   * house fees, the insurance fund, or a live rail). NOTHING WAS POSTED.
+   */
+  | 'pay.sandbox_live_account_refused'
   /**
    * Payment has no rail id, so `mode` cannot be disclosed. Refusing is the
    * safe direction — defaulting missing rail to `live` is the lie.
@@ -2629,8 +2638,26 @@ export class PayService {
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    /**
+     * From the API key. `sandbox` is copied onto the created event and never
+     * updated. Absent is not sandbox: a session or an in-process fixture is
+     * not a sandbox credential.
+     */
+    keyEnv?: 'live' | 'sandbox';
   }): Promise<PaymentView> {
     if (input.amount <= 0n) throw new PayError('Payment amount must be positive', 'pay.invalid_amount');
+
+    // A sandbox key on a live rail is refused here, before the rail lookup, the
+    // guard, admission, and the insert. REST already resolves that key onto
+    // card-sandbox. This method does not reroute: a blank or unknown rail is
+    // not a sandbox rail, and naming a live rail must not create a row.
+    if (input.keyEnv === 'sandbox' && !isSandboxRailId(input.railAdapter)) {
+      throw new PayError(
+        'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+        'pay.sandbox_live_account_refused',
+        { railAdapter: input.railAdapter },
+      );
+    }
 
     // Resolved now so an unknown or incapable rail fails before a payment row
     // exists, rather than at authorize time with a buyer watching.
@@ -2658,7 +2685,7 @@ export class PayService {
         // Merchant lock and the guard already ran in admitPaymentOperation.
         const existing = await this.existingPaymentCreation(tx, input, paymentId);
         if (existing) return existing;
-        const row = await insertPayment(tx, { ...input, id: paymentId });
+        const row = await insertPayment(tx, { ...input, id: paymentId, sandbox: input.keyEnv === 'sandbox' });
         return { ...toPayment(row), capturedAmount: 0n, refundedAmount: 0n };
       },
     );
@@ -2737,6 +2764,7 @@ export class PayService {
       customerRef: input.customerRef ?? null,
       instrument: input.instrument ?? null,
       metadata: input.metadata ?? {},
+      ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
     };
     if (
       current.merchant_id !== input.merchantId.toLowerCase() ||
@@ -2819,6 +2847,17 @@ export class PayService {
               row.rail_adapter !== original.rail_adapter)
           )
             throw new PayError('Authorization payload changed after admission', 'pay.identity_admission_conflict');
+
+          // A flagged payment on a live rail never reaches the rail. createPayment
+          // refuses the same pair first. This catches a row inserted without that
+          // check. Nothing is posted and authorize is not called.
+          if ((await this.paymentIsSandbox(tx, row.id)) && !isSandboxRailId(row.rail_adapter)) {
+            throw new PayError(
+              'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+              'pay.sandbox_live_account_refused',
+              { railAdapter: row.rail_adapter },
+            );
+          }
 
           const adapter = this.rails.require(row.rail_adapter, 'authorize');
 
@@ -2914,7 +2953,12 @@ export class PayService {
    */
   async capture(
     paymentId: string,
-    options: { amount?: Amount; identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
+    options: {
+      amount?: Amount;
+      identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
+      /** The caller's API key. A sandbox key cannot capture into the live book. */
+      keyEnv?: 'sandbox';
+    } = {},
   ): Promise<PaymentView> {
     const original = await readPayment(this.sql, paymentId);
     if (['captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
@@ -2982,6 +3026,20 @@ export class PayService {
           if (!row.rail_ref) {
             throw new PayError(`Payment ${row.id} has no rail reference to capture`, 'pay.invalid_transition');
           }
+
+          // Before the rail and before the ledger. A sandbox key's capture
+          // recipe debits live clearing; refusing here posts nothing.
+          this.refuseSandboxLive(
+            options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
+            recipes.paymentCapture({
+              paymentId: row.id,
+              merchantId: row.merchant_id,
+              assetId: row.currency,
+              amount: authorized,
+              rail: row.rail_adapter,
+              railRef: row.rail_ref,
+            }),
+          );
 
           const adapter = this.rails.require(row.rail_adapter, 'capture');
           const railRef = row.rail_ref;
@@ -3123,13 +3181,13 @@ export class PayService {
    * can journal the outbound chain send under a stable key; "send it again and
    * hope" is how one refund becomes two.
    */
-  async refund(paymentId: string, amount: Amount, options: { refundId?: string } = {}): Promise<PaymentView> {
+  async refund(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' } = {}): Promise<PaymentView> {
     return withMoneySpan('pay.refund', { operation: 'refund', paymentId, amount: formatAmount(amount) }, async () =>
       this.refundInner(paymentId, amount, options),
     );
   }
 
-  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string }): Promise<PaymentView> {
+  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
     if (amount <= 0n) throw new PayError('Refund amount must be positive', 'pay.invalid_amount');
 
     // ── Phase 1: debit the merchant, and commit the fact that we are about to
@@ -3328,6 +3386,10 @@ export class PayService {
           });
 
         let posted: LedgerTx;
+        this.refuseSandboxLive(
+          options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
+          refundRequest(source, settledPot),
+        );
         try {
           posted = await postPayLedger(this.ledger, refundRequest(source, settledPot));
         } catch (error) {
@@ -3418,6 +3480,7 @@ export class PayService {
         if (!result.ok) {
           // Put the merchant's money back. Its own business key, so a retry of
           // the reversal finds the reversal rather than the refund.
+          this.refuseSandboxLive(await this.paymentIsSandbox(tx, row.id), recipes.paymentRefundReverse(refundInput));
           await postPayLedger(this.ledger, recipes.paymentRefundReverse(refundInput));
           await appendEvent(tx, row.id, 'refund.reversed', {
             refundId: prepared.refundId,
@@ -4005,7 +4068,23 @@ export class PayService {
     /** Defaults to the UTC day named by `window`. */
     from?: Date;
     to?: Date;
+    /** A sandbox key cannot freeze or post a live settlement. */
+    keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
+    if (input.keyEnv === 'sandbox') {
+      // The amounts name the recipe's accounts. They are not posted.
+      this.refuseSandboxLive(
+        true,
+        recipes.merchantSettlement({
+          merchantId: input.merchantId,
+          merchantUserId: input.merchantId,
+          window: input.window,
+          assetId: input.assetId,
+          gross: 2n,
+          fee: 1n,
+        }),
+      );
+    }
     return withMoneySpan(
       'pay.settleWindow',
       { operation: 'settlement', merchantId: input.merchantId, window: input.window, assetId: input.assetId },
@@ -4125,6 +4204,7 @@ export class PayService {
           gross,
           fee: fees,
         });
+        if (await this.settlementIncludesSandbox(tx, row.id)) this.refuseSandboxLive(true, settlementPost);
         const bookInput = {
           merchantId: row.merchant_id,
           merchantUserId: merchant.userId,
@@ -4294,6 +4374,10 @@ export class PayService {
              AND EXISTS (
                SELECT 1 FROM pay.payment_events c
                 WHERE c.payment_id = p.id AND c.event = 'captured' AND c.ts >= ${from} AND c.ts < ${to}
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pay.payment_events sb
+                WHERE sb.payment_id = p.id AND sb.event = 'created' AND sb.payload->>'sandbox' = 'true'
              )
            ORDER BY p.id
            FOR UPDATE OF p
@@ -4534,6 +4618,8 @@ export class PayService {
     railId: string;
     destination?: { kind: string; ref: string };
     identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
+    /** A sandbox key cannot enter a live payout. */
+    keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
     if (input.destination !== undefined) {
       throw new PayError('A payout cannot name a destination', 'pay.payout_destination_not_allowed');
@@ -4562,6 +4648,19 @@ export class PayService {
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
+          if (input.keyEnv === 'sandbox' || (await this.settlementIncludesSandbox(connection, settlement.id))) {
+            // Before the admission and before the hold. Both payout books name a live account.
+            this.refuseSandboxLive(
+              true,
+              recipes.merchantProceedsPayoutSettle({
+                merchantId: settlement.merchantId,
+                assetId: settlement.assetId,
+                amount: settlement.net,
+                rail: input.railId,
+                withdrawalId: `${settlement.id}:${settlement.payoutAttempts}`,
+              }),
+            );
+          }
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
           // Classified before the admission exists. An unrecognised book must
@@ -5182,6 +5281,8 @@ export class PayService {
     merchantId: string;
     amount: string;
     assetId: string;
+    /** A sandbox key cannot open a chargeback against live pots. */
+    keyEnv?: 'sandbox';
   }): Promise<{ txId: string; openingTxId: string | null; shortfallTxId: string | null }> {
     const payment = await this.getPayment(input.paymentId);
     const merchant = await this.getMerchant(input.merchantId);
@@ -5189,6 +5290,22 @@ export class PayService {
     if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
     const amount = parseAmount(input.amount);
     if (amount <= 0n) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox' || (await this.paymentIsSandbox(this.sql, input.paymentId))) {
+      // Opening, shortfall, won, and recovery all name a live pot. Refuse before any of them post.
+      this.refuseSandboxLive(
+        true,
+        sandboxChargebackOpeningProbe({
+          disputeId: input.disputeId,
+          paymentId: input.paymentId,
+          merchantId: input.merchantId,
+          merchantUserId: merchant.userId,
+          assetId: input.assetId,
+          rail: payment.railAdapter,
+          fromClearing: amount,
+          fromMerchantBalance: 0n,
+        }),
+      );
+    }
     // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
     // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
@@ -5471,6 +5588,22 @@ export class PayService {
     assetId: string;
     amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
+    if (await this.paymentIsSandbox(this.sql, input.paymentId)) {
+      const flagged = await this.getPayment(input.paymentId);
+      this.refuseSandboxLive(
+        true,
+        sandboxChargebackWonProbe({
+          disputeId: input.disputeId,
+          paymentId: input.paymentId,
+          merchantId: input.merchantId,
+          merchantUserId: input.merchantId,
+          assetId: input.assetId,
+          rail: flagged.railAdapter,
+          fromClearing: 1n,
+          fromMerchantBalance: 0n,
+        }),
+      );
+    }
     const payment = await this.getPayment(input.paymentId);
     const merchant = await this.getMerchant(input.merchantId);
     const plan = await readLivePlan(this.sql, input.paymentId, input.disputeId);
@@ -5820,6 +5953,49 @@ export class PayService {
     return listMerchantStatement(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
   }
 
+  /**
+   * Sandbox flag from the created event. Absent is not sandbox. The event is
+   * insert-only, so a later call cannot clear it.
+   */
+  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+    const rows = await sql<Array<{ sandbox: string | null }>>`
+      SELECT payload->>'sandbox' AS sandbox
+        FROM pay.payment_events
+       WHERE payment_id = ${paymentId} AND event = 'created'
+       LIMIT 1
+    `;
+    return rows[0]?.sandbox === 'true';
+  }
+
+  /** True when a frozen window contains a payment created with a sandbox key. */
+  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+    const rows = await sql<Array<{ ok: number }>>`
+      SELECT 1 AS ok
+        FROM pay.payment_events inc
+        JOIN pay.payment_events created
+          ON created.payment_id = inc.payment_id AND created.event = 'created'
+       WHERE inc.event = 'settlement.included'
+         AND inc.payload->>'settlementId' = ${settlementId}
+         AND created.payload->>'sandbox' = 'true'
+       LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
+  /** Refuse before `ledger.post` when a sandbox flag would touch a live account. */
+  private refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
+    if (!sandbox) return;
+    const live = liveAccountsIn(request);
+    if (live.length === 0) return;
+    throw new PayError('A sandbox payment cannot post to a live ledger account. NOTHING WAS POSTED.', 'pay.sandbox_live_account_refused', {
+      accounts: live.map((account) =>
+        account.purpose
+          ? `${account.ownerType}:${account.ownerId}:${account.kind}:${account.purpose}`
+          : `${account.ownerType}:${account.ownerId}:${account.kind}`,
+      ),
+    });
+  }
+
   /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
   readPayoutLifecycle(settlementId: string) {
     return readPayoutLifecycleProjection(this.sql, settlementId, (message, code) => this.portalFail(message, code));
@@ -5849,6 +6025,7 @@ function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0
     instrument: input.instrument ?? null,
     customerRef: input.customerRef ?? null,
     metadata: input.metadata ?? {},
+    ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
   };
 }
 async function insertPayment(
@@ -5864,6 +6041,8 @@ async function insertPayment(
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    /** Immutable. Written only when the creating key was sandbox. */
+    sandbox?: boolean;
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
@@ -5888,6 +6067,7 @@ async function insertPayment(
     // by accident.
     instrument: input.instrument ?? null,
     metadata: input.metadata ?? {},
+    ...(input.sandbox ? { sandbox: true } : {}),
   });
 
   return row;
