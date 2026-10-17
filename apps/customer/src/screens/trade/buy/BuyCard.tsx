@@ -496,7 +496,7 @@ function BuyForm({
         if (userId) defaultPoller().refresh(`balance:${userId}`);
         onReceipt(receiptFrom(outcome.order, fills));
       }
-    } else setChecked(outcome.kind === 'notFound' ? t('Order not found yet') : t('Couldn’t check the order'));
+    } else setChecked(outcome.kind === 'notFound' ? t('Order not found') : t('Couldn’t check the order'));
   }
 
   const coinLabel = coinName(coin.base, copy);
@@ -524,7 +524,7 @@ function BuyForm({
     busy === null;
   const buttonSize = compact ? 48 : 56;
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
-  // Nothing typed (or not a valid size yet) is "—", never a made-up zero (spec 1.1-4).
+  // Nothing typed (or not a valid size) is "—", never a made-up zero (spec 1.1-4).
   const approx = !plan.ok
     ? '—'
     : unit === 'quote'

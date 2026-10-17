@@ -259,7 +259,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(buyButton(page)).toBeDisabled();
   await expect(dialog).toHaveCount(0);
   await expect(buyForm(page)).toContainText('Your buy order is in');
-  await expect(page.getByText('We haven’t found it yet.')).toHaveCount(0); // no lookup ran for an order still in flight
+  await expect(page.getByText('We haven’t found it.')).toHaveCount(0); // no lookup ran for an order still in flight
   expect(m.requests('POST', 'orders')).toHaveLength(1);
   const sent = m.requests('POST', 'orders')[0].body;
   expect(sent).toMatchObject({
@@ -426,7 +426,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   exchange.opts.book = book({ empty: true });
   m = await mount(empty, exchange);
   await empty.locator('.dk-bk-note').waitFor();
-  await expect(empty.locator('.dk-bk-note')).toHaveText('No orders yet in this market.');
+  await expect(empty.locator('.dk-bk-note')).toHaveText('No orders in this market.');
   await expect(empty.locator('.dk-bk-mid')).toContainText('—');
   await shotBoth(empty, 'desk-no-book');
   await empty.close();
@@ -542,7 +542,7 @@ test('market sell is off with a true reason; limit sell stays on', async ({ page
   await page.getByRole('tab', { name: 'Market' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
   await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
-  await expect(sellForm(page)).toContainText('Market sells aren’t available yet. Use a limit order.');
+  await expect(sellForm(page)).toContainText('Market sells are off. Use a limit order.');
   await expect(page.locator('body')).not.toContainText('This can’t be done right now');
   await page.getByRole('tab', { name: 'Limit' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Price' }).fill('66000');
@@ -724,9 +724,9 @@ test('fill or kill that the book cannot fill, and immediate or cancel with no ma
 test('stop-limit and take profit / stop loss are listed, disabled, with one reason; nothing is sent', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
-  await page.getByRole('button', { name: 'Other order types (not available yet)' }).click();
+  await page.getByRole('button', { name: 'Other order types (not available)' }).click();
   const menu = page.getByRole('menu');
-  await expect(menu).toContainText('Not available on spot yet. This market takes limit and market orders only.');
+  await expect(menu).toContainText('Not available on spot. This market takes limit and market orders only.');
   const items = menu.getByRole('menuitem');
   await expect(items).toHaveText(['Stop-limit', 'Take profit / stop loss', 'OCO (one cancels the other)', 'Trailing stop']);
   for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');

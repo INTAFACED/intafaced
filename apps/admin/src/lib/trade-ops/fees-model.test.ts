@@ -60,7 +60,7 @@ describe('feeCellFor', () => {
   });
 
   it('refuses every cell with the service code when the whole schedule is blank', () => {
-    const blank = refused('trade.fee_schedule_blank', 'Trading fees are not available yet.', 503);
+    const blank = refused('trade.fee_schedule_blank', 'Trading fees are not available.', 503);
     expect(feeCellFor(blank, 'BTC/USDT')).toEqual({ kind: 'refused', code: 'trade.fee_schedule_blank' });
     expect(feeCellText(feeCellFor(blank, 'BTC/USDT'))).toBe('Refused (trade.fee_schedule_blank)');
     expect(feeCellSortValue(feeCellFor(blank, 'BTC/USDT'))).toBeNull();

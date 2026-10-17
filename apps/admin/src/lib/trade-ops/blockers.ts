@@ -59,7 +59,7 @@ export const BLOCKERS = {
   restriction_no_four_eyes: b(
     'restriction_no_four_eyes',
     'svc-identity / svc-trade',
-    'A trading restriction is applied by one operator. There is no two-person action type for it yet, so this desk will not apply it from a single click here.',
+    'A trading restriction is applied by one operator. There is no two-person action type for it, so this desk will not apply it from a single click here.',
     'TRD-0036, TRD-0117',
   ),
   reconcile_route_missing: b(

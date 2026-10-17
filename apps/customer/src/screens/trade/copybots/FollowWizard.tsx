@@ -250,7 +250,7 @@ export function FollowWizard({
                   { label: t('Fee on each copied order'), value: t('The same trading fee as trading alone') },
                   {
                     label: t('Leader’s share'),
-                    value: share ? t('{share} of that fee, paid by the platform from the fee', { share }) : t('Not approved yet'),
+                    value: share ? t('{share} of that fee, paid by the platform from the fee', { share }) : t('Not approved'),
                   },
                   { label: t('Extra charge on your profit'), value: t('None. Leaders are never paid from your profit') },
                 ]}

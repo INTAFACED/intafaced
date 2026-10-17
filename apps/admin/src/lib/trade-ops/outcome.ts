@@ -3,7 +3,7 @@
  * or "unknown" when the wire dropped and we cannot say what happened. Plain data, safe in server and browser code.
  */
 
-/** A known reason a control cannot work yet. `need` is the requirement id the back-end slice will cite. */
+/** A known reason a control cannot work. `need` is the requirement id the back-end slice will cite. */
 export interface Blocker {
   readonly key: string;
   /** The service or rail that owns the gap. */

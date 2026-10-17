@@ -44,7 +44,7 @@ const schedule = ok(
     ],
   })!,
 );
-const blank = refused('trade.fee_schedule_blank', 'Trading fees are not available yet: the maker and taker schedule is not set.', 503);
+const blank = refused('trade.fee_schedule_blank', 'Trading fees are not available: the maker and taker schedule is not set.', 503);
 
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
