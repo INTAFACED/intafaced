@@ -89,8 +89,9 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(isHiddenPath(path), path).toBe(false);
   });
   it('keeps the old dead ends marked blocked, so /dev/features still names the reason and the unlock', () => {
-    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'business-pay', 'more-rooms'])
+    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'more-rooms'])
       expect(featureById(id)?.status, id).toBe('blocked');
+    expect(featureById('business-pay')?.status, 'business-pay opens from the signed-in session').toBe('live');
     expect(featureById('bank')?.paths).toContain('/bank');
     expect(findRoom('/bank')?.alias, '/bank is its own page, not an alias of /money').toBeUndefined();
   });

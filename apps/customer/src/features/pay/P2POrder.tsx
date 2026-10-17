@@ -2,7 +2,7 @@ import { CounterpartyLink, p2pReturn } from './p2p-return';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { displayAmount } from '../../shared/money';
 import { type PersonalPayApi } from './pay-api';
 import { id, type Trade } from './schemas';

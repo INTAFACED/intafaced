@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
+import { uiCopy } from '../../../shared/ui-copy';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { PayDetails } from '../components';
 import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
@@ -472,6 +473,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
       </form>
       {review ? (
         <Dialog
+          closeLabel={uiCopy.t('closeDialog')}
           title={t('takeReviewTitle')}
           onClose={() => {
             if (!busy) closeReview();

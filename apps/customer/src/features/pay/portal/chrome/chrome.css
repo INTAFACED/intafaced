@@ -1,0 +1,422 @@
+/* Merchant portal chrome: top bar, business switcher, phone menu, tab rows and the shared not-live card. */
+.pfo-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Top bar */
+.pfo-top {
+  position: sticky;
+  top: var(--if-banner-offset, 0px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+  padding: 0 24px;
+  background: var(--if-bg);
+  border-bottom: 1px solid var(--if-line);
+  color: var(--if-fg);
+  font-family: var(--if-font-ui);
+}
+.pfo-top a {
+  color: inherit;
+  text-decoration: none;
+}
+.pfo-brand {
+  flex-shrink: 0;
+  width: 120px;
+}
+.pfo-top-end {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+.pfo-search-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--if-r-pill);
+  background: var(--if-field);
+  color: var(--if-fg-2);
+  font: 13px var(--if-font-ui);
+  cursor: pointer;
+}
+.pfo-search-button span {
+  flex: 1;
+  text-align: left;
+}
+.pfo-search-button kbd {
+  font: 11px var(--if-font-mono);
+  color: var(--if-fg-3);
+}
+.pfo-searchbox form {
+  margin-top: 8px;
+}
+.pfo-searchbox input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  background: var(--if-field);
+  color: var(--if-fg);
+  font: 14px var(--if-font-ui);
+}
+.pfo-results {
+  display: grid;
+  gap: 2px;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow: auto;
+  list-style: none;
+}
+.pfo-results a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--if-r-sm);
+  color: var(--if-fg);
+  text-decoration: none;
+}
+.pfo-results a:hover {
+  background: var(--if-hover);
+}
+.pfo-results a span {
+  color: var(--if-fg-3);
+  font-size: 12px;
+}
+.pfo-results-empty {
+  padding: 8px 12px;
+  color: var(--if-fg-2);
+  font-size: 14px;
+}
+.pfo-personal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--if-fg-2);
+}
+.pfo-personal:hover {
+  color: var(--if-fg);
+}
+.pfo-phone {
+  display: none;
+}
+.pfo-menu-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -10px;
+  border: 0;
+  background: transparent;
+  color: var(--if-fg);
+  cursor: pointer;
+}
+
+/* Business name with status pill */
+.pfo-business {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--if-fg);
+  font: 500 14px var(--if-font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.pfo-business-tile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--if-r-sm);
+  background: var(--if-field);
+  color: var(--if-fg-2);
+}
+.pfo-business-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pfo-business-chevron {
+  color: var(--if-fg-3);
+}
+.pfo-accounts {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+.pfo-accounts a {
+  padding: 16px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  color: var(--if-fg);
+  font-size: 14px;
+  text-decoration: none;
+}
+.pfo-accounts a:hover {
+  background: var(--if-hover);
+}
+.pfo-accounts span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--if-fg-2);
+}
+
+/* Phone menu. Lime marks only the current page. */
+.pfo-menu section + section {
+  margin-top: 20px;
+}
+.pfo-menu h2 {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--if-fg-3);
+}
+.pfo-menu a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: var(--if-r-sm);
+  color: var(--if-fg-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+.pfo-menu a:hover {
+  background: var(--if-hover);
+  color: var(--if-fg);
+}
+.pfo-menu a[aria-current] {
+  background: var(--if-hover);
+  color: var(--if-fg);
+}
+.pfo-menu a[aria-current]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--if-lime);
+}
+.pfo-app :where(a, button, input):focus-visible {
+  outline: 2px solid var(--if-lime);
+  outline-offset: 2px;
+}
+
+/* Tabs: the top tabs, with one slim sub-tab row */
+.pfo-tabs.plo {
+  padding-top: 0;
+}
+.pfo-tabs .plo-tabs a {
+  min-height: 44px;
+}
+.pfo-tabs .plo-subtabs {
+  gap: 20px;
+  padding: 12px 0 0;
+}
+.pfo-tabs .plo-subtabs a {
+  min-height: 28px;
+  font-size: 12px;
+}
+.pfo-tabs .plo-heading {
+  margin: 28px 0 24px;
+}
+.pfo-tabs .plo-heading h1 {
+  margin-top: 0;
+}
+
+/* Phone drawer */
+.pfo-drawer[data-slot='dialog-content'] {
+  top: 0;
+  left: 0;
+  translate: none;
+  transform: none;
+  width: min(320px, calc(100vw - 48px));
+  max-width: none;
+  height: 100dvh;
+  padding: 20px 12px 24px;
+  overflow-y: auto;
+  border-radius: 0 var(--if-r-lg) var(--if-r-lg) 0;
+}
+.pfo-drawer-title {
+  margin: 4px 12px 20px;
+  font-size: 16px;
+}
+.pfo-menu a {
+  min-height: 34px;
+}
+.pfo-drawer .pfo-menu a {
+  min-height: 44px;
+}
+.pfo-drawer-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 0 16px;
+  padding: 0 12px;
+  color: var(--if-fg-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* One calm card for a part that is not live yet. Its first line names what it is waiting for. */
+.pfo-soon {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 24px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-lg);
+  background: var(--if-panel);
+  color: var(--if-fg);
+}
+.pfo-soon--page {
+  padding: 40px 24px;
+}
+.pfo-soon .pfo-soon-reason {
+  color: var(--if-fg);
+  font-weight: 500;
+}
+.pfo-soon h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.pfo-soon p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--if-fg-2);
+}
+
+/* Portal navigation replaces redundant links back to its own overview. Detail back links stay. */
+.pfo-app .plo-content .stack > a[href='/pay/merchant'] {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .pfo-top {
+    gap: 16px;
+  }
+  .pfo-brand {
+    width: 100px;
+  }
+  .pfo-search-button {
+    width: 180px;
+  }
+}
+@media (max-width: 760px) {
+  .pfo-top {
+    gap: 8px;
+    padding: 0 16px;
+  }
+  .pfo-phone {
+    display: block;
+  }
+  .pfo-brand,
+  .pfo-personal,
+  .pfo-top-end > [data-slot='button'] {
+    display: none;
+  }
+  .pfo-tabs.plo {
+    width: calc(100% - 32px);
+  }
+  .pfo-tabs .plo-tabs {
+    display: none;
+  }
+  .pfo-tabs .plo-subtabs {
+    gap: 20px;
+    padding-top: 4px;
+  }
+  .pfo-tabs .plo-subtabs a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .pfo-soon {
+    padding: 20px;
+  }
+  .pfo-search-button {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .pfo-search-button span,
+  .pfo-search-button kbd {
+    display: none;
+  }
+}
+
+/* A person with no business account yet: one calm state, and header actions switched off with their reason. */
+.pfo-nobiz {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 40px 24px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-lg);
+  background: var(--if-panel);
+  color: var(--if-fg);
+}
+.pfo-nobiz h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+.pfo-nobiz p {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--if-fg-2);
+}
+.pfo-action-off {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+.pfo-action-off small {
+  max-width: 26ch;
+  text-align: right;
+  font-size: 12px;
+  color: var(--if-fg-2);
+}
+@media (max-width: 720px) {
+  .pfo-action-off {
+    justify-items: start;
+  }
+  .pfo-action-off small {
+    text-align: left;
+  }
+}

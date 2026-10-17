@@ -1,13 +1,18 @@
-import { createSubscriptionWithRecovery } from './portal/subscription-recovery';
+import { createSubscriptionWithRecovery } from './portal/payments/subscription-recovery';
 import { useUnsavedForm } from './portal/useUnsavedForm';
+import { SelectField } from './portal/components';
+import { DEFAULT_ASSET, useAssetChoices } from './portal/payments/asset-choices';
+import type { PortalApi } from './portal/api';
 import { extensionCopy } from './portal/extension-copy';
 import { payCopy, PayCopy } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Field } from '../../shared/ui';
+import { Button, DataTable } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
+import { DateTime } from './portal/ui/DateTime';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation } from './BusinessPay';
 import * as s from './schemas';
@@ -86,7 +91,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                       .filter((mandate) => mandate.status === 'active')
                       .map((mandate) => (
                         <option key={mandate.id} value={mandate.id}>
-                          {mandate.customerId} · {mandate.amount} {mandate.assetId} · {mandate.cadence}
+                          {mandate.customerId} · {mandate.amount} {mandate.assetId} · {cadenceWord(mandate.cadence)}
                         </option>
                       ))}
                 </select>
@@ -209,7 +214,7 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
                         {mandate.ceiling === null ? payCopy.t('noCeilingSupplied') : `${displayAmount(mandate.ceiling)} ${mandate.assetId}`}
                       </td>
                       <td>
-                        {mandate.cadence}
+                        {cadenceWord(mandate.cadence)}
                         <small className="pay-cell-note">
                           {mandate.startsAt} → {mandate.endsAt ?? payCopy.t('openEnded')}
                         </small>
@@ -250,10 +255,40 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
     </div>
   );
 }
-export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: () => void }) {
+/** A billing cadence in words, never the service's raw value. An unknown one is shown as it came rather than guessed. */
+export function cadenceWord(cadence: string): string {
+  return cadence === 'daily'
+    ? payCopy.t('daily')
+    : cadence === 'weekly'
+      ? payCopy.t('weekly')
+      : cadence === 'monthly'
+        ? payCopy.t('monthly')
+        : cadence;
+}
+/** A time picked in a datetime-local field, shown the way every other date in the portal is. */
+function localTime(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? <DateTime value={date.toISOString()} /> : value;
+}
+/** Has the person typed anything? The asset starts on the default, so only a different asset counts: an untouched form never warns. */
+export function mandateFormDirty(form: {
+  customer: string;
+  asset: string;
+  amount: string;
+  ceiling: string;
+  starts: string;
+  ends: string;
+  rail: string;
+  reference: string;
+}): boolean {
+  const { asset, ...typed } = form;
+  return asset !== DEFAULT_ASSET || Object.values(typed).some(Boolean);
+}
+export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
   const [expanded, setExpanded] = useState(false);
   const [customer, setCustomer] = useState('');
-  const [asset, setAsset] = useState('');
+  const [asset, setAsset] = useState(DEFAULT_ASSET);
+  const assets = useAssetChoices(portal, pay.authority?.merchantId, asset);
   const [amount, setAmount] = useState('');
   const [ceiling, setCeiling] = useState('');
   const [cadence, setCadence] = useState('monthly');
@@ -263,7 +298,7 @@ export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: 
   const [reference, setReference] = useState('');
   const [created, setCreated] = useState('');
   useUnsavedForm(
-    expanded && Boolean(customer || asset || amount || ceiling || starts || ends || rail || reference),
+    expanded && mandateFormDirty({ customer, asset, amount, ceiling, starts, ends, rail, reference }),
     extensionCopy.t('draftWarning'),
   );
   return (
@@ -291,12 +326,7 @@ export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: 
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
-            <Field
-              label={payCopy.t('asset')}
-              value={asset}
-              onChange={(event) => setAsset(event.target.value.toUpperCase())}
-              maxLength={16}
-            />
+            <SelectField label={payCopy.t('asset')} value={asset} onChange={setAsset} options={assets.map((a) => [a, a] as const)} />
           </div>
           <Field
             label={payCopy.t('authorizedCeilingOptional')}
@@ -346,8 +376,13 @@ export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: 
                 values={[
                   [payCopy.t('customer'), customer],
                   [payCopy.t('amountCeiling'), `${amount} / ${ceiling || payCopy.t('notSupplied')} ${asset}`],
-                  [payCopy.t('cadence'), cadence],
-                  [payCopy.t('authorizationWindow'), `${starts} → ${ends || payCopy.t('openEnded')}`],
+                  [payCopy.t('cadence'), cadenceWord(cadence)],
+                  [
+                    payCopy.t('authorizationWindow'),
+                    <>
+                      {localTime(starts)} → {ends ? localTime(ends) : payCopy.t('openEnded')}
+                    </>,
+                  ],
                 ]}
               />
             }
@@ -388,7 +423,7 @@ export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: 
             onConfirmed={(data) => {
               setCreated(data.id);
               setCustomer('');
-              setAsset('');
+              setAsset(DEFAULT_ASSET);
               setAmount('');
               setCeiling('');
               setStarts('');
@@ -403,7 +438,7 @@ export function CreateMandate({ pay, refresh }: { pay: BusinessPayApi; refresh: 
       )}
       {created && (
         <p className="pay-confirmed" role="status">
-          <PayCopy k="mandateRecorded" /> {created}
+          <PayCopy k="mandateRecorded" />
         </p>
       )}
     </PaySection>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCsv, csvCell } from './csv';
+import { activeHalts, isUuid, matchesSearch, nextLimit, paymentLinks, paymentRefunds, readLimit, spanParts, usagePct } from './model';
 import {
-  activeHalts,
   approvalSummary,
   bpsPercent,
   closestToLimit,
@@ -9,30 +9,17 @@ import {
   decisionBlock,
   decisionLanded,
   isCheckedPending,
-  filterPayments,
   freshnessAt,
   isCalcAmount,
-  isUuid,
   latestApproval,
   limitRows,
-  matchesSearch,
   minReasonOk,
-  nextLimit,
-  paymentLinks,
-  paymentRefunds,
-  paymentSteps,
   payoutRows,
   payoutState,
-  readLimit,
-  readSort,
-  refundable,
   roleMayDecide,
-  sortRows,
-  spanParts,
   statementTies,
-  successRate,
-  usagePct,
-} from './model';
+} from './money/model';
+import { filterPayments, paymentSteps, readSort, refundable, sortRows, successRate } from './payments/model';
 import { paymentEventSchema, type Approval, type PaymentEvent, type Payment, type Settlement } from './schemas';
 
 // TEST DATA only.
@@ -139,13 +126,23 @@ describe('payment list helpers', () => {
     expect(readSort('x')).toBe('newest');
   });
   it('computes a success rate that is not 100% when there were no payments', () => {
-    expect(successRate([])).toEqual({ total: 0, failed: 0, pct: null });
+    expect(successRate([])).toEqual({ total: 0, succeeded: 0, failed: 0, pct: null });
     expect(
       successRate([
         { status: 'captured', count: 9 },
         { status: 'failed', count: 3 },
       ]),
-    ).toEqual({ total: 12, failed: 3, pct: 75 });
+    ).toEqual({ total: 12, succeeded: 9, failed: 3, pct: 75 });
+    // Payments still in progress have not finished, so they count for neither side.
+    expect(
+      successRate([
+        { status: 'created', count: 40 },
+        { status: 'authorized', count: 5 },
+        { status: 'settled', count: 6 },
+        { status: 'refunded', count: 1 },
+        { status: 'failed', count: 1 },
+      ]),
+    ).toEqual({ total: 8, succeeded: 7, failed: 1, pct: 88 });
   });
   it('works out what can still be refunded without going below zero', () => {
     expect(refundable({ capturedAmount: '100', refundedAmount: '20.25' })).toBe('79.75');

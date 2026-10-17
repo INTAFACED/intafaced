@@ -25,27 +25,98 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     expect(offenders).toEqual([]);
   });
   it('calls only merchant-scoped namespaces from the portal', () => {
-    const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => file.endsWith('api.ts'));
-    expect(portal.length).toBe(1);
-    const text = readFileSync(portal[0]!, 'utf8');
+    // The client is the core plus one file per package (api.ts, api-core.ts, money/api.ts, payments/api.ts, settings/api.ts).
+    const portal = sources(join(root, 'features', 'pay', 'portal')).filter((file) => /[\\/](api|api-core)\.ts$/.test(file));
+    expect(portal.length).toBe(5);
+    const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
     const procedures = [
-      ...text.matchAll(/'((?:merchant|merchantOps|merchantMetrics|merchantControl|payHalts|payment|settlement|railHealth)[A-Za-z.]*)'/g),
+      ...text.matchAll(
+        /'((?:(?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\.[A-Za-z.]+|railHealth))'/g,
+      ),
     ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);
     for (const name of procedures)
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantMetrics\\.|merchant\\.(me|create|submitKyb|setPayoutDestination|listLinks)$|railHealth$',
+            '^(merchantOps\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
-            'payment\\.(list|get|history)$',
-            'settlement\\.(list|get)$',
+            'payment\\.(list|get|history|refunds\\.(list|get))$',
+            'settlement\\.(list|get|lines|lifecycle|payout)$',
             'payHalts\\.status$',
-            'merchantControl\\.(get|usage|pricing\\.preview|approvals\\.(list|decide|cancel))$)',
+            // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
+            'merchantControl\\.(get|usage|pricing\\.(preview|history)|tiers\\.list|limits\\.(open|requestIncrease|withdraw)|approvals\\.(list|request|decide|cancel))$',
+            'conversion\\.(quote|execute|get|list)$)',
           ].join('|'),
         ),
       );
     expect(text).not.toMatch(/admin:|operator|killswitch/i);
+  });
+  it('reaches only allowlisted namespaces from every api and client file under the portal', () => {
+    // Every file that talks to the service: *api*.ts and client.ts, wherever they sit under portal/. Named files below
+    // must be among them, so the scan cannot quietly shrink to fewer files.
+    const portalRoot = join(root, 'features', 'pay', 'portal');
+    const files = sources(portalRoot).filter((file) => /[\\/](?:[^\\/]*api[^\\/]*|[^\\/]*client)\.ts$/.test(file));
+    const rel = files.map((file) => file.slice(portalRoot.length + 1).replace(/\\/g, '/'));
+    for (const must of [
+      'api.ts',
+      'api-core.ts',
+      'api-tools.ts',
+      'money/api.ts',
+      'payments/api.ts',
+      'settings/api.ts',
+      'settings/account/account-api.ts',
+      'settings/analytics/client.ts',
+      'settings/reports/client.ts',
+      'settings/developers/client.ts',
+    ])
+      expect(rel, must).toContain(must);
+    // Namespaces (the part before the first dot) a merchant page may call. `apiKeys` and the signing and address calls are
+    // the identity service's key management for the merchant's own keys; `mandate` and `subscription` are the merchant's own reads.
+    const namespaces = new Set([
+      'merchant',
+      'merchantOps',
+      'merchantMetrics',
+      'merchantControl',
+      'merchantAnalytics',
+      'submerchant',
+      'submerchantPermission',
+      'payHalts',
+      'payment',
+      'settlement',
+      'conversion',
+      'subscription',
+      'mandate',
+      'apiKeys',
+    ]);
+    // Procedures with no dot in their name, each allowed by name.
+    const bare = new Set([
+      'railHealth',
+      'setApiKeyRequestSigning',
+      'rotateSigningSecret',
+      'bindApiKeyIpAllowlist',
+      'unbindApiKeyIpAllowlist',
+    ]);
+    // Dotted strings that are not procedures (a local refusal code the page writes itself).
+    const notProcedures = new Set(['portal.local']);
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const [i, file] of files.entries()) {
+      const text = readFileSync(file, 'utf8');
+      const named = new Set<string>();
+      // Every 'x.y' string, and the first argument of every call that sends a procedure (not `api.query('pay', …)`, whose first argument is the service).
+      for (const m of text.matchAll(/['"`]([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+)['"`]/g)) named.add(m[1]!);
+      for (const m of text.matchAll(/(?<![.\w])(?:query|mutate|identityQuery|identityMutate)\(\s*['"`]([A-Za-z][A-Za-z0-9.]*)['"`]/g))
+        named.add(m[1]!);
+      for (const name of named) {
+        if (notProcedures.has(name)) continue;
+        seen += 1;
+        const ok = name.includes('.') ? namespaces.has(name.split('.')[0]!) : bare.has(name);
+        if (!ok) offenders.push(`${rel[i]}: ${name}`);
+      }
+    }
+    expect(seen).toBeGreaterThan(80);
+    expect(offenders).toEqual([]);
   });
   it('keeps the whole customer app free of the founder namespace', () => {
     const offenders = sources(root).filter((file) => banned.test(readFileSync(file, 'utf8')));
