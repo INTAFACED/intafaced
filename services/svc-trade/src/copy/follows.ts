@@ -8,6 +8,7 @@
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
+import type { CopyLeaderCustomerStatus } from './leader-listing.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import type { CopyJurisdictionLaw } from './fee-share-law.js';
@@ -67,6 +68,8 @@ export interface PresentCopyFollow {
   readonly sessionKey?: string;
   readonly relationshipState: CopyRelationshipState;
   readonly newIntentFenced: boolean;
+  /** listed, suspended, delisted, or unknown when no listing exists. Never assumed listed. */
+  readonly leaderStatus: CopyLeaderCustomerStatus;
 }
 
 export function parseCopyEnvelope(input: {
@@ -150,7 +153,11 @@ export function assertCopyRegionAllowed(law: CopyJurisdictionLaw, region: string
   return region.trim().toUpperCase();
 }
 
-export function presentCopyFollow(follow: CopyFollow, currentExposure: Amount = 0n): PresentCopyFollow {
+export function presentCopyFollow(
+  follow: CopyFollow,
+  currentExposure: Amount = 0n,
+  leaderStatus: CopyLeaderCustomerStatus = 'unknown',
+): PresentCopyFollow {
   const remaining = follow.envelope.maxAggregateExposure > currentExposure ? follow.envelope.maxAggregateExposure - currentExposure : 0n;
   return {
     followId: follow.followId,
@@ -170,6 +177,7 @@ export function presentCopyFollow(follow: CopyFollow, currentExposure: Amount = 
     sessionKeyRevoked: follow.sessionKeyRevoked === true,
     relationshipState: followRelationshipState(follow),
     newIntentFenced: copyNewIntentFenced(followRelationshipState(follow)),
+    leaderStatus,
     ...(follow.sessionKeyPrefix ? { sessionKeyPrefix: follow.sessionKeyPrefix, sessionKeyId: follow.sessionKeyPrefix } : {}),
   };
 }

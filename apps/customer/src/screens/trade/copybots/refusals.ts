@@ -75,6 +75,74 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Closing copied positions isn’t available yet',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
   },
+  'trade.copy_leaders_limit_unset': {
+    title: 'Say how many leaders to show',
+    body: 'A page size is required. Nothing was listed.',
+  },
+  'trade.copy_follow_events_limit_unset': {
+    title: 'Say how many updates to show',
+    body: 'A page size is required.',
+  },
+  'trade.copy_leaders_cursor_invalid': {
+    title: 'That page isn’t valid',
+    body: 'Start again from the first page. Nothing was changed.',
+  },
+  'trade.copy_leader_suspended': {
+    title: 'This leader is suspended',
+    body: 'New copies are stopped. Your existing positions and permission stay as they are. You can stop, leave, or close positions yourself.',
+  },
+  'trade.copy_leader_delisted': {
+    title: 'This leader is delisted',
+    body: 'New copies are stopped. Your existing positions and permission stay as they are. You can stop, leave, or close positions yourself.',
+  },
+  'trade.copy_leader_capacity_full': {
+    title: 'This leader is full',
+    body: 'No new follower was added.',
+  },
+  'trade.copy_leader_not_found': {
+    title: 'That leader was not found',
+    body: 'The reference is unknown or not listed. Nothing was followed.',
+  },
+  'trade.copy_leader_identity_unset': {
+    title: 'Choose one leader',
+    body: 'Send either a leader id or a leader reference, not both and not neither.',
+  },
+  'trade.copy_leader_evidence_unset': {
+    title: 'Evidence is required',
+    body: 'A verified live listing needs an evidence reference. Nothing was published.',
+  },
+  'trade.copy_leader_request_unset': {
+    title: 'The request id is missing',
+    body: 'Nothing was changed.',
+  },
+  'trade.copy_leader_request_mismatch': {
+    title: 'That request id was already used',
+    body: 'Send a new request id. The first result was kept.',
+  },
+  'trade.copy_leader_record_blank': {
+    title: 'A listing field is blank',
+    body: 'Nothing was published. Fill the field or leave it out.',
+  },
+  'trade.copy_leader_state_invalid': {
+    title: 'That leader state isn’t valid',
+    body: 'Nothing was changed.',
+  },
+  'trade.copy_leader_state_reason_unset': {
+    title: 'A reason is required',
+    body: 'Nothing was changed.',
+  },
+  'trade.copy_disclosure_unpublished': {
+    title: 'The risk disclosure isn’t set',
+    body: 'Copying stays closed until that text is published. Nothing was followed.',
+  },
+  'trade.copy_disclosure_required': {
+    title: 'Accept the risk disclosure',
+    body: 'New copies stay closed until you accept the current disclosure. Nothing was placed.',
+  },
+  'trade.copy_disclosure_version_stale': {
+    title: 'The disclosure has changed',
+    body: 'Accept the current version before new copies. Nothing was placed.',
+  },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {

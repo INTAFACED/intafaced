@@ -39,7 +39,21 @@ export type CopyErrorCode =
   | 'trade.copy_flatten_partial'
   | 'trade.copy_disclosure_unpublished'
   | 'trade.copy_disclosure_required'
-  | 'trade.copy_disclosure_version_stale';
+  | 'trade.copy_disclosure_version_stale'
+  | 'trade.copy_leaders_limit_unset'
+  | 'trade.copy_follow_events_limit_unset'
+  | 'trade.copy_leaders_cursor_invalid'
+  | 'trade.copy_leader_suspended'
+  | 'trade.copy_leader_delisted'
+  | 'trade.copy_leader_capacity_full'
+  | 'trade.copy_leader_not_found'
+  | 'trade.copy_leader_identity_unset'
+  | 'trade.copy_leader_evidence_unset'
+  | 'trade.copy_leader_request_unset'
+  | 'trade.copy_leader_request_mismatch'
+  | 'trade.copy_leader_record_blank'
+  | 'trade.copy_leader_state_invalid'
+  | 'trade.copy_leader_state_reason_unset';
 
 export class CopyError extends Error {
   constructor(
