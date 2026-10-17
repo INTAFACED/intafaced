@@ -25,7 +25,9 @@ import {
   type MarketRow,
   type PortfolioSummary,
 } from './deps';
-import { isUnpricedMarket } from './coin-math';
+import { isUnpricedMarket, pickQuote } from './coin-math';
+import { QuotePicker } from './QuotePicker';
+import { useTickerStates } from './use-ticker-states';
 import { KeyStats, holdingOf } from './KeyStats';
 import { PriceCard } from './PriceCard';
 import { RecentActivity } from './RecentActivity';
@@ -114,11 +116,6 @@ function PageSkeleton() {
   );
 }
 
-/** Reads the market's ticker once and tells the page whether the market can be priced at all. */
-function BookGate({ symbol, children }: { symbol: string; children: (unpriced: boolean) => React.ReactNode }) {
-  return <>{children(isUnpricedMarket(useTicker(symbol)))}</>;
-}
-
 function CoinPage({ asset, markets, portfolio }: { asset: string; markets: MarketRow[]; portfolio: Loadable<PortfolioSummary> }) {
   const copy = coinCopy.useCopy();
   const { t } = copy;
@@ -132,82 +129,90 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
   const open = stable ? [] : markets.filter((m) => m.orderable && m.base === asset);
   const quotes = QUOTES.filter((q) => open.some((m) => m.quote === q));
   const [chosen, setChosen] = useState<string | null>(null);
-  const quote = chosen && (quotes as readonly string[]).includes(chosen) ? chosen : (quotes[0] ?? null);
-  const listedMarket = quote ? (open.find((m) => m.quote === quote) ?? null) : null;
+  // Which of the coin's markets can be priced: a listed market with no open book answers "no market" on its ticker. The
+  // page prices against the first quote that can be; with none, it keeps the "no market" card and still offers the quotes.
+  const states = useTickerStates(quotes.map((q) => open.find((m) => m.quote === q)!.symbol));
+  const priced: string[] = quotes.filter(
+    (q) => !isUnpricedMarket(states[open.find((m) => m.quote === q)!.symbol] ?? { status: 'loading' }),
+  );
+  const quote = pickQuote(quotes, priced, chosen);
+  const market = priced.length && quote ? (open.find((m) => m.quote === quote) ?? null) : null;
 
   const holding = holdingOf(portfolio, asset);
   const holds = holding !== null && holding !== 'unknown' && (dec(holding.total) ?? 0n) > 0n ? holding : null;
   const hasAbout = aboutFor(asset) !== null;
 
-  const body = (unpriced: boolean) => {
-    const market = unpriced ? null : listedMarket;
-    return (
-      <>
-        <CoinBar
-          asset={asset}
-          name={name}
-          hasAbout={hasAbout}
-          star={market ? { on: favorites.isFavorite(market.symbol), toggle: () => favorites.toggle(market.symbol) } : null}
-        />
-        <div className="coin-titlerow">
-          <h1 className="coin-title">{t('{name} price', { name: name ?? asset })}</h1>
-          {market ? (
-            <span className="coin-pair" data-testid="pair">
-              {market.base}/{market.quote}
-            </span>
+  return (
+    <>
+      <CoinBar
+        asset={asset}
+        name={name}
+        hasAbout={hasAbout}
+        star={market ? { on: favorites.isFavorite(market.symbol), toggle: () => favorites.toggle(market.symbol) } : null}
+      />
+      <div className="coin-titlerow">
+        <h1 className="coin-title">{t('{name} price', { name: name ?? asset })}</h1>
+        {market ? (
+          <span className="coin-pair" data-testid="pair">
+            {market.base}/{market.quote}
+          </span>
+        ) : null}
+      </div>
+      <div className="coin-grid">
+        <div className="coin-col">
+          {stable ? (
+            <DollarCard asset={asset} />
+          ) : market && quote ? (
+            <PriceCard
+              key={market.symbol}
+              asset={asset}
+              symbol={market.symbol}
+              tickSize={market.tickSize}
+              quotes={priced}
+              quote={quote}
+              onQuote={setChosen}
+            />
+          ) : (
+            <section className="coin-card coin-nomarket">
+              {!stable && !priced.length && quotes.length > 1 && quote ? (
+                <div className="coin-nomarket__quote">
+                  <QuotePicker quotes={quotes} quote={quote} onQuote={setChosen} />
+                </div>
+              ) : null}
+              <StateBlock
+                kind="empty"
+                title={
+                  quote && quotes.length > 1 ? t('No pair market title', { pair: `${asset}/${quote}` }) : t('No market title', { asset })
+                }
+                body={t('No market body')}
+                action={{ label: t('Go to Markets'), href: '/trade' }}
+              />
+            </section>
+          )}
+          {holds ? <YourCoin asset={asset} holding={holds} /> : null}
+          <AboutSection asset={asset} name={name ?? asset} />
+          <RecentActivity asset={asset} />
+        </div>
+        <div className="coin-col">
+          {market && layoutMode !== 'pro' ? <BuyCard key={asset} initialAsset={asset} compact lockAsset /> : null}
+          {market && layoutMode === 'pro' ? (
+            <Button
+              variant="primary"
+              size={40}
+              fullWidth
+              nativeButton={false}
+              render={<a href={coinHref(asset, 'pro', market.symbol)} data-testid="trade-button" />}
+            >
+              {t('Trade {pair}', { pair: `${market.base}/${market.quote}` })}
+            </Button>
+          ) : null}
+          {market || !holds ? (
+            <KeyStats asset={asset} symbol={market?.symbol ?? null} tickSize={market?.tickSize ?? null} portfolio={portfolio} />
           ) : null}
         </div>
-        <div className="coin-grid">
-          <div className="coin-col">
-            {stable ? (
-              <DollarCard asset={asset} />
-            ) : market && quote ? (
-              <PriceCard
-                key={market.symbol}
-                asset={asset}
-                symbol={market.symbol}
-                tickSize={market.tickSize}
-                quotes={quotes}
-                quote={quote}
-                onQuote={setChosen}
-              />
-            ) : (
-              <section className="coin-card coin-nomarket">
-                <StateBlock
-                  kind="empty"
-                  title={t('No market title', { asset })}
-                  body={t('No market body')}
-                  action={{ label: t('Go to Markets'), href: '/trade' }}
-                />
-              </section>
-            )}
-            {holds ? <YourCoin asset={asset} holding={holds} /> : null}
-            <AboutSection asset={asset} name={name ?? asset} />
-            <RecentActivity asset={asset} />
-          </div>
-          <div className="coin-col">
-            {market && layoutMode !== 'pro' ? <BuyCard key={asset} initialAsset={asset} compact lockAsset /> : null}
-            {market && layoutMode === 'pro' ? (
-              <Button
-                variant="primary"
-                size={40}
-                fullWidth
-                nativeButton={false}
-                render={<a href={coinHref(asset, 'pro', market.symbol)} data-testid="trade-button" />}
-              >
-                {t('Trade {pair}', { pair: `${market.base}/${market.quote}` })}
-              </Button>
-            ) : null}
-            {market || !holds ? (
-              <KeyStats asset={asset} symbol={market?.symbol ?? null} tickSize={market?.tickSize ?? null} portfolio={portfolio} />
-            ) : null}
-          </div>
-        </div>
-      </>
-    );
-  };
-
-  return listedMarket ? <BookGate symbol={listedMarket.symbol}>{body}</BookGate> : body(false);
+      </div>
+    </>
+  );
 }
 
 /** USDT and USDC: counted at one dollar, with no chart, no range pills and no buy card (UI-SPEC 5.5). */

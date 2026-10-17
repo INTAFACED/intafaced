@@ -194,6 +194,11 @@
     position: absolute;
     inset: 0;
   }
+  .coin-nomarket__quote {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+  }
   .coin-chart-loading {
     position: relative;
     height: 100%;

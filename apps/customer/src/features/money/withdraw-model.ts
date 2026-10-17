@@ -1,11 +1,12 @@
 import { parseAmount } from '../../shared/money';
 
 /** What the amount box holds, judged against what the person can use. Exact decimals only, nothing is rounded. */
-export type AmountCheck = 'empty' | 'invalid' | 'zero' | 'tooMuch' | 'ok';
+export type AmountCheck = 'empty' | 'invalid' | 'zero' | 'tooMuch' | 'unknown' | 'ok';
 
 /**
  * Judges the typed amount against the available balance (both exact decimal strings). It never turns either into a
- * floating-point number. An unknown balance cannot be exceeded, so the check says `ok` for any positive amount then.
+ * floating-point number. When the balance is missing or unreadable the amount cannot be judged, so the answer is `unknown`,
+ * never `ok`.
  */
 export function checkAmount(input: string, available: string | null): AmountCheck {
   const typed = input.trim();
@@ -18,11 +19,11 @@ export function checkAmount(input: string, available: string | null): AmountChec
     return 'invalid';
   }
   if (value <= 0n) return 'zero';
-  if (available === null) return 'ok';
+  if (available === null) return 'unknown';
   try {
     return value > parseAmount(available) ? 'tooMuch' : 'ok';
   } catch {
-    return 'ok';
+    return 'unknown';
   }
 }
 

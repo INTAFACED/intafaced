@@ -18,8 +18,11 @@ describe('checkAmount: the typed amount against the available balance, exactly',
     expect(checkAmount('0.000000000000000001', '0.000000000000000001')).toBe('ok');
     expect(checkAmount('0.000000000000000002', '0.000000000000000001')).toBe('tooMuch');
   });
-  it('cannot call an amount too much when the balance is unknown', () => {
-    expect(checkAmount('1000000', null)).toBe('ok');
+  it('cannot judge an amount when the balance is missing or unreadable, and never calls it ok', () => {
+    expect(checkAmount('1000000', null)).toBe('unknown');
+    expect(checkAmount('5', 'not a number')).toBe('unknown');
+    expect(checkAmount('', null)).toBe('empty');
+    expect(checkAmount('abc', null)).toBe('invalid');
   });
 });
 

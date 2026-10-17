@@ -104,6 +104,14 @@ export interface RefusalInput {
 
 export function roomWords(input: RefusalInput): Words {
   const code = input.code?.trim();
+  // A write that may have gone through is never described as refused or unchanged, whatever code came with it. The code
+  // stays only as a reference for support.
+  if (input.reason === 'uncertain')
+    return {
+      title: "We couldn't confirm that",
+      body: 'The connection dropped before an answer arrived. Check status before trying again.',
+      ...(code ? { code: refusalSupportCode(code) } : {}),
+    };
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };

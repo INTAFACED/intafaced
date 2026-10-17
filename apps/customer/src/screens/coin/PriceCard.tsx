@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CoinChart } from './CoinChart';
+import { QuotePicker } from './QuotePicker';
 import { coinCopy } from './copy';
-import { heroPrice, moveSince, startsLate, tickerMove, type Move } from './coin-math';
+import { fallbackSince, heroPrice, moveSince, startsLate, tickerMove, type Move } from './coin-math';
 import {
   ChangeText,
   fmtChangeLine,
@@ -9,11 +10,6 @@ import {
   HeroNumber,
   partialWindowStart,
   refusalCopy,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Skeleton,
   stepOf,
   StateBlock,
@@ -99,6 +95,7 @@ export function PriceCard({
 
   // The change's trailing words: the range, or "Since 14 Oct, 19:29" when the market has less history than that; under
   // the crosshair, the time of the candle.
+  const tickerSince = fallbackSince(!list, range.id, tickerRow, Date.now());
   const step = stepOf(range.interval);
   const suffix = scrub
     ? dayAndTime(scrub.t, timeZone)
@@ -111,7 +108,10 @@ export function PriceCard({
             timeZone,
           ),
         })
-      : t(RANGE_SUFFIX[rangeId]);
+      : tickerSince !== null
+        ? // Candles are out and the ticker says the market is younger than a day, so the fallback change starts there too.
+          t('Since {time}', { time: dayAndTime(tickerSince, timeZone) })
+        : t(RANGE_SUFFIX[rangeId]);
 
   const updated = ticker.status === 'ready' ? ticker.asOf : null;
 
@@ -140,24 +140,7 @@ export function PriceCard({
             <TickerProblem ticker={ticker} />
           )}
         </div>
-        {quotes.length > 1 ? (
-          <Select
-            items={Object.fromEntries(quotes.map((q) => [q, q]))}
-            value={quote}
-            onValueChange={(next) => typeof next === 'string' && onQuote(next)}
-          >
-            <SelectTrigger size={32} aria-label={t('Price in {quote}', { quote })} data-testid="quote-pill" className="rounded-pill">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {quotes.map((q) => (
-                <SelectItem key={q} value={q}>
-                  {q}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
+        <QuotePicker quotes={quotes} quote={quote} onQuote={onQuote} />
       </div>
 
       <div className="coin-price-card__chart" data-testid="chart-area">

@@ -8,7 +8,7 @@ import { checkAmount } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
 
-const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch' } as const;
+const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 
 /**
  * The whole "send money out" form, shown first on `/uc/withdraw`: asset, network, where to, amount against the real
@@ -27,7 +27,11 @@ export function WithdrawForm() {
   const asset = assets.some((entry) => entry.assetId === picked) ? picked : (assets[0]?.assetId ?? '');
   const available = assets.find((entry) => entry.assetId === asset)?.available ?? null;
   const check = checkAmount(amount, available);
-  const problem = check in AMOUNT_ERROR ? t(AMOUNT_ERROR[check as keyof typeof AMOUNT_ERROR]) : undefined;
+  // While balances load there is nothing to say yet; once they fail or come back empty the amount cannot be judged.
+  const problem =
+    check in AMOUNT_ERROR && !(check === 'unknown' && held.resource.status === 'loading')
+      ? t(AMOUNT_ERROR[check as keyof typeof AMOUNT_ERROR])
+      : undefined;
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
   const notChosen = t('rNotChosen');
   return (

@@ -32,6 +32,7 @@ export {
   fmtUsd,
   primarySymbolFor,
   refusalCopy,
+  useDataEnv,
   useFavorites,
   useMarkets,
   usePortfolio,
@@ -40,6 +41,8 @@ export {
 export type { Candle, Decimal, Holding, Loadable, MarketRow, PortfolioSummary, TickerRow } from '../../data';
 export { dec, decOrNull, fractionDigits, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
 export { PAR_ASSETS } from '../../data/derive';
+
+export { tickerSource } from '../../data/queries';
 
 export { isHiddenPath } from '../../app/feature-registry';
 export { coinHref } from '../../app/navigation';
