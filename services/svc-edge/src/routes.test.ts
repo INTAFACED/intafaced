@@ -120,7 +120,7 @@ describe('route resolution', () => {
   });
 });
 
-describe('S2S /internal/ is not a public path', () => {
+describe('service /internal/ is not a public path', () => {
   it('names the stripped path the door must refuse', () => {
     expect(isS2sPath('/internal/jobs/run-due-subscriptions')).toBe(true);
     expect(isS2sPath('/internal/stake/u')).toBe(true);
@@ -133,7 +133,7 @@ describe('S2S /internal/ is not a public path', () => {
     expect(isS2sPath('/internalist')).toBe(false);
   });
 
-  it('resolves pay/identity/token/academy/support internals to an S2S remainder', () => {
+  it('resolves pay/identity/token/academy/support internals to a service remainder', () => {
     for (const path of [
       '/api/pay/internal/jobs/run-due-subscriptions',
       '/api/identity/internal/rank/u/perks',
