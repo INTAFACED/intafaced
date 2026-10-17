@@ -68,7 +68,7 @@ import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from 
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
-import { engineForTasks, engineOfAdapter, routeIsMetered, routePriceNonBlank, type RouteDef, type RouteEngine } from './gateway/routing.js';
+import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -297,6 +297,8 @@ export interface AgentsRouterDeps {
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
+  /** AGENTS_METERING_ENABLED. Absent is treated as billed, so the customer keeps the cost confirmation. */
+  readonly meteringEnabled?: boolean;
   /** Academy spine (or test inject). Absent → `envCoachGrounding()`. */
   readonly loadCoachGrounding?: () => Promise<CoachGrounding>;
   /** Live ops.support desk. Absent → support live tools refuse `no_live_kb`. */
@@ -360,20 +362,26 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     sql,
     portfolioLedger,
     portfolioPrices,
+    meteringEnabled,
   } = deps;
 
   function routeEngine(route: RouteDef): { engine: RouteEngine; metered: boolean } {
     const provider = typeof gateway.registeredProvider === 'function' ? gateway.registeredProvider(route.providerId) : undefined;
     const engine = engineOfAdapter(provider);
-    return { engine, metered: routeIsMetered(engine, route.price) };
+    return { engine, metered: routeIsMetered(meteringEnabled, route.price) };
   }
 
   function agentEngine(tasks: readonly string[]): { engine: RouteEngine; metered: boolean } {
-    return engineForTasks(tasks, (task) => {
-      const route = gateway.routingTable.routes.find((row) => row.task === task);
-      if (!route) return null;
-      return { engine: routeEngine(route).engine, priced: routePriceNonBlank(route.price) };
-    });
+    return engineForTasks(
+      tasks,
+      (task) => {
+        const route = gateway.routingTable.routes.find((row) => row.task === task);
+        if (!route) return null;
+        const flagged = routeEngine(route);
+        return { engine: flagged.engine, billed: flagged.metered };
+      },
+      meteringEnabled,
+    );
   }
 
   const resolveNavigatorPlane = (requested: 'live' | 'dark') => effectiveNavigatorTradePlane(requested, navigatorTradeUrl);

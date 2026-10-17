@@ -150,8 +150,8 @@ export function tasksOf(table: RoutingTable): string[] {
  * The class of the adapter decides this. A provider id, an env string, or a
  * comment that says "live" does not. The deterministic mock is sandbox. The
  * HTTP upstream adapter is live. Anything else — missing registration, a test
- * double, a future adapter — is unknown, and the customer app keeps its cost
- * confirmation.
+ * double, a future adapter — is unknown. Whether the route is metered follows
+ * `AGENTS_METERING_ENABLED` and the route price, never the engine.
  */
 export type RouteEngine = 'sandbox' | 'live' | 'unknown';
 
@@ -162,39 +162,52 @@ export function engineOfAdapter(provider: ModelProvider | undefined): RouteEngin
 }
 
 /** A parsed rate is non-blank. A missing price object is blank. Zero is a published rate, not a blank. */
-export function routePriceNonBlank(price: ModelPrice | null | undefined): boolean {
+export function routePriceNonBlank(price: ModelPrice | null | undefined): price is ModelPrice {
   if (!price) return false;
   return typeof price.inputPerMillion === 'bigint' && typeof price.outputPerMillion === 'bigint';
 }
 
-/** True only for a live engine whose route price is non-blank. Sandbox and unknown are never metered. */
-export function routeIsMetered(engine: RouteEngine, price: ModelPrice | null | undefined): boolean {
-  return engine === 'live' && routePriceNonBlank(price);
+/**
+ * True when this route would be billed.
+ *
+ * Metered follows `AGENTS_METERING_ENABLED` and the route price, never the
+ * engine. Absent metering is treated as billed. A blank price is not billed.
+ * Both rates at zero are not billed.
+ */
+export function routeIsMetered(meteringEnabled: boolean | undefined, price: ModelPrice | null | undefined): boolean {
+  return meteringEnabled !== false && routePriceNonBlank(price) && !(price.inputPerMillion === 0n && price.outputPerMillion === 0n);
 }
 
 /**
  * One engine for an agent: every allowed task must resolve to that same engine.
  * A missing route, a mixed pair, or an unknown adapter is `unknown`.
+ *
+ * `metered` follows `AGENTS_METERING_ENABLED` and the route price, never the
+ * engine. It is true when metering is not known to be off and at least one
+ * allowed task would be billed, or any allowed task has no route. With no
+ * allowed tasks it is false only when metering is known to be off.
  */
 export function engineForTasks(
   tasks: readonly string[],
-  resolve: (task: string) => { engine: RouteEngine; priced: boolean } | null,
+  resolve: (task: string) => { engine: RouteEngine; billed: boolean } | null,
+  meteringEnabled?: boolean,
 ): { engine: RouteEngine; metered: boolean } {
-  if (tasks.length === 0) return { engine: 'unknown', metered: false };
+  if (tasks.length === 0) return { engine: 'unknown', metered: meteringEnabled !== false };
   const engines = new Set<RouteEngine>();
-  let priced = true;
+  let billed = false;
+  let unresolved = false;
   for (const task of tasks) {
     const row = resolve(task);
     if (!row) {
       engines.add('unknown');
-      priced = false;
+      unresolved = true;
       continue;
     }
     engines.add(row.engine);
-    if (!row.priced) priced = false;
+    if (row.billed) billed = true;
   }
   const engine: RouteEngine = engines.size === 1 ? [...engines][0]! : 'unknown';
-  return { engine, metered: engine === 'live' && priced };
+  return { engine, metered: meteringEnabled !== false && (billed || unresolved) };
 }
 
 /**

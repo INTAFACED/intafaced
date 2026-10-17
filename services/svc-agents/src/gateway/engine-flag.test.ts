@@ -125,10 +125,10 @@ describe('route and agent engine flag', () => {
     const rows = await caller.routes.list();
     const byTask = Object.fromEntries(rows.map((row) => [row.task, row]));
 
-    expect(byTask['mock.task']).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(byTask['mock.task']).toMatchObject({ engine: 'sandbox', metered: true });
     expect(byTask['live.task']).toMatchObject({ engine: 'live', metered: true });
-    expect(byTask['missing.task']).toMatchObject({ engine: 'unknown', metered: false });
-    expect(byTask['labelled.task']).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(byTask['missing.task']).toMatchObject({ engine: 'unknown', metered: true });
+    expect(byTask['labelled.task']).toMatchObject({ engine: 'sandbox', metered: true });
 
     for (const row of rows) {
       const flagged = JSON.stringify({ engine: row.engine, metered: row.metered });
@@ -139,10 +139,54 @@ describe('route and agent engine flag', () => {
   });
 
   it('derives the agent engine from the adapters of its allowed tasks', async () => {
-    expect(await caller.agent.get({ agentId: 'sand' })).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(await caller.agent.get({ agentId: 'sand' })).toMatchObject({ engine: 'sandbox', metered: true });
     expect(await caller.agent.get({ agentId: 'paid' })).toMatchObject({ engine: 'live', metered: true });
-    expect(await caller.agent.get({ agentId: 'open' })).toMatchObject({ engine: 'unknown', metered: false });
-    expect(await caller.agent.get({ agentId: 'mislabeled' })).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(await caller.agent.get({ agentId: 'open' })).toMatchObject({ engine: 'unknown', metered: true });
+    expect(await caller.agent.get({ agentId: 'mislabeled' })).toMatchObject({ engine: 'sandbox', metered: true });
+  });
+
+  it('metered follows AGENTS_METERING_ENABLED and the route price, not the engine', async () => {
+    const on = createAgentsRouter({ ...deps, meteringEnabled: true } as AgentsRouterDeps).createCaller(signed());
+    const onByTask = Object.fromEntries((await on.routes.list()).map((row) => [row.task, row]));
+    expect(onByTask['mock.task']).toMatchObject({ engine: 'sandbox', metered: true });
+    expect(onByTask['live.task']).toMatchObject({ engine: 'live', metered: true });
+    expect(onByTask['missing.task']).toMatchObject({ engine: 'unknown', metered: true });
+    expect(await on.agent.get({ agentId: 'sand' })).toMatchObject({ engine: 'sandbox', metered: true });
+
+    const off = createAgentsRouter({ ...deps, meteringEnabled: false } as AgentsRouterDeps).createCaller(signed());
+    const offByTask = Object.fromEntries((await off.routes.list()).map((row) => [row.task, row]));
+    for (const row of Object.values(offByTask)) expect(row.metered).toBe(false);
+    expect(offByTask['mock.task']).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(offByTask['live.task']).toMatchObject({ engine: 'live', metered: false });
+    expect(offByTask['missing.task']).toMatchObject({ engine: 'unknown', metered: false });
+    expect(await off.agent.get({ agentId: 'sand' })).toMatchObject({ engine: 'sandbox', metered: false });
+    expect(await off.agent.get({ agentId: 'paid' })).toMatchObject({ engine: 'live', metered: false });
+    expect(await off.agent.get({ agentId: 'open' })).toMatchObject({ engine: 'unknown', metered: false });
+    expect(await off.agent.get({ agentId: 'mislabeled' })).toMatchObject({ engine: 'sandbox', metered: false });
+
+    const absent = createAgentsRouter(deps as AgentsRouterDeps).createCaller(signed());
+    const absentByTask = Object.fromEntries((await absent.routes.list()).map((row) => [row.task, row]));
+    expect(absentByTask['mock.task']).toMatchObject({ engine: 'sandbox', metered: true });
+
+    const freeGateway = new ModelGateway(
+      [new MockModelProvider({ id: 'primary' })],
+      parseRoutingTable({
+        routes: [
+          {
+            task: 'free.task',
+            providerId: 'primary',
+            model: 'reasoning-md',
+            maxOutputTokens: 32,
+            price: { inputPerMillion: '0', outputPerMillion: '0' },
+          },
+        ],
+      }),
+    );
+    const free = createAgentsRouter({ ...deps, gateway: freeGateway, meteringEnabled: true } as AgentsRouterDeps).createCaller(signed());
+    expect((await free.routes.list()).find((row) => row.task === 'free.task')).toMatchObject({
+      engine: 'sandbox',
+      metered: false,
+    });
   });
 
   it('does not treat a non-adapter object as live because its id says so', () => {
