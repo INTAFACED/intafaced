@@ -69,7 +69,7 @@ apps/        customer (React, Vite) · admin (Next.js) · invitation (React, Vit
 services/    svc-ledger · svc-identity · svc-trade · svc-pay · svc-bank · ...   (25 run in compose)
 packages/    ledger-client · contracts · events · config · auth · db · ui · ...
 tooling/     agent-protocol · ci · infra · scripts
-docs/        ARCHITECTURE.md · adr/ · runbooks/ · agents/   (everything else is history)
+docs/        README.md (index of live docs) · ARCHITECTURE.md · adr/ · runbooks/ · archive/ (history)
 vendor/      imported third-party source, not ours to build on
 ```
 
