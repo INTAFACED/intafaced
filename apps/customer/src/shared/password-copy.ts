@@ -20,7 +20,8 @@ const messages = {
   inactive: 'This account is not active, so its password cannot be changed. Contact Support.',
   signedOut: 'You were signed out. Sign in again, then try once more.',
   invalidInput: 'Check what you entered and try again.',
-  unconfirmed: 'We could not confirm the result. Your old password may still work. Try signing in before you try again.',
+  unconfirmed: 'Your password may or may not have changed. Try the new one first.',
+  requestUnconfirmed: 'We could not confirm the request went through. If no email arrives in a few minutes, ask again.',
   unreachable: 'We could not reach the sign-in service. Nothing was changed. Try again in a moment.',
   other: 'The request was refused. Try again, or contact Support if it keeps happening.',
 } as const;
@@ -46,8 +47,8 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     inactive: 'Esta cuenta no está activa, así que no se puede cambiar su contraseña. Contacta con soporte.',
     signedOut: 'Se cerró tu sesión. Vuelve a iniciar sesión y prueba otra vez.',
     invalidInput: 'Revisa lo que has escrito y vuelve a intentarlo.',
-    unconfirmed:
-      'No pudimos confirmar el resultado. Tu contraseña anterior podría seguir funcionando. Prueba a iniciar sesión antes de volver a intentarlo.',
+    unconfirmed: 'Es posible que tu contraseña haya cambiado o no. Prueba primero con la nueva.',
+    requestUnconfirmed: 'No pudimos confirmar que la solicitud se enviara. Si no llega ningún correo en unos minutos, vuelve a pedirlo.',
     unreachable: 'No pudimos contactar con el servicio de inicio de sesión. No se cambió nada. Inténtalo de nuevo en un momento.',
     other: 'La solicitud fue rechazada. Inténtalo de nuevo o contacta con soporte si sigue ocurriendo.',
   },
@@ -72,8 +73,9 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     inactive: 'Ce compte n’est pas actif, son mot de passe ne peut donc pas être changé. Contactez l’assistance.',
     signedOut: 'Vous avez été déconnecté. Reconnectez-vous, puis réessayez.',
     invalidInput: 'Vérifiez ce que vous avez saisi et réessayez.',
-    unconfirmed:
-      'Nous n’avons pas pu confirmer le résultat. Votre ancien mot de passe peut encore fonctionner. Essayez de vous connecter avant de réessayer.',
+    unconfirmed: 'Votre mot de passe a peut-être changé, ou non. Essayez d’abord le nouveau.',
+    requestUnconfirmed:
+      'Nous n’avons pas pu confirmer que la demande est partie. Si aucun e-mail n’arrive d’ici quelques minutes, redemandez-le.',
     unreachable: 'Nous n’avons pas pu joindre le service de connexion. Rien n’a été modifié. Réessayez dans un instant.',
     other: 'La demande a été refusée. Réessayez, ou contactez l’assistance si cela continue.',
   },

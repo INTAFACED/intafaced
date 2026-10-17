@@ -16,7 +16,8 @@ export type PasswordIssue = 'tooShort' | 'tooLong' | 'repeated' | 'mismatch';
 export function passwordIssue(password: string, confirm: string): PasswordIssue | null {
   if (password.length < MIN_PASSWORD_LENGTH) return 'tooShort';
   if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) return 'tooLong';
-  if (/^(.)\1+$/u.test(password)) return 'repeated';
+  // No `u` flag: this must match the server's regex exactly (UTF-16 units, so six identical emoji pass on both).
+  if (/^(.)\1+$/.test(password)) return 'repeated';
   if (password !== confirm) return 'mismatch';
   return null;
 }
@@ -38,6 +39,8 @@ export type PasswordProblem =
   | 'invalidInput'
   /** The request left but no answer was confirmed: the password may or may not have changed. */
   | 'unconfirmed'
+  /** Only the request-a-code step uses this: asking for a code never changes a password. */
+  | 'requestUnconfirmed'
   | 'unreachable'
   | 'other';
 

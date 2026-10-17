@@ -14,6 +14,8 @@ describe('password rules mirrored from the identity service', () => {
     expect(new TextEncoder().encode(atLimit).length).toBe(72);
     expect(passwordIssue(atLimit, atLimit)).toBeNull();
     expect(passwordIssue(atLimit + 'x', atLimit + 'x')).toBe('tooLong');
+    const emoji = '😀'.repeat(6); // the server's regex has no `u` flag, so these pass there
+    expect(passwordIssue(emoji, emoji)).toBeNull();
     expect(passwordIssue('aaaaaaaaaaaaaaaa', 'aaaaaaaaaaaaaaaa')).toBe('repeated');
     expect(passwordIssue('correct horse battery', 'correct horse batterY')).toBe('mismatch');
   });
@@ -44,7 +46,7 @@ describe('refusal mapping', () => {
   });
 
   it('has plain English, Spanish and French words for every problem and no engineering code in them', () => {
-    const problems: PasswordProblem[] = [...new Set(cases.map(([, problem]) => problem))];
+    const problems: PasswordProblem[] = [...new Set(cases.map(([, problem]) => problem)), 'requestUnconfirmed'];
     for (const locale of ['en', 'es', 'fr'] as const) {
       const copy = passwordCopy.forLocale(locale);
       for (const problem of problems) {

@@ -58,9 +58,9 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
         signal: abort.current?.signal,
       });
     });
-    if (!answered || !mounted.current || owner.current !== startedFor) return;
     // Whatever the answer, nothing typed stays in the page: the person retypes after a refusal.
     wipe('current-password', 'new-password', 'confirm-password');
+    if (!answered || !mounted.current || owner.current !== startedFor) return;
     dispatch({ type: 'answered', result: answered });
     if (answered.ok) onChanged?.();
   }
@@ -82,7 +82,7 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
           </Button>
         </div>
       ) : (
-        <form ref={form} className="stack" onSubmit={(event) => void submit(event)} noValidate>
+        <form ref={form} method="post" className="stack" onSubmit={(event) => void submit(event)} noValidate>
           <Field
             label={t('currentField')}
             name="current-password"

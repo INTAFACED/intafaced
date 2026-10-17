@@ -188,7 +188,7 @@ function StepBody({
   }
   if (step === 'request') {
     return (
-      <form ref={formRef} className="pub-form" onSubmit={onAsk} noValidate>
+      <form ref={formRef} method="post" className="pub-form" onSubmit={onAsk} noValidate>
         <Field
           label={copy.t('emailField')}
           name="email"
@@ -207,7 +207,7 @@ function StepBody({
     );
   }
   return (
-    <form ref={formRef} className="pub-form" onSubmit={onFinish} noValidate>
+    <form ref={formRef} method="post" className="pub-form" onSubmit={onFinish} noValidate>
       {codeAsked && (
         <p role="status" className="muted">
           {copy.t('codeOnItsWay')}

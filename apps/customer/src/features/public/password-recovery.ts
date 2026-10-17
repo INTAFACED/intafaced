@@ -68,7 +68,11 @@ export function recoveryReducer(state: RecoveryState, event: RecoveryEvent): Rec
       if (result.ok || (result.code && ENUMERATING.has(result.code)))
         return { ...state, step: 'reset', busy: false, codeAsked: true, problem: null };
       const problem = passwordProblem(result);
-      return { ...state, busy: false, problem: problem === 'invalidInput' ? 'invalidEmail' : problem };
+      return {
+        ...state,
+        busy: false,
+        problem: problem === 'invalidInput' ? 'invalidEmail' : problem === 'unconfirmed' ? 'requestUnconfirmed' : problem,
+      };
     }
     case 'reset': {
       if (state.busy || state.step !== 'reset') return state;

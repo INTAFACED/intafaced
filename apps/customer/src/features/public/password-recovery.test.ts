@@ -87,7 +87,7 @@ describe('asking for a code does not reveal whether an email has an account', ()
     expect(problem({ code: 'auth.reset_unwired', status: 412 })).toBe('resetOff');
     expect(problem({ status: 429 })).toBe('rateLimited');
     expect(problem({ reason: 'unreachable' })).toBe('unreachable');
-    expect(problem({ reason: 'uncertain', status: 502 })).toBe('unconfirmed');
+    expect(problem({ reason: 'uncertain', status: 502 })).toBe('requestUnconfirmed');
     expect(problem({ status: 400, code: 'BAD_REQUEST' })).toBe('invalidEmail');
     // A refusal is never turned into the "code is on its way" screen.
     const off = recoveryReducer(asked(), { type: 'codeAnswered', result: refused({ code: 'auth.reset_unwired' }) });

@@ -24,7 +24,8 @@ const messages = {
   codeOnItsWay: 'If an account uses this email, a code is on its way. It can take a few minutes to arrive.',
   invalidEmail: 'Enter the email address on your account.',
   codeMissing: 'Enter the code from the email.',
-  doneBody: 'Your password has been changed and every device that was signed in has been signed out. Sign in with the new password.',
+  doneBody:
+    "Your password has been changed and every device that was signed in has been signed out. Sign in with the new password. API keys you created keep working; remove any you don't recognise in Security.",
   signIn: 'Go to sign in',
   stepNumber: 'Step {number}',
   backToSignIn: 'Back to sign in',
@@ -57,7 +58,8 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     codeOnItsWay: 'Si una cuenta usa este correo, el código va en camino. Puede tardar unos minutos en llegar.',
     invalidEmail: 'Escribe el correo electrónico de tu cuenta.',
     codeMissing: 'Introduce el código del correo.',
-    doneBody: 'Tu contraseña ha cambiado y se cerró la sesión en todos los dispositivos. Inicia sesión con la contraseña nueva.',
+    doneBody:
+      'Tu contraseña ha cambiado y se cerró la sesión en todos los dispositivos. Inicia sesión con la contraseña nueva. Las claves de API que creaste siguen funcionando; elimina en Seguridad las que no reconozcas.',
     signIn: 'Ir a iniciar sesión',
     stepNumber: 'Paso {number}',
     backToSignIn: 'Volver a iniciar sesión',
@@ -89,7 +91,7 @@ export const recoveryCopy = defineCopy('public-password-recovery', messages, {
     invalidEmail: 'Saisissez l’adresse e-mail de votre compte.',
     codeMissing: 'Saisissez le code reçu par e-mail.',
     doneBody:
-      'Votre mot de passe a été changé et tous les appareils connectés ont été déconnectés. Connectez-vous avec le nouveau mot de passe.',
+      'Votre mot de passe a été changé et tous les appareils connectés ont été déconnectés. Connectez-vous avec le nouveau mot de passe. Les clés API que vous avez créées continuent de fonctionner ; supprimez dans Sécurité celles que vous ne reconnaissez pas.',
     signIn: 'Aller à la connexion',
     stepNumber: 'Étape {number}',
     backToSignIn: 'Retour à la connexion',

@@ -10,7 +10,8 @@ const messages = {
   submit: 'Change password',
   sending: 'Changing…',
   currentMissing: 'Enter your current password.',
-  changed: 'Your password was changed. Every other device was signed out. This device stays signed in.',
+  changed:
+    "Your password was changed. Every other device was signed out. This device stays signed in. API keys you created keep working; remove any you don't recognise in Security.",
   again: 'Change it again',
 } as const;
 
@@ -24,7 +25,8 @@ export const changePasswordCopy = defineCopy('account.change-password', messages
     submit: 'Cambiar contraseña',
     sending: 'Cambiando…',
     currentMissing: 'Escribe tu contraseña actual.',
-    changed: 'Tu contraseña ha cambiado. Se cerró la sesión en todos los demás dispositivos. Este dispositivo sigue conectado.',
+    changed:
+      'Tu contraseña ha cambiado. Se cerró la sesión en todos los demás dispositivos. Este dispositivo sigue conectado. Las claves de API que creaste siguen funcionando; elimina en Seguridad las que no reconozcas.',
     again: 'Cambiarla de nuevo',
   },
   fr: {
@@ -36,7 +38,8 @@ export const changePasswordCopy = defineCopy('account.change-password', messages
     submit: 'Changer le mot de passe',
     sending: 'Changement…',
     currentMissing: 'Saisissez votre mot de passe actuel.',
-    changed: 'Votre mot de passe a été changé. Tous les autres appareils ont été déconnectés. Cet appareil reste connecté.',
+    changed:
+      'Votre mot de passe a été changé. Tous les autres appareils ont été déconnectés. Cet appareil reste connecté. Les clés API que vous avez créées continuent de fonctionner ; supprimez dans Sécurité celles que vous ne reconnaissez pas.',
     again: 'Le changer à nouveau',
   },
 });

@@ -20,6 +20,7 @@ export function Field({
 }: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; hint?: ReactNode; error?: ReactNode }) {
   const generatedId = useId();
   const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
+  const describedBy = [input['aria-describedby'], hint || error ? `${id}-help` : undefined].filter(Boolean).join(' ') || undefined;
   return (
     <label className="field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
@@ -28,7 +29,7 @@ export function Field({
         id={id}
         aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}
         aria-invalid={Boolean(error)}
-        aria-describedby={hint || error ? `${id}-help` : undefined}
+        aria-describedby={describedBy}
       />
       {(hint || error) && (
         <small id={`${id}-help`} className={error ? 'error-text' : ''}>
