@@ -249,11 +249,12 @@ export function digestOf(text: string): string {
 
 type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 /**
- * The request id for a body. One storage key (`portal:request:<scope>`) holds `{digest, id}`: the id is reused only
- * when the digest of the body about to be sent matches, so a changed form gets a fresh id and nothing typed is stored.
- * Keys the earlier format wrote (`<scope>:<the whole draft>`) are removed.
+ * The request id stored for a body that was sent. One storage key (`portal:request:<scope>`) holds `{digest, id}` of
+ * the last body handed to the service, so after a lost reply and a reload the same body gets the same id back. Only a
+ * send writes it; typing and rendering never do, and nothing typed is stored. Keys the earlier format wrote
+ * (`<scope>:<the whole draft>`) are removed.
  */
-export function resolveBodyRequestId(store: KeyStore, scope: string, digest: string, mint: () => string = newRequestId): string {
+export function storedBodyRequestId(store: KeyStore, scope: string, digest: string): string | null {
   const key = `portal:request:${scope}`;
   for (let i = store.length - 1; i >= 0; i--) {
     const name = store.key(i);
@@ -263,37 +264,49 @@ export function resolveBodyRequestId(store: KeyStore, scope: string, digest: str
     const saved = JSON.parse(store.getItem(key) ?? 'null') as { digest?: unknown; id?: unknown } | null;
     if (saved && saved.digest === digest && typeof saved.id === 'string' && saved.id) return saved.id;
   } catch {
-    /* an unreadable value is replaced below */
+    /* an unreadable value counts as nothing stored */
   }
-  const id = mint();
-  store.setItem(key, JSON.stringify({ digest, id }));
-  return id;
+  return null;
 }
 
-/** `useRequestId` for a create form: the id follows the digest of the body, and `renew` starts a fresh one after a confirmed outcome. */
-export function useBodyRequestId(scope: string, body: unknown): { id: string; renew: () => void } {
+/** Records the id about to be sent for this body. Called just before the request leaves, never on render. */
+export function rememberBodyRequestId(store: KeyStore, scope: string, digest: string, id: string): void {
+  store.setItem(`portal:request:${scope}`, JSON.stringify({ digest, id }));
+}
+
+/**
+ * `useRequestId` for a create form. The id for a body is the one stored when that body was last sent, else one minted
+ * in memory for that body. `sent` stores it just before the request goes out; `renew` forgets it after a confirmed
+ * outcome, so the next form starts fresh.
+ */
+export function useBodyRequestId(scope: string, body: unknown): { id: string; sent: () => void; renew: () => void } {
   const digest = digestOf(JSON.stringify(body));
-  const read = (d: string) => {
-    try {
-      return resolveBodyRequestId(sessionStorage, scope, d);
-    } catch {
-      return newRequestId();
-    }
-  };
-  const [state, setState] = useState(() => ({ digest, id: read(digest) }));
-  let current = state;
-  if (state.digest !== digest) {
-    current = { digest, id: read(digest) };
-    setState(current);
+  const minted = useRef(new Map<string, string>());
+  let stored: string | null = null;
+  try {
+    stored = storedBodyRequestId(sessionStorage, scope, digest);
+  } catch {
+    /* storage unreadable: the id lives in memory only */
   }
-  const renew = useCallback(() => {
-    const id = newRequestId();
+  let id = stored ?? minted.current.get(digest);
+  if (!id) {
+    id = newRequestId();
+    minted.current.set(digest, id);
+  }
+  const sent = useCallback(() => {
     try {
-      sessionStorage.setItem(`portal:request:${scope}`, JSON.stringify({ digest, id }));
+      rememberBodyRequestId(sessionStorage, scope, digest, id);
     } catch {
-      /* the id still renews in memory */
+      /* the send still goes out with this id */
     }
-    setState({ digest, id });
-  }, [scope, digest]);
-  return { id: current.id, renew };
+  }, [scope, digest, id]);
+  const renew = useCallback(() => {
+    try {
+      sessionStorage.removeItem(`portal:request:${scope}`);
+    } catch {
+      /* nothing stored to forget */
+    }
+    minted.current.clear();
+  }, [scope]);
+  return { id, sent, renew };
 }

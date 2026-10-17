@@ -401,7 +401,10 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                 </>
               )
             }
-            perform={() => portal.createInvoice({ requestId: request.id, ...invoiceBody(draft) })}
+            perform={() => {
+              request.sent();
+              return portal.createInvoice({ requestId: request.id, ...invoiceBody(draft) });
+            }}
             onConfirmed={(invoice) => {
               request.renew();
               navigate(invoiceHref(invoice.id));

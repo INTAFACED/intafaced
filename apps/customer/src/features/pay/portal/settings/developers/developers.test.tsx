@@ -203,7 +203,7 @@ describe('signing', () => {
     expect(c.t('effectSecretDeleted')).toBe('This deletes the current signing secret; turning it on later issues a new one.');
     expect(c.t('secretExists')).toContain('A secret already exists');
   });
-  it('turns an answer that says "not revoked" or "not retried" into a refusal', async () => {
+  it('turns "not revoked" into a refusal, and reads "not retried" as the replay of a request already queued', async () => {
     const tools = {
       identityMutate: async () => ({ ok: true, data: { revoked: false } }),
       mutate: async () => ({ ok: true, data: { retried: false, delivery: {} } }),
@@ -211,10 +211,9 @@ describe('signing', () => {
     const real = developersApi(tools);
     const revoked = await real.keyRevoke('k');
     expect(revoked.ok).toBe(false);
-    expect(revoked.ok ? '' : revoked.message).toContain('not revoked');
+    expect(revoked.ok ? '' : revoked.message).toContain('already revoked, or it is not yours');
     const retried = await real.deliveryRetry('d', 'r');
-    expect(retried.ok).toBe(false);
-    expect(retried.ok ? '' : retried.message).toContain('not queued');
+    expect(retried.ok).toBe(true);
     const done = developersApi({ identityMutate: async () => ({ ok: true, data: { revoked: true } }) } as unknown as Parameters<
       typeof developersApi
     >[0]);

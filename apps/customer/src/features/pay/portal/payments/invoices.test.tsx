@@ -53,7 +53,8 @@ import {
   lineProblem,
   linesTotal,
   matchingPayments,
-  resolveBodyRequestId,
+  rememberBodyRequestId,
+  storedBodyRequestId,
   sameAmount,
 } from './invoice-model';
 import { invoiceSchema, type Invoice } from './schemas';
@@ -369,32 +370,34 @@ describe('create-invoice request id storage', () => {
   const draft = { ...blankDraft('USDT'), amount: '12.5', customerEmail: 'TEST-person@example.test', description: 'TEST private note' };
   it('keeps one key holding only a digest and an id, never the typed fields', () => {
     const store = new FakeStore();
-    let n = 0;
-    const id = resolveBodyRequestId(store, 'invoice-create', digestOf(JSON.stringify(invoiceBody(draft))), () => `id-${++n}`);
+    const d = digestOf(JSON.stringify(invoiceBody(draft)));
+    rememberBodyRequestId(store, 'invoice-create', d, 'id-1');
     expect([...store.data.keys()]).toEqual(['portal:request:invoice-create']);
     const raw = store.getItem('portal:request:invoice-create')!;
     expect(Object.keys(JSON.parse(raw)).sort()).toEqual(['digest', 'id']);
     expect(raw).not.toMatch(/TEST-person|private note|12\.5/);
-    expect(id).toBe('id-1');
+    expect(storedBodyRequestId(store, 'invoice-create', d)).toBe('id-1');
   });
-  it('reuses the id only while the body is unchanged', () => {
+  it('gives the sent id back only for the same body, and reading never writes', () => {
     const store = new FakeStore();
-    let n = 0;
-    const mint = () => `id-${++n}`;
     const d1 = digestOf(JSON.stringify(invoiceBody(draft)));
     const d2 = digestOf(JSON.stringify(invoiceBody({ ...draft, amount: '13' })));
     expect(d1).not.toBe(d2);
-    expect(resolveBodyRequestId(store, 'invoice-create', d1, mint)).toBe('id-1');
-    expect(resolveBodyRequestId(store, 'invoice-create', d1, mint)).toBe('id-1');
-    expect(resolveBodyRequestId(store, 'invoice-create', d2, mint)).toBe('id-2');
+    expect(storedBodyRequestId(store, 'invoice-create', d1)).toBeNull();
+    expect(store.data.size).toBe(0);
+    rememberBodyRequestId(store, 'invoice-create', d1, 'id-1');
+    // Lost reply, reload: the blank form and every keystroke read other digests, then the same body comes back.
+    expect(storedBodyRequestId(store, 'invoice-create', d2)).toBeNull();
+    expect(storedBodyRequestId(store, 'invoice-create', digestOf('{}'))).toBeNull();
+    expect(storedBodyRequestId(store, 'invoice-create', d1)).toBe('id-1');
     expect(store.data.size).toBe(1);
   });
-  it('removes keys the earlier format wrote and replaces an unreadable value', () => {
+  it('removes keys the earlier format wrote and ignores an unreadable value', () => {
     const store = new FakeStore();
     store.setItem('portal:request:invoice-create:{"email":"TEST-person@example.test"}', 'old');
     store.setItem('portal:request:invoice-create', 'not json');
     store.setItem('portal:request:invoice:abc:send', 'keep');
-    expect(resolveBodyRequestId(store, 'invoice-create', 'd', () => 'fresh')).toBe('fresh');
+    expect(storedBodyRequestId(store, 'invoice-create', 'd')).toBeNull();
     expect([...store.data.keys()].sort()).toEqual(['portal:request:invoice-create', 'portal:request:invoice:abc:send']);
   });
 });

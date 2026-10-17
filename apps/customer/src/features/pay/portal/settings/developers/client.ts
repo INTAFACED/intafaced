@@ -61,11 +61,9 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
         signal,
       ),
     ),
-  deliveryRetry: async (deliveryId: string, requestId: string) =>
-    refusedWhen(
-      await mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
-      (d) => !d.retried,
-      () => developersCopy.t('retryRefused'),
-    ),
+  // `retried: false` is the replay answer for a request id the service already recorded: the earlier request was
+  // queued. A real refusal arrives as an error code, so both answers count as done.
+  deliveryRetry: (deliveryId: string, requestId: string) =>
+    mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
   webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),
 });
