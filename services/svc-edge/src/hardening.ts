@@ -107,6 +107,11 @@ export interface RateLimitConfig {
    * the limiter — it is used to describe, honestly, what the key actually is.
    */
   readonly trustProxy: boolean;
+  /**
+   * True only when counted calls go through one SharedRequestBudget held by
+   * every replica. In-process Fastify counters stay false.
+   */
+  readonly sharedBudget?: boolean;
 }
 
 /**
@@ -156,8 +161,8 @@ export function rateLimitSummary(config: RateLimitConfig): { level: 'info' | 'wa
  *
  * Mirrors the screening/CORS shape: an operator (or probe) can see whether the
  * control is armed without reading boot logs, and without inventing a shared
- * store. Counters are in-process; `multiReplicaShared` is always false until a
- * deliberate shared-store PR lands (same honesty posture as kill durability).
+ * store. `multiReplicaShared` is true only when `sharedBudget` is set on an
+ * enabled limiter. In-process Fastify counters stay false.
  */
 export interface RateLimitReadiness {
   readonly enabled: boolean;
@@ -165,13 +170,76 @@ export interface RateLimitReadiness {
   readonly max: number | null;
   readonly windowMs: number | null;
   readonly trustProxy: boolean;
-  /** Always false today — per-replica memory only. */
-  readonly multiReplicaShared: false;
+  /** True only when replicas share one SharedRequestBudget. */
+  readonly multiReplicaShared: boolean;
   /** One short line; not the full boot WARN essay. */
   readonly note: string;
 }
 
+export interface SharedBudgetTake {
+  readonly ok: true;
+}
+
+export interface SharedBudgetRefuse {
+  readonly ok: false;
+  readonly retryAfterSeconds: number;
+}
+
+/**
+ * One counter for a caller, shared by every replica that holds this object.
+ * `take` returns null when the counter cannot be read. The caller refuses
+ * and does not place.
+ */
+export interface SharedRequestBudget {
+  take(callerKey: string, nowMs: number): SharedBudgetTake | SharedBudgetRefuse | null;
+}
+
+export class MemorySharedRequestBudget implements SharedRequestBudget {
+  private readonly buckets = new Map<string, { count: number; resetAt: number }>();
+  private readsFail = false;
+
+  constructor(
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {}
+
+  failReads(fail: boolean): void {
+    this.readsFail = fail;
+  }
+
+  take(callerKey: string, nowMs: number): SharedBudgetTake | SharedBudgetRefuse | null {
+    if (this.readsFail) return null;
+    const existing = this.buckets.get(callerKey);
+    if (!existing || existing.resetAt <= nowMs) {
+      this.buckets.set(callerKey, { count: 1, resetAt: nowMs + this.windowMs });
+      return { ok: true };
+    }
+    if (existing.count >= this.max) {
+      return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - nowMs) / 1000)) };
+    }
+    existing.count += 1;
+    return { ok: true };
+  }
+}
+
+export function admitCountedOrder(input: {
+  readonly budget: SharedRequestBudget;
+  readonly callerKey: string;
+  readonly nowMs: number;
+  readonly place: () => void;
+}):
+  | { admitted: true }
+  | { admitted: false; code: 'edge.rate_limited'; retryAfterSeconds: number }
+  | { admitted: false; code: 'edge.rate_unreadable' } {
+  const taken = input.budget.take(input.callerKey, input.nowMs);
+  if (taken === null) return { admitted: false, code: 'edge.rate_unreadable' };
+  if (!taken.ok) return { admitted: false, code: 'edge.rate_limited', retryAfterSeconds: taken.retryAfterSeconds };
+  input.place();
+  return { admitted: true };
+}
+
 export function rateLimitReadiness(config: RateLimitConfig): RateLimitReadiness {
+  const shared = config.enabled && config.sharedBudget === true;
   if (!config.enabled) {
     return {
       enabled: false,
@@ -187,10 +255,12 @@ export function rateLimitReadiness(config: RateLimitConfig): RateLimitReadiness 
     max: config.max,
     windowMs: config.windowMs,
     trustProxy: config.trustProxy,
-    multiReplicaShared: false,
-    note: config.trustProxy
-      ? 'Per-replica in-process counters; proxy headers trusted for req.ip. Not fleet-wide.'
-      : 'Per-replica in-process counters; EDGE_TRUST_PROXY unset — behind a balancer every caller may share ONE bucket.',
+    multiReplicaShared: shared,
+    note: shared
+      ? 'One shared request budget for every replica that holds the store. An unreadable counter refuses the counted call.'
+      : config.trustProxy
+        ? 'Per-replica in-process counters; proxy headers trusted for req.ip. Not fleet-wide.'
+        : 'Per-replica in-process counters; EDGE_TRUST_PROXY unset — behind a balancer every caller may share ONE bucket.',
   };
 }
 

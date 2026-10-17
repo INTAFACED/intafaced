@@ -59,6 +59,13 @@ export const TOKEN_REFUSAL_COPY = {
   'token.governance_quorum_unset': 'The vote threshold is not set.',
   'token.governance_snapshot_missing': 'This vote has no eligible-stake record, so it cannot be closed.',
   'token.governance_execute_unwired': 'This proposal can be counted, but it cannot be carried out yet.',
+  'token.staking_asset_unpublished': 'The staking asset is not published.',
+  'token.stake_tier_unknown': 'That stake term is not one this service offers.',
+  'token.stake_amount_invalid': 'The stake amount must be positive.',
+  'token.history_list_limit_unset': 'The history list size is not set.',
+  'token.history_cursor_invalid': 'That history page marker is not valid.',
+  'token.emission_schedule_count_unset': 'The emission schedule length is not set.',
+  'token.ledger_tx_unread': 'That payout is not on the ledger.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */

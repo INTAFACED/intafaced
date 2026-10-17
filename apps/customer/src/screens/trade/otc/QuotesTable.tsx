@@ -5,7 +5,7 @@ import { Refusal } from '../rooms/RoomNotices';
 import { Button, Field, Input, Table, fmtAmount, fmtPrice, sortRows, type SortState, type TableColumn } from '../rooms/ui';
 import type { Words } from '../rooms/refusals';
 import type { QuoteEntry } from './data';
-import { atOf, lifecycleOf, phaseOf } from './model';
+import { atOf, chipOf, lifecycleOf } from './model';
 import { otcCopy } from './copy';
 import { LifecycleChip } from './QuoteCard';
 
@@ -27,6 +27,7 @@ export function QuotesTable({
   entries,
   selected,
   now,
+  pendingId,
   onSelect,
   onOpenById,
   onForget,
@@ -36,6 +37,8 @@ export function QuotesTable({
   entries: Readonly<Record<string, QuoteEntry>>;
   selected: string | null;
   now: number;
+  /** Id of the quote a request on this device is still unconfirmed for, if any. */
+  pendingId: string | null;
   onSelect: (id: string) => void;
   onOpenById: (id: string) => Promise<{ ok: true } | { ok: false; words: Words }>;
   onForget: (id: string) => void;
@@ -144,8 +147,7 @@ export function QuotesTable({
         cell: (r) => {
           const quote = q(r);
           if (!quote) return r.entry.status === 'loading' ? t('Reading') : r.entry.status === 'refused' ? t('Not found') : t('Unreadable');
-          const phase = phaseOf(quote, now);
-          return phase === 'open-late' ? t('Re-read first') : <LifecycleChip lifecycle={lifecycleOf(quote)} />;
+          return <LifecycleChip lifecycle={chipOf(quote, now, pendingId)} />;
         },
         sortable: true,
       },

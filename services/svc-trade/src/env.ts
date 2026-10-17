@@ -580,6 +580,16 @@ const schema = serviceEnvSchema
       TRADE_COPY_JURISDICTION_LAW: z.string().default(''),
 
       /**
+       * Copy risk-disclosure law (trade.copy / TRD-0773). JSON or empty.
+       *
+       * Empty (default) = unpublished → accept and mirror refuse
+       * `trade.copy_disclosure_unpublished`. Never invent version or text.
+       * Published shape: {"published":true,"version":"…","text":"…"}
+       * The text is owner content. Follow itself is not gated.
+       */
+      TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
+
+      /**
        * Spot maker/taker fee/rebate schedule (PTX-M21). JSON or empty.
        *
        * Empty (default) = unpublished → preview and place/fill refuse.

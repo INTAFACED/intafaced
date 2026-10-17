@@ -4,10 +4,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectPendingForApproval } from './local-test-gates.mjs';
 import {
   ACADEMY_PATHS,
   GuardError,
@@ -23,6 +24,7 @@ import {
   doneKey,
   fromScaled,
   isSkippedAccount,
+  isTestAccount,
   parseLoginFile,
   parsePopulateArgs,
   pendingWelcomes,
@@ -64,6 +66,16 @@ import {
   toScaled,
   welcomeRef,
   localEmailOutboxPath,
+  MERCHANT_OWNER,
+  OwnerFactor,
+  enrolledTestOperatorPair,
+  readMerchantOwner,
+  accessTokenMfa,
+  freshTotpCode,
+  loginRequestBody,
+  ownerFactorRefusal,
+  stackPaths,
+  totpStepAt,
   planEmailConfirm,
   readLatestEmailConfirmToken,
 } from './local-test-world.mjs';
@@ -614,6 +626,242 @@ try {
   assert.match(merchantFn, /pay:onboard/);
   const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
   assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
+
+  // ── Owner second factor: login with TOTP, outbox link, enrolment store ───
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }), { identifier: 'o@x.invalid', password: 'pw' });
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, ''), { identifier: 'o@x.invalid', password: 'pw' });
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, '123456'), {
+    identifier: 'o@x.invalid',
+    password: 'pw',
+    totpCode: '123456',
+  });
+  // The exact line identity's local-outbox mail writes for an email-confirm (localMailLine).
+  const realLine = `LOCAL-TEST purpose=email-confirm email=owner@example.com expires=2026-10-18T00:10:00.000Z link=confirmEmail?token=${encodeURIComponent('Zx-_9+/=')}\n`;
+  assert.equal(readLatestEmailConfirmToken(realLine, 'OWNER@example.com'), 'Zx-_9+/=');
+  assert.equal(readLatestEmailConfirmToken(realLine + realLine.replace('Zx-_9', 'newer'), 'owner@example.com'), 'newer+/=');
+  {
+    let clock = 10 * 30_000 + 5_000;
+    const waits = [];
+    const out = await freshTotpCode({
+      secret: 'S',
+      lastStep: 10,
+      totp: async (secret) => `code-for-${secret}`,
+      now: () => clock,
+      wait: async (ms) => {
+        waits.push(ms);
+        clock += 10_000;
+      },
+    });
+    assert.equal(out.code, 'code-for-S');
+    assert.equal(out.step, 11);
+    assert.ok(waits.length >= 2, 'waits for the next 30 second step instead of replaying one');
+    const noWait = await freshTotpCode({ secret: 'S', lastStep: 0, totp: () => 'c', now: () => clock, wait: () => assert.fail('no wait') });
+    assert.equal(noWait.step, totpStepAt(clock));
+  }
+  {
+    assert.equal(stackPaths(home).merchantOwner.startsWith(stackPaths(home).stateDir), true);
+    const factorDir = mkdtempSync(join(tmpdir(), 'owner-factor-'));
+    try {
+      const file = join(factorDir, 'sub', 'owner-factor.json');
+      let clock = 100 * 30_000;
+      const mk = () => new OwnerFactor({ file, totp: (secret) => `${secret}:code`, now: () => clock, wait: async () => (clock += 30_000) });
+      const f = mk();
+      assert.equal(f.secret, null);
+      assert.equal(await f.nextCode(), undefined, 'no secret, no code on the login');
+      f.savePending('PENDINGSECRET0000', ['rc1', 'rc2']);
+      assert.equal(mk().pendingSecret, 'PENDINGSECRET0000');
+      assert.equal(mk().secret, null);
+      f.adoptPending(100);
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      const saved = JSON.parse(readFileSync(file, 'utf8'));
+      assert.match(saved.label, /LOCAL TEST/);
+      assert.equal(saved.secret, 'PENDINGSECRET0000');
+      assert.equal(saved.pendingSecret, undefined);
+      // step 100 is spent: the next login code must come from a later step.
+      const code = await mk().nextCode();
+      assert.equal(code, 'PENDINGSECRET0000:code');
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).lastStep, 101);
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+    } finally {
+      rmSync(factorDir, { recursive: true, force: true });
+    }
+  }
+  {
+    // F1: the clock moves across a 30 s boundary while the code is being made; code and step must agree.
+    let clock = 50 * 30_000 + 29_900;
+    const out = await freshTotpCode({
+      secret: 'S',
+      lastStep: 40,
+      totp: async (secret, t) => {
+        clock += 500;
+        return `${secret}@${totpStepAt(t)}`;
+      },
+      now: () => clock,
+      wait: () => assert.fail('no wait'),
+    });
+    assert.equal(out.step, 50);
+    assert.equal(out.code, 'S@50');
+    assert.ok(totpStepAt(clock) > out.step, 'the clock really crossed the boundary');
+  }
+  {
+    const mfaToken = (mfa) => `h.${Buffer.from(JSON.stringify({ mfa })).toString('base64url')}.s`;
+    assert.equal(accessTokenMfa(mfaToken(true)), true);
+    assert.equal(accessTokenMfa(mfaToken(false)), false);
+    assert.equal(accessTokenMfa('garbage'), null);
+    const dir = mkdtempSync(join(tmpdir(), 'owner-factor-b-'));
+    try {
+      const file = join(dir, 'f.json');
+      let clock = 200 * 30_000;
+      const mk = () =>
+        new OwnerFactor({ file, totp: (s, t) => `${s}@${totpStepAt(t)}`, now: () => clock, wait: async () => (clock += 30_000) });
+      const f = mk();
+      f.savePending('PENDING-LIVE-SECRET', ['rc']);
+      f.markPendingStep(200);
+      assert.equal(mk().pendingLastStep, 200, 'a later login never repeats the confirm step');
+      assert.equal(readdirSync(dir).length, 1, 'atomic write leaves no tmp file behind');
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      f.adoptPending(201);
+      assert.equal(mk().secret, 'PENDING-LIVE-SECRET');
+      assert.equal(mk().data.pendingStep, undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const login = worldSrc.slice(worldSrc.indexOf('  async login() {'), worldSrc.indexOf('  async ensureAccount()'));
+    assert.match(login, /pendingSecret/);
+    assert.match(login, /adoptPending/);
+    assert.match(worldSrc, /writePrivateAtomic[\s\S]*fsyncSync[\s\S]*renameSync/);
+    assert.equal(
+      worldSrc.includes('unlinkSync(this.file') || worldSrc.includes('rmSync(this.file'),
+      false,
+      'never deletes the factor file',
+    );
+  }
+  assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /holds|does not hold/);
+  assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /nothing was reset/);
+  assert.match(ownerFactorRefusal('Verify with your second factor [FORBIDDEN]'), /cannot drive/);
+  assert.equal(ownerFactorRefusal('boom [X]'), 'boom [X]');
+  const factorFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureOwnerSecondFactor'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(factorFn, /totp\.enrol/);
+  assert.match(factorFn, /totp\.confirm/);
+  assert.ok(
+    factorFn.indexOf('savePending') < factorFn.indexOf('totp.confirm', factorFn.indexOf('savePending')),
+    'secret is written down before it is confirmed',
+  );
+  assert.equal(/console\.log|log\(/.test(factorFn.replace(/record\(/g, '')), false, 'the factor step never prints or logs');
+  assert.equal(/secret\}|\$\{.*[sS]ecret/.test(factorFn), false, 'no secret goes into a message');
+  assert.equal(factorFn.includes('UPDATE'), false);
+  // Separate merchant owner: the main test customer is never given a factor or an enrolment.
+  assert.ok(worldSrc.includes('new EdgeClient(account, factor)'));
+  assert.equal(stackPaths(home).merchantOwner.endsWith('merchant-owner.json'), true);
+  assert.equal(MERCHANT_OWNER.handle, 'test_merchant_owner');
+  assert.match(MERCHANT_OWNER.email, /@local-test\.invalid$/);
+  assert.equal(isTestAccount({ handle: MERCHANT_OWNER.handle, email: MERCHANT_OWNER.email }), true);
+  const ownerFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureMerchantOwner'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(ownerFn, /ensureAccount/);
+  assert.ok(ownerFn.indexOf('setAccount(account)') < ownerFn.indexOf('ensureAccount'), 'credentials are written before the register call');
+  const cmdFn = worldSrc.slice(worldSrc.indexOf('async function cmdPopulate'), worldSrc.indexOf('async function main'));
+  assert.equal(/OwnerFactor|totp|factor/i.test(cmdFn), false, 'the main test account signs in with a password only');
+  assert.equal(worldSrc.includes('world-owner-factor'), false);
+  {
+    const pending = [
+      { id: 'r1', userId: 'u1', tier: 'full' },
+      { id: 'r2', userId: 'u2', tier: 'full' },
+      { id: 'r3', userId: 'u1', tier: 'basic' },
+      { id: 'r4', userId: 'u1', tier: 'institutional' },
+    ];
+    assert.deepEqual(
+      selectPendingForApproval(pending).map((r) => r.id),
+      ['r1', 'r2', 'r3'],
+    );
+    assert.deepEqual(
+      selectPendingForApproval(pending, ['u1']).map((r) => r.id),
+      ['r1', 'r3'],
+      'a request from anyone else is never picked',
+    );
+    assert.deepEqual(selectPendingForApproval(pending, ['nobody']), []);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[friend\.userId\] \}\)/);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[userId\] \}\)/);
+  }
+  {
+    const op = (l, extra = {}) => ({
+      handle: `local_test_operator_${l}`,
+      userId: `00000000-0000-4000-8000-00000000000${l === 'a' ? 1 : 2}`,
+      password: 'pw',
+      totpSecret: 'SECRETSECRETSECRET',
+      lastStep: 5,
+      ...extra,
+    });
+    const ready = { operators: { a: op('a'), b: op('b') } };
+    assert.deepEqual(
+      enrolledTestOperatorPair(ready).map((x) => x.handle),
+      ['local_test_operator_a', 'local_test_operator_b'],
+    );
+    assert.equal(JSON.stringify(enrolledTestOperatorPair(ready)).includes('SECRET'), false, 'no secret leaves the file');
+    assert.equal(enrolledTestOperatorPair(null), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a') } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { totpSecret: '' }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { password: undefined }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { handle: 'real_person' }) } }), null);
+    assert.equal(
+      enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { userId: op('a').userId }) } }),
+      null,
+      'two distinct people',
+    );
+    const pairFn = worldSrc.slice(
+      worldSrc.indexOf('async function signInTestOperatorPair'),
+      worldSrc.indexOf('function loadEnrolledFounders'),
+    );
+    assert.match(pairFn, /operatorSessions/);
+    assert.equal(pairFn.includes('writePrivate') || pairFn.includes('writeFileSync'), false, 'never writes a second credentials file');
+    assert.match(worldSrc, /signedIn = founders \? await signInLocalFounders[\s\S]*signInTestOperatorPair/);
+  }
+  const kycFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureOwnerKycFull'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(kycFn, /kyc\.submit/);
+  assert.match(kycFn, /approvePending/);
+  assert.match(kycFn, /other pending verification request/, "only the owner's own request is ever approved");
+  assert.ok(kycFn.indexOf('others.length') < kycFn.indexOf('approvePending'));
+  const stepFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(stepFn.indexOf('ensureOwnerKycFull') < stepFn.indexOf('resignInForMerchantScopes'));
+  assert.ok(
+    stepFn.indexOf("'create-merchant', 'submit-kyb', 'decide-kyb'") < stepFn.indexOf("'railHealth'"),
+    'onboarding runs before the pay:read reads',
+  );
+  {
+    const d = mkdtempSync(join(tmpdir(), 'merchant-owner-'));
+    try {
+      const file = join(d, 'merchant-owner.json');
+      assert.equal(readMerchantOwner(file), null);
+      const f = new OwnerFactor({ file, totp: () => '000000' });
+      f.setAccount({ handle: 'test_merchant_owner', email: 'o@local-test.invalid', password: 'pw-test', userId: 'u-1' });
+      f.savePending('SECRETSECRETSECRET', ['rc']);
+      f.adoptPending(7);
+      assert.deepEqual(readMerchantOwner(file), {
+        handle: 'test_merchant_owner',
+        email: 'o@local-test.invalid',
+        password: 'pw-test',
+        userId: 'u-1',
+        totpSecret: 'SECRETSECRETSECRET',
+        lastStep: 7,
+      });
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).kind, 'intafaced-local-test-merchant-owner');
+      assert.equal(new OwnerFactor({ file, totp: () => '0' }).account.userId, 'u-1');
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  }
 
   console.log('local-test-world: all checks passed');
 } finally {

@@ -23,7 +23,9 @@ export type CellKind =
   /** A decimal string a service formatted (money). Shown exactly as given, never parsed. */
   | 'amount'
   /** An array of strings. */
-  | 'list';
+  | 'list'
+  /** An array of `{ assetId, amount }`, one money total per asset. Shown as "12.5 USDT, 0.1 BTC", amounts exactly as given. */
+  | 'assetAmounts';
 
 export interface Column {
   /** Dotted path into the row (or the record), e.g. `spine.total`. */
@@ -56,12 +58,21 @@ export interface ReadSpec {
   readonly plainName?: string;
   readonly procedure: string;
   readonly input?: Readonly<Record<string, unknown>>;
+  /**
+   * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the
+   * moment it reads (not calendar days), adds both to `input`, and the read's title says so. See `inputFor`.
+   */
+  readonly windowDays?: number;
+  /** Send `{}` as the input when `input` is empty (the procedure's input is an object and refuses none). */
+  readonly sendEmptyInput?: boolean;
   /** `record` is one object shown as facts; `list` is rows with a detail each. */
   readonly shape: 'record' | 'list';
   /** List only: the property that holds the rows when the answer is an object (`disputes`, `trades`). */
   readonly rowsKey?: string;
   /** List only: dotted path of a stable id inside a row. */
   readonly idKey?: string;
+  /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
+  readonly anonymousRows?: true;
   readonly columns: readonly Column[];
   /** The page size asked for. A full page means more rows may exist. */
   readonly page?: number;
@@ -73,10 +84,16 @@ export interface ReadSpec {
   readonly rowAction?: RowAction;
 }
 
-export type RowAction = 'market.vendor.vet' | 'academy.ambassador' | 'academy.residency';
+export type RowAction =
+  | 'market.vendor.vet'
+  | 'market.listing.takedown'
+  | 'academy.ambassador'
+  | 'academy.residency'
+  /** One moderator re-arms an open dispute. The service asks for no second person, so this is a direct action with a reason. */
+  | 'p2p.dispute.escalate';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
-export type SectionAction = 'academy.ambassador.appoint';
+export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status';
 
 /** A section that is drawn by its own component from the reads above it, not as a list or facts. */
 export type SectionPanel = 'protocol.blockers';

@@ -3,13 +3,13 @@ import {
   router,
   protectedProcedure,
   TRPCError,
-  accountControlInputSchema,
   accountControlResultSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlStateSchema,
 } from '@intafaced/contracts';
 import { TradingControlError, type TradingControls } from './trading-controls.js';
+import { tradeRestrictInputSchema } from '../admin/trading-restrict.js';
 
 export function tradingControlsRouter(controls?: TradingControls) {
   const requireControls = (): TradingControls => {
@@ -48,8 +48,13 @@ export function tradingControlsRouter(controls?: TradingControls) {
       .output(z.array(accountControlResultSchema))
       .query(({ ctx, input }) => call(() => requireControls().history(ctx, input))),
     change: protectedProcedure
-      .input(accountControlInputSchema)
+      .input(tradeRestrictInputSchema())
       .output(accountControlResultSchema)
-      .mutation(({ ctx, input }) => call(() => requireControls().change(ctx, input))),
+      .mutation(({ ctx, input }) => {
+        const approvalId = 'approvalId' in input && typeof input.approvalId === 'string' ? input.approvalId : undefined;
+        return call(() =>
+          approvalId === undefined ? requireControls().change(ctx, input) : requireControls().change(ctx, input, approvalId),
+        );
+      }),
   });
 }

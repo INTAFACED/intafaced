@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
-import { hasCurriculumSlug } from '../curriculum/catalog.js';
+import { CURRICULUM_PATHS, hasCurriculumSlug, listCurriculum, type CurriculumPath } from '../curriculum/catalog.js';
 import {
   PROGRAMME_CATALOG,
   programmeBySlug,
@@ -78,6 +78,46 @@ export type OpsDay = {
   completions: MetricCell;
   grants: MetricCell;
 };
+
+export type EnrolmentCounts = {
+  from: string;
+  to: string;
+  total: number;
+  paths: Array<{ pathSlug: string; count: number }>;
+};
+
+export type CompletionsByItem = {
+  from: string;
+  to: string;
+  pathSlug: string | null;
+  items: Array<{ itemSlug: string; pathSlug: string | null; count: number }>;
+};
+
+type UtcWindow = { fromIso: string; toIso: string; start: Date; endExclusive: Date };
+
+function utcWindow(label: string, from: string, to: string): UtcWindow {
+  let fromDay: ReturnType<typeof parseUtcDay>;
+  let toDay: ReturnType<typeof parseUtcDay>;
+  try {
+    fromDay = parseUtcDay(from);
+    toDay = parseUtcDay(to);
+  } catch {
+    throw new AcademyError(`${label} from and to must be UTC days YYYY-MM-DD`, 'academy.metrics_range_invalid');
+  }
+  const fromUtc = Date.UTC(fromDay.y, fromDay.m - 1, fromDay.d);
+  const toUtc = Date.UTC(toDay.y, toDay.m - 1, toDay.d);
+  if (fromUtc > toUtc) {
+    throw new AcademyError(`${label} from is after to`, 'academy.metrics_range_invalid');
+  }
+  const span = Math.floor((toUtc - fromUtc) / 86_400_000) + 1;
+  if (span > OPS_METRICS_MAX_DAYS) {
+    throw new AcademyError(
+      `${label} range is ${span} days; OPS_METRICS_MAX_DAYS is ${OPS_METRICS_MAX_DAYS}`,
+      'academy.metrics_range_invalid',
+    );
+  }
+  return { fromIso: fromDay.iso, toIso: toDay.iso, start: new Date(fromUtc), endExclusive: new Date(toUtc + 86_400_000) };
+}
 
 function encodeCursor(at: Date, key: string): string {
   return Buffer.from(`${at.toISOString()}\n${key}`, 'utf8').toString('base64url');
@@ -532,29 +572,63 @@ export class AcademyCustomerStore {
     };
   }
 
+  async enrolments(input: { from: string; to: string }): Promise<EnrolmentCounts> {
+    const window = utcWindow('enrolments', input.from, input.to);
+    const rows = await this.sql<Array<{ path_slug: string; n: number }>>`
+      SELECT path_slug, COUNT(*)::int AS n
+        FROM academy.cert_enrollments
+       WHERE enrolled_at >= ${window.start} AND enrolled_at < ${window.endExclusive}
+       GROUP BY path_slug
+       ORDER BY path_slug
+    `;
+    const paths = rows.map((row) => ({ pathSlug: row.path_slug, count: row.n }));
+    return {
+      from: window.fromIso,
+      to: window.toIso,
+      total: paths.reduce((sum, row) => sum + row.count, 0),
+      paths,
+    };
+  }
+
+  async completionsByItem(input: { from: string; to: string; pathSlug?: string | null }): Promise<CompletionsByItem> {
+    const window = utcWindow('completionsByItem', input.from, input.to);
+    const requested = input.pathSlug?.trim().toLowerCase() ?? '';
+    let path: CurriculumPath | null = null;
+    if (requested) {
+      if (!(CURRICULUM_PATHS as readonly string[]).includes(requested)) {
+        throw new AcademyError(`Path ${requested} is not in the curriculum catalogue`, 'academy.path_not_found');
+      }
+      path = requested as CurriculumPath;
+    }
+    const rows = await this.sql<Array<{ item_slug: string; n: number }>>`
+      SELECT item_slug, COUNT(*)::int AS n
+        FROM academy.cert_item_completions
+       WHERE completed_at >= ${window.start} AND completed_at < ${window.endExclusive}
+       GROUP BY item_slug
+    `;
+    const counts = new Map(rows.map((row) => [row.item_slug, row.n]));
+    const catalogue = listCurriculum(path ? { path } : {});
+    const seen = new Set(catalogue.map((item) => item.slug));
+    const items: CompletionsByItem['items'] = catalogue.map((item) => ({
+      itemSlug: item.slug,
+      pathSlug: item.path,
+      count: counts.get(item.slug) ?? 0,
+    }));
+    if (!path) {
+      for (const [slug, count] of counts) {
+        if (!seen.has(slug)) items.push({ itemSlug: slug, pathSlug: null, count });
+      }
+    }
+    items.sort((a, b) => {
+      const byPath = (a.pathSlug ?? '\uffff').localeCompare(b.pathSlug ?? '\uffff');
+      return byPath !== 0 ? byPath : a.itemSlug.localeCompare(b.itemSlug);
+    });
+    return { from: window.fromIso, to: window.toIso, pathSlug: path, items };
+  }
+
   async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; days: OpsDay[] }> {
-    let fromDay: ReturnType<typeof parseUtcDay>;
-    let toDay: ReturnType<typeof parseUtcDay>;
-    try {
-      fromDay = parseUtcDay(input.from);
-      toDay = parseUtcDay(input.to);
-    } catch {
-      throw new AcademyError('opsMetrics from and to must be UTC days YYYY-MM-DD', 'academy.metrics_range_invalid');
-    }
-    const fromUtc = Date.UTC(fromDay.y, fromDay.m - 1, fromDay.d);
-    const toUtc = Date.UTC(toDay.y, toDay.m - 1, toDay.d);
-    if (fromUtc > toUtc) {
-      throw new AcademyError('opsMetrics from is after to', 'academy.metrics_range_invalid');
-    }
-    const span = Math.floor((toUtc - fromUtc) / 86_400_000) + 1;
-    if (span > OPS_METRICS_MAX_DAYS) {
-      throw new AcademyError(
-        `opsMetrics range is ${span} days; OPS_METRICS_MAX_DAYS is ${OPS_METRICS_MAX_DAYS}`,
-        'academy.metrics_range_invalid',
-      );
-    }
-    const endExclusive = new Date(toUtc + 86_400_000);
-    const start = new Date(fromUtc);
+    const window = utcWindow('opsMetrics', input.from, input.to);
+    const { start, endExclusive } = window;
     const [lessonRows, completionRows, grantRows] = await Promise.all([
       this.sql<Array<{ day: string; n: number }>>`
         SELECT to_char(touched_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*)::int AS n
@@ -578,12 +652,12 @@ export class AcademyCustomerStore {
     const lessons = new Map(lessonRows.map((r) => [r.day, r.n]));
     const completions = new Map(completionRows.map((r) => [r.day, r.n]));
     const grants = new Map(grantRows.map((r) => [r.day, r.n]));
-    const days = utcDaysInclusive(fromDay.iso, toDay.iso).map((date) => ({
+    const days = utcDaysInclusive(window.fromIso, window.toIso).map((date) => ({
       date,
       lessonsRead: metricFromCount(lessons.get(date), true),
       completions: metricFromCount(completions.get(date), true),
       grants: metricFromCount(grants.get(date), true),
     }));
-    return { from: fromDay.iso, to: toDay.iso, days };
+    return { from: window.fromIso, to: window.toIso, days };
   }
 }

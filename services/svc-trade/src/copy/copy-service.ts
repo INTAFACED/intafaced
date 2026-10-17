@@ -78,6 +78,13 @@ import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { bindEnvelopeLimits, type CopyLeaderLimitSettings } from './follower-limits.js';
+import {
+  acceptCopyDisclosure,
+  readCopyDisclosure,
+  requireCopyDisclosureForMirror,
+  UNPUBLISHED_COPY_DISCLOSURE_LAW,
+  type CopyDisclosureLaw,
+} from './disclosure.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
 export type FollowerFillFee = {
@@ -110,6 +117,8 @@ const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
   jurisdictionLaw?: CopyJurisdictionLaw;
+  /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
+  disclosureLaw?: CopyDisclosureLaw;
   now?: () => Date;
   /** Defaults to in-memory. Production wires SqlCopyFollowStore. */
   store?: CopyFollowStore;
@@ -205,6 +214,7 @@ export class CopyService {
   private readonly store: CopyFollowStore;
   private readonly feeShareLaw: CopyFeeShareLaw;
   private readonly jurisdictionLaw: CopyJurisdictionLaw;
+  private readonly disclosureLaw: CopyDisclosureLaw;
   private readonly now: () => Date;
   private readonly placeFollowerOrder: PlaceFollowerOrderPort | null;
   private readonly placeMirrorEnabled: boolean;
@@ -220,6 +230,7 @@ export class CopyService {
     this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
+    this.disclosureLaw = options.disclosureLaw ?? UNPUBLISHED_COPY_DISCLOSURE_LAW;
     this.now = options.now ?? (() => new Date());
     this.store = options.store ?? new MemoryCopyFollowStore();
     this.placeFollowerOrder = options.placeFollowerOrder ?? null;
@@ -261,6 +272,19 @@ export class CopyService {
     };
   }
 
+  /** Current owner disclosure and whether this caller accepted that version. */
+  disclosure(principal: Principal) {
+    return readCopyDisclosure(this.disclosureLaw, this.store, principal.userId);
+  }
+
+  /**
+   * Record this caller's acceptance of the current published version.
+   * Same follower and version returns the first row.
+   */
+  acceptDisclosure(principal: Principal, input: { version: string; clientAcceptId: string }) {
+    return acceptCopyDisclosure(this.disclosureLaw, this.store, principal.userId, input, this.now());
+  }
+
   /**
    * Place a planned mirror as a real follower spot limit at the plan envelope.
    * Flag off / blank §8 / paper→live refuse by name. Idempotent on fillId.
@@ -277,6 +301,7 @@ export class CopyService {
       requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
       await this.refuseIfFollowRegionClosed(store, follow);
       if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
         throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
@@ -644,6 +669,7 @@ export class CopyService {
 
   private async planMirrorForFollowExclusive(store: CopyFollowStore, principal: Principal, input: PlanMirrorInput) {
     const follow = await this.requireOwnedFollow(store, principal, input.followId);
+    await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
     await this.refuseIfFollowRegionClosed(store, follow);
     requireNewCopyIntentAllowed(follow);
 

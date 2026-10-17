@@ -23,9 +23,9 @@ describe('mining pool reading', () => {
     expect(poolVerdict(health({ jobs: [] }))).toBe('configured_no_jobs');
     expect(poolVerdict(health())).toBe('configured');
   });
-  it('blocks every customer step on the missing customer API', () => {
+  it('lets a customer read three steps and refuses the fourth', () => {
     expect(MINING_STEPS.map((step) => step.id)).toEqual(['worker', 'shares', 'window', 'payout']);
-    expect(MINING_STEPS.every((step) => step.blocker === 'no_customer_api')).toBe(true);
+    expect(MINING_STEPS.map((step) => step.access)).toEqual(['refused', 'read', 'read', 'read']);
   });
   it('reads the dependency a step needs without checking it', () => {
     const worker = MINING_STEPS[0]!,

@@ -57,8 +57,9 @@ const messages = {
   Time: 'Time',
   Status: 'Status',
   Settled: 'Settled',
-  'Recent parked title': 'Conversion history isn’t available here yet',
-  'Recent parked body': 'Your conversions are safe and still show in Activity, but this list can’t pick them out yet.',
+  'Recent parked title': 'Conversion history needs the trade history service, which is not connected on this server',
+  'Recent parked body':
+    'Your conversions are safe and show in Activity. Activity cannot tell a conversion from a spot order, so this list waits for that service instead of guessing.',
   'Recent error title': 'Couldn’t load your conversions',
   'Recent error body': 'Nothing was changed. Try again.',
   // Review

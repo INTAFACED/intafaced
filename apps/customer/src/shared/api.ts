@@ -4,7 +4,8 @@ import { uiMessage, type UiMessage } from './ui-copy';
 export type RefusalReason =
   'unauthorized' | 'forbidden' | 'not_mounted' | 'not_supported' | 'unreachable' | 'invalid_response' | 'aborted' | 'error' | 'uncertain';
 export type ApiResult<T> =
-  { ok: true; data: T } | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number };
+  | { ok: true; data: T }
+  | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number; requestId?: string };
 export type RequestOptions = { signal?: AbortSignal };
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
@@ -38,6 +39,7 @@ const errorEnvelope = z
               .object({
                 code: z.string().optional(),
                 intafacedCode: z.string().optional(),
+                requestId: z.string().optional(),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -145,6 +147,8 @@ export function createApiClient(
           data?.name ??
           (typeof data?.error === 'string' ? data.error : undefined);
         const message = error?.message ?? data?.message;
+        // The service's own reference for this request, when it sends one (error body or `x-request-id`). Never made up.
+        const requestId = error?.data?.requestId ?? response.headers.get('x-request-id') ?? undefined;
         let reason: RefusalReason = 'error';
         if (response.status === 401) {
           reason = 'unauthorized';
@@ -170,6 +174,7 @@ export function createApiClient(
               )
             : { ok: false as const, reason, message, status: response.status }),
           ...(code ? { code } : {}),
+          ...(requestId ? { requestId } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

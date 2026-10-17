@@ -1,0 +1,30 @@
+// The routes the screenshot board shoots for the settings pages: [id from the page inventory, title, address, also shoot at phone width, who is signed in].
+// Read by ../board/shoot.mjs and ../board/crawl.mjs. Keep this list to routes this package owns, and add a row when you add a page.
+// The signed-in person defaults to the owner; 'payfac' signs in as a platform owner so Network and Permissions show.
+export const board = [
+  ['P01', 'Setup', '/pay/onboarding', true],
+  ['P02', 'Business details', '/pay/onboarding/business', false],
+  ['P03', 'Verification', '/pay/onboarding/verification', false],
+  ['P04', 'Go live', '/pay/onboarding/go-live', false],
+  ['P38', 'Compliance', '/pay/compliance', false],
+  ['P39', 'Team', '/pay/team', true],
+  ['P40', 'Network', '/pay/network', false, 'payfac'],
+  ['P41', 'Business in your network', '/pay/network/TEST-child', false, 'payfac'],
+  ['P42', 'Permissions', '/pay/permissions', false, 'payfac'],
+  ['P43', 'API keys', '/pay/developer/keys', true],
+  ['P44', 'Signing', '/pay/developer/signing', false],
+  ['P45', 'Webhooks', '/pay/developer/webhooks', false],
+  ['P46', 'Webhook detail', '/pay/developer/webhooks/TEST-endpoint-1', false],
+  ['P47', 'Deliveries', '/pay/developer/deliveries', false],
+  ['P48', 'Sandbox', '/pay/developer/sandbox', false],
+  ['P49', 'Developer docs', '/pay/developer/docs', false],
+  ['P50', 'Analytics', '/pay/analytics', false],
+  ['P51', 'Fees', '/pay/analytics/fees', false],
+  ['P52', 'Reports', '/pay/reports', false],
+  ['P53', 'Report exports', '/pay/reports/exports', false],
+  ['P54', 'Business settings', '/pay/settings', true],
+  ['P55', 'Security', '/pay/settings/security', false],
+  ['P56', 'Notification settings', '/pay/settings/notifications', false],
+  ['P56n', 'Notifications', '/pay/notifications', false],
+  ['P57', 'Activity', '/pay/activity', true],
+];

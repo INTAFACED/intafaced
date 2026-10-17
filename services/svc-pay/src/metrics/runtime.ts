@@ -1,7 +1,6 @@
 import type { Sql } from 'postgres';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { PayService } from '../payment-service.js';
-import { defaultFraudReviewQueue } from '../fraud/review-queue.js';
 import { createMerchantMetricsAuthority, type MerchantMetricsAuthority } from './authority.js';
 import { MetricsProjector } from './projector.js';
 import { MetricsReader, type BalanceReader, type RailHealthRow } from './reader.js';
@@ -17,13 +16,10 @@ export interface MetricsRuntimeDeps {
   pay: Pick<PayService, 'getMerchant' | 'getMerchantByUserId'> & BalanceReader;
   trees: MerchantAreaFence | null;
   rails: { health(): Array<{ id: string; usable: boolean; healthy: boolean; reason?: string | undefined }> };
-  /** Defaults to the process-local fraud review queue (the only one that exists today). */
-  openFraudReviews?: (merchantId?: string) => number;
+  /** Defaults to a count of open and claimed rows in pay.fraud_review_cases. */
+  openFraudReviews?: (merchantId?: string) => number | Promise<number>;
   now?: () => Date;
 }
-
-/** Largest page the review queue will return. A count at this value is a floor, not a total. */
-const FRAUD_QUEUE_PAGE = 200;
 
 export const railHealthRows = (rails: MetricsRuntimeDeps['rails']): RailHealthRow[] =>
   rails.health().map((h) => ({ railId: h.id, ok: h.usable && h.healthy, detail: h.reason ?? null }));
@@ -35,8 +31,16 @@ export function createMetricsRuntime(deps: MetricsRuntimeDeps): MetricsRuntime {
     reader: new MetricsReader({
       sql: deps.sql,
       balances: deps.pay,
-      // The review queue is in-memory per process (fraud/review-queue.ts); a durable store is an open residual.
-      openFraudReviews: deps.openFraudReviews ?? ((merchantId) => defaultFraudReviewQueue.listOpen(merchantId, FRAUD_QUEUE_PAGE).length),
+      openFraudReviews:
+        deps.openFraudReviews ??
+        (async (merchantId) => {
+          const rows = await deps.sql<Array<{ n: number }>>`
+            SELECT count(*)::int AS n
+              FROM pay.fraud_review_cases
+             WHERE status IN ('open', 'claimed')
+               ${merchantId ? deps.sql`AND merchant_id = ${merchantId}` : deps.sql``}`;
+          return Number(rows[0]?.n ?? 0);
+        }),
       railHealth: () => railHealthRows(deps.rails),
       ...(deps.now ? { now: deps.now } : {}),
     }),

@@ -1,9 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { StepReplyView } from '@/components/approval-workbench';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
-import type { ResidencyDecision, VendorDecision } from '@/lib/desk/approval-packet';
-import { ambassadorVerb, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
+import {
+  REASON_MAX,
+  REASON_MIN,
+  validReason,
+  type CardStatus,
+  type ResidencyDecision,
+  type VendorDecision,
+} from '@/lib/desk/approval-packet';
+import type { StepReply } from '@/lib/desk/approval-types';
+import { ambassadorVerb, disputeEscalationOffered, listingTakedownOffered, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
+import { postDirect } from '@/lib/ops-desk/direct-browser';
+import { describeDirect, newRequestKey } from '@/lib/ops-desk/direct-model';
 import type { Row } from '@/lib/ops-desk/types';
 import './desk.css';
 
@@ -221,5 +232,200 @@ export function AppointAmbassadorAction({ userId, onChanged }: { userId: string;
         onChanged={onChanged}
       />
     </div>
+  );
+}
+
+/**
+ * Take a listing off the market. svc-market makes it permanent: nobody can set it active again, and the vendor cannot restore
+ * it. Purchases already settled keep their access and nothing is refunded. The approval covers the listing AND the reason,
+ * so the second founder signs exactly the words typed here.
+ */
+export function ListingActions({ row, userId, onChanged }: { row: Row; userId: string; onChanged: () => void }) {
+  const listingId = rowText(row, 'id');
+  const status = rowText(row, 'status') ?? '';
+  if (listingId === null || !listingTakedownOffered(status)) {
+    return (
+      <p className="dk-muted" data-testid="listing-no-action">
+        Only a listing that is on sale can be taken down. This one is {status === '' ? 'in a status this console does not act on' : status}.
+      </p>
+    );
+  }
+  const action: ControlAction = {
+    heading: 'Take down this listing',
+    submitLabel: 'Ask a second operator to approve the takedown (this console admits only founders)',
+    needsReason: true,
+    reasonLabel: 'Why (kept in the listing’s record and signed by the approver, 12 to 500 characters)',
+    build: (reason) => ({ kind: 'market.listing.takedown', listingId, reason }),
+    danger: true,
+  };
+  return (
+    <div className="dk-stack" data-testid="listing-actions">
+      <ControlDesk
+        key={listingId}
+        endpoint="/api/more-ops"
+        userId={userId}
+        blockedReason={null}
+        action={action}
+        consequence={`The listing leaves the market for good: nobody can set it active again and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Takedown unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+export const CARD_COPY: Record<CardStatus, { label: string; consequence: string; danger: boolean }> = {
+  frozen: {
+    label: 'Freeze',
+    consequence: 'The card is frozen and its owner cannot unfreeze it; only an operator can lift it. The owner can still close it.',
+    danger: true,
+  },
+  active: {
+    label: 'Lift the freeze on',
+    consequence:
+      'This lifts ANY freeze on the card, including one the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.',
+    danger: true,
+  },
+};
+
+/**
+ * Freeze or unfreeze one card as an operator. svc-bank has no list of cards an operator can pick from, so the founder types the
+ * card id (support has it from the owner's report). It is a founder-level request: identity wants both founders live. The service
+ * binds the card and the status to the approval; the reason rides in the packet and is recorded with the freeze.
+ */
+export function CardStatusAction({ userId, onChanged }: { userId: string; onChanged: () => void }) {
+  const [target, setTarget] = useState('');
+  const [status, setStatus] = useState<CardStatus>('frozen');
+  const card = target.trim().toLowerCase();
+  const valid = UUID.test(card);
+  const copy = CARD_COPY[status];
+  const action: ControlAction = {
+    heading: `${copy.label} this card`,
+    submitLabel: `Ask the other founder to approve: ${status === 'frozen' ? 'freeze' : 'lift the freeze on'} the card`,
+    needsReason: true,
+    reasonLabel: `Why (kept with the card’s record, ${REASON_MIN} to ${REASON_MAX} characters)`,
+    build: (reason) => ({ kind: 'bank.card.status', cardId: card, status, reason }),
+    danger: copy.danger,
+  };
+  return (
+    <div className="dk-stack" data-testid="card-status-action">
+      <h3>Freeze or unfreeze a card</h3>
+      <div className="adm-field">
+        <label htmlFor="card-status-id">Card id</label>
+        <input
+          id="card-status-id"
+          className="adm-input"
+          value={target}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          onChange={(e) => setTarget(e.target.value)}
+        />
+      </div>
+      <div className="dk-row" role="group" aria-label="What to do with the card">
+        {(Object.keys(CARD_COPY) as CardStatus[]).map((o) => (
+          <button key={o} type="button" className="adm-btn" aria-pressed={status === o} onClick={() => setStatus(o)}>
+            {o === 'frozen' ? 'Freeze' : 'Lift the freeze'}
+          </button>
+        ))}
+      </div>
+      <ControlDesk
+        key={`${valid ? card : 'no-card'}:${status}`}
+        endpoint="/api/bank-ops"
+        userId={userId}
+        blockedReason={null}
+        formHold={valid ? null : 'Enter the card id above first (it looks like 9f8e7d6c-1111-4222-8333-444455556666).'}
+        action={action}
+        consequence={`${copy.consequence} Two different founders must agree, and identity checks both are current founders. The bank service needs the treasury permission on your session and a verified second factor, and refuses in words if it is missing. The approver signs the card and the status; the reason is recorded with the freeze but is not part of what they sign.`}
+        blockedButtonLabel="Card freeze unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+/**
+ * Escalate an open dispute. One moderator does this and svc-p2p asks for no second person: it marks the dispute escalated and
+ * re-arms the trade deadline, moving no money. The key is kept while the reason is unchanged, so repeating a request whose reply
+ * was lost cannot escalate twice.
+ */
+export function DisputeActions({ row, onChanged }: { row: Row; userId: string; onChanged: () => void }) {
+  const disputeId = rowText(row, 'id');
+  const status = rowText(row, 'status') ?? '';
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [reply, setReply] = useState<StepReply | null>(null);
+  const attempt = useRef<{ reason: string; key: string } | null>(null);
+  const lock = useRef(false);
+  if (disputeId === null || !disputeEscalationOffered(status)) {
+    return (
+      <p className="dk-muted" data-testid="dispute-no-action">
+        Only an open dispute can be escalated. This one is {status === '' ? 'in a status this console does not act on' : status}.
+      </p>
+    );
+  }
+  const trimmed = reason.trim();
+  const ready = validReason(trimmed) && !busy;
+  async function submit() {
+    if (lock.current || disputeId === null || !validReason(trimmed)) return;
+    lock.current = true;
+    setBusy(true);
+    setReply(null);
+    try {
+      if (attempt.current?.reason !== trimmed) attempt.current = { reason: trimmed, key: newRequestKey() };
+      const result = await postDirect('/api/p2p-ops', {
+        action: 'p2p.dispute.escalate',
+        disputeId,
+        reason: trimmed,
+        clientRequestId: attempt.current.key,
+      });
+      setReply(result);
+      if (result.ok) {
+        attempt.current = null;
+        setReason('');
+        onChanged();
+      }
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  return (
+    <form
+      className="dk-stack"
+      data-testid="dispute-actions"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <h4>Escalate this dispute</h4>
+      <p className="dk-muted">
+        {describeDirect({ action: 'p2p.dispute.escalate', disputeId, reason: '', clientRequestId: '' })} svc-p2p asks for no second person
+        on an escalation. Your account must be a moderator (on the moderator list, or holding the compliance permission, and the P2P read
+        permission); svc-p2p refuses in words if it is not. Ruling on the dispute is not offered here.
+      </p>
+      <div className="adm-field">
+        <label htmlFor={`escalate-reason-${disputeId}`}>
+          Why (kept with the escalation, {REASON_MIN} to {REASON_MAX} characters)
+        </label>
+        <textarea
+          id={`escalate-reason-${disputeId}`}
+          className="adm-textarea"
+          rows={3}
+          value={reason}
+          maxLength={REASON_MAX}
+          disabled={busy}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <div className="dk-row">
+        <button type="submit" className="adm-btn" data-tone="primary" disabled={!ready}>
+          {busy ? 'Sending…' : 'Escalate this dispute'}
+        </button>
+        {!ready && !busy && <span className="dk-why">Give a reason of at least {REASON_MIN} characters first.</span>}
+      </div>
+      {reply && <StepReplyView reply={reply} />}
+    </form>
   );
 }

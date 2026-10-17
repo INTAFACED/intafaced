@@ -125,6 +125,8 @@ export type AcademyErrorCode =
   | 'academy.video_position_out_of_range'
   /** Leave found no enrolment for this caller. */
   | 'academy.enrollment_not_found'
+  /** Operator completionsByItem path is not a curriculum path. */
+  | 'academy.path_not_found'
   /** opsMetrics from/to is not a UTC day range inside OPS_METRICS_MAX_DAYS. */
   | 'academy.metrics_range_invalid'
   | 'academy.my_completions_list_limit_unset'
@@ -226,6 +228,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.video_not_found',
   'academy.video_position_out_of_range',
   'academy.enrollment_not_found',
+  'academy.path_not_found',
   'academy.metrics_range_invalid',
   'academy.my_completions_list_limit_unset',
   'academy.residency_cohorts_list_limit_unset',

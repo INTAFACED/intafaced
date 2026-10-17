@@ -5,6 +5,7 @@ import { missingLake } from './backtest/lake.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
+import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -31,6 +32,7 @@ const isolateWired = true;
 const lake = missingLake();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
 export const appRouter = createQuantRouter({
   wired: isolateWired,
@@ -38,6 +40,7 @@ export const appRouter = createQuantRouter({
   limits: { maxOps: env.SANDBOX_MAX_OPS, maxSource: env.SANDBOX_MAX_SOURCE },
   lake,
   strategies: strategies.repository,
+  runs: runs.repository,
 });
 export type AppRouter = typeof appRouter;
 
@@ -69,6 +72,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       await app.close();
       await strategies.close();
+      await runs.close();
       process.exit(0);
     })();
   });
