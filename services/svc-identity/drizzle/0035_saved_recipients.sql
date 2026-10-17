@@ -1,6 +1,6 @@
 -- Saved pay recipients. The public name is the handle; label is the owner's
 -- private nickname. No display name, email, or legal name is stored here.
--- Reversal: 0034_saved_recipients.down.sql
+-- Reversal: 0035_saved_recipients.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."saved_recipients" (
   "owner_id" uuid NOT NULL REFERENCES "identity"."users" ("id"),
