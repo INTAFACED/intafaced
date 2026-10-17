@@ -24,6 +24,7 @@ const RO2 = '55555555-5555-4555-8555-555555555555';
 const TP = '66666666-6666-4666-8666-666666666666';
 const SL = '77777777-7777-4777-8777-777777777777';
 const GTD = '88888888-8888-4888-8888-888888888888';
+const SLIM = '99999999-9999-4999-8999-999999999999';
 
 function limit(spec: {
   id: string;
@@ -606,5 +607,59 @@ describe('a priceless reduce-only order does not cancel a protective stop', () =
         .toState()
         .stops.map((row) => row.orderId),
     ).toEqual([SL]);
+  });
+});
+
+describe('a reduce-only stop-limit never displaces a resting reduce-only limit', () => {
+  it('an untriggered stop-limit does not cancel a take-profit', () => {
+    const book = new OrderBook(MARKET);
+    book.submit(limit({ id: OTHER, account: 'mm', side: 'sell', qty: '1', price: '100' }));
+    book.submit(limit({ id: TAKER, account: 'desk', side: 'buy', qty: '1', price: '100' }));
+    expect(formatAmount(book.lastPrice!)).toBe('100');
+
+    const takeProfit = book.submit(limit({ id: RO, account: 'desk', side: 'sell', qty: '1', price: '110', reduceOnly: true }));
+    expect(takeProfit.accepted).toBe(true);
+    expect(takeProfit.resting?.orderId).toBe(RO);
+
+    const stopLimit = book.submit({
+      orderId: SLIM,
+      accountId: 'desk',
+      type: 'stop_limit',
+      side: 'sell',
+      qty: A('1'),
+      price: A('89'),
+      stopPrice: A('90'),
+      tif: 'GTC',
+      reduceOnly: true,
+    });
+    expect(stopLimit.rejected?.code).toBe('would_increase_position');
+    expect(stopLimit.cancellations.some((row) => row.reason === 'reduce_only_displaced')).toBe(false);
+    expect(book.toState().asks.flatMap((level) => level.orders.map((order) => order.orderId))).toEqual([RO]);
+    expect(book.toState().stops).toEqual([]);
+  });
+
+  it('a stop-limit that triggers at once does not displace either', () => {
+    const book = new OrderBook(MARKET);
+    book.submit(limit({ id: OTHER, account: 'mm', side: 'sell', qty: '1', price: '100' }));
+    book.submit(limit({ id: TAKER, account: 'desk', side: 'buy', qty: '1', price: '100' }));
+    expect(formatAmount(book.lastPrice!)).toBe('100');
+
+    const takeProfit = book.submit(limit({ id: RO, account: 'desk', side: 'sell', qty: '1', price: '110', reduceOnly: true }));
+    expect(takeProfit.accepted).toBe(true);
+
+    const stopLimit = book.submit({
+      orderId: SLIM,
+      accountId: 'desk',
+      type: 'stop_limit',
+      side: 'sell',
+      qty: A('1'),
+      price: A('99'),
+      stopPrice: A('100'),
+      tif: 'GTC',
+      reduceOnly: true,
+    });
+    expect(stopLimit.rejected?.code).toBe('would_increase_position');
+    expect(stopLimit.cancellations.some((row) => row.reason === 'reduce_only_displaced')).toBe(false);
+    expect(book.toState().asks.flatMap((level) => level.orders.map((order) => order.orderId))).toEqual([RO]);
   });
 });

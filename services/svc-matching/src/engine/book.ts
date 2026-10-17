@@ -159,8 +159,13 @@ function stopView(order: EngineOrder): {
   };
 }
 
-/** Limit price only. A market or stop-market has no price and must not outrank a resting row. */
+/**
+ * Price used to rank a reduce-only arrival.
+ * A stop or stop-limit never outranks a resting row, whether or not it triggers now.
+ * A market has no limit price and does not outrank one either.
+ */
 function incomingPrice(order: EngineOrder): Amount | null {
+  if (order.type === 'stop' || order.type === 'stop_limit') return null;
   return order.price;
 }
 
@@ -1492,7 +1497,7 @@ export class OrderBook {
 
   /**
    * Own size must fit the open qty after reduce-only rows that stay.
-   * An untriggered stop always blocks. A market or stop-market (no limit price) blocks on every same-side row.
+   * An untriggered stop always blocks. A market, stop, or stop-limit has no incoming price, so every same-side row blocks.
    */
   private incomingReduceOnlyRefused(order: EngineOrder): boolean {
     const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
@@ -1506,7 +1511,7 @@ export class OrderBook {
   }
 
   private displaceReduceOnly(order: EngineOrder): CancelledRef[] {
-    if (order.reduceOnly !== true || order.price === null) return [];
+    if (order.reduceOnly !== true || incomingPrice(order) === null) return [];
     const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
     if (order.qty > open) return [];
     const rows = this.reduceOnlyRows(order.accountId, order.side, order.orderId);
