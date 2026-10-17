@@ -1,18 +1,26 @@
 /**
  * Sequenced private positions stream.
  *
- * Folds svc-trade `positionUpdated` into a per-account journal. A subscriber
- * sees a snapshot, then deltas whose sequence numbers increase by one. A
- * reconnect names the last sequence it applied: the missed deltas go out when
- * they are still retained, otherwise a fresh snapshot with `resume: 'gap'`.
- * Heartbeats repeat the current sequence and the clock the caller passed, so
- * the age of the stream is the age of that clock, not a time this file invents.
+ * Folds svc-trade `positionUpdated` into a per-account journal and seeds the
+ * first snapshot from the caller's open-positions read, so a restart does not
+ * report an empty book that was never read. A subscriber sees that snapshot,
+ * then deltas whose sequence numbers increase by one. Snapshot, delta, and
+ * heartbeat frames carry this process's `streamId`. A reconnect names that id
+ * next to the last sequence it applied: missed deltas go out only when the id
+ * matches and the tail is still retained. A missing or different id is a
+ * seeded snapshot with `resume: 'gap'`. Heartbeats repeat the current sequence
+ * and the clock the caller passed, so the age of the stream is the age of that
+ * clock, not a time this file invents.
  *
  * Money stays decimal strings. A JSON number is refused and does not advance
  * the sequence. Another account's rows are not readable without `admin:read`.
+ * svc-trade's open-positions read is the caller's own account; a cold operator
+ * subscribe is `ws.positions_snapshot_unavailable` rather than an invented book.
  */
+import { randomUUID } from 'node:crypto';
 export const POSITIONS_CHANNEL = 'positions' as const;
 export const POSITIONS_SOURCE_UNAVAILABLE = 'ws.positions_source_unavailable' as const;
+export const POSITIONS_SNAPSHOT_UNAVAILABLE = 'ws.positions_snapshot_unavailable' as const;
 export const POSITIONS_UNAUTHENTICATED = 'ws.unauthenticated' as const;
 export const POSITIONS_FOREIGN_ACCOUNT = 'ws.positions_foreign_account' as const;
 /** Operator read of another account. A session without it is refused. */
@@ -51,6 +59,7 @@ export interface PositionsSession {
 export type PositionsSnapshotFrame = {
   readonly channel: typeof POSITIONS_CHANNEL;
   readonly type: 'snapshot';
+  readonly streamId: string;
   readonly sequence: number;
   readonly asOf: string;
   readonly resume: 'fresh' | 'gap';
@@ -60,6 +69,7 @@ export type PositionsSnapshotFrame = {
 export type PositionsDeltaFrame = {
   readonly channel: typeof POSITIONS_CHANNEL;
   readonly type: 'delta';
+  readonly streamId: string;
   readonly sequence: number;
   readonly asOf: string;
   readonly position: PositionRow;
@@ -68,6 +78,7 @@ export type PositionsDeltaFrame = {
 export type PositionsHeartbeatFrame = {
   readonly channel: typeof POSITIONS_CHANNEL;
   readonly type: 'heartbeat';
+  readonly streamId: string;
   readonly sequence: number;
   readonly asOf: string;
   readonly dataAsOf: string | null;
@@ -83,9 +94,14 @@ export type PositionsErrorFrame = {
 
 export type PositionsFrame = PositionsSnapshotFrame | PositionsDeltaFrame | PositionsHeartbeatFrame | PositionsErrorFrame;
 
+/** Open positions for one account, read with that account's access token. */
+export type PositionsSeed = (userId: string, accessToken: string) => Promise<readonly unknown[]>;
+
 export interface PositionsStreamOptions {
   /** How many deltas per account are kept for a resume. Default 256. */
   readonly retain?: number;
+  /** Process identity on every frame. Tests inject this; production draws a UUID. */
+  readonly streamId?: string;
 }
 
 interface StoredDelta {
@@ -97,6 +113,9 @@ interface StoredDelta {
 interface Book {
   sequence: number;
   dataAsOf: string | null;
+  /** True after a successful open-positions read. An unread book must not snapshot as empty. */
+  seeded: boolean;
+  seeding?: Promise<void>;
   readonly rows: Map<string, PositionRow>;
   readonly deltas: StoredDelta[];
 }
@@ -204,6 +223,7 @@ function openRow(row: PositionRow): boolean {
 
 export class PositionsStream {
   readonly #retain: number;
+  readonly #streamId: string;
   readonly #books = new Map<string, Book>();
   readonly #subs = new Set<Sub>();
   #attached = false;
@@ -211,6 +231,11 @@ export class PositionsStream {
   constructor(options: PositionsStreamOptions = {}) {
     const retain = options.retain ?? DEFAULT_RETAIN;
     this.#retain = Number.isInteger(retain) && retain >= 1 ? retain : DEFAULT_RETAIN;
+    this.#streamId = options.streamId !== undefined && options.streamId.length > 0 ? options.streamId : randomUUID();
+  }
+
+  get streamId(): string {
+    return this.#streamId;
   }
 
   get sourceAttached(): boolean {
@@ -237,6 +262,7 @@ export class PositionsStream {
     const frame: PositionsDeltaFrame = {
       channel: POSITIONS_CHANNEL,
       type: 'delta',
+      streamId: this.#streamId,
       sequence: book.sequence,
       asOf: row.ts,
       position: row,
@@ -247,13 +273,16 @@ export class PositionsStream {
     return true;
   }
 
-  subscribe(input: {
+  async subscribe(input: {
     readonly session: PositionsSession | null;
     readonly requestedUserId?: string;
     readonly lastSequence?: number;
+    readonly streamId?: string;
     readonly asOf: string;
+    readonly accessToken?: string;
+    readonly seed?: PositionsSeed;
     send(frame: PositionsFrame): void;
-  }): { readonly ok: true; detach(): void } | { readonly ok: false; readonly frame: PositionsErrorFrame } {
+  }): Promise<{ readonly ok: true; detach(): void } | { readonly ok: false; readonly frame: PositionsErrorFrame }> {
     const refuse = (frame: PositionsErrorFrame) => {
       input.send(frame);
       return { ok: false as const, frame };
@@ -274,13 +303,17 @@ export class PositionsStream {
     if (!this.#attached) {
       return refuse(errorFrame(POSITIONS_SOURCE_UNAVAILABLE, 'svc-trade positionUpdated is not attached on this process'));
     }
-    const book = this.#book(target);
     if (input.lastSequence !== undefined && (!Number.isInteger(input.lastSequence) || input.lastSequence < 0)) {
       return refuse(errorFrame('ws.positions_bad_sequence', 'lastSequence must be a non-negative integer'));
     }
+    const book = this.#book(target);
+    if (this.#needsSnapshot(book, input.lastSequence, input.streamId) && !book.seeded) {
+      const ready = await this.#ensureSeeded(book, target, input.session.userId, input.accessToken, input.seed);
+      if (!ready.ok) return refuse(ready.frame);
+    }
     const sub: Sub = { userId: target, send: input.send };
     this.#subs.add(sub);
-    this.#resume(book, input.lastSequence, input.asOf, input.send);
+    this.#resume(book, input.lastSequence, input.streamId, input.asOf, input.send);
     return {
       ok: true,
       detach: () => {
@@ -295,6 +328,7 @@ export class PositionsStream {
       const frame: PositionsHeartbeatFrame = {
         channel: POSITIONS_CHANNEL,
         type: 'heartbeat',
+        streamId: this.#streamId,
         sequence: book.sequence,
         asOf,
         dataAsOf: book.dataAsOf,
@@ -309,6 +343,7 @@ export class PositionsStream {
     const created: Book = {
       sequence: 0,
       dataAsOf: null,
+      seeded: false,
       rows: new Map(),
       deltas: [],
     };
@@ -316,36 +351,134 @@ export class PositionsStream {
     return created;
   }
 
-  #resume(book: Book, lastSequence: number | undefined, asOf: string, send: (frame: PositionsFrame) => void): void {
-    if (lastSequence === undefined) {
-      send(this.#snapshot(book, asOf, 'fresh'));
+  /**
+   * A snapshot is required when the caller has no cursor, names another
+   * process, or the retained tail cannot continue `lastSequence`. Delta replay
+   * is only the matching-id contiguous case. An equal cursor on this process
+   * is a heartbeat.
+   */
+  #needsSnapshot(book: Book, lastSequence: number | undefined, clientStreamId: string | undefined): boolean {
+    if (lastSequence === undefined) return true;
+    if (clientStreamId !== this.#streamId) return true;
+    if (lastSequence === book.sequence) return false;
+    if (lastSequence > book.sequence) return true;
+    return !this.#contiguous(book, lastSequence);
+  }
+
+  #contiguous(book: Book, lastSequence: number): boolean {
+    const missed = this.#missed(book, lastSequence);
+    const need = book.sequence - lastSequence;
+    return missed.length === need && missed.every((delta, index) => delta.sequence === lastSequence + 1 + index);
+  }
+
+  #missed(book: Book, lastSequence: number): StoredDelta[] {
+    return book.deltas.filter((delta) => delta.sequence > lastSequence).sort((a, b) => a.sequence - b.sequence);
+  }
+
+  /**
+   * Own-account books are seeded from `seed` before the first snapshot.
+   * A journal that already folded events can snapshot without a port: those
+   * rows were read off the bus. A cold book cannot. Another account has no
+   * svc-trade read on the caller's token, so a cold operator book is refused
+   * and `seed` is not called (it would stamp the caller's rows onto them).
+   */
+  async #ensureSeeded(
+    book: Book,
+    targetUserId: string,
+    sessionUserId: string,
+    accessToken: string | undefined,
+    seed: PositionsSeed | undefined,
+  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly frame: PositionsErrorFrame }> {
+    if (book.seeded) return { ok: true };
+    if (targetUserId !== sessionUserId) {
+      if (book.sequence === 0) {
+        return {
+          ok: false,
+          frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, "another account's open positions cannot be read on this stream"),
+        };
+      }
+      return { ok: true };
+    }
+    if (seed === undefined || accessToken === undefined || accessToken.length === 0) {
+      if (book.sequence === 0) {
+        return { ok: false, frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, 'open positions snapshot is not wired') };
+      }
+      return { ok: true };
+    }
+    try {
+      await this.#seedBook(book, targetUserId, accessToken, seed);
+      return { ok: true };
+    } catch {
+      return { ok: false, frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, 'open positions could not be read') };
+    }
+  }
+
+  async #seedBook(book: Book, userId: string, accessToken: string, seed: PositionsSeed): Promise<void> {
+    if (book.seeded) return;
+    const inflight = book.seeding;
+    if (inflight) {
+      await inflight;
+      if (!book.seeded) throw new Error('positions seed failed');
+      return;
+    }
+    const run = this.#readSeed(book, userId, accessToken, seed);
+    book.seeding = run;
+    try {
+      await run;
+    } finally {
+      if (book.seeding === run) book.seeding = undefined;
+    }
+  }
+
+  async #readSeed(book: Book, userId: string, accessToken: string, seed: PositionsSeed): Promise<void> {
+    const watermark = book.sequence;
+    const raw = await seed(userId, accessToken);
+    const parsed: PositionRow[] = [];
+    for (const item of raw) {
+      const row = positionRowFromUnknown(item);
+      if (row === null || row.userId !== userId) {
+        throw new Error('positions seed row is not this account');
+      }
+      parsed.push(row);
+    }
+    book.rows.clear();
+    for (const row of parsed) {
+      if (openRow(row)) book.rows.set(row.positionId, row);
+    }
+    for (const delta of this.#missed(book, watermark)) {
+      if (openRow(delta.position)) book.rows.set(delta.position.positionId, delta.position);
+      else book.rows.delete(delta.position.positionId);
+    }
+    book.seeded = true;
+  }
+
+  #resume(
+    book: Book,
+    lastSequence: number | undefined,
+    clientStreamId: string | undefined,
+    asOf: string,
+    send: (frame: PositionsFrame) => void,
+  ): void {
+    if (this.#needsSnapshot(book, lastSequence, clientStreamId)) {
+      send(this.#snapshot(book, asOf, lastSequence === undefined ? 'fresh' : 'gap'));
       return;
     }
     if (lastSequence === book.sequence) {
       send({
         channel: POSITIONS_CHANNEL,
         type: 'heartbeat',
+        streamId: this.#streamId,
         sequence: book.sequence,
         asOf,
         dataAsOf: book.dataAsOf,
       });
       return;
     }
-    if (lastSequence > book.sequence) {
-      send(this.#snapshot(book, asOf, 'gap'));
-      return;
-    }
-    const missed = book.deltas.filter((delta) => delta.sequence > lastSequence).sort((a, b) => a.sequence - b.sequence);
-    const need = book.sequence - lastSequence;
-    const contiguous = missed.length === need && missed.every((delta, index) => delta.sequence === lastSequence + 1 + index);
-    if (!contiguous) {
-      send(this.#snapshot(book, asOf, 'gap'));
-      return;
-    }
-    for (const delta of missed) {
+    for (const delta of this.#missed(book, lastSequence ?? 0)) {
       send({
         channel: POSITIONS_CHANNEL,
         type: 'delta',
+        streamId: this.#streamId,
         sequence: delta.sequence,
         asOf: delta.asOf,
         position: delta.position,
@@ -358,6 +491,7 @@ export class PositionsStream {
     return {
       channel: POSITIONS_CHANNEL,
       type: 'snapshot',
+      streamId: this.#streamId,
       sequence: book.sequence,
       asOf,
       resume,
@@ -370,6 +504,10 @@ export interface PositionsSubscribeContext {
   readonly stream: PositionsStream | null;
   readonly session: PositionsSession | null;
   readonly nowIso: string;
+  /** Socket access token. The seed read is this caller's own svc-trade request. */
+  readonly accessToken?: string;
+  /** Omitted when no book port is wired. A cold subscribe then refuses instead of sending `positions: []`. */
+  readonly seed?: PositionsSeed;
   send(frame: string): void;
   onDetach(detach: () => void): void;
 }
@@ -404,11 +542,15 @@ export async function handlePositionsSubscribeText(text: string, input: Position
 
   const requestedUserId = typeof rec.userId === 'string' && rec.userId.length > 0 ? rec.userId : undefined;
   const lastSequence = rec.lastSequence;
-  const result = input.stream.subscribe({
+  const streamId = typeof rec.streamId === 'string' && rec.streamId.length > 0 ? rec.streamId : undefined;
+  const result = await input.stream.subscribe({
     session: input.session,
     requestedUserId,
     lastSequence: typeof lastSequence === 'number' ? lastSequence : undefined,
+    streamId,
     asOf: input.nowIso,
+    accessToken: input.accessToken,
+    seed: input.seed,
     send: sendFrame,
   });
   if (result.ok) input.onDetach(result.detach);

@@ -16,7 +16,7 @@ import { callerIpFromUpgrade } from './caller-ip.js';
 import { requestOriginFromUpgrade } from './key-origin.js';
 import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from './key-account.js';
-import { handlePositionsSubscribeText, type PositionsStream } from './positions-stream.js';
+import { handlePositionsSubscribeText, type PositionsSeed, type PositionsStream } from './positions-stream.js';
 
 /**
  * Authenticated private stream (orders, fills, positions).
@@ -358,7 +358,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     enabled,
     tokens,
     busAttached = () => true,
-    book = EMPTY_PRIVATE_BOOK,
+    book: configuredBook,
     codRange = null,
     tradeCancel = null,
     now = () => Date.now(),
@@ -368,6 +368,10 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     customerOrigins,
     positions = null,
   } = options;
+  const book = configuredBook ?? EMPTY_PRIVATE_BOOK;
+  const positionsSeed: PositionsSeed | undefined = configuredBook
+    ? (userId, accessToken) => configuredBook.listOpenPositions({ accessToken, userId })
+    : undefined;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
   let draining = false;
@@ -614,6 +618,8 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   stream: positions,
                   session: { userId: seat.userId, scopes: seat.scopes },
                   nowIso: new Date(now()).toISOString(),
+                  accessToken: seat.token,
+                  seed: positionsSeed,
                   send: (frame) => sink.send(frame),
                   onDetach: (detach) => {
                     detachPositions?.();

@@ -8,7 +8,8 @@ import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
-import { PrivateOrderHub } from './hub.js';
+import { PrivateOrderHub, type PrivatePositionUpdate } from './hub.js';
+import type { PrivateBookPort } from './book.js';
 import { createPrivateWebSocketGateway, PRIVATE_STREAM_PATH, type PrivateWebSocketGateway } from './gateway.js';
 import { TEST_AUTHORITY } from '../test-support/authority.js';
 import {
@@ -57,7 +58,7 @@ function row(userId: string, positionId: string, contracts: unknown, entryPrice 
 }
 
 describe('positions stream', () => {
-  it('gives each account only its own snapshot and decimal-string deltas', () => {
+  it('gives each account only its own snapshot and decimal-string deltas', async () => {
     const stream = new PositionsStream();
     stream.markSourceAttached(true);
     const aliceId = '11111111-1111-4111-8111-111111111111';
@@ -68,12 +69,12 @@ describe('positions stream', () => {
 
     const alice: PositionsFrame[] = [];
     const bob: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       asOf: AS_OF,
       send: (frame) => alice.push(frame),
     });
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: BOB, scopes: ['trade:read'] },
       asOf: AS_OF,
       send: (frame) => bob.push(frame),
@@ -101,17 +102,17 @@ describe('positions stream', () => {
     expect(bob).toHaveLength(1);
   });
 
-  it('refuses an unauthenticated subscribe and a session without admin:read asking for another account', () => {
+  it('refuses an unauthenticated subscribe and a session without admin:read asking for another account', async () => {
     const stream = new PositionsStream();
     stream.markSourceAttached(true);
     stream.ingest(row(BOB, '22222222-2222-4222-8222-222222222222', '2'));
     const anon: PositionsFrame[] = [];
-    const refused = stream.subscribe({ session: null, asOf: AS_OF, send: (frame) => anon.push(frame) });
+    const refused = await stream.subscribe({ session: null, asOf: AS_OF, send: (frame) => anon.push(frame) });
     expect(refused.ok).toBe(false);
     expect(anon).toEqual([expect.objectContaining({ type: 'error', code: POSITIONS_UNAUTHENTICATED })]);
 
     const foreign: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       requestedUserId: BOB,
       asOf: AS_OF,
@@ -127,7 +128,7 @@ describe('positions stream', () => {
     expect(JSON.stringify(foreign)).not.toContain('22222222');
 
     const allowed: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read', POSITIONS_OPERATOR_SCOPE] },
       requestedUserId: BOB,
       asOf: AS_OF,
@@ -136,10 +137,10 @@ describe('positions stream', () => {
     expect(allowed[0]).toMatchObject({ type: 'snapshot', positions: [expect.objectContaining({ userId: BOB })] });
   });
 
-  it('refuses the stream shape when positionUpdated is not attached', () => {
+  it('refuses the stream shape when positionUpdated is not attached', async () => {
     const stream = new PositionsStream();
     const sent: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       asOf: AS_OF,
       send: (frame) => sent.push(frame),
@@ -149,8 +150,8 @@ describe('positions stream', () => {
     expect(stream.ingest(row(ALICE, '11111111-1111-4111-8111-111111111111', '1'))).toBe(false);
   });
 
-  it('detects a retained-sequence gap and a resume fills a contiguous tail', () => {
-    const stream = new PositionsStream({ retain: 1 });
+  it('detects a retained-sequence gap and a resume fills a contiguous tail', async () => {
+    const stream = new PositionsStream({ retain: 1, streamId: 'retain-gap' });
     stream.markSourceAttached(true);
     const id = '11111111-1111-4111-8111-111111111111';
     expect(stream.ingest(row(ALICE, id, '1'))).toBe(true);
@@ -158,9 +159,10 @@ describe('positions stream', () => {
     expect(stream.ingest(row(ALICE, id, '3'))).toBe(true);
 
     const gapped: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       lastSequence: 1,
+      streamId: 'retain-gap',
       asOf: '2026-10-17T04:00:05.000Z',
       send: (frame) => gapped.push(frame),
     });
@@ -168,30 +170,199 @@ describe('positions stream', () => {
     expect(gapped[0]).toMatchObject({ type: 'snapshot', sequence: 3, resume: 'gap' });
     expect(gapped.some((frame) => frame.type === 'delta')).toBe(false);
 
-    const full = new PositionsStream();
+    const full = new PositionsStream({ streamId: 'replay-tail' });
     full.markSourceAttached(true);
+    expect(full.streamId).toBe('replay-tail');
     expect(full.ingest(row(ALICE, id, '1'))).toBe(true);
     expect(full.ingest(row(ALICE, id, '2'))).toBe(true);
     expect(full.ingest(row(ALICE, id, '3'))).toBe(true);
     const resumed: PositionsFrame[] = [];
-    full.subscribe({
+    await full.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       lastSequence: 1,
+      streamId: 'replay-tail',
       asOf: AS_OF,
       send: (frame) => resumed.push(frame),
     });
     expect(resumed.map((frame) => (frame.type === 'delta' ? frame.sequence : frame.type))).toEqual([2, 3]);
-    expect(resumed[0]).toMatchObject({ type: 'delta', position: { contracts: '2' } });
-    expect(resumed[1]).toMatchObject({ type: 'delta', position: { contracts: '3' } });
+    expect(resumed[0]).toMatchObject({ type: 'delta', streamId: 'replay-tail', position: { contracts: '2' } });
+    expect(resumed[1]).toMatchObject({ type: 'delta', streamId: 'replay-tail', position: { contracts: '3' } });
+    expect(resumed.some((frame) => frame.type === 'snapshot')).toBe(false);
   });
 
-  it('heartbeat repeats the sequence and the caller clock', () => {
+  it('seeds a cold journal from the book port before the first snapshot', async () => {
+    const stream = new PositionsStream({ streamId: 'seed-cold' });
+    stream.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async (userId, accessToken) => {
+        expect(userId).toBe(ALICE);
+        expect(accessToken).toBe('alice-token');
+        return [row(ALICE, id, '1.250000000000000001')];
+      },
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      channel: 'positions',
+      type: 'snapshot',
+      resume: 'fresh',
+      streamId: 'seed-cold',
+      positions: [
+        expect.objectContaining({
+          userId: ALICE,
+          contracts: '1.250000000000000001',
+          entryPrice: '64000.50',
+          markPrice: '64100.5',
+          fundingPaid: '-0.01',
+        }),
+      ],
+    });
+    const snap = sent[0];
+    if (snap?.type !== 'snapshot') throw new Error('expected snapshot');
+    expect(typeof snap.positions[0]?.contracts).toBe('string');
+    expect(typeof snap.positions[0]?.entryPrice).toBe('string');
+  });
+
+  it('sends no snapshot and does not register when the book port throws', async () => {
     const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => {
+        throw new Error('svc-trade down');
+      },
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(false);
+    expect(sent).toEqual([
+      expect.objectContaining({
+        channel: 'positions',
+        type: 'error',
+        code: 'ws.positions_snapshot_unavailable',
+      }),
+    ]);
+    expect(sent.some((frame) => frame.type === 'snapshot')).toBe(false);
+    expect(stream.ingest(row(ALICE, '11111111-1111-4111-8111-111111111111', '1'))).toBe(true);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('refuses a cold snapshot when no book port is wired', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(false);
+    expect(sent).toEqual([expect.objectContaining({ type: 'error', code: 'ws.positions_snapshot_unavailable' })]);
+    expect(sent.some((frame) => frame.type === 'snapshot')).toBe(false);
+  });
+
+  it('refuses an operator read of another account instead of inventing a foreign book read', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    let calls = 0;
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read', POSITIONS_OPERATOR_SCOPE] },
+      requestedUserId: BOB,
+      asOf: AS_OF,
+      accessToken: 'operator-token',
+      seed: async () => {
+        calls += 1;
+        return [row(ALICE, '11111111-1111-4111-8111-111111111111', '1')];
+      },
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(0);
+    expect(sent).toEqual([expect.objectContaining({ type: 'error', code: 'ws.positions_snapshot_unavailable' })]);
+    expect(sent.some((frame) => frame.type === 'snapshot')).toBe(false);
+    expect(JSON.stringify(sent)).not.toContain(BOB);
+  });
+
+  it('applies events ingested during the seed read on top of the seeded rows', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    const sent: PositionsFrame[] = [];
+    await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => {
+        expect(stream.ingest(row(ALICE, id, '9'))).toBe(true);
+        return [row(ALICE, id, '1')];
+      },
+      send: (frame) => sent.push(frame),
+    });
+    const snap = sent[0];
+    if (snap?.type !== 'snapshot') throw new Error('expected snapshot');
+    expect(snap.positions).toEqual([expect.objectContaining({ contracts: '9' })]);
+    expect(sent.some((frame) => frame.type === 'delta')).toBe(false);
+  });
+
+  it('sends a gap snapshot when the resume streamId is a different process', async () => {
+    const streamA = new PositionsStream({ streamId: 'stream-a' });
+    const streamB = new PositionsStream({ streamId: 'stream-b' });
+    streamA.markSourceAttached(true);
+    streamB.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(streamA.ingest(row(ALICE, id, '1'))).toBe(true);
+    expect(streamA.ingest(row(ALICE, id, '2'))).toBe(true);
+    for (const contracts of ['1', '2', '3', '4', '5']) {
+      expect(streamB.ingest(row(ALICE, id, contracts))).toBe(true);
+    }
+    const sent: PositionsFrame[] = [];
+    await streamB.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      lastSequence: 2,
+      streamId: streamA.streamId,
+      asOf: AS_OF,
+      send: (frame) => sent.push(frame),
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: 'snapshot', resume: 'gap', streamId: 'stream-b' });
+    expect(sent.some((frame) => frame.type === 'delta')).toBe(false);
+  });
+
+  it('sends a gap snapshot when lastSequence is given without a streamId', async () => {
+    const stream = new PositionsStream({ streamId: 'stream-b' });
+    stream.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(stream.ingest(row(ALICE, id, '1'))).toBe(true);
+    expect(stream.ingest(row(ALICE, id, '2'))).toBe(true);
+    expect(stream.ingest(row(ALICE, id, '3'))).toBe(true);
+    const sent: PositionsFrame[] = [];
+    await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      lastSequence: 1,
+      asOf: AS_OF,
+      send: (frame) => sent.push(frame),
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: 'snapshot', resume: 'gap', streamId: 'stream-b' });
+    expect(sent.some((frame) => frame.type === 'delta')).toBe(false);
+  });
+
+  it('heartbeat repeats the sequence and the caller clock', async () => {
+    const stream = new PositionsStream({ streamId: 'heartbeat-stream' });
     stream.markSourceAttached(true);
     const id = '11111111-1111-4111-8111-111111111111';
     stream.ingest(row(ALICE, id, '1'));
     const sent: PositionsFrame[] = [];
-    stream.subscribe({
+    await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       asOf: AS_OF,
       send: (frame) => sent.push(frame),
@@ -200,10 +371,26 @@ describe('positions stream', () => {
     expect(sent.at(-1)).toEqual({
       channel: 'positions',
       type: 'heartbeat',
+      streamId: 'heartbeat-stream',
       sequence: 1,
       asOf: '2026-10-17T04:00:02.000Z',
       dataAsOf: AS_OF,
     });
+  });
+
+  it('sends an empty snapshot when the open-positions read succeeds with zero rows', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => [],
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(true);
+    expect(sent).toEqual([expect.objectContaining({ type: 'snapshot', resume: 'fresh', positions: [] })]);
   });
 });
 
@@ -223,7 +410,7 @@ describe('positions subscribe on the private socket', () => {
     }
   });
 
-  async function boot(stream: PositionsStream): Promise<string> {
+  async function boot(stream: PositionsStream, book?: PrivateBookPort): Promise<string> {
     server = createServer();
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', () => resolve()));
     const addr = server.address();
@@ -237,6 +424,7 @@ describe('positions subscribe on the private socket', () => {
       enabled: () => true,
       tokens,
       positions: stream,
+      ...(book ? { book } : {}),
       now: () => Date.parse(AS_OF),
     });
     return `ws://127.0.0.1:${addr.port}`;
@@ -283,6 +471,49 @@ describe('positions subscribe on the private socket', () => {
       positions: [expect.objectContaining({ userId: BOB, contracts: '9' })],
     });
     expect(JSON.stringify(bobPositions)).not.toContain(ALICE);
+  });
+
+  it('seeds two gateway sockets from the book and keeps each account on its own rows', async () => {
+    const stream = new PositionsStream({ streamId: 'gateway-seed' });
+    stream.markSourceAttached(true);
+    const aliceId = '11111111-1111-4111-8111-111111111111';
+    const bobId = '22222222-2222-4222-8222-222222222222';
+    const book: PrivateBookPort = {
+      async listOpenOrders() {
+        return [];
+      },
+      async listOpenPositions({ userId }) {
+        if (userId === ALICE) return [row(ALICE, aliceId, '1.5') as unknown as PrivatePositionUpdate];
+        if (userId === BOB) return [row(BOB, bobId, '9') as unknown as PrivatePositionUpdate];
+        return [];
+      },
+    };
+    const base = await boot(stream, book);
+    const aliceToken = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
+    const bobToken = (await issueAccessToken({ userId: BOB, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
+    const alice = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${aliceToken}&channel=positions`);
+    const bob = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${bobToken}&channel=positions`);
+    alice.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    bob.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const sequenced = (frames: unknown[]) => frames.filter((frame) => typeof (frame as { sequence?: unknown }).sequence === 'number');
+    const alicePositions = sequenced(alice.frames);
+    const bobPositions = sequenced(bob.frames);
+    expect(alicePositions[0]).toMatchObject({
+      type: 'snapshot',
+      resume: 'fresh',
+      streamId: 'gateway-seed',
+      positions: [expect.objectContaining({ userId: ALICE, contracts: '1.5' })],
+    });
+    expect(JSON.stringify(alicePositions)).not.toContain(BOB);
+    expect(JSON.stringify(alicePositions)).not.toContain(bobId);
+    expect(bobPositions[0]).toMatchObject({
+      type: 'snapshot',
+      resume: 'fresh',
+      positions: [expect.objectContaining({ userId: BOB, contracts: '9' })],
+    });
+    expect(JSON.stringify(bobPositions)).not.toContain(ALICE);
+    expect(JSON.stringify(bobPositions)).not.toContain(aliceId);
   });
 
   it('refuses subscribe text when no session is supplied to the router', async () => {
