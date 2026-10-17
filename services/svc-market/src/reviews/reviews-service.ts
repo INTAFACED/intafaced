@@ -32,8 +32,18 @@ export interface ReviewRecord {
   createdAt: string;
 }
 
+/** What `reviews.list` may show. The buyer's id and the purchase id stay off this shape. */
+export interface ReviewPublic {
+  id: string;
+  listingId: string;
+  vendorId: string;
+  score: number;
+  text: string | null;
+  createdAt: string;
+}
+
 export interface ReviewListPage {
-  reviews: ReviewRecord[];
+  reviews: ReviewPublic[];
   nextCursor: string | null;
 }
 
@@ -64,6 +74,26 @@ function toReview(row: ReviewRow): ReviewRecord {
     listingId: row.listing_id,
     vendorId: row.vendor_id,
     buyerId: row.buyer_id,
+    score: row.score,
+    text: row.body,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+interface ReviewPublicRow {
+  id: string;
+  listing_id: string;
+  vendor_id: string;
+  score: number;
+  body: string | null;
+  created_at: Date;
+}
+
+function toPublicReview(row: ReviewPublicRow): ReviewPublic {
+  return {
+    id: row.id,
+    listingId: row.listing_id,
+    vendorId: row.vendor_id,
     score: row.score,
     text: row.body,
     createdAt: row.created_at.toISOString(),
@@ -229,8 +259,9 @@ export class ReviewsService {
     const cursor = decodeListCursor(input.cursor);
     const createdAt = cursor?.createdAt ?? null;
     const cursorId = cursor?.id ?? null;
-    const rows = await this.sql<ReviewRow[]>`
-      SELECT * FROM market.reviews
+    const rows = await this.sql<ReviewPublicRow[]>`
+      SELECT id, listing_id, vendor_id, score, body, created_at
+        FROM market.reviews
        WHERE listing_id = ${input.listingId}
          AND (
            ${createdAt}::timestamptz IS NULL
@@ -242,7 +273,7 @@ export class ReviewsService {
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
     return {
-      reviews: page.map(toReview),
+      reviews: page.map(toPublicReview),
       nextCursor: last && rows.length > limit ? encodeListCursor(last.created_at.toISOString(), last.id) : null,
     };
   }

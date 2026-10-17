@@ -206,10 +206,10 @@ describe('market.commerce', () => {
         assetId: 'USDT',
         price: '10',
       });
-      expect((await commerce.publicListings({ limit: 50 })).items.some((l) => l.id === listing.id)).toBe(true);
+      expect((await commerce.publicListings({ limit: 50 })).some((l) => l.id === listing.id)).toBe(true);
 
       const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
-      await expect(blank.publicListings({ limit: 50 })).resolves.toEqual({ items: [], nextCursor: null });
+      await expect(blank.publicListings({ limit: 50 })).resolves.toEqual([]);
     });
 
     it('programme reports unconfigured when null', () => {
@@ -264,9 +264,9 @@ describe('market.commerce', () => {
         assetId: 'USDT',
         price: '10',
       });
-      expect((await commerce.publicListings({ limit: 50 })).items.length).toBe(1);
+      expect((await commerce.publicListings({ limit: 50 })).length).toBe(1);
       stakes.vendorSlots = 0;
-      expect((await commerce.publicListings({ limit: 50 })).items.length).toBe(0);
+      expect((await commerce.publicListings({ limit: 50 })).length).toBe(0);
     });
   });
 
@@ -449,7 +449,7 @@ describe('market.commerce', () => {
       await expect(commerce.purchase({ buyerId: BUYER, listingId: orphan!.id, purchaseId: randomUUID() })).rejects.toMatchObject({
         code: 'market.listing_slot_missing',
       });
-      expect((await commerce.publicListings({ limit: 50 })).items.map((l) => l.id)).not.toContain(orphan!.id);
+      expect((await commerce.publicListings({ limit: 50 })).map((l) => l.id)).not.toContain(orphan!.id);
     });
 
     it('resumes a crash after ledger post before settle (same purchaseId)', async () => {
@@ -541,7 +541,7 @@ describe('market.commerce', () => {
       await expect(commerce.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId: randomUUID() })).rejects.toMatchObject({
         code: 'market.listing_not_found',
       });
-      expect((await commerce.publicListings({ limit: 50 })).items.map((l) => l.id)).not.toContain(listing.id);
+      expect((await commerce.publicListings({ limit: 50 })).map((l) => l.id)).not.toContain(listing.id);
     });
   });
 
@@ -600,7 +600,7 @@ describe('market.commerce', () => {
         assetId: 'USDT',
         price: '10',
       });
-      const publicIds = (await commerce.publicListings({ limit: 50 })).items.map((l) => l.id);
+      const publicIds = (await commerce.publicListings({ limit: 50 })).map((l) => l.id);
       expect(publicIds).toContain(oneTime.id);
       expect(publicIds).not.toContain(leftover.id);
     });
@@ -627,7 +627,7 @@ describe('market.commerce', () => {
         assetId: 'USDT',
         price: '10',
       });
-      expect((await commerce.publicListings({ limit: 50 })).items.map((l) => l.id)).toEqual([oneTime.id]);
+      expect((await commerce.publicListings({ limit: 50 })).map((l) => l.id)).toEqual([oneTime.id]);
     });
   });
 
@@ -661,7 +661,7 @@ describe('market.commerce', () => {
       });
       // Partial drop — vendor still listed (usable=1) but only one listing sells.
       stakes.vendorSlots = 1;
-      const publicIds = (await commerce.publicListings({ limit: 50 })).items.map((l) => l.id);
+      const publicIds = (await commerce.publicListings({ limit: 50 })).map((l) => l.id);
       expect(publicIds).toEqual([a.id]);
       expect(publicIds).not.toContain(b.id);
       expect(publicIds).not.toContain(c.id);

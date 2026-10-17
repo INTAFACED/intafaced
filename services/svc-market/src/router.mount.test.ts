@@ -1,17 +1,32 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { createMarketRouter } from './router.js';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
+import { createMarketRouter, listingOut, reviewPublicOut } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { userCopy } from './user-copy.js';
 import {
+  CommerceService,
+  assertMyListingsListLimit,
+  assertMyPurchasesListLimit,
+  assertPublicListingsListLimit,
+} from './commerce/commerce-service.js';
+import { ReviewsService } from './reviews/reviews-service.js';
+import type { SlotEntitlementSource, VendorEntitlement } from './stake-source.js';
+import {
+  MARKET_OPS_SCOPE,
   MarketError,
+  VendorService,
   assertApplicationsListLimit,
   assertHistoryLimit,
   assertListedVendorsListLimit,
-  type VendorService,
 } from './vendor-service.js';
-import { assertMyListingsListLimit, assertMyPurchasesListLimit, assertPublicListingsListLimit } from './commerce/commerce-service.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
 import { MARKET_LISTING_PIN_ENV } from './live-markets.js';
 
@@ -639,7 +654,7 @@ describe('svc-market mount — commerce scopes', () => {
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
       myListings: vi.fn(async () => [listingRow]),
-      publicListings: vi.fn(async () => ({ items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null })),
+      publicListings: vi.fn(async () => [listingRow]),
       purchase: vi.fn(async () => ({
         id: purchaseId,
         listingId,
@@ -719,7 +734,7 @@ describe('svc-market mount — commerce scopes', () => {
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
         .listings({ limit: 50 }),
-    ).resolves.toEqual({ items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null });
+    ).resolves.toEqual([listingRow]);
     expect(commerce.publicListings).toHaveBeenCalled();
   });
 
@@ -859,19 +874,19 @@ describe('svc-market mount — commerce scopes', () => {
 
   it('serves empty public catalogue when commerce returns [] for blank commission', async () => {
     const commerce = stubCommerce({ commissionBps: null });
-    commerce.publicListings = vi.fn(async () => ({ items: [], nextCursor: null }));
+    commerce.publicListings = vi.fn(async () => []);
     await expect(
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
         .listings({ limit: 50 }),
-    ).resolves.toEqual({ items: [], nextCursor: null });
+    ).resolves.toEqual([]);
   });
 
   it('listings omit is PRECONDITION_FAILED — never invents a 50-listing page', async () => {
     const commerce = stubCommerce();
     commerce.publicListings = vi.fn(async (opts?: { limit?: number }) => {
       assertPublicListingsListLimit(opts?.limit);
-      return { items: [{ ...listingRow, vendorListingCount: 1 }], nextCursor: null };
+      return [listingRow];
     });
     const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(anonymous());
     await expect(caller.listings()).rejects.toMatchObject({
@@ -882,10 +897,7 @@ describe('svc-market mount — commerce scopes', () => {
       code: 'PRECONDITION_FAILED',
       message: 'market.public_listings_list_limit_unset',
     });
-    await expect(caller.listings({ limit: 50 })).resolves.toEqual({
-      items: [{ ...listingRow, vendorListingCount: 1 }],
-      nextCursor: null,
-    });
+    await expect(caller.listings({ limit: 50 })).resolves.toEqual([listingRow]);
   });
 
   it('myListings omit is PRECONDITION_FAILED — never invents a 50-listing page', async () => {
@@ -1167,5 +1179,146 @@ describe('svc-market mount — live markets listing pin', () => {
       message: 'market.listing_pin_unset',
       cause: { code: 'market.listing_pin_unset' },
     });
+  });
+});
+
+/**
+ * Mounted-router contract for the shopfront array and the public review shape.
+ * Real CommerceService and ReviewsService. Stubs cannot prove the output zod.
+ */
+describe('svc-market mount — listings array and public reviews', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const migrations = readdirSync(join(here, '..', 'drizzle'))
+    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+    .sort()
+    .map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
+
+  const VENDOR_USER = '11111111-1111-4111-8111-111111111111';
+  const BUYER_A = '22222222-2222-4222-8222-222222222222';
+  const USER_B = '55555555-5555-4555-8555-555555555555';
+  const OPERATOR = '33333333-3333-4333-8333-333333333333';
+
+  class FixedEntitlement implements SlotEntitlementSource {
+    async entitlementOf(): Promise<VendorEntitlement> {
+      return { tierName: 'Operator', vendorSlots: 3 };
+    }
+  }
+
+  let adminStop: () => Promise<void> = async () => undefined;
+  let db: TestDatabase | undefined;
+  let sql!: TestDatabase['sql'];
+  let commerce!: CommerceService;
+  let reviews!: ReviewsService;
+
+  beforeAll(async () => {
+    const envUrl = process.env.TEST_DATABASE_URL?.trim();
+    if (!envUrl) throw new Error('TEST_DATABASE_URL is required (database name must end with _test)');
+    adminStop = async () => undefined;
+    db = await createTestDatabase({ service: 'market', url: envUrl, migrations });
+    sql = db.sql;
+  }, 120_000);
+
+  beforeEach(async () => {
+    await sql`
+      TRUNCATE market.reviews, market.listing_takedowns, market.subscription_state, market.purchases,
+               market.listings, market.vendor_slots, market.vendor_status_events, market.vendors
+      RESTART IDENTITY CASCADE
+    `;
+    const vendors = new VendorService(sql, new FixedEntitlement());
+    const ledger = new MemoryLedger();
+    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    reviews = new ReviewsService(sql);
+    const vendor = await vendors.applyAsVendor({
+      userId: VENDOR_USER,
+      displayName: 'Acme Bots',
+      description: 'I sell trading bots',
+    });
+    await vendors.vet({
+      vendorId: vendor.id,
+      decision: 'approved',
+      reason: 'looks fine',
+      actorId: OPERATOR,
+      actorScope: MARKET_OPS_SCOPE,
+    });
+    await ledger.post(
+      recipes.deposit({ userId: BUYER_A, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'buyer-a-mount' }),
+    );
+  });
+
+  afterAll(async () => {
+    await db?.drop();
+    await adminStop();
+  }, 30_000);
+
+  function mount() {
+    const vendors = new VendorService(sql, new FixedEntitlement());
+    return createMarketRouter(vendors, commerce, undefined, stubApprovalConsumer(CONFIRM), reviews);
+  }
+
+  it('listings is an oldest-first array', async () => {
+    const later = await commerce.createListing({
+      userId: VENDOR_USER,
+      title: 'Later bot',
+      description: 'Created first, dated later',
+      offerType: 'one_time',
+      assetId: 'USDT',
+      price: '12',
+    });
+    const earlier = await commerce.createListing({
+      userId: VENDOR_USER,
+      title: 'Earlier bot',
+      description: 'Created second, dated earlier',
+      offerType: 'one_time',
+      assetId: 'USDT',
+      price: '8',
+    });
+    await sql`
+      UPDATE market.listings SET created_at = '2026-06-01T00:00:00.000Z'::timestamptz WHERE id = ${later.id}
+    `;
+    await sql`
+      UPDATE market.listings SET created_at = '2026-01-01T00:00:00.000Z'::timestamptz WHERE id = ${earlier.id}
+    `;
+
+    const caller = mount().createCaller(anonymous());
+    const reply = await caller.listings({ limit: 50 });
+    expect(Array.isArray(reply)).toBe(true);
+    expect(z.array(listingOut).parse(reply)).toEqual(reply);
+    expect(reply.map((row) => row.id)).toEqual([earlier.id, later.id]);
+  });
+
+  it('listingsPage refuses an omitted sort', async () => {
+    const caller = mount().createCaller(anonymous());
+    await expect(caller.listingsPage({ limit: 50 })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'market.listings_sort_unset',
+    });
+  });
+
+  it('reviews.list hides the buyer id and the purchase id from another customer', async () => {
+    const listing = await commerce.createListing({
+      userId: VENDOR_USER,
+      title: 'Reviewed bot',
+      description: 'A bot with one review',
+      offerType: 'one_time',
+      assetId: 'USDT',
+      price: '10',
+    });
+    const purchase = await commerce.purchase({ buyerId: BUYER_A, listingId: listing.id, purchaseId: randomUUID() });
+    const buyer = principal({ sub: BUYER_A, userId: BUYER_A, scopes: ['market:write'] });
+    const other = principal({ sub: USER_B, userId: USER_B, scopes: ['market:read'] });
+    const submitted = await mount()
+      .createCaller(signed(buyer))
+      .reviews.submit({ purchaseId: purchase.id, score: 5, text: 'Useful', clientRequestId: 'rv-mount-a' });
+    expect(submitted.buyerId).toBe(BUYER_A);
+    expect(submitted.purchaseId).toBe(purchase.id);
+
+    const listed = await mount().createCaller(signed(other)).reviews.list({ listingId: listing.id, limit: 10 });
+    for (const item of listed.reviews) {
+      expect(Object.keys(item)).not.toContain('buyerId');
+      expect(Object.keys(item)).not.toContain('purchaseId');
+    }
+    expect(JSON.stringify(listed)).not.toContain(BUYER_A);
+    expect(JSON.stringify(listed)).not.toContain(purchase.id);
+    expect(z.array(reviewPublicOut).parse(listed.reviews)).toEqual(listed.reviews);
   });
 });

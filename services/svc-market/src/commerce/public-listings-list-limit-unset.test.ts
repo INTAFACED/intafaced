@@ -52,7 +52,7 @@ describe('publicListings limit unset refuse', () => {
     const start = src.indexOf('listings: publicProcedure');
     const end = src.indexOf('subscribe:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('limit: input?.limit');
+    expect(fn).toContain('publicListings({ limit: input?.limit })');
     expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
     expect(fn).not.toMatch(/\?\? 50/);
   });

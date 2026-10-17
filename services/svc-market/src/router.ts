@@ -219,12 +219,16 @@ function mapError(err: unknown): never {
     if (err.code === 'market.insufficient_funds') {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     }
+    // Omitted catalogue sort is a bad request. There is no default order.
+    if (err.code === 'market.listings_sort_unset') {
+      throw new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    }
     throw new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
   }
   throw err;
 }
 
-const listingOut = z.object({
+export const listingOut = z.object({
   id: z.string().uuid(),
   vendorId: z.string().uuid(),
   title: z.string(),
@@ -274,6 +278,18 @@ const reviewOut = z.object({
   text: z.string().nullable(),
   createdAt: z.string().datetime(),
 });
+
+/** Public review. No buyer id and no purchase id — those stay on `reviews.submit`. */
+export const reviewPublicOut = z
+  .object({
+    id: z.string().uuid(),
+    listingId: z.string().uuid(),
+    vendorId: z.string().uuid(),
+    score: z.number().int().min(1).max(5),
+    text: z.string().nullable(),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
 
 const takedownOut = z.object({
   listingId: z.string().uuid(),
@@ -810,8 +826,26 @@ export function createMarketRouter(
      * Public catalogue — empty when commission blank; else listed vendors only.
      * `limit` optional so omit reaches `market.public_listings_list_limit_unset`.
      * Blank is not 50; pass 50 explicitly when that is the page you want.
+     * Order is `created_at ASC, id ASC`. Search and paging are `listingsPage`.
      */
     listings: publicProcedure
+      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
+      .output(z.array(listingOut))
+      .query(async ({ input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.publicListings({ limit: input?.limit });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Paged public catalogue. `sort` is required: omit or blank is
+     * `market.listings_sort_unset` (BAD_REQUEST). No default order.
+     * `limit` optional so omit reaches `market.public_listings_list_limit_unset`.
+     */
+    listingsPage: publicProcedure
       .input(
         z
           .object({
@@ -833,7 +867,7 @@ export function createMarketRouter(
       .query(async ({ input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.publicListings({
+          return await commerce.publicListingsPage({
             q: input?.q,
             offerType: input?.offerType,
             assetId: input?.assetId,
@@ -977,7 +1011,7 @@ export function createMarketRouter(
             cursor: z.string().max(512).optional(),
           }),
         )
-        .output(z.object({ reviews: z.array(reviewOut), nextCursor: z.string().nullable() }))
+        .output(z.object({ reviews: z.array(reviewPublicOut), nextCursor: z.string().nullable() }))
         .query(async ({ input }) => {
           requireReviews(reviews);
           try {

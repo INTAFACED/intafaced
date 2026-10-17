@@ -413,7 +413,7 @@ describe('Stage C3 listing subscriptions', () => {
       periodSeconds: PERIOD,
     });
     expect(listing.periodSeconds).toBe(PERIOD);
-    expect((await commerce.publicListings({ limit: 50 })).items.map((l) => l.id)).toContain(listing.id);
+    expect((await commerce.publicListings({ limit: 50 })).map((l) => l.id)).toContain(listing.id);
 
     const bought = await commerce.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId: randomUUID() });
     expect(bought.status).toBe('settled');

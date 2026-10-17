@@ -371,7 +371,7 @@ describe('market ops depth', () => {
       expect(row?.status).toBe('settled');
       expect(row?.ledger_tx_id).toBe(bought.ledgerTxId);
       expect(row?.access_until.toISOString()).toBe(bought.accessUntil);
-      expect((await commerce.publicListings({ limit: 50 })).items.map((item) => item.id)).not.toContain(listing.id);
+      expect((await commerce.publicListings({ limit: 50 })).map((item) => item.id)).not.toContain(listing.id);
     });
   });
 
@@ -411,7 +411,7 @@ describe('market ops depth', () => {
         const found: string[] = [];
         let cursor: string | undefined;
         for (let pageNo = 0; pageNo < 40; pageNo += 1) {
-          const page = await commerce.publicListings({ limit: 7, sort, cursor });
+          const page = await commerce.publicListingsPage({ limit: 7, sort, cursor });
           if (page.items.length === 0) break;
           for (const item of page.items) {
             expect(item.vendorListingCount).toBe(120);
@@ -454,13 +454,13 @@ describe('market ops depth', () => {
       expect(ascending.indexOf(nine!)).toBeLessThan(ascending.indexOf(ten!));
       expect('10.5' < '9.99').toBe(true);
 
-      const literal = await commerce.publicListings({ limit: 50, q: '%' });
+      const literal = await commerce.publicListingsPage({ limit: 50, q: '%', sort: 'title' });
       expect(literal.items.map((item) => item.title)).toEqual(['100% cotton']);
       const usdt = await collect('title');
       const usdtOnly: string[] = [];
       let usdtCursor: string | undefined;
       for (let pageNo = 0; pageNo < 40; pageNo += 1) {
-        const page = await commerce.publicListings({ limit: 50, assetId: 'USDT', sort: 'title', cursor: usdtCursor });
+        const page = await commerce.publicListingsPage({ limit: 50, assetId: 'USDT', sort: 'title', cursor: usdtCursor });
         usdtOnly.push(...page.items.map((item) => item.id));
         expect(page.items.every((item) => item.assetId === 'USDT')).toBe(true);
         if (!page.nextCursor || page.items.length === 0) break;
@@ -469,8 +469,17 @@ describe('market ops depth', () => {
       expect(usdtOnly).toHaveLength(60);
       expect(usdt.filter((id) => usdtOnly.includes(id))).toHaveLength(60);
 
-      await expect(commerce.publicListings({})).rejects.toMatchObject({
+      await expect(commerce.publicListingsPage({})).rejects.toMatchObject({
         code: 'market.public_listings_list_limit_unset',
+      });
+      await expect(commerce.publicListingsPage({ limit: 50 })).rejects.toMatchObject({
+        code: 'market.listings_sort_unset',
+      });
+      await expect(commerce.publicListingsPage({ limit: 50, sort: ' ' })).rejects.toMatchObject({
+        code: 'market.listings_sort_unset',
+      });
+      await expect(commerce.publicListingsPage({ limit: 50, sort: 'featured' })).rejects.toMatchObject({
+        code: 'market.listings_sort_unknown',
       });
       expect(ids).toHaveLength(120);
     }, 180_000);
@@ -541,6 +550,8 @@ describe('market ops depth', () => {
       });
       const page = await reviews.list({ listingId: listing.id, limit: 10 });
       expect(page.reviews.map((review) => review.id)).toEqual([high.id, first.id]);
+      expect(page.reviews.every((review) => !('buyerId' in review) && !('purchaseId' in review))).toBe(true);
+      expect(JSON.stringify(page)).not.toContain(BUYER);
       const summary = await reviews.summary(vendorId);
       expect(summary.count).toBe('2');
       expect(summary.mean).toBe('3');

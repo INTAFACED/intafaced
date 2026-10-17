@@ -102,6 +102,7 @@ export type OfferType = 'one_time' | 'subscription';
 export type ListingStatus = 'active' | 'archived' | 'taken_down';
 export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
 
+export const MARKET_LISTINGS_SORT_UNSET = 'market.listings_sort_unset' as const;
 export const MARKET_LISTINGS_SORT_UNKNOWN = 'market.listings_sort_unknown' as const;
 export const MARKET_LISTINGS_CURSOR_INVALID = 'market.listings_cursor_invalid' as const;
 export const MARKET_LISTING_TAKEN_DOWN = 'market.listing_taken_down' as const;
@@ -113,8 +114,6 @@ export const MARKET_EARNINGS_WINDOW_UNSET = 'market.earnings_window_unset' as co
 export const MARKET_EARNINGS_VENDOR_REQUIRED = 'market.earnings_vendor_required' as const;
 export const MARKET_OPS_REQUIRED = 'market.ops_required' as const;
 
-/** Catalogue page default when `sort` is omitted. Explicit unknown values still refuse. */
-const DEFAULT_LISTING_SORT: ListingSort = 'newest';
 const LISTING_SORTS: readonly ListingSort[] = ['newest', 'priceAsc', 'priceDesc', 'title'];
 const CATALOGUE_BATCH = 64;
 export type PurchaseStatus = 'pending' | 'settled' | 'rejected';
@@ -475,18 +474,65 @@ export class CommerceService {
    * after insert-before-claim must not sell). Stake outages drop the row like
    * `listedVendors` — nobody rather than a 500 for the whole page.
    *
-   * Blank house commission → empty page. Advertising inventory that purchase
-   * will refuse invents a working marketplace; empty is the refuse-closed shopfront.
+   * Blank house commission → `[]`. Advertising inventory that purchase will
+   * refuse invents a working marketplace; empty is the refuse-closed shopfront.
    *
    * Subscription listings appear only when they carry a period — leftover rows
    * without one cannot be sold, so they stay off the shopfront.
    * `taken_down` and `archived` are not `active`, so they never appear.
    *
-   * Sort is an allowlist. Omitted sort is `newest` (`created_at DESC, id DESC`).
-   * Price order is the numeric column, with id as the tie-break. The cursor is
-   * an opaque keyset of that pair. Page size is owner-published — omit is not 50.
+   * Order is registration (`created_at ASC, id ASC`), same boring rule as `listed`
+   * vendors — ranking / featured / newest-first is the paged procedure and owner-only.
+   * Oldest-first also matches over-capacity prune (entitled slots keep the
+   * earliest listings).
+   *
+   * Page size is owner-published — omit is not 50.
    */
-  async publicListings(opts?: {
+  async publicListings(opts?: { limit?: number }): Promise<ListingRecord[]> {
+    const limit = assertPublicListingsListLimit(opts?.limit);
+    // Blank commission → empty shopfront. Do not advertise inventory that
+    // purchase will refuse; that would invent a working marketplace.
+    if (this.config.commissionBps === null) return [];
+    const rows = await this.sql<ListingRow[]>`
+      SELECT * FROM market.listings
+       WHERE status = 'active'
+         AND (
+           offer_type = 'one_time'
+           OR (offer_type = 'subscription' AND period_seconds IS NOT NULL)
+         )
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${limit * 3}
+    `;
+    const out: ListingRecord[] = [];
+    for (const row of rows) {
+      if (out.length >= limit) break;
+      try {
+        const elig = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+        if (!elig.listed) continue;
+        if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) continue;
+        // Over-held after unstake: only the oldest usable slots stay shopfront.
+        const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+        if (!entitled.has(row.id)) continue;
+        out.push(toListing(row));
+      } catch (err) {
+        // stake_unavailable and friends — drop this vendor's rows, keep the page.
+        if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
+        throw err;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Paged public catalogue. Same visibility as `publicListings`: active rows
+   * only, so a taken-down listing stays out. Search, offer, asset, and sort
+   * live here. `sort` is required — omit or blank is `market.listings_sort_unset`.
+   * There is no default order. Price order is the numeric column, with id as
+   * the tie-break. The cursor is an opaque keyset of that pair.
+   * Page size is owner-published — omit is not 50. Blank house commission
+   * returns an empty page after the limit and sort checks.
+   */
+  async publicListingsPage(opts?: {
     q?: string | undefined;
     offerType?: OfferType | undefined;
     assetId?: string | undefined;
@@ -495,8 +541,8 @@ export class CommerceService {
     cursor?: string | undefined;
   }): Promise<PublicListingsPage> {
     const limit = assertPublicListingsListLimit(opts?.limit);
-    if (this.config.commissionBps === null) return { items: [], nextCursor: null };
     const sort = resolveListingSort(opts?.sort);
+    if (this.config.commissionBps === null) return { items: [], nextCursor: null };
     const cursor = decodeListingCursor(opts?.cursor, sort);
     const offerType = opts?.offerType ?? null;
     const assetId = opts?.assetId?.trim() ? opts.assetId.trim() : null;
@@ -1490,7 +1536,9 @@ function toPublicListing(row: ListingRow): PublicListingRecord {
 }
 
 function resolveListingSort(sort: string | undefined): ListingSort {
-  if (sort === undefined || sort === '') return DEFAULT_LISTING_SORT;
+  if (sort === undefined || sort.trim() === '') {
+    throw new MarketError(MARKET_LISTINGS_SORT_UNSET, MARKET_LISTINGS_SORT_UNSET);
+  }
   if ((LISTING_SORTS as readonly string[]).includes(sort)) return sort as ListingSort;
   throw new MarketError(MARKET_LISTINGS_SORT_UNKNOWN, MARKET_LISTINGS_SORT_UNKNOWN);
 }
