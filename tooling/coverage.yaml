@@ -126,7 +126,7 @@ sections:
     disposition: exempt
     reason: >-
       Process for agents, not product. Its five rules live in tooling/agent-protocol/AGENT_PROTOCOL.md
-      and AGENTS.md, and the agent-autoload gate asserts they stay in the files a cold agent loads.
+      and AGENTS.md.
   - id: 16
     title: ADDITIONAL DOCTRINES
     disposition: exempt
