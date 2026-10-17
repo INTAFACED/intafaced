@@ -53,6 +53,10 @@ export interface WireOrder {
    */
   readonly environment?: string;
   readonly reduceOnly?: boolean;
+  readonly triggerRole?: 'take_profit' | 'stop_loss';
+  readonly triggerBy?: 'last' | 'mark' | 'index';
+  readonly instrument?: 'option' | 'option_combo';
+  readonly positionQty?: string;
   readonly displayQty?: string | null;
   readonly iceberg?: boolean;
   /** Trail distance. Absent when the rest is not a trailing stop. */
@@ -147,6 +151,10 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     price: order.price === null ? null : formatAmount(order.price),
     stopPrice: order.stopPrice === null ? null : formatAmount(order.stopPrice),
     tif: order.tif,
+    ...(order.triggerRole === 'take_profit' || order.triggerRole === 'stop_loss' ? { triggerRole: order.triggerRole } : {}),
+    ...(order.triggerBy === 'mark' || order.triggerBy === 'index' || order.triggerBy === 'last' ? { triggerBy: order.triggerBy } : {}),
+    ...(order.instrument === 'option' || order.instrument === 'option_combo' ? { instrument: order.instrument } : {}),
+    ...(order.positionQty !== undefined && order.positionQty !== null ? { positionQty: formatAmount(order.positionQty) } : {}),
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.bracket !== undefined ? { bracket: order.bracket } : {}),
     ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : formatAmount(order.takeProfit) } : {}),
@@ -197,6 +205,10 @@ export function fromWire(order: WireOrder): EngineOrder {
     price: order.price === null ? null : parseAmount(order.price),
     stopPrice: order.stopPrice === null ? null : parseAmount(order.stopPrice),
     tif: order.tif,
+    ...(order.triggerRole === 'take_profit' || order.triggerRole === 'stop_loss' ? { triggerRole: order.triggerRole } : {}),
+    ...(order.triggerBy === 'mark' || order.triggerBy === 'index' || order.triggerBy === 'last' ? { triggerBy: order.triggerBy } : {}),
+    ...(order.instrument === 'option' || order.instrument === 'option_combo' ? { instrument: order.instrument } : {}),
+    ...(order.positionQty !== undefined ? { positionQty: parseAmount(order.positionQty) } : {}),
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.bracket !== undefined ? { bracket: order.bracket } : {}),
     ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : parseAmount(order.takeProfit) } : {}),

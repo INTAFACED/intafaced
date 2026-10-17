@@ -94,6 +94,8 @@ interface StopOrder {
   expireAt: string | null;
   sessionId: string | null;
   reduceOnly: boolean;
+  triggerBy: 'last' | 'mark' | 'index';
+  triggerRole: 'legacy' | 'take_profit' | 'stop_loss';
   minQty: Amount | null;
   aon: boolean;
   /** Trail distance. Null when this stop does not walk. */
@@ -129,6 +131,79 @@ interface MatchOutcome {
 
 function reject(code: RejectReason['code'], message: string): RejectReason {
   return { code, message };
+}
+
+const OPTION_TRIGGER_TYPES = new Set(['stop', 'stop_limit', 'stop_market', 'take_profit', 'take_limit', 'take_market', 'trailing_stop']);
+
+function readTriggerBy(order: EngineOrder): 'last' | 'mark' | 'index' {
+  if (order.triggerBy === 'mark' || order.triggerBy === 'index') return order.triggerBy;
+  return 'last';
+}
+
+function readTriggerRole(order: EngineOrder): 'legacy' | 'take_profit' | 'stop_loss' {
+  if (order.triggerRole === 'take_profit' || order.triggerRole === 'stop_loss') return order.triggerRole;
+  return 'legacy';
+}
+
+function stopView(order: EngineOrder): {
+  side: OrderSide;
+  stopPrice: Amount;
+  triggerBy: 'last' | 'mark' | 'index';
+  triggerRole: 'legacy' | 'take_profit' | 'stop_loss';
+} {
+  return {
+    side: order.side,
+    stopPrice: order.stopPrice as Amount,
+    triggerBy: readTriggerBy(order),
+    triggerRole: readTriggerRole(order),
+  };
+}
+
+function incomingPrice(order: EngineOrder): Amount | null {
+  return order.price ?? order.stopPrice;
+}
+
+function moreAggressive(side: OrderSide, next: Amount | null, prior: Amount | null): boolean {
+  if (next === null) return prior !== null;
+  if (prior === null) return false;
+  return side === 'sell' ? next < prior : next > prior;
+}
+
+function compareLeastAggressive(
+  side: OrderSide,
+  a: { readonly price: Amount | null; readonly sequence: number },
+  b: { readonly price: Amount | null; readonly sequence: number },
+): number {
+  if (a.price === null && b.price === null) return b.sequence - a.sequence;
+  if (a.price === null) return 1;
+  if (b.price === null) return -1;
+  if (a.price === b.price) return b.sequence - a.sequence;
+  if (side === 'sell') return a.price > b.price ? -1 : 1;
+  return a.price < b.price ? -1 : 1;
+}
+
+function movedThrough(
+  side: OrderSide,
+  stopPrice: Amount,
+  role: 'legacy' | 'take_profit' | 'stop_loss',
+  previous: Amount | null,
+  next: Amount | null,
+): boolean {
+  if (next === null) return false;
+  if (role === 'legacy') return side === 'buy' ? next >= stopPrice : next <= stopPrice;
+  if (previous === null) {
+    if (side === 'sell' && role === 'take_profit') return next >= stopPrice;
+    if (side === 'sell') return next <= stopPrice;
+    if (role === 'take_profit') return next <= stopPrice;
+    return next >= stopPrice;
+  }
+  if (next === previous) return false;
+  const rising = next > previous;
+  const falling = next < previous;
+  if (side === 'sell' && role === 'take_profit') return rising && previous <= stopPrice && next >= stopPrice;
+  if (side === 'sell') return falling && previous >= stopPrice && next <= stopPrice;
+  if (role === 'take_profit') return falling && previous >= stopPrice && next <= stopPrice;
+  return rising && previous <= stopPrice && next >= stopPrice;
 }
 
 function publishedBookL2Limit(value: number | undefined | null): number {
@@ -203,6 +278,14 @@ export class OrderBook {
   private readonly acceptedIds = new Set<OrderId>();
   private readonly ocoMembers = new Set<OrderId>();
   private lastTradePrice: Amount | null = null;
+  /** Prior last print. Null until a second print, so a book with no move does not trigger. */
+  private previousTradePrice: Amount | null = null;
+  /** Set only for the print that just happened. Cleared after stops drain, so a later submit does not reuse it. */
+  private lastMove: { readonly previous: Amount | null; readonly next: Amount } | null = null;
+  private markPrice: Amount | null = null;
+  private indexPrice: Amount | null = null;
+  /** Explicit futures position. Present, including zero, replaces the fill net for reduce-only. */
+  private readonly futuresPositions = new Map<AccountId, Amount>();
   private readonly positions = new Map<AccountId, Amount>();
   /** STP (and later named abuse) evidence. Open only — never a fine, never auto-closed. */
   private readonly surveillanceCases: EngineSurveillanceCase[] = [];
@@ -263,14 +346,18 @@ export class OrderBook {
     const pegged = pegIntentRefuse(incoming);
     if (pegged) return rejected(pegged);
     const order = bindPegRelative(incoming);
+    if (order.positionQty !== undefined && order.positionQty !== null) {
+      this.futuresPositions.set(order.accountId, order.positionQty);
+    }
     const structural = this.validate(order, now);
     if (structural) return rejected(structural);
     const expired = now != null ? this.expireDue(now) : [];
 
     const isStop = order.type === 'stop' || order.type === 'stop_limit';
-    const triggersNow = isStop && this.isTriggered(order.side, order.stopPrice as Amount);
+    const triggersNow = isStop && (this.isTriggered(stopView(order)) || this.alreadyAtStop(stopView(order)));
 
     if (isStop && !triggersNow) {
+      const displaced = this.displaceReduceOnly(order);
       const sequence = this.nextSequence();
       const walked = trailPeak(order);
       this.stops.push({
@@ -288,6 +375,8 @@ export class OrderBook {
         expireAt: order.expireAt ?? null,
         sessionId: readSessionId(order),
         reduceOnly: order.reduceOnly === true,
+        triggerBy: readTriggerBy(order),
+        triggerRole: readTriggerRole(order),
         minQty: readMinQty(order),
         aon: readAon(order),
         trail: walked.trail,
@@ -310,7 +399,7 @@ export class OrderBook {
           sequence,
           version: 1,
         },
-        cancellations: expired,
+        cancellations: [...displaced, ...expired],
         triggered: [],
       };
     }
@@ -323,6 +412,7 @@ export class OrderBook {
       return rejected(viability);
     }
 
+    const displaced = this.displaceReduceOnly(order);
     const sequence = this.nextSequence();
     const outcome = this.execute(effective, sequence);
     this.recordPrints(outcome.fills);
@@ -333,6 +423,7 @@ export class OrderBook {
     this.linkLiveSibling(order.orderId, order.ocoSiblingId ?? null);
     const ocoCancels = this.cancelOcoSiblings(outcome.fills, order);
     const triggered = this.drainStops();
+    this.lastMove = null;
     const surveillanceCases = collectSurveillance(outcome.surveillanceCases, triggered);
 
     return {
@@ -340,7 +431,7 @@ export class OrderBook {
       sequence,
       fills: outcome.fills,
       resting: outcome.resting,
-      cancellations: [...expired, ...outcome.cancellations, ...reduceCancels, ...ocoCancels],
+      cancellations: [...displaced, ...expired, ...outcome.cancellations, ...reduceCancels, ...ocoCancels],
       triggered,
       ...(surveillanceCases.length > 0 ? { surveillanceCases } : {}),
     };
@@ -510,6 +601,7 @@ export class OrderBook {
       ocoSiblingId: resting.ocoSiblingId,
     });
     const triggered = this.drainStops();
+    this.lastMove = null;
     const surveillanceCases = collectSurveillance(outcome.surveillanceCases, triggered);
     return {
       accepted: true,
@@ -606,13 +698,14 @@ export class OrderBook {
       aon: updated.aon,
     };
 
-    if (this.isTriggered(updated.side, updated.stopPrice)) {
+    if (this.armedThrough(updated) || this.isTriggered(updated)) {
       const viability = this.checkViability(effective);
       if (viability) return refusedAmend(cmd.orderId, viability);
       const at = this.stops.findIndex((s) => s.orderId === stop.orderId);
       if (at !== -1) this.stops.splice(at, 1);
       const triggered = this.activate(updated);
       const cascade = this.drainStops();
+      this.lastMove = null;
       const surveillanceCases = collectSurveillance(triggered.surveillanceCases ?? [], cascade);
       return {
         accepted: true,
@@ -657,6 +750,13 @@ export class OrderBook {
   }
 
   private validate(order: EngineOrder, now?: Date | null): RejectReason | null {
+    const rawType = order.type as string;
+    if ((order.instrument === 'option' || order.instrument === 'option_combo') && OPTION_TRIGGER_TYPES.has(rawType)) {
+      return reject(
+        'option_trigger_unsupported',
+        'stop_limit, stop_market, take_limit, take_market, and trailing_stop are not supported on option or option_combo',
+      );
+    }
     const missingStp = stpIdentityRefuse(order.accountId);
     if (missingStp) return missingStp;
     if (order.qty <= ZERO) return reject('invalid_qty', 'quantity must be strictly positive');
@@ -690,6 +790,18 @@ export class OrderBook {
       return reject('unexpected_stop_price', `a ${order.type} order must not carry a stopPrice`);
     }
 
+    if (order.triggerRole === 'take_profit' && needsStop && order.stopPrice !== null) {
+      if (this.lastTradePrice === null) {
+        return reject('missing_last_price', 'a take-profit needs a last trade; the engine does not invent one');
+      }
+      if (order.side === 'sell' && order.stopPrice <= this.lastTradePrice) {
+        return reject('trigger_wrong_side', 'a take-profit sell is valid only above the market');
+      }
+      if (order.side === 'buy' && order.stopPrice >= this.lastTradePrice) {
+        return reject('trigger_wrong_side', 'a take-profit buy is valid only below the market');
+      }
+    }
+
     if (order.tif === 'PO' && !needsPrice) {
       return reject('invalid_tif', 'post-only requires a limit price');
     }
@@ -717,13 +829,11 @@ export class OrderBook {
       }
     }
 
-    if (order.reduceOnly === true) {
-      if (this.wouldIncreasePosition(order.accountId, order.side, order.qty)) {
-        return reject(
-          'would_increase_position',
-          'reduce-only refuses a qty that would increase the position; the engine does not invent a mark',
-        );
-      }
+    if (order.reduceOnly === true && this.incomingReduceOnlyRefused(order)) {
+      return reject(
+        'would_increase_position',
+        'reduce-only refuses a qty that would increase the position; the engine does not invent a mark',
+      );
     }
 
     if (wantsIceberg(order)) {
@@ -1056,24 +1166,68 @@ export class OrderBook {
 
   private recordPrints(fills: readonly Fill[]): void {
     const last = fills[fills.length - 1];
-    if (last) this.lastTradePrice = last.price;
+    if (!last) return;
+    const previous = this.lastTradePrice;
+    this.previousTradePrice = previous;
+    this.lastTradePrice = last.price;
+    this.lastMove = { previous, next: last.price };
   }
 
-  private isTriggered(side: OrderSide, stopPrice: Amount): boolean {
-    if (this.lastTradePrice === null) return false;
-    return side === 'buy' ? this.lastTradePrice >= stopPrice : this.lastTradePrice <= stopPrice;
+  private isTriggered(stop: {
+    readonly side: OrderSide;
+    readonly stopPrice: Amount;
+    readonly triggerBy: 'last' | 'mark' | 'index';
+    readonly triggerRole: 'legacy' | 'take_profit' | 'stop_loss';
+  }): boolean {
+    if (stop.triggerBy !== 'last' || this.lastMove === null) return false;
+    return movedThrough(stop.side, stop.stopPrice, stop.triggerRole, this.lastMove.previous, this.lastMove.next);
+  }
+
+  private alreadyAtStop(stop: {
+    readonly side: OrderSide;
+    readonly stopPrice: Amount;
+    readonly triggerBy: 'last' | 'mark' | 'index';
+    readonly triggerRole: 'legacy' | 'take_profit' | 'stop_loss';
+  }): boolean {
+    if (this.lastTradePrice === null || stop.triggerBy !== 'last' || stop.triggerRole === 'take_profit') return false;
+    if (stop.triggerRole === 'legacy') {
+      return stop.side === 'buy' ? this.lastTradePrice >= stop.stopPrice : this.lastTradePrice <= stop.stopPrice;
+    }
+    return this.lastTradePrice === stop.stopPrice;
+  }
+
+  /** Amend still uses the level test: a sell stop at or through last is already live. */
+  private armedThrough(stop: {
+    readonly side: OrderSide;
+    readonly stopPrice: Amount;
+    readonly triggerBy: 'last' | 'mark' | 'index';
+    readonly triggerRole: 'legacy' | 'take_profit' | 'stop_loss';
+  }): boolean {
+    if (this.lastTradePrice === null || stop.triggerBy !== 'last') return false;
+    const last = this.lastTradePrice;
+    if (stop.triggerRole === 'take_profit') {
+      return stop.side === 'sell' ? last >= stop.stopPrice : last <= stop.stopPrice;
+    }
+    return stop.side === 'buy' ? last >= stop.stopPrice : last <= stop.stopPrice;
   }
 
   private drainStops(): TriggerOutcome[] {
     const outcomes: TriggerOutcome[] = [];
-
-    for (;;) {
-      const at = this.stops.findIndex((s) => this.isTriggered(s.side, s.stopPrice));
-      if (at === -1) break;
-      const stop = this.stops.splice(at, 1)[0] as StopOrder;
-      outcomes.push(this.activate(stop));
+    let guard = 0;
+    while (this.lastMove && guard++ < 64) {
+      const move = this.lastMove;
+      const batch: StopOrder[] = [];
+      for (let index = this.stops.length - 1; index >= 0; index -= 1) {
+        const stop = this.stops[index]!;
+        if (stop.triggerBy !== 'last') continue;
+        if (!movedThrough(stop.side, stop.stopPrice, stop.triggerRole, move.previous, move.next)) continue;
+        batch.push(this.stops.splice(index, 1)[0]!);
+      }
+      if (batch.length === 0) break;
+      batch.reverse();
+      for (const stop of batch) outcomes.push(this.activate(stop));
+      if (this.lastMove === move) break;
     }
-
     return outcomes;
   }
 
@@ -1303,10 +1457,122 @@ export class OrderBook {
     return reserved;
   }
 
+  private signedPosition(accountId: AccountId, override?: Amount | null): Amount {
+    if (override !== undefined && override !== null) return override;
+    if (this.futuresPositions.has(accountId)) return this.futuresPositions.get(accountId) ?? ZERO;
+    return this.netPosition(accountId);
+  }
+
   private reducibleQty(accountId: AccountId, side: OrderSide, exceptOrderId: OrderId | null = null): Amount {
-    const open = this.openQty(this.netPosition(accountId), side);
+    const open = this.openQty(this.signedPosition(accountId), side);
     const reserved = this.reservedReduceOnly(accountId, side, exceptOrderId);
     return open > reserved ? open - reserved : ZERO;
+  }
+
+  /** Own size must fit the futures position (or the fill net). Less-aggressive reduce-only can be displaced. */
+  private incomingReduceOnlyRefused(order: EngineOrder): boolean {
+    const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
+    if (order.qty > open) return true;
+    const blocking = this.reduceOnlyRows(order.accountId, order.side, order.orderId).filter(
+      (row) => !moreAggressive(order.side, incomingPrice(order), row.price),
+    );
+    let reserved = ZERO;
+    for (const row of blocking) reserved += row.qty;
+    return order.qty + reserved > open;
+  }
+
+  private displaceReduceOnly(order: EngineOrder): CancelledRef[] {
+    if (order.reduceOnly !== true) return [];
+    const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
+    if (order.qty > open) return [];
+    const rows = this.reduceOnlyRows(order.accountId, order.side, order.orderId);
+    const less = rows.filter((row) => moreAggressive(order.side, incomingPrice(order), row.price));
+    less.sort((a, b) => compareLeastAggressive(order.side, a, b));
+    let reserved = ZERO;
+    for (const row of rows) reserved += row.qty;
+    const out: CancelledRef[] = [];
+    for (const row of less) {
+      if (order.qty + reserved <= open) break;
+      const pulled = this.pullReduceOnlyRow(row);
+      if (!pulled) continue;
+      reserved -= row.qty;
+      out.push(pulled);
+    }
+    return out;
+  }
+
+  private reduceOnlyRows(
+    accountId: AccountId,
+    side: OrderSide,
+    exceptOrderId: OrderId,
+  ): { orderId: OrderId; accountId: AccountId; qty: Amount; price: Amount | null; sequence: number; kind: 'book' | 'stop' }[] {
+    const rows: { orderId: OrderId; accountId: AccountId; qty: Amount; price: Amount | null; sequence: number; kind: 'book' | 'stop' }[] =
+      [];
+    for (const resting of this.index.values()) {
+      if (resting.reduceOnly && resting.accountId === accountId && resting.side === side && resting.orderId !== exceptOrderId) {
+        rows.push({
+          orderId: resting.orderId,
+          accountId: resting.accountId,
+          qty: resting.remaining,
+          price: resting.price,
+          sequence: resting.sequence,
+          kind: 'book',
+        });
+      }
+    }
+    for (const stop of this.stops) {
+      if (stop.reduceOnly && stop.accountId === accountId && stop.side === side && stop.orderId !== exceptOrderId) {
+        rows.push({
+          orderId: stop.orderId,
+          accountId: stop.accountId,
+          qty: stop.qty,
+          price: stop.price ?? stop.stopPrice,
+          sequence: stop.sequence,
+          kind: 'stop',
+        });
+      }
+    }
+    return rows;
+  }
+
+  private pullReduceOnlyRow(row: { orderId: OrderId; kind: 'book' | 'stop' }): CancelledRef | null {
+    if (row.kind === 'book') {
+      const resting = this.index.get(row.orderId);
+      if (!resting) return null;
+      this.removeResting(resting);
+      const sequence = this.nextSequence();
+      return {
+        orderId: resting.orderId,
+        accountId: resting.accountId,
+        remainingQty: resting.remaining,
+        sequence,
+        reason: 'reduce_only_displaced',
+      };
+    }
+    const stopIndex = this.stops.findIndex((stop) => stop.orderId === row.orderId);
+    if (stopIndex === -1) return null;
+    const stop = this.stops.splice(stopIndex, 1)[0] as StopOrder;
+    const sequence = this.nextSequence();
+    return {
+      orderId: stop.orderId,
+      accountId: stop.accountId,
+      remainingQty: stop.qty,
+      sequence,
+      reason: 'reduce_only_displaced',
+    };
+  }
+
+  private drainReference(source: 'mark' | 'index', previous: Amount | null, next: Amount): TriggerOutcome[] {
+    const outcomes: TriggerOutcome[] = [];
+    for (;;) {
+      const at = this.stops.findIndex(
+        (stop) => stop.triggerBy === source && movedThrough(stop.side, stop.stopPrice, stop.triggerRole, previous, next),
+      );
+      if (at === -1) break;
+      const stop = this.stops.splice(at, 1)[0] as StopOrder;
+      outcomes.push(this.activate(stop));
+    }
+    return outcomes;
   }
 
   private wouldIncreasePosition(accountId: AccountId, side: OrderSide, qty: Amount, exceptOrderId: OrderId | null = null): boolean {
@@ -1353,7 +1619,53 @@ export class OrderBook {
 
   /** True when a stop at this side and stop price would activate now. Does not activate. */
   stopWouldTrigger(side: OrderSide, stopPrice: Amount): boolean {
-    return this.isTriggered(side, stopPrice);
+    if (this.lastTradePrice === null) return false;
+    return side === 'buy' ? this.lastTradePrice >= stopPrice : this.lastTradePrice <= stopPrice;
+  }
+
+  /** Futures position for reduce-only. Zero is flat. Does not change the fill net. */
+  noteFuturesPosition(accountId: AccountId, qty: Amount): void {
+    this.futuresPositions.set(accountId, qty);
+  }
+
+  /** Same structural refusal as place, without resting, filling, or recording a position. */
+  preview(incoming: EngineOrder): SubmitResult {
+    const pegged = pegIntentRefuse(incoming);
+    if (pegged) return rejected(pegged);
+    const order = bindPegRelative(incoming);
+    const structural = this.validate(order, null);
+    if (structural) return rejected(structural);
+    return { accepted: true, sequence: null, fills: [], resting: null, cancellations: [], triggered: [] };
+  }
+
+  /**
+   * Mark or index reference. Null means the feed is missing or down: no stop fires,
+   * and last is not copied in.
+   */
+  applyTriggerReference(source: 'mark' | 'index', price: Amount | null): TriggerOutcome[] {
+    const previous = source === 'mark' ? this.markPrice : this.indexPrice;
+    if (price === null || price <= ZERO) {
+      if (source === 'mark') this.markPrice = null;
+      else this.indexPrice = null;
+      return [];
+    }
+    if (source === 'mark') this.markPrice = price;
+    else this.indexPrice = price;
+    return this.drainReference(source, previous, price);
+  }
+
+  /** Resting GTD/GTT ids already due. Does not cancel them. */
+  dueExpiry(now: Date): OrderId[] {
+    const nowMs = now.getTime();
+    const due: OrderId[] = [];
+    for (const order of this.index.values()) {
+      if (order.expireAt && Date.parse(order.expireAt) <= nowMs) due.push(order.orderId);
+    }
+    for (const stop of this.stops) {
+      if (stop.expireAt && Date.parse(stop.expireAt) <= nowMs) due.push(stop.orderId);
+    }
+    due.sort();
+    return due;
   }
 
   /**
@@ -1410,6 +1722,12 @@ export class OrderBook {
       this.addPosition(fill.takerAccountId, signed);
       this.addPosition(fill.makerAccountId, -signed);
     }
+  }
+
+  private futuresState(): { accountId: string; qty: string }[] {
+    return [...this.futuresPositions.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([accountId, qty]) => ({ accountId, qty: formatAmount(qty) }));
   }
 
   private positionState(): { accountId: string; qty: string }[] {
@@ -1514,6 +1832,8 @@ export class OrderBook {
         ...(s.expireAt ? { expireAt: s.expireAt } : {}),
         ...(s.sessionId ? { sessionId: s.sessionId } : {}),
         ...(s.reduceOnly ? { reduceOnly: true } : {}),
+        ...(s.triggerRole === 'take_profit' || s.triggerRole === 'stop_loss' ? { triggerRole: s.triggerRole } : {}),
+        ...(s.triggerBy !== 'last' ? { triggerBy: s.triggerBy } : {}),
         ...(s.minQty !== null ? { minQty: formatAmount(s.minQty) } : {}),
         ...(s.aon ? { aon: true } : {}),
         ...(s.trail !== null && s.peak !== null ? { trail: formatAmount(s.trail), peak: formatAmount(s.peak) } : {}),
@@ -1521,6 +1841,7 @@ export class OrderBook {
       ...(this.ocoTerminalIds().length > 0 ? { ocoTerminal: this.ocoTerminalIds() } : {}),
       ...(this.terminalAcceptedIds().length > 0 ? { acceptedOrderIds: this.terminalAcceptedIds() } : {}),
       ...(this.positionState().length > 0 ? { positions: this.positionState() } : {}),
+      ...(this.futuresState().length > 0 ? { futuresPositions: this.futuresState() } : {}),
       ...(this.surveillanceCases.length > 0 ? { surveillanceCases: this.surveillanceCases } : {}),
     };
   }
@@ -1580,6 +1901,8 @@ export class OrderBook {
         expireAt: s.expireAt ?? null,
         sessionId: s.sessionId ?? null,
         reduceOnly: s.reduceOnly === true,
+        triggerBy: s.triggerBy === 'mark' || s.triggerBy === 'index' ? s.triggerBy : 'last',
+        triggerRole: s.triggerRole === 'take_profit' || s.triggerRole === 'stop_loss' ? s.triggerRole : 'legacy',
         minQty: s.minQty == null ? null : parseAmount(s.minQty),
         aon: s.aon === true,
         trail: walked.trail,
@@ -1601,6 +1924,9 @@ export class OrderBook {
     for (const row of state.positions ?? []) {
       const qty = parseAmount(row.qty);
       if (qty !== ZERO) book.positions.set(row.accountId, qty);
+    }
+    for (const row of state.futuresPositions ?? []) {
+      book.futuresPositions.set(row.accountId, parseAmount(row.qty));
     }
 
     for (const opened of state.surveillanceCases ?? []) {
