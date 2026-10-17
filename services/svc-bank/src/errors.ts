@@ -277,6 +277,35 @@ export type BankErrorCode =
    */
   | 'bank.no_fiat_rail'
   | 'bank.fiat_ramp_socket'
+  /**
+   * On-ramp quote has no rate/fee source. A pay amount, fee, or FX rate is not invented.
+   * The missing piece is socket.psp-partners plus a published price.
+   */
+  | 'bank.onramp_rate_unset'
+  /** No quote row for this caller. */
+  | 'bank.onramp_quote_missing'
+  /** The quote's published expiry has passed. Nothing is charged. */
+  | 'bank.onramp_quote_expired'
+  /** The partner answered without a hosted URL or bank-transfer instruction. None is invented. */
+  | 'bank.onramp_instruction_missing'
+  /**
+   * Crypto off-ramp has no published fee schedule. Zero is not assumed.
+   * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
+   */
+  | 'bank.offramp_fee_unset'
+  /** Fee plus net does not equal the amount. The service does not adjust either figure. */
+  | 'bank.offramp_fee_inconsistent'
+  /**
+   * Crypto custody is not connected. No asset list, minimum, address, or
+   * incoming deposit is invented.
+   */
+  | 'bank.deposit_custody_unset'
+  /** Custody published a catalogue or address this service will not repeat. */
+  | 'bank.deposit_catalogue_invalid'
+  /** The asset or network is not in the published catalogue. */
+  | 'bank.deposit_asset_unpublished'
+  /** Custody returned more incoming deposits than this door will publish. None are dropped. */
+  | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
