@@ -101,6 +101,21 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
+/** The current profile row on `identity.profile_version_conflict` only. */
+export function conflictProfile(
+  cause: unknown,
+): { displayName: string | null; locale: string; region: string | null; version: number } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'identity.profile_version_conflict') return undefined;
+  if (!('profile' in cause) || !cause.profile || typeof cause.profile !== 'object') return undefined;
+  const row = cause.profile as Record<string, unknown>;
+  const { displayName, locale, region, version } = row;
+  if (!(displayName === null || typeof displayName === 'string')) return undefined;
+  if (typeof locale !== 'string') return undefined;
+  if (!(region === null || typeof region === 'string')) return undefined;
+  if (typeof version !== 'number' || !Number.isInteger(version)) return undefined;
+  return { displayName, locale, region, version };
+}
+
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
@@ -121,6 +136,9 @@ const t = initTRPC.context<Context>().create({
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
         ...(code ? { cause: { code } } : {}),
+        // Only on a stale profile.compare-and-set, so the client can show the row
+        // that won. No other error grows a profile field.
+        ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
         // Only on `auth.too_many_attempts`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
       },

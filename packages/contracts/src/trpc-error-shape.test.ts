@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
-import { publicProcedure, retryAfterSecondsOf, router, type Context } from './trpc.js';
+import { publicProcedure, retryAfterSecondsOf, conflictProfile, router, type Context } from './trpc.js';
 
 /** Stand-in with the same shape as svc-identity's AuthError (a different class from @intafaced/auth's). */
 class FakeAuthError extends Error {
@@ -75,5 +75,24 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts'))).toBeUndefined();
     expect(retryAfterSecondsOf(undefined)).toBeUndefined();
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: 1.2 }))).toBe(2);
+  });
+
+  it('returns the current profile only on a version conflict', async () => {
+    const conflict = router({
+      stale: publicProcedure.query(() => {
+        const cause = new FakeAuthError('identity.profile_version_conflict');
+        Object.assign(cause, { profile: { displayName: 'Ada', locale: 'en', region: 'DE', version: 2 } });
+        throw new TRPCError({ code: 'CONFLICT', message: 'stale', cause });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/stale'),
+      router: conflict,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.profile).toEqual({ displayName: 'Ada', locale: 'en', region: 'DE', version: 2 });
+    expect(conflictProfile(undefined)).toBeUndefined();
   });
 });
