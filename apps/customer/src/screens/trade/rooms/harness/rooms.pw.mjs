@@ -23,9 +23,9 @@ const SIZES = [
 const PHONE = [390, 844];
 
 /** One screenshot at both sizes (and phone width when `phone`); each file must exist and not be empty. */
-async function shot(page, name, { full = true, phone = false } = {}) {
+async function shot(page, name, { full = true, phone = false, only = null } = {}) {
   await page.waitForTimeout(400); // let dialogs and fades finish
-  for (const [width, height] of phone ? [...SIZES, PHONE] : SIZES) {
+  for (const [width, height] of only ? [only] : phone ? [...SIZES, PHONE] : SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(150);
     const file = join(shots, `${name}-${width}.png`);
@@ -173,6 +173,11 @@ test.describe('Options', () => {
     await expect(open.getByText('Needs recovery')).toBeVisible();
     await expect(open.getByRole('button', { name: 'Check status' })).toBeVisible();
     await shot(page, 'options-09-orders-needs-recovery');
+    // At 1280 the table scrolls sideways (Contract stays in view); the recovery action must be reachable at the far end.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await open.evaluate((table) => table.closest('[data-slot="table-scroll"]')?.scrollTo({ left: 10_000, behavior: 'instant' }));
+    await expect(open.getByRole('button', { name: 'Check status' })).toBeInViewport();
+    await shot(page, 'options-09b-orders-needs-recovery-actions', { only: [1280, 800] });
     await clean(page, mock);
   });
 

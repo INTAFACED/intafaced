@@ -59,7 +59,7 @@ export function AlgoList({
     {
       id: 'kind',
       header: t('Kind'),
-      width: 64,
+      width: 80,
       cell: (r) => (r.ok ? <Badge variant="outline">{r.parent.kind.toUpperCase()}</Badge> : null),
     },
     {

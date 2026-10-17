@@ -134,28 +134,35 @@ export function OrdersTab({
   };
 
   const base: TableColumn<Order>[] = [
-    { id: 'symbol', header: t('Contract'), width: 210, value: (o) => o.symbol, cell: (o) => <span className="font-mono">{o.symbol}</span> },
-    { id: 'side', header: t('Side'), width: 56, cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), width: 64, cell: () => t('Limit') },
+    {
+      id: 'symbol',
+      header: t('Contract'),
+      width: 200,
+      pin: 'start',
+      value: (o) => o.symbol,
+      cell: (o) => <span className="font-mono">{o.symbol}</span>,
+    },
+    { id: 'side', header: t('Side'), width: 52, cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'type', header: t('Type'), width: 60, cell: () => t('Limit') },
     {
       id: 'price',
       header: t('Price'),
-      width: 100,
+      width: 90,
       numeric: true,
       value: (o) => o.price,
       cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price),
     },
-    { id: 'size', header: t('Size'), width: 90, numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
+    { id: 'size', header: t('Size'), width: 80, numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
     {
       id: 'filled',
       header: t('Filled'),
-      width: 90,
+      width: 80,
       numeric: true,
       value: (o) => o.filled,
       cell: (o) => fmtAmount(o.filled, { places: 8 }),
     },
-    { id: 'state', header: t('State'), width: 130, cell: stateOf },
-    { id: 'created', header: t('Created'), width: 120, cell: (o) => formatAsOf(o.timestamp) },
+    { id: 'state', header: t('State'), width: 126, cell: stateOf },
+    { id: 'created', header: t('Created'), width: 110, cell: (o) => formatAsOf(o.timestamp) },
   ];
   const openColumns: TableColumn<Order>[] = [
     ...base,
@@ -163,7 +170,7 @@ export function OrdersTab({
       id: 'actions',
       header: t('Actions'),
       headerLabel: t('Actions'),
-      width: 260,
+      width: 230,
       align: 'end',
       cell: (o) => (
         <span className="inline-flex items-center gap-2">
