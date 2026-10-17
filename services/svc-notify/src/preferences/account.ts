@@ -48,6 +48,7 @@ export type DigestSummary = {
 type TopicKey = `${string}\0${NotifyTopic}\0${MuteableChannel}`;
 
 type HoldRow = {
+  id: string;
   userId: string;
   notificationId: string;
   channel: MuteableChannel;
@@ -72,11 +73,23 @@ export interface DigestPrefStore {
   set(userId: string, view: DigestView): Promise<void>;
 }
 
+export type DueHold = {
+  readonly id: string;
+  readonly userId: string;
+  readonly notificationId: string;
+  readonly channel: MuteableChannel;
+};
+
 export interface HoldStore {
   has(notificationId: string, channel: MuteableChannel): Promise<boolean>;
   hold(input: { userId: string; notificationId: string; channel: MuteableChannel; holdUntil: Date }): Promise<'inserted' | 'exists'>;
-  releaseDue(userId: string, now: Date): Promise<DigestSummary | null>;
-  releaseDueAll(now: Date): Promise<readonly DigestSummary[]>;
+  /** Open holds whose window has ended. Does not mark them released. */
+  listDue(now: Date): Promise<readonly DueHold[]>;
+  /**
+   * One summary for this user, covering exactly these still-open hold ids.
+   * The id list is the one the caller locked; the predicate is not applied again.
+   */
+  markReleased(userId: string, now: Date, holdIds: readonly string[]): Promise<DigestSummary | null>;
 }
 
 const PREFERABLE: readonly MuteableChannel[] = ['email', 'push', 'sms'];
@@ -145,12 +158,19 @@ export class MemoryHoldStore implements HoldStore {
 
   async hold(input: { userId: string; notificationId: string; channel: MuteableChannel; holdUntil: Date }): Promise<'inserted' | 'exists'> {
     if (await this.has(input.notificationId, input.channel)) return 'exists';
-    this.holds.push({ ...input, summaryId: null });
+    this.holds.push({ id: randomUUID(), ...input, summaryId: null });
     return 'inserted';
   }
 
-  async releaseDue(userId: string, now: Date): Promise<DigestSummary | null> {
-    const due = this.holds.filter((row) => row.userId === userId && row.summaryId === null && row.holdUntil.getTime() <= now.getTime());
+  async listDue(now: Date): Promise<readonly DueHold[]> {
+    return this.holds
+      .filter((row) => row.summaryId === null && row.holdUntil.getTime() <= now.getTime())
+      .map((row) => ({ id: row.id, userId: row.userId, notificationId: row.notificationId, channel: row.channel }));
+  }
+
+  async markReleased(userId: string, now: Date, holdIds: readonly string[]): Promise<DigestSummary | null> {
+    const wanted = new Set(holdIds);
+    const due = this.holds.filter((row) => row.userId === userId && row.summaryId === null && wanted.has(row.id));
     if (due.length === 0) return null;
     const noticeIds = [...new Set(due.map((row) => row.notificationId))].sort();
     const summary: DigestSummary = {
@@ -162,18 +182,6 @@ export class MemoryHoldStore implements HoldStore {
     this.summaries.push(summary);
     for (const row of due) row.summaryId = summary.id;
     return summary;
-  }
-
-  async releaseDueAll(now: Date): Promise<readonly DigestSummary[]> {
-    const users = new Set(
-      this.holds.filter((row) => row.summaryId === null && row.holdUntil.getTime() <= now.getTime()).map((row) => row.userId),
-    );
-    const released: DigestSummary[] = [];
-    for (const userId of users) {
-      const summary = await this.releaseDue(userId, now);
-      if (summary) released.push(summary);
-    }
-    return released;
   }
 }
 

@@ -1,6 +1,6 @@
 import { createHmac, randomInt } from 'node:crypto';
 import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore } from './store.js';
-import type { ChannelTarget, DeliveryRecord, DeliveryStore, TargetStore } from './channel-store.js';
+import { OwnedRecentCursorError, type ChannelTarget, type DeliveryRecord, type DeliveryStore, type TargetStore } from './channel-store.js';
 import type { DispatchReport, NotificationDispatcher } from './dispatch.js';
 import type { ChannelRegistry, ChannelStatus } from './channels/registry.js';
 import { ChannelRefusal, type OutOfAppChannel, type RefusalCode } from './channels/channel.js';
@@ -8,7 +8,13 @@ import { normaliseLocale, renderVerification } from './channels/render.js';
 import { withNotifySpan } from './tracing.js';
 import type { ChannelMutePrefs, MuteStore, MuteableChannel } from './preferences/mute.js';
 import type { AccountPrefs, HoldStore } from './preferences/account.js';
-import { clampRecentDeliveriesLimit, decodeRecentCursor, encodeRecentCursor, recentDeliveryWire } from './preferences/recent.js';
+import {
+  RecentDeliveriesError,
+  clampRecentDeliveriesLimit,
+  decodeRecentCursor,
+  encodeRecentCursor,
+  recentDeliveryWire,
+} from './preferences/recent.js';
 import type { NoticeBoard } from './notices/board.js';
 import { TargetRateLimiter, type TargetRateLimiterPort } from './target-rate-limit.js';
 
@@ -482,13 +488,19 @@ export class NotifyService {
     const cap = clampRecentDeliveriesLimit(limit);
     const empty = { rows: [], counts: { sent: 0, refused: 0, failed: 0 }, nextCursor: null as string | null };
     if (!this.deps) return empty;
-    const before = cursor ? decodeRecentCursor(cursor) : null;
-    const fetched = await this.deps.deliveries.listOwnedRecent({
-      userId,
-      limit: cap + 1,
-      before,
-      belongsTo: async (notificationId) => (await this.store.findById(userId, notificationId)) !== null,
-    });
+    const beforeId = cursor ? decodeRecentCursor(cursor) : null;
+    let fetched;
+    try {
+      fetched = await this.deps.deliveries.listOwnedRecent({
+        userId,
+        limit: cap + 1,
+        beforeId,
+        belongsTo: async (notificationId) => (await this.store.findById(userId, notificationId)) !== null,
+      });
+    } catch (err) {
+      if (err instanceof OwnedRecentCursorError) throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
+      throw err;
+    }
     const page = fetched.slice(0, cap);
     const rows = page.flatMap((row) => {
       const wire = recentDeliveryWire(row);

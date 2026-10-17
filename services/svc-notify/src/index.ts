@@ -16,6 +16,7 @@ import { AccountPrefs } from './preferences/account.js';
 import { PostgresCommandLog, PostgresDigestPrefStore, PostgresHoldStore, PostgresTopicPrefStore } from './preferences/account.pg.js';
 import { planOutOfApp } from './preferences/gate.js';
 import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
+import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
@@ -160,6 +161,7 @@ const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
   mutePrefsOf: (userId) => muteStore.get(userId),
   planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date() }),
+  loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
 });
 
 const targetRateLimiter = new PostgresTargetRateLimiter(sql);
@@ -296,7 +298,7 @@ await app.register(fastifyTRPCPlugin, {
  * for the next tick. `unref` keeps it out of the way of shutdown.
  */
 const digestRelease = setInterval(() => {
-  void holdStore.releaseDueAll(new Date()).catch((err) => {
+  void releaseDueHolds(holdStore, dispatcher, new Date()).catch((err) => {
     app.log.error({ err }, 'svc-notify digest release failed — held notices stay held until the next tick');
   });
 }, DIGEST_RELEASE_INTERVAL_MS);

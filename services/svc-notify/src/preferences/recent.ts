@@ -33,27 +33,20 @@ export function recentOutcome(status: DeliveryStatus): RecentOutcome | null {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function encodeRecentCursor(row: { createdAt: Date; id: string }): string {
-  return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`, 'utf8').toString('base64url');
+/** The previous page's last delivery id. The timestamp stays in the database. */
+export function encodeRecentCursor(row: { id: string }): string {
+  return Buffer.from(row.id, 'utf8').toString('base64url');
 }
 
-export function decodeRecentCursor(cursor: string): { createdAt: Date; id: string } {
+export function decodeRecentCursor(cursor: string): string {
   let text = '';
   try {
     text = Buffer.from(cursor, 'base64url').toString('utf8');
   } catch {
     throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
   }
-  const pipe = text.indexOf('|');
-  if (pipe <= 0 || pipe !== text.lastIndexOf('|')) {
-    throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
-  }
-  const createdAt = new Date(text.slice(0, pipe));
-  const id = text.slice(pipe + 1);
-  if (Number.isNaN(createdAt.getTime()) || !UUID.test(id)) {
-    throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
-  }
-  return { createdAt, id };
+  if (!UUID.test(text)) throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
+  return text;
 }
 
 export function recentDeliveryWire(row: DeliveryRecord) {

@@ -4,14 +4,18 @@ import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { PostgresDeliveryStore } from '../channel-store.js';
+import { PostgresDeliveryStore, PostgresTargetStore } from '../channel-store.js';
 import { type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
 import { InAppChannel, UnconfiguredChannel } from '../channels/gateway.js';
 import { ChannelRegistry } from '../channels/registry.js';
+import { NotificationDispatcher } from '../dispatch.js';
+import { NotifyService } from '../notify-service.js';
 import { PostgresNoticeStore } from '../notices/board.pg.js';
 import { NoticeBoard, type NoticeApprovalConsumer } from '../notices/board.js';
-import { AccountPrefs, MemoryCommandLog } from './account.js';
-import { PostgresCommandLog, PostgresDigestPrefStore, PostgresTopicPrefStore } from './account.pg.js';
+import { PostgresNotifyStore } from '../store.js';
+import { AccountPrefs, type DigestSummary, type HoldStore, MemoryCommandLog } from './account.js';
+import { PostgresCommandLog, PostgresDigestPrefStore, PostgresHoldStore, PostgresTopicPrefStore } from './account.pg.js';
+import { encodeRecentCursor } from './recent.js';
 
 /**
  * Durable rows on the shared test database named `test`.
@@ -27,6 +31,9 @@ const USER = 'n0t1f7be-1111-4111-8111-111111111111';
 const OTHER = 'n0t1f7be-2222-4222-8222-222222222222';
 const AUTHOR = 'n0t1f7be-3333-4333-8333-333333333333';
 const APPROVER = 'n0t1f7be-4444-4444-8444-444444444444';
+const PAGE_USER = 'n0t1f7be-5555-4555-8555-555555555555';
+const RELEASE_USER = 'n0t1f7be-6666-4666-8666-666666666666';
+const PAGE_OTHER = 'n0t1f7be-7777-4777-8777-777777777777';
 
 /** Unset means this file is not the caller. The package suite must not inherit a database named `test`: older helpers refuse it. */
 const client: Sql | null = URL ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
@@ -61,15 +68,16 @@ async function applyMigrations(db: Sql): Promise<void> {
 }
 
 async function cleanup(db: Sql): Promise<void> {
-  await db`DELETE FROM notify.digest_holds WHERE user_id IN (${USER}, ${OTHER})`;
-  await db`DELETE FROM notify.digest_summaries WHERE user_id IN (${USER}, ${OTHER})`;
+  await db`DELETE FROM notify.digest_holds WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
+  await db`DELETE FROM notify.digest_summaries WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
   await db`DELETE FROM notify.deliveries WHERE notification_id IN (
-    SELECT id FROM notify.notifications WHERE user_id IN (${USER}, ${OTHER})
+    SELECT id FROM notify.notifications WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})
   )`;
-  await db`DELETE FROM notify.notifications WHERE user_id IN (${USER}, ${OTHER})`;
-  await db`DELETE FROM notify.topic_prefs WHERE user_id IN (${USER}, ${OTHER})`;
-  await db`DELETE FROM notify.digest_prefs WHERE user_id IN (${USER}, ${OTHER})`;
-  await db`DELETE FROM notify.preference_commands WHERE user_id IN (${USER}, ${OTHER}, ${AUTHOR})`;
+  await db`DELETE FROM notify.notifications WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
+  await db`DELETE FROM notify.channel_targets WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
+  await db`DELETE FROM notify.topic_prefs WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
+  await db`DELETE FROM notify.digest_prefs WHERE user_id IN (${USER}, ${OTHER}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
+  await db`DELETE FROM notify.preference_commands WHERE user_id IN (${USER}, ${OTHER}, ${AUTHOR}, ${PAGE_USER}, ${PAGE_OTHER}, ${RELEASE_USER})`;
   await db`ALTER TABLE notify.notices DISABLE TRIGGER notice_published_immutable`;
   try {
     await db`DELETE FROM notify.notice_approval_uses WHERE publisher_id = ${AUTHOR}`;
@@ -186,15 +194,15 @@ describe.skipIf(!URL)('notify prefs on the shared test database', () => {
     await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:00.000Z' WHERE notification_id = ${older}`;
     await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:02.000Z' WHERE notification_id = ${newer}`;
     await db()`UPDATE notify.deliveries SET created_at = '2026-06-01T00:00:03.000Z' WHERE notification_id = ${foreign}`;
-    const page = await deliveries.listOwnedRecent({ userId: USER, limit: 1, before: null });
+    const page = await deliveries.listOwnedRecent({ userId: USER, limit: 1, beforeId: null });
     expect(page.map((row) => row.notificationId)).toEqual([newer]);
     const rest = await deliveries.listOwnedRecent({
       userId: USER,
       limit: 5,
-      before: { createdAt: page[0]!.createdAt, id: page[0]!.id },
+      beforeId: page[0]!.id,
     });
     expect(rest.map((row) => row.notificationId)).toEqual([older]);
-    const other = await deliveries.listOwnedRecent({ userId: OTHER, limit: 5, before: null });
+    const other = await deliveries.listOwnedRecent({ userId: OTHER, limit: 5, beforeId: null });
     expect(other.map((row) => row.notificationId)).toEqual([foreign]);
   });
 
@@ -234,4 +242,187 @@ describe.skipIf(!URL)('notify prefs on the shared test database', () => {
     expect(again.id).toBe(published.id);
     expect(again.title).toBe('Test incident');
   });
+
+  it('returns each same-millisecond delivery once, newest first', async () => {
+    const store = new PostgresNotifyStore(db());
+    const deliveries = new PostgresDeliveryStore(db());
+    const channels = new ChannelRegistry([
+      new InAppChannel(),
+      new ReadyEmail(),
+      new UnconfiguredChannel('push', ['NOTIFY_PUSH_GATEWAY_URL', 'NOTIFY_PUSH_GATEWAY_TOKEN']),
+      new UnconfiguredChannel('sms', ['NOTIFY_SMS_GATEWAY_URL', 'NOTIFY_SMS_GATEWAY_TOKEN']),
+    ]);
+    const notify = new NotifyService(
+      store,
+      { fanoutEnabled: false },
+      {
+        targets: new PostgresTargetStore(db()),
+        deliveries,
+        channels,
+        dispatcher: new NotificationDispatcher(channels, new PostgresTargetStore(db()), deliveries, {
+          maxAttempts: 3,
+          outOfAppEnabled: true,
+        }),
+      },
+    );
+    const stamps = [
+      ['2026-06-01T00:00:00.000100Z', 'pg-us-oldest'],
+      ['2026-06-01T00:00:00.000500Z', 'pg-us-middle'],
+      ['2026-06-01T00:00:00.000900Z', 'pg-us-newest'],
+    ] as const;
+    const ids: Record<(typeof stamps)[number][1], string> = {
+      'pg-us-oldest': '',
+      'pg-us-middle': '',
+      'pg-us-newest': '',
+    };
+    for (const [stamp, key] of stamps) {
+      const inserted = await store.insert({
+        userId: PAGE_USER,
+        kind: 'trade.fill',
+        titleKey: 'notify.trade.fill.title',
+        bodyKey: 'notify.trade.fill.body',
+        severity: 'info',
+        sourceSubject: 'intafaced.trade.fill.settled',
+        sourceIdempotencyKey: key,
+      });
+      const id = inserted.notification!.id;
+      ids[key] = id;
+      const claim = await deliveries.claim(id, 'email', 3);
+      if (!claim.claimed) throw new Error('claim failed');
+      await deliveries.settle({ id: claim.id, attempt: claim.attempt, status: 'accepted', refusalCode: null, attempted: true });
+      await db()`UPDATE notify.deliveries SET created_at = ${stamp}::text::timestamptz WHERE notification_id = ${id}`;
+    }
+    const foreign = await store.insert({
+      userId: PAGE_OTHER,
+      kind: 'trade.fill',
+      titleKey: 'notify.trade.fill.title',
+      bodyKey: 'notify.trade.fill.body',
+      severity: 'info',
+      sourceSubject: 'intafaced.trade.fill.settled',
+      sourceIdempotencyKey: 'pg-us-foreign',
+    });
+    const foreignClaim = await deliveries.claim(foreign.notification!.id, 'email', 3);
+    if (!foreignClaim.claimed) throw new Error('claim failed');
+    await deliveries.settle({
+      id: foreignClaim.id,
+      attempt: foreignClaim.attempt,
+      status: 'accepted',
+      refusalCode: null,
+      attempted: true,
+    });
+    await db()`UPDATE notify.deliveries SET created_at = ${'2026-06-01T00:00:00.000700Z'}::text::timestamptz WHERE notification_id = ${foreign.notification!.id}`;
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 3; page += 1) {
+      const result = await notify.recentDeliveries(PAGE_USER, 1, cursor);
+      expect(result.rows).toHaveLength(1);
+      seen.push(result.rows[0]!.notificationId);
+      cursor = result.nextCursor;
+      if (page < 2) expect(cursor).toEqual(expect.any(String));
+      else expect(cursor).toBeNull();
+    }
+    expect(seen).toEqual([ids['pg-us-newest'], ids['pg-us-middle'], ids['pg-us-oldest']]);
+    expect(new Set(seen).size).toBe(3);
+    expect(seen).not.toContain(foreign.notification!.id);
+
+    const foreignRows = await deliveries.listOwnedRecent({ userId: PAGE_OTHER, limit: 5, beforeId: null });
+    await expect(notify.recentDeliveries(PAGE_USER, 1, encodeRecentCursor(foreignRows[0]!))).rejects.toMatchObject({
+      code: 'notify.recent_deliveries_cursor_invalid',
+    });
+  });
+
+  it('delivers a held email once when the hold ends and does not send it again', async () => {
+    const store = new PostgresNotifyStore(db());
+    const targets = new PostgresTargetStore(db());
+    const deliveries = new PostgresDeliveryStore(db());
+    const holds = new PostgresHoldStore(db());
+    const channels = new ChannelRegistry([
+      new InAppChannel(),
+      new ReadyEmail(),
+      new UnconfiguredChannel('push', ['NOTIFY_PUSH_GATEWAY_URL', 'NOTIFY_PUSH_GATEWAY_TOKEN']),
+      new UnconfiguredChannel('sms', ['NOTIFY_SMS_GATEWAY_URL', 'NOTIFY_SMS_GATEWAY_TOKEN']),
+    ]);
+    const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
+      maxAttempts: 3,
+      outOfAppEnabled: true,
+      loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
+    });
+    const token = 'ab'.repeat(32);
+    await targets.upsert({
+      userId: RELEASE_USER,
+      channel: 'email',
+      address: 'release@example.com',
+      locale: 'en',
+      verifyTokenHash: token,
+      verifyExpiresAt: new Date('2026-12-01T00:00:00.000Z'),
+    });
+    expect(await targets.markVerified(RELEASE_USER, 'email', token, new Date('2026-06-01T00:00:00.000Z'))).toBe(true);
+    const inserted = await store.insert({
+      userId: RELEASE_USER,
+      kind: 'p2p.escrow.released',
+      titleKey: 'notify.p2p.escrow.released.title',
+      bodyKey: 'notify.p2p.escrow.released.body',
+      severity: 'info',
+      sourceSubject: 'intafaced.p2p.escrow.released',
+      sourceIdempotencyKey: 'pg-release-hold',
+    });
+    const notificationId = inserted.notification!.id;
+    const releaseAt = new Date('2026-06-02T00:00:00.000Z');
+    expect(
+      await holds.hold({
+        userId: RELEASE_USER,
+        notificationId,
+        channel: 'email',
+        holdUntil: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+    ).toBe('inserted');
+
+    const first = await releaseHeldSummaries(holds, dispatcher, releaseAt);
+    expect(first.map((row) => row.noticeIds)).toEqual([[notificationId]]);
+    const delivered = await db()`
+      SELECT status FROM notify.deliveries WHERE notification_id = ${notificationId} AND channel = 'email'
+    `;
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]?.status).toBe('accepted');
+    const marked = await db()`
+      SELECT summary_id FROM notify.digest_holds WHERE notification_id = ${notificationId} AND channel = 'email'
+    `;
+    expect(marked[0]?.summary_id).toBeTruthy();
+
+    const second = await releaseHeldSummaries(holds, dispatcher, new Date('2026-06-02T01:00:00.000Z'));
+    expect(second).toEqual([]);
+    const again = await db()`
+      SELECT status FROM notify.deliveries WHERE notification_id = ${notificationId} AND channel = 'email'
+    `;
+    expect(again).toHaveLength(1);
+    expect(again[0]?.status).toBe('accepted');
+  });
 });
+
+type ReleaseFn = (holds: HoldStore, dispatcher: NotificationDispatcher, now: Date) => Promise<readonly DigestSummary[]>;
+
+function isMissingReleaseModule(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  return code === 'ERR_MODULE_NOT_FOUND' || /Cannot find module/.test(err.message);
+}
+
+async function releaseHeldSummaries(
+  holds: PostgresHoldStore,
+  dispatcher: NotificationDispatcher,
+  now: Date,
+): Promise<readonly DigestSummary[]> {
+  let releaseDueHolds: ReleaseFn | undefined;
+  try {
+    const mod = (await import('./release.js')) as { releaseDueHolds?: ReleaseFn };
+    releaseDueHolds = mod.releaseDueHolds;
+  } catch (err) {
+    if (!isMissingReleaseModule(err)) throw err;
+  }
+  if (releaseDueHolds && typeof dispatcher.releaseHeld === 'function') return releaseDueHolds(holds, dispatcher, now);
+  const legacy = holds as PostgresHoldStore & {
+    releaseDueAll(now: Date): Promise<readonly DigestSummary[]>;
+  };
+  return legacy.releaseDueAll(now);
+}

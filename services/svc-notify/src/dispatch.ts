@@ -73,6 +73,8 @@ export interface DispatchOptions {
     channel: MuteableChannel;
     severity: NotifySeverity;
   }) => Promise<OutOfAppPlan>;
+  /** Loads the held notice for `releaseHeld`. The inbox id is the caller's own. */
+  readonly loadNotification?: (userId: string, notificationId: string) => Promise<Notification | null>;
 }
 
 export interface ChannelOutcome {
@@ -236,6 +238,45 @@ export class NotificationDispatcher {
         return { notificationId: notification.id, outcomes, retry };
       },
     );
+  }
+
+  /**
+   * Send one notice that was held for a summary or a quiet window.
+   *
+   * The hold already passed topic choice and the quiet-hour gate. This does not
+   * call `planOutOfApp` again — a second pass would see the open hold and wait
+   * forever. Channel mute and the out-of-app switch are checked again, then the
+   * same claim, send and settle as `attempt` runs. The delivery claim is unique
+   * per notification and channel, so a crash after send and before the hold is
+   * marked comes back as `already_accepted` and does not send twice.
+   */
+  async releaseHeld(userId: string, notificationId: string, channel: MuteableChannel): Promise<ChannelOutcome> {
+    const load = this.options.loadNotification;
+    if (!load) throw new Error('notify.release_held_loader_unset');
+    const notification = await load(userId, notificationId);
+    if (!notification) throw new Error('notify.release_held_notification_missing');
+
+    const verified = await this.targets.verified(notification.userId);
+    const target = verified.find((row) => row.channel === channel);
+
+    if (!this.options.outOfAppEnabled) {
+      return this.refuse(notification, channel, 'channel.disabled', target ? null : 'no confirmed address on this channel');
+    }
+
+    if (!target) {
+      const unverified = new Set(await this.targets.unverifiedChannels(notification.userId));
+      const code = unverified.has(channel) ? 'channel.target_unverified' : 'channel.no_target';
+      return this.refuse(notification, channel, code);
+    }
+
+    if (this.options.mutePrefsOf) {
+      const prefs = await this.options.mutePrefsOf(notification.userId);
+      if (isChannelMuted(prefs ?? EMPTY_MUTE_PREFS, channel, notification.severity)) {
+        return this.refuse(notification, channel, 'channel.muted');
+      }
+    }
+
+    return this.attempt(notification, channel, target.address, target.locale);
   }
 
   /** Record a refusal that the adapter never got a chance to make. */

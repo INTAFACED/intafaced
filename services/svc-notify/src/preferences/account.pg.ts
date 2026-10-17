@@ -8,11 +8,11 @@ import { isNotifyTopic, topicPrefEnabled, type NotifyTopic } from './combined.js
 import { assertDigestMode } from './digest.js';
 import type { MuteableChannel } from './mute.js';
 import type { QuietWindow } from './quiet-hours.js';
-import type { CommandLog, DigestPrefStore, DigestSummary, DigestView, HoldStore, TopicPrefStore } from './account.js';
+import type { CommandLog, DigestPrefStore, DigestSummary, DigestView, DueHold, HoldStore, TopicPrefStore } from './account.js';
 
 type TopicPg = { topic: string; channel: string; enabled: boolean };
 type DigestPg = { mode: string; quiet_start: string | null; quiet_end: string | null; quiet_zone: string | null };
-type HoldPg = { user_id: string; notification_id: string; channel: string };
+type HoldDuePg = { id: string; user_id: string; notification_id: string; channel: string };
 
 function asTopic(value: string): NotifyTopic {
   if (!isNotifyTopic(value)) throw new Error(`notify.topic_unknown`);
@@ -128,15 +128,32 @@ export class PostgresHoldStore implements HoldStore {
     return rows.length > 0 ? 'inserted' : 'exists';
   }
 
-  async releaseDue(userId: string, now: Date): Promise<DigestSummary | null> {
+  async listDue(now: Date): Promise<readonly DueHold[]> {
+    const due = await this.sql<HoldDuePg[]>`
+      SELECT id, user_id, notification_id, channel FROM notify.digest_holds
+       WHERE summary_id IS NULL AND hold_until <= ${now}
+    `;
+    return due.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      notificationId: row.notification_id,
+      channel: asChannel(row.channel),
+    }));
+  }
+
+  async markReleased(userId: string, now: Date, holdIds: readonly string[]): Promise<DigestSummary | null> {
+    if (holdIds.length === 0) return null;
     return this.sql.begin(async (tx) => {
-      const due = await tx<HoldPg[]>`
-        SELECT user_id, notification_id, channel FROM notify.digest_holds
-         WHERE user_id = ${userId} AND summary_id IS NULL AND hold_until <= ${now}
+      const due = await tx<{ id: string; notification_id: string }[]>`
+        SELECT id, notification_id FROM notify.digest_holds
+         WHERE user_id = ${userId}
+           AND summary_id IS NULL
+           AND id = ANY(${holdIds as unknown as string[]}::uuid[])
          FOR UPDATE
       `;
       if (due.length === 0) return null;
       const noticeIds = [...new Set(due.map((row) => row.notification_id))].sort();
+      const lockedIds = due.map((row) => row.id);
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO notify.digest_summaries (user_id, released_at, notice_ids)
         VALUES (${userId}, ${now}, ${tx.json(noticeIds)})
@@ -146,22 +163,9 @@ export class PostgresHoldStore implements HoldStore {
       await tx`
         UPDATE notify.digest_holds
            SET summary_id = ${summaryId}
-         WHERE user_id = ${userId} AND summary_id IS NULL AND hold_until <= ${now}
+         WHERE id = ANY(${lockedIds as unknown as string[]}::uuid[])
       `;
       return { id: summaryId, userId, releasedAt: now.toISOString(), noticeIds };
     });
-  }
-
-  async releaseDueAll(now: Date): Promise<readonly DigestSummary[]> {
-    const users = await this.sql<{ user_id: string }[]>`
-      SELECT DISTINCT user_id FROM notify.digest_holds
-       WHERE summary_id IS NULL AND hold_until <= ${now}
-    `;
-    const released: DigestSummary[] = [];
-    for (const user of users) {
-      const summary = await this.releaseDue(user.user_id, now);
-      if (summary) released.push(summary);
-    }
-    return released;
   }
 }

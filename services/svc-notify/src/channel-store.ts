@@ -213,11 +213,25 @@ export interface NoteReceiptInput {
   reference: string | null;
 }
 
+/** The cursor id is not a finished delivery owned by this caller. */
+export class OwnedRecentCursorError extends Error {
+  readonly code = 'notify.recent_deliveries_cursor_invalid' as const;
+
+  constructor() {
+    super('notify.recent_deliveries_cursor_invalid');
+    this.name = 'OwnedRecentCursorError';
+  }
+}
+
 export interface OwnedRecentQuery {
   readonly userId: string;
   readonly limit: number;
-  /** Exclusive upper bound in newest-first order. */
-  readonly before: { readonly createdAt: Date; readonly id: string } | null;
+  /**
+   * Last delivery id of the previous page. Null on the first page.
+   * The store compares `(created_at, id)` against that row inside its own engine,
+   * so a timestamp is never round-tripped through a millisecond clock.
+   */
+  readonly beforeId: string | null;
   readonly belongsTo?: (notificationId: string) => Promise<boolean>;
 }
 
@@ -469,10 +483,18 @@ export class MemoryDeliveryStore implements DeliveryStore {
     if (!query.belongsTo) return [];
     const cap = Math.max(0, Math.floor(query.limit));
     if (cap === 0) return [];
+    let cursor: DeliveryRecord | null = null;
+    if (query.beforeId) {
+      const row = this.byId.get(query.beforeId) ?? null;
+      if (!row || row.status === 'pending' || !(await query.belongsTo(row.notificationId))) {
+        throw new OwnedRecentCursorError();
+      }
+      cursor = row;
+    }
     const rows: DeliveryRecord[] = [];
     for (const record of this.byId.values()) {
       if (record.status === 'pending') continue;
-      if (query.before && !ownedRowIsOlder(record, query.before)) continue;
+      if (cursor && !ownedRowIsOlder(record, cursor)) continue;
       if (!(await query.belongsTo(record.notificationId))) continue;
       rows.push(record);
     }
@@ -819,23 +841,46 @@ export class PostgresDeliveryStore implements DeliveryStore {
   async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
     const cap = Math.max(0, Math.floor(query.limit));
     if (cap === 0) return [];
-    const beforeAt = query.before?.createdAt ?? null;
-    const beforeId = query.before?.id ?? null;
-    const rows = await this.sql<DeliveryPgRow[]>`
-      SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
-             d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
-        FROM notify.deliveries d
-        JOIN notify.notifications n ON n.id = d.notification_id
-       WHERE n.user_id = ${query.userId}
-         AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
-         AND (
-           ${beforeAt}::timestamptz IS NULL
-           OR d.created_at < ${beforeAt}
-           OR (d.created_at = ${beforeAt} AND d.id < ${beforeId}::uuid)
-         )
-       ORDER BY d.created_at DESC, d.id DESC
-       LIMIT ${cap}
-    `;
+    if (query.beforeId) {
+      const owned = await this.sql<{ id: string }[]>`
+        SELECT c.id
+          FROM notify.deliveries c
+          JOIN notify.notifications cn ON cn.id = c.notification_id
+         WHERE c.id = ${query.beforeId}::uuid
+           AND cn.user_id = ${query.userId}
+           AND c.status IN ('accepted', 'refused', 'failed', 'abandoned')
+         LIMIT 1
+      `;
+      if (owned.length === 0) throw new OwnedRecentCursorError();
+    }
+    const rows = query.beforeId
+      ? await this.sql<DeliveryPgRow[]>`
+          SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
+                 d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
+            FROM notify.deliveries d
+            JOIN notify.notifications n ON n.id = d.notification_id
+           WHERE n.user_id = ${query.userId}
+             AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
+             AND (d.created_at, d.id) < (
+               SELECT c.created_at, c.id
+                 FROM notify.deliveries c
+                 JOIN notify.notifications cn ON cn.id = c.notification_id
+                WHERE c.id = ${query.beforeId}::uuid
+                  AND cn.user_id = ${query.userId}
+             )
+           ORDER BY d.created_at DESC, d.id DESC
+           LIMIT ${cap}
+        `
+      : await this.sql<DeliveryPgRow[]>`
+          SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
+                 d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
+            FROM notify.deliveries d
+            JOIN notify.notifications n ON n.id = d.notification_id
+           WHERE n.user_id = ${query.userId}
+             AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
+           ORDER BY d.created_at DESC, d.id DESC
+           LIMIT ${cap}
+        `;
     return rows.map(fromDeliveryPg);
   }
 

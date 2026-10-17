@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
+import { ChannelDeliveryError, type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
 import { InAppChannel, UnconfiguredChannel } from '../channels/gateway.js';
 import { ChannelRegistry } from '../channels/registry.js';
 import { MemoryDeliveryStore, MemoryTargetStore } from '../channel-store.js';
@@ -10,7 +10,15 @@ import { NotificationDispatcher } from '../dispatch.js';
 import { createNotifyRouter } from '../router.js';
 import { MemoryNotifyStore } from '../store.js';
 import { MemoryMuteStore } from './mute.js';
-import { AccountPrefs, MemoryCommandLog, MemoryDigestPrefStore, MemoryHoldStore, MemoryTopicPrefStore } from './account.js';
+import {
+  type DigestSummary,
+  type HoldStore,
+  AccountPrefs,
+  MemoryCommandLog,
+  MemoryDigestPrefStore,
+  MemoryHoldStore,
+  MemoryTopicPrefStore,
+} from './account.js';
 import { planOutOfApp } from './gate.js';
 import { quietReleaseUtc } from './quiet-hours.js';
 
@@ -60,6 +68,21 @@ class SpyChannel implements NotificationChannel {
   }
 }
 
+class RetryOnceEmail extends SpyChannel {
+  private failuresLeft: number;
+  constructor(failures: number) {
+    super('email');
+    this.failuresLeft = failures;
+  }
+  override async deliver(message: OutboundMessage) {
+    if (this.failuresLeft > 0) {
+      this.failuresLeft -= 1;
+      throw new ChannelDeliveryError('email', 'gateway timeout', { retryable: true, status: 503 });
+    }
+    return super.deliver(message);
+  }
+}
+
 function registry(email: SpyChannel): ChannelRegistry {
   return new ChannelRegistry([
     new InAppChannel(),
@@ -69,9 +92,9 @@ function registry(email: SpyChannel): ChannelRegistry {
   ]);
 }
 
-function harness(startIso: string) {
+function harness(startIso: string, email: SpyChannel = new SpyChannel('email')) {
   let now = new Date(startIso);
-  const spy = new SpyChannel('email');
+  const spy = email;
   const channels = registry(spy);
   const store = new MemoryNotifyStore();
   const targets = new MemoryTargetStore();
@@ -85,6 +108,7 @@ function harness(startIso: string) {
     outOfAppEnabled: true,
     mutePrefsOf: (userId) => new MemoryMuteStore().get(userId),
     planOutOfApp: planOutOfApp({ account, holds, now: () => now }),
+    loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
   });
   const notify = new NotifyService(
     store,
@@ -96,6 +120,7 @@ function harness(startIso: string) {
     notify,
     spy,
     holds,
+    dispatcher,
     targets,
     setNow(iso: string) {
       now = new Date(iso);
@@ -103,6 +128,39 @@ function harness(startIso: string) {
     caller: router.createCaller(signed(USER)),
     other: router.createCaller(signed(OTHER)),
   };
+}
+
+type ReleaseFn = (
+  holds: HoldStore,
+  dispatcher: {
+    releaseHeld(userId: string, notificationId: string, channel: 'email' | 'push' | 'sms'): Promise<{ status: string; retryable: boolean }>;
+  },
+  now: Date,
+) => Promise<readonly DigestSummary[]>;
+
+function isMissingModule(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  return code === 'ERR_MODULE_NOT_FOUND' || /Cannot find module/.test(err.message);
+}
+
+/** Pre-fix `releaseDue` records a summary and does not send. The delivery assertions fail on that path. */
+async function releaseFor(h: ReturnType<typeof harness>, userId: string, now: Date): Promise<DigestSummary | null> {
+  let releaseDueHolds: ReleaseFn | undefined;
+  try {
+    const mod = (await import('./release.js')) as { releaseDueHolds?: ReleaseFn };
+    releaseDueHolds = mod.releaseDueHolds;
+  } catch (err) {
+    if (!isMissingModule(err)) throw err;
+  }
+  if (releaseDueHolds && typeof h.dispatcher.releaseHeld === 'function') {
+    const summaries = await releaseDueHolds(h.holds, h.dispatcher, now);
+    return summaries.find((row) => row.userId === userId) ?? null;
+  }
+  const legacy = h.holds as unknown as {
+    releaseDue(userId: string, now: Date): Promise<DigestSummary | null>;
+  };
+  return legacy.releaseDue(userId, now);
 }
 
 async function confirmEmail(h: ReturnType<typeof harness>) {
@@ -222,11 +280,68 @@ describe('quiet hours and summaries', () => {
     });
     expect(h.spy.sent).toHaveLength(0);
     expect(held.dispatch?.outcomes.find((row) => row.channel === 'email')?.status).toBe('held');
-    expect(await h.holds.releaseDue(USER, new Date('2026-01-16T05:59:59.000Z'))).toBeNull();
-    const summary = await h.holds.releaseDue(USER, release);
+    expect(await releaseFor(h, USER, new Date('2026-01-16T05:59:59.000Z'))).toBeNull();
+    const summary = await releaseFor(h, USER, release);
     expect(summary?.noticeIds).toEqual([held.notification!.id]);
-    expect(await h.holds.releaseDue(USER, new Date('2026-01-16T07:00:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
+    expect(h.spy.sent[0]?.notificationId).toBe(held.notification!.id);
+    expect(await releaseFor(h, USER, new Date('2026-01-16T07:00:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
+  });
+
+  it('delivers a daily action notice once at the next UTC midnight', async () => {
+    const during = new Date('2026-01-15T23:15:00.000Z');
+    const midnight = new Date('2026-01-16T00:00:00.000Z');
+    const h = harness(during.toISOString());
+    await confirmEmail(h);
+    await h.caller.notify.setDigest({ mode: 'daily', clientRequestId: 'daily-action' });
+    expect(await h.caller.notify.digestPrefs()).toEqual({ mode: 'daily', quietHours: null });
+
+    const held = await h.notify.create({
+      userId: USER,
+      kind: 'identity.kyc.approved',
+      titleKey: 'notify.identity.kyc.approved.title',
+      bodyKey: 'notify.identity.kyc.approved.body',
+      severity: 'action',
+      sourceSubject: 'intafaced.identity.kyc.approved',
+      sourceIdempotencyKey: 'daily-action-notice',
+    });
+    expect(held.dispatch?.outcomes.find((row) => row.channel === 'email')?.status).toBe('held');
     expect(h.spy.sent).toHaveLength(0);
+    expect(await releaseFor(h, USER, new Date('2026-01-15T23:59:59.000Z'))).toBeNull();
+    const summary = await releaseFor(h, USER, midnight);
+    expect(summary?.noticeIds).toEqual([held.notification!.id]);
+    expect(h.spy.sent).toHaveLength(1);
+    expect(h.spy.sent[0]?.notificationId).toBe(held.notification!.id);
+    expect(await releaseFor(h, USER, new Date('2026-01-16T01:00:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
+  });
+
+  it('leaves the hold due when the release send is retryable, then delivers it once', async () => {
+    const during = new Date('2026-01-15T23:15:00.000Z');
+    const midnight = new Date('2026-01-16T00:00:00.000Z');
+    const h = harness(during.toISOString(), new RetryOnceEmail(1));
+    await confirmEmail(h);
+    await h.caller.notify.setDigest({ mode: 'daily', clientRequestId: 'daily-retry' });
+
+    const held = await h.notify.create({
+      userId: USER,
+      kind: 'identity.kyc.approved',
+      titleKey: 'notify.identity.kyc.approved.title',
+      bodyKey: 'notify.identity.kyc.approved.body',
+      severity: 'action',
+      sourceSubject: 'intafaced.identity.kyc.approved',
+      sourceIdempotencyKey: 'daily-retry-notice',
+    });
+    expect(held.dispatch?.outcomes.find((row) => row.channel === 'email')?.status).toBe('held');
+    expect(await releaseFor(h, USER, midnight)).toBeNull();
+    expect(h.spy.sent).toHaveLength(0);
+    const summary = await releaseFor(h, USER, new Date('2026-01-16T00:01:00.000Z'));
+    expect(summary?.noticeIds).toEqual([held.notification!.id]);
+    expect(h.spy.sent).toHaveLength(1);
+    expect(h.spy.sent[0]?.notificationId).toBe(held.notification!.id);
+    expect(await releaseFor(h, USER, new Date('2026-01-16T00:02:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
   });
 
   it('holds across the March 2026 New York spring-forward and releases at 08:00Z', async () => {
@@ -260,10 +375,10 @@ describe('quiet hours and summaries', () => {
       sourceIdempotencyKey: 'quiet-info',
     });
     expect(h.spy.sent).toHaveLength(1);
-    expect(await h.holds.releaseDue(USER, new Date('2026-03-08T07:59:59.000Z'))).toBeNull();
-    const summary = await h.holds.releaseDue(USER, new Date('2026-03-08T08:00:00.000Z'));
+    expect(await releaseFor(h, USER, new Date('2026-03-08T07:59:59.000Z'))).toBeNull();
+    const summary = await releaseFor(h, USER, new Date('2026-03-08T08:00:00.000Z'));
     expect(summary?.noticeIds).toEqual([held.notification!.id]);
-    expect(await h.holds.releaseDue(USER, new Date('2026-03-08T09:00:00.000Z'))).toBeNull();
+    expect(await releaseFor(h, USER, new Date('2026-03-08T09:00:00.000Z'))).toBeNull();
   });
 
   it('holds across the November 2026 New York fall-back and releases at 08:00Z', async () => {
@@ -284,9 +399,12 @@ describe('quiet hours and summaries', () => {
       sourceIdempotencyKey: 'quiet-fall-notice',
     });
     expect(h.spy.sent).toHaveLength(0);
-    const summary = await h.holds.releaseDue(USER, new Date('2026-11-01T08:00:00.000Z'));
+    const summary = await releaseFor(h, USER, new Date('2026-11-01T08:00:00.000Z'));
     expect(summary?.noticeIds).toEqual([held.notification!.id]);
-    expect(await h.holds.releaseDue(USER, new Date('2026-11-01T08:00:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
+    expect(h.spy.sent[0]?.notificationId).toBe(held.notification!.id);
+    expect(await releaseFor(h, USER, new Date('2026-11-01T08:00:00.000Z'))).toBeNull();
+    expect(h.spy.sent).toHaveLength(1);
   });
 
   it('refuses an unknown time zone and keeps quiet hours unset', async () => {
