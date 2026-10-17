@@ -98,11 +98,12 @@ test('security explicitly leaves authenticator status unknown before setup', asy
 
 test('signed-in missing, invalid and valid invitations never offer hidden account tools', async ({ page }) => {
   const writes = await localFixture(page, 'en');
-  await page.goto('/login?redirect=%2Finvite');
+  // safeReturnTo refuses a public return path, so sign in through a private page first.
+  await page.goto('/login?redirect=%2Fuc%2Fsafe');
   await page.getByLabel('Email or handle', { exact: true }).fill('TEST-account@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('TEST-password-not-a-credential');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page).toHaveURL(/\/invite$/);
+  await expect(page).toHaveURL(/\/uc\/safe$/);
   for (const route of ['/invite', '/invite?token=not-a-valid-token', `/invite?token=${token}`]) {
     await page.evaluate((route) => {
       history.pushState(null, '', route);
