@@ -7,6 +7,7 @@ import { decimalSchema } from '../../shared/money';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
+import { RoomNotes } from './AcademyRoomNotes';
 const uuid = z.string().uuid(),
   room = z.object({
     id: uuid,
@@ -106,6 +107,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                       [copyText('academyrooms.host'), data.room.hostId],
                     ]}
                   />
+                  <RoomNotes room={data.room} sessions={data.sessions} userId={userId} />
                   {data.sessions.map((s) => (
                     <article key={s.id} className="more-session">
                       <h3>{s.title}</h3>
