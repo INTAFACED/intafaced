@@ -981,6 +981,9 @@ services:
       P2P_OFFER_MAX_STANDARD: ${P2P_OFFER_MAX_STANDARD:-}
       P2P_OFFER_MAX_MERCHANT: ${P2P_OFFER_MAX_MERCHANT:-}
       P2P_MODERATOR_USER_IDS: ${P2P_MODERATOR_USER_IDS:-}
+      # Dispute rulings stay single-moderator until a lead turns this on.
+      # Empty is off. Do not set true here.
+      P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: ${P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL:-}
       # Kill new offers/takes. Default ON matches env.ts; host can set false.
       P2P_TRADING_ENABLED: ${P2P_TRADING_ENABLED:-true}
       # Escrow clocks + sweep. env.ts already names these; without compose

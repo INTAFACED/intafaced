@@ -210,7 +210,14 @@ export type P2pErrorCode =
   | 'p2p.chat_text_required'
   | 'p2p.chat_list_limit_unset'
   | 'p2p.export_range_invalid'
-  | 'p2p.contact_self';
+  | 'p2p.contact_self'
+  | 'p2p.ops_offers_limit_unset'
+  | 'p2p.ops_trades_limit_unset'
+  | 'p2p.ops_cursor_invalid'
+  | 'p2p.ops_count_invalid'
+  | 'p2p.dispute_resolve_no_four_eyes'
+  | 'p2p.dispute_resolve_approval_mismatch'
+  | 'p2p.dispute_resolve_approval_consumed';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -645,6 +652,11 @@ export interface DisputeRecord {
   moderatorViews: number;
   escalatedAt: Date | null;
   escalations: number;
+  /** Moderator who escalated by hand. Null when only the timeout sweep has re-armed. */
+  escalatedBy: string | null;
+  escalationReason: string | null;
+  /** Null while open. false = single moderator. true = approval consumed with the ruling. */
+  fourEyes: boolean | null;
 }
 
 interface TradeRow {
@@ -711,6 +723,9 @@ interface DisputeRow {
   moderator_views: number;
   escalated_at: Date | null;
   escalations: number;
+  escalated_by: string | null;
+  escalation_reason: string | null;
+  four_eyes: boolean | null;
 }
 
 /**
@@ -1961,6 +1976,16 @@ export class P2pService {
     moderatorId: string;
     resolution: 'release' | 'refund';
     notes?: string;
+    /**
+     * When true, `consumeApproval` runs inside this ruling transaction after
+     * the rows are written and before commit. A throw rolls the ruling back
+     * and `settle` is not called, so escrow does not move. Default false:
+     * one moderator, and the dispute row records `four_eyes = false`.
+     * Attempts is 1 on this path so a serialization retry cannot consume
+     * the approval twice.
+     */
+    fourEyes?: boolean;
+    consumeApproval?: (binding: { disputeId: string; winner: 'buyer' | 'seller'; note: string }) => Promise<void>;
   }): Promise<TradeRecord> {
     // Asked here first for a legible error, and asked again by the database —
     // `p2p.is_natural_person_id`, drizzle/0003. Same rule, two places, the same
@@ -1985,6 +2010,16 @@ export class P2pService {
       assertReleasePostable(trade.amount, trade.feeBps);
     }
 
+    const fourEyes = input.fourEyes === true;
+    const note = input.notes ?? '';
+    const winner = input.resolution === 'release' ? 'buyer' : 'seller';
+    if (fourEyes && !input.consumeApproval) {
+      throw new P2pError(
+        'p2p.dispute_resolve_no_four_eyes — P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL is on and this ruling has no approval',
+        'p2p.dispute_resolve_no_four_eyes',
+      );
+    }
+
     return withMoneySpan(
       'p2p.resolveDispute',
       {
@@ -1997,7 +2032,9 @@ export class P2pService {
         // ONE transaction: the moderator's ruling, the loser's record, and the
         // trade's resolution all commit together or not at all. A ruling that
         // survived without its resolution would be a decision the settlement
-        // sweep could never act on.
+        // sweep could never act on. When four-eyes is on, the approval is
+        // consumed in this same transaction, after the writes and before
+        // commit. settle() — the escrow move — runs only after that commit.
         const disputeId = await transaction(
           this.sql,
           async (tx) => {
@@ -2021,7 +2058,8 @@ export class P2pService {
             await tx`
               UPDATE p2p.p2p_disputes
                  SET status = 'resolved', moderator_id = ${input.moderatorId}, resolution = ${input.resolution},
-                     resolution_notes = ${input.notes ?? null}, resolved_at = ${now}
+                     resolution_notes = ${input.notes ?? null}, resolved_at = ${now},
+                     four_eyes = ${fourEyes}
                WHERE id = ${dispute.id}
             `;
 
@@ -2038,9 +2076,13 @@ export class P2pService {
               now,
             });
 
+            if (fourEyes && input.consumeApproval) {
+              await input.consumeApproval({ disputeId: dispute.id, winner, note });
+            }
+
             return dispute.id;
           },
-          { isolation: 'read committed', maxAttempts: 5 },
+          { isolation: 'read committed', maxAttempts: fourEyes ? 1 : 5 },
         );
 
         // Published after the commit, never inside it: an event for a decision
@@ -2522,30 +2564,137 @@ export class P2pService {
    * SLA, the SLA was missed, and the queue orders by it — moving it would push
    * the most neglected dispute to the bottom of the list a moderator reads.
    */
+  /**
+   * A moderator escalates an open dispute by hand. Same re-arm as the timeout
+   * sweep: `escalated_at` sticks at the first time, `escalations` increments,
+   * the trade deadline moves to the re-check, the dispute SLA stays put, and
+   * no ledger recipe runs. The actor is recorded. A replay of `clientRequestId`
+   * returns the escalated row and does not re-arm again.
+   */
+  async escalateOpenDispute(input: { disputeId: string; actorId: string; reason: string; clientRequestId: string }): Promise<{
+    disputeId: string;
+    tradeId: string;
+    escalatedAt: Date;
+    escalations: number;
+    deadlineAt: Date;
+    actorId: string;
+    reason: string;
+    replay: boolean;
+  }> {
+    if (!isNaturalPersonId(input.actorId)) {
+      throw new P2pError(`A dispute is escalated by a person. "${input.actorId}" is not a natural-person id.`, 'p2p.ruling_not_attributed');
+    }
+    const request = requestHash([input.actorId, input.disputeId, input.reason]);
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          const disputes = await tx<DisputeRow[]>`
+            SELECT * FROM p2p.p2p_disputes WHERE id = ${input.disputeId} FOR UPDATE
+          `;
+          const dispute = disputes[0];
+          if (!dispute) throw new P2pError(`Dispute ${input.disputeId} not found`, 'p2p.dispute_not_found');
+          if (dispute.status === 'resolved') {
+            throw new P2pError(`Dispute ${dispute.id} is already resolved`, 'p2p.dispute_already_resolved');
+          }
+          const trade = await this.lockTrade(tx, dispute.trade_id);
+          if (trade.status !== 'disputed' || trade.resolution !== null) {
+            throw new P2pError(`Dispute ${dispute.id} is already resolved`, 'p2p.dispute_already_resolved');
+          }
+
+          const claim = await claimWriteKey(tx, {
+            actorId: input.actorId,
+            scope: 'dispute.escalate',
+            idempotencyKey: input.clientRequestId,
+            requestHash: request,
+          });
+          if (claim.kind === 'replay') {
+            const current = await tx<DisputeRow[]>`SELECT * FROM p2p.p2p_disputes WHERE id = ${dispute.id}`;
+            const row = current[0]!;
+            if (!row.escalated_at || !trade.deadlineAt) {
+              throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
+            }
+            return {
+              disputeId: row.id,
+              tradeId: row.trade_id,
+              escalatedAt: row.escalated_at,
+              escalations: Number(row.escalations),
+              deadlineAt: trade.deadlineAt,
+              actorId: row.escalated_by ?? input.actorId,
+              reason: row.escalation_reason ?? input.reason,
+              replay: true,
+            };
+          }
+          throwWriteClaim(claim);
+
+          const stamped = await this.writeEscalation(tx, dispute.trade_id, {
+            actorId: input.actorId,
+            reason: input.reason,
+          });
+          await finishWriteKey(tx, {
+            actorId: input.actorId,
+            scope: 'dispute.escalate',
+            idempotencyKey: input.clientRequestId,
+            subjectId: dispute.id,
+          });
+          return { ...stamped, disputeId: dispute.id, actorId: input.actorId, reason: input.reason, replay: false };
+        },
+        { isolation: 'read committed', maxAttempts: 1 },
+      );
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
   private async escalateDispute(tradeId: string): Promise<void> {
     await transaction(
       this.sql,
       async (tx) => {
         const trade = await this.lockTrade(tx, tradeId);
         if (trade.status !== 'disputed' || trade.resolution !== null) return;
-
-        const now = await txNow(tx);
-        const nextCheck = escalationDeadline(now, this.deadlines);
-
-        await tx`
-          UPDATE p2p.p2p_disputes
-             SET escalated_at = COALESCE(escalated_at, ${now}), escalations = escalations + 1
-           WHERE trade_id = ${tradeId} AND status = 'open'
-        `;
-
-        // `deadlines.disputeBy` keeps the ORIGINAL SLA. The re-check is not a
-        // new promise to the parties and must not be recorded as one.
-        await tx`
-          UPDATE p2p.p2p_trades SET deadline_at = ${nextCheck} WHERE id = ${tradeId} AND resolution IS NULL
-        `;
+        await this.writeEscalation(tx, tradeId);
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /**
+   * The sweep and a manual escalation share this write. The dispute SLA
+   * (`p2p_disputes.deadline_at`) is not moved. The trade deadline is.
+   */
+  private async writeEscalation(
+    tx: Sql,
+    tradeId: string,
+    actor?: { actorId: string; reason: string },
+  ): Promise<{ tradeId: string; escalatedAt: Date; escalations: number; deadlineAt: Date }> {
+    const now = await txNow(tx);
+    const nextCheck = escalationDeadline(now, this.deadlines);
+    const disputes = await tx<DisputeRow[]>`
+      UPDATE p2p.p2p_disputes
+         SET escalated_at = COALESCE(escalated_at, ${now}),
+             escalations = escalations + 1,
+             escalated_by = COALESCE(escalated_by, ${actor?.actorId ?? null}),
+             escalation_reason = COALESCE(escalation_reason, ${actor?.reason ?? null})
+       WHERE trade_id = ${tradeId} AND status = 'open'
+      RETURNING *
+    `;
+    const dispute = disputes[0];
+    const trades = await tx<Array<{ deadline_at: Date }>>`
+      UPDATE p2p.p2p_trades SET deadline_at = ${nextCheck}
+       WHERE id = ${tradeId} AND resolution IS NULL
+      RETURNING deadline_at
+    `;
+    const deadlineAt = trades[0]?.deadline_at;
+    if (actor && (!dispute?.escalated_at || !deadlineAt)) {
+      throw new P2pError(`Trade ${tradeId} has no open dispute`, 'p2p.dispute_not_found');
+    }
+    return {
+      tradeId,
+      escalatedAt: dispute?.escalated_at ?? now,
+      escalations: Number(dispute?.escalations ?? 0),
+      deadlineAt: deadlineAt ?? nextCheck,
+    };
   }
 
   private async publishExpired(
@@ -3278,6 +3427,9 @@ function toDispute(row: DisputeRow): DisputeRecord {
     moderatorViews: Number(row.moderator_views ?? 0),
     escalatedAt: row.escalated_at ?? null,
     escalations: Number(row.escalations ?? 0),
+    escalatedBy: row.escalated_by ?? null,
+    escalationReason: row.escalation_reason ?? null,
+    fourEyes: row.four_eyes ?? null,
   };
 }
 

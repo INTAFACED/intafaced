@@ -30,7 +30,7 @@ describe('p2p.merchants product pin', () => {
     expect(boot).toMatch(/new MerchantService\(/);
     expect(boot).toMatch(/approvals:\s*actionApprovals/);
     expect(boot).toMatch(/createP2pRouter\(/);
-    expect(boot).toMatch(/moderatorUserIds, offerLimits, blockRfq, approvals: actionApprovals/);
+    expect(boot).toMatch(/moderatorUserIds,\s*offerLimits,\s*blockRfq,\s*approvals:\s*actionApprovals/);
     expect(boot).toMatch(/offerLimitsConfigured:\s*limitsConfigured\(offerLimits\)/);
     expect(boot).toMatch(/offerLimitsFromEnv\(env\)/);
   });

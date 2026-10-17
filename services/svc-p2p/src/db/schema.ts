@@ -244,6 +244,11 @@ export const p2pDisputes = p2p.table(
     /** SLA breached: re-armed and raised, never disposed of. */
     escalatedAt: tstz('escalated_at'),
     escalations: integer('escalations').notNull().default(0),
+    /** Set by disputes.escalate. The timeout sweep leaves this null. */
+    escalatedBy: text('escalated_by'),
+    escalationReason: text('escalation_reason'),
+    /** Written at resolve. false is the default-off single-moderator ruling. */
+    fourEyes: boolean('four_eyes'),
   },
   (t) => [
     uniqueIndex('p2p_disputes_trade_idx').on(t.tradeId),
