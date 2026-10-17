@@ -15,7 +15,7 @@ import {
 } from './matching-controls';
 import { matchingPayloadHash } from './matching-hash';
 import { refused, type Outcome } from './outcome';
-import { parseSurveillanceCases, type SurveillanceCase } from './surveillance-model';
+import { parseDetectors, parseSurveillanceCases, type DetectorsView, type SurveillanceCase } from './surveillance-model';
 
 /**
  * The trade desk's calls to the svc-edge operator doors added in EDGEOPSBE (#4948): matching health, surveillance cases and
@@ -51,6 +51,8 @@ export const SURVEILLANCE_PAGE = 100;
 export interface SurveillanceRead {
   readonly cases: readonly SurveillanceCase[];
   readonly limit: number;
+  /** svc-matching's detector state; null = unknown (no block, or not that shape). A missing block never fails the case read. */
+  readonly detectors: DetectorsView | null;
 }
 
 export const readSurveillanceCases = (ctx: TradeCtx, limit: number = SURVEILLANCE_PAGE): Promise<Outcome<SurveillanceRead>> =>
@@ -60,7 +62,10 @@ export const readSurveillanceCases = (ctx: TradeCtx, limit: number = SURVEILLANC
     query: { limit },
     parse: (raw) => {
       const cases = raw && typeof raw === 'object' ? parseSurveillanceCases((raw as { cases?: unknown }).cases) : null;
-      return cases === null ? null : { cases, limit };
+      if (cases === null) return null;
+      const upstream = (raw as { upstream?: unknown }).upstream;
+      const detectors = upstream && typeof upstream === 'object' ? parseDetectors((upstream as { detectors?: unknown }).detectors) : null;
+      return { cases, limit, detectors };
     },
   });
 

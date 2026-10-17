@@ -2,13 +2,15 @@
 
 import { useState, type ReactNode } from 'react';
 import { Badge, KeyValue, Table, type TableColumn } from '@intafaced/ui';
-import type { SurveillanceCase } from '@/lib/trade-ops/surveillance-model';
+import { detectorLines, surveillanceEmptyText, type DetectorsView, type SurveillanceCase } from '@/lib/trade-ops/surveillance-model';
 import { SurveillanceAdjudicate } from './surveillance-adjudicate';
 
 /**
  * Case list, detail and decision form. The rows are exactly what svc-matching presents (account, market, the detector's
  * reason, status). When the cases cannot be read, `unreadable` is drawn in place of rows, so an empty table is never
- * mistaken for "no cases"; `noCases` is only true after a successful read that returned none.
+ * mistaken for "no cases"; `noCases` is only true after a successful read that returned none. `detectors` is svc-matching's
+ * detector state from that read (null = unknown, undefined = the read failed so there is nothing to say); every detector
+ * that is off or unknown is named above the table, and the empty text then never reads as "no abuse".
  */
 const keyOf = (c: SurveillanceCase) => `${c.accountId}|${c.marketId}|${c.reason}`;
 
@@ -16,11 +18,14 @@ export function SurveillanceCases({
   cases,
   unreadable,
   noCases = false,
+  detectors,
 }: {
   cases: readonly SurveillanceCase[];
   unreadable: ReactNode | null;
   noCases?: boolean;
+  detectors?: DetectorsView | null;
 }) {
+  const lines = detectors === undefined ? [] : detectorLines(detectors);
   const [selected, setSelected] = useState<SurveillanceCase | null>(null);
   const columns: TableColumn<SurveillanceCase>[] = [
     { id: 'account', header: 'Account', value: (c) => c.accountId, sortable: true },
@@ -40,7 +45,28 @@ export function SurveillanceCases({
   ];
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      <div className="min-w-0">
+      <div className="flex min-w-0 flex-col gap-3">
+        {lines.length > 0 ? (
+          <ul
+            role="status"
+            aria-label="Detector state"
+            data-detectors={detectors === null ? 'unknown' : 'off'}
+            className="flex flex-col gap-1"
+          >
+            {lines.map((l) => (
+              <li key={l.name} className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge tone="warn" density="dense">
+                  {l.state === 'unknown' ? 'Detector state unknown' : 'Detector off'}
+                </Badge>
+                <span className="text-warn">
+                  {l.state === 'unknown'
+                    ? `${l.name} detector state unknown: the matching engine did not report it, so it cannot be assumed to be running.`
+                    : `${l.name} detector is off${l.gap ? ` (${l.gap})` : ''}: it cannot open a case.`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Table<SurveillanceCase>
           label="Surveillance cases"
           density="dense"
@@ -52,7 +78,7 @@ export function SurveillanceCases({
           onSelectionChange={(ids) => setSelected(cases.find((c) => ids.has(keyOf(c))) ?? null)}
           onRowActivate={setSelected}
           emptyState={
-            unreadable ?? (noCases ? <p className="p-4 text-sm text-fg-2">The matching engine reports no open cases.</p> : undefined)
+            unreadable ?? (noCases ? <p className="p-4 text-sm text-fg-2">{surveillanceEmptyText(detectors ?? null)}</p> : undefined)
           }
         />
       </div>

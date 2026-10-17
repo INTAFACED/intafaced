@@ -63,6 +63,28 @@ describe('surveillance cases (svc-edge /admin/trade-ops/surveillance/cases)', ()
     fetchMock.mockResolvedValue(reply(200, { cases: [], limit: 100, upstream: {} }));
     expect(await readSurveillanceCases(ctx)).toMatchObject({ kind: 'ok', data: { cases: [] } });
   });
+  it('reads the detector state: both detectors off with the service gap code', async () => {
+    const off = (reason: string) => ({ enabled: false, gap: 'detector_gap', reason, threshold: null });
+    fetchMock.mockResolvedValue(
+      reply(200, {
+        cases: [],
+        limit: 100,
+        upstream: { cases: [], detectors: { spoofing: off('spoofing'), layering: off('layering') } },
+      }),
+    );
+    const out = await readSurveillanceCases(ctx);
+    expect(out).toMatchObject({
+      kind: 'ok',
+      data: {
+        detectors: { spoofing: { enabled: false, gap: 'detector_gap' }, layering: { enabled: false, gap: 'detector_gap' } },
+      },
+    });
+  });
+  it('a reply without detectors is still an ok read, with the detector state unknown', async () => {
+    fetchMock.mockResolvedValue(reply(200, { cases: [], limit: 100, upstream: { cases: [] } }));
+    const out = await readSurveillanceCases(ctx);
+    expect(out).toMatchObject({ kind: 'ok', data: { cases: [], detectors: null } });
+  });
   it('shows the typed refusal instead of rows', async () => {
     fetchMock.mockResolvedValue(
       reply(502, { outcome: 'upstream_error', code: 'matching_upstream_error', error: 'svc-matching refused (403)' }),
