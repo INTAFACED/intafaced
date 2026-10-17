@@ -40,7 +40,8 @@ const en = {
   failureCode: 'Failure reference',
   none: 'Not recorded',
   unavailable: 'New withdrawal unavailable',
-  unavailableNote: 'Withdrawals to outside addresses are not connected yet. Your existing records remain available.',
+  unavailableNote:
+    "Sending money out of INTAFACED (to a wallet, card or bank) isn't connected yet. Your existing withdrawals stay visible here.",
   back: 'Back to Money',
   invalidId: 'Enter one valid original withdrawal ID.',
   notFound: 'Withdrawal not found',
@@ -91,7 +92,8 @@ const es = {
   failureCode: 'Referencia del fallo',
   none: 'Sin registrar',
   unavailable: 'Nuevo retiro no disponible',
-  unavailableNote: 'Los retiros a direcciones externas aún no están conectados. Tus registros existentes siguen disponibles.',
+  unavailableNote:
+    'Enviar dinero fuera de INTAFACED (a una cartera, tarjeta o banco) aún no está conectado. Tus retiros existentes siguen visibles aquí.',
   back: 'Volver a Dinero',
   invalidId: 'Introduce un único ID válido del retiro original.',
   notFound: 'Retiro no encontrado',
@@ -143,7 +145,7 @@ const fr = {
   none: 'Non enregistré',
   unavailable: 'Nouveau retrait indisponible',
   unavailableNote:
-    'Les retraits vers des adresses externes ne sont pas encore connectés. Tes enregistrements existants restent disponibles.',
+    'L’envoi d’argent hors d’INTAFACED (vers un portefeuille, une carte ou une banque) n’est pas encore connecté. Tes retraits existants restent visibles ici.',
   back: 'Retour à Argent',
   invalidId: 'Saisis un seul ID valide du retrait original.',
   notFound: 'Retrait introuvable',

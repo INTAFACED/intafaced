@@ -4,7 +4,7 @@ import './support-desk.css';
 // English source only.
 export const quantMemoryCopy = defineCopy('quant-memory', {
   title: 'Saving to the library is switched off',
-  body: 'Saved strategies are not private to your account yet: everyone using this service shares one library. Until each account has its own storage, nothing you build here is saved to it. Your draft stays on this device.',
+  body: 'Saved strategies are not private to your account yet: everyone using this service shares one library, a restart erases it, and there is no version history. Until each account has its own storage, nothing you build here is saved to it. Your draft stays on this device.',
   next: 'Keep your strategy source somewhere you control.',
 });
 

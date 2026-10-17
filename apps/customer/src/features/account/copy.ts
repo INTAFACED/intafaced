@@ -480,7 +480,7 @@ const es = {
   'api.records.read': 'Leer registros de claves API',
   'api.records.refresh': 'Actualizar registros',
   'api.records.loading': 'Leyendo registros de claves API…',
-  'api.records.empty': 'No se devolvieron registros de claves API en esta ventana.',
+  'api.records.empty': 'Aún no hay claves API.',
   'api.records.window.scope': 'Hasta {count} registros más recientes por lectura. Los anteriores pueden quedar fuera de esta ventana.',
   'api.records.failed': 'No se pudieron leer los registros',
   'api.records.forbidden': 'Se denegó el acceso a los registros de claves API',
@@ -749,7 +749,7 @@ const fr = {
   'api.records.read': 'Lire les enregistrements de clés API',
   'api.records.refresh': 'Actualiser les enregistrements',
   'api.records.loading': 'Lecture des enregistrements de clés API…',
-  'api.records.empty': 'Aucun enregistrement de clé API renvoyé dans cette fenêtre.',
+  'api.records.empty': 'Aucune clé API pour l’instant.',
   'api.records.window.scope':
     'Jusqu’à {count} enregistrements les plus récents par lecture. Les plus anciens peuvent être hors de cette fenêtre.',
   'api.records.failed': 'Les enregistrements n’ont pas pu être lus',

@@ -68,6 +68,10 @@ const ENGINEERING = new RegExp(
   ].join('|'),
   'i',
 );
+/** The same kind of words in Spanish and French. */
+const ENGINEERING_TRANSLATED =
+  /límite solicitado|limite demandée|lecture limitée|proyecci[oó]n|curseur|\bcursor\b|(registros|respuestas?|ventana) devuelt|(enregistrements?|réponses?|fenêtre) renvoy/i;
+/devuelt[oa]s?|límite solicitado|renvoy[ée]s?|limite demandée|lecture limitée|proyecci[oó]n|curseur|\bcursor\b/i;
 /** Letters that look like internal codes: dotted snake_case such as bank.earn_rate_unset. */
 const RAW_CODE = /\b[a-z]+\.[a-z0-9]+_[a-z0-9_]+\b/;
 /** Written by and for staff or people; customer copy names neither. */
@@ -158,7 +162,13 @@ describe('customer copy reads as plain language', () => {
       for (const locale of ['en', 'es', 'fr'] as const)
         for (const [key, value] of textOf(namespace, locale)) {
           // Keys of the public catalog are the English sentence itself; check the written value.
-          if (ENGINEERING.test(value) || RAW_CODE.test(value) || NAMES.test(value)) offenders.push(`${locale}:${key} → ${value}`);
+          if (
+            ENGINEERING.test(value) ||
+            RAW_CODE.test(value) ||
+            NAMES.test(value) ||
+            (locale !== 'en' && ENGINEERING_TRANSLATED.test(value))
+          )
+            offenders.push(`${locale}:${key} → ${value}`);
         }
       expect(offenders).toEqual([]);
     });
@@ -170,7 +180,13 @@ describe('customer copy reads as plain language', () => {
       const rows = new Map(textOf('pay.surface', locale));
       for (const key of PAY_SURFACE_KEYS) {
         const value = rows.get(key);
-        if (value !== undefined && (ENGINEERING.test(value) || RAW_CODE.test(value))) offenders.push(`${locale}:${key} → ${value}`);
+        // English must have every pinned key; a renamed or deleted key fails here instead of quietly passing.
+        if (value === undefined) {
+          if (locale === 'en') offenders.push(`missing:${key}`);
+          continue;
+        }
+        if (ENGINEERING.test(value) || RAW_CODE.test(value) || (locale !== 'en' && ENGINEERING_TRANSLATED.test(value)))
+          offenders.push(`${locale}:${key} → ${value}`);
       }
     }
     expect(offenders).toEqual([]);

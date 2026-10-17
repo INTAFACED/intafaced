@@ -766,7 +766,7 @@ const messages = {
   recordsReturnedWindowOf: 'shown · up to',
   moreRecordsMayExist: '. There may be more.',
   showUpTo: 'Show up to',
-  thisServiceHasNoContinuationCursorThis: 'That is the most that can be shown here.',
+  thisServiceHasNoContinuationCursorThis: 'That is the most that can be shown here, so older records may not be listed.',
   theServiceConfirmedTheActionRefreshThe: 'The service confirmed the action. Refresh the record to see its current state.',
   review: 'Review: {title}',
   waitingForConfirmation: 'Waiting for confirmation…',
@@ -1612,7 +1612,8 @@ const es = {
   recordsReturnedWindowOf: 'mostrados · hasta',
   moreRecordsMayExist: '. Puede haber más.',
   showUpTo: 'Mostrar hasta',
-  thisServiceHasNoContinuationCursorThis: 'Es lo máximo que se puede mostrar aquí.',
+  thisServiceHasNoContinuationCursorThis:
+    'Es lo máximo que se puede mostrar aquí, así que puede que los registros más antiguos no aparezcan.',
   theServiceConfirmedTheActionRefreshThe: 'El servicio ha confirmado la acción. Actualiza el registro para ver su estado actual.',
   review: 'Revisión: {title}',
   waitingForConfirmation: 'Esperando confirmación…',
@@ -2459,7 +2460,8 @@ const fr = {
   recordsReturnedWindowOf: 'affichés · jusqu’à',
   moreRecordsMayExist: '. Il peut y en avoir d’autres.',
   showUpTo: 'Afficher jusqu’à',
-  thisServiceHasNoContinuationCursorThis: 'C’est le maximum qui peut être affiché ici.',
+  thisServiceHasNoContinuationCursorThis:
+    'C’est le maximum qui peut être affiché ici ; les enregistrements plus anciens peuvent donc ne pas figurer.',
   theServiceConfirmedTheActionRefreshThe: 'Le service a confirmé l’action. Actualisez l’enregistrement pour consulter son état actuel.',
   review: 'Vérification : {title}',
   waitingForConfirmation: 'En attente de confirmation…',

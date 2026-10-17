@@ -42,7 +42,8 @@ const en = {
   // Chat
   chatEmpty: 'No messages yet.',
   chatPickTitle: 'Choose an order',
-  chatPickBody: 'Order chat opens from one of your orders. Pick an order to see its messages, payment details and dispute options.',
+  chatPickBody:
+    "Your order details open from one of your orders. Pick an order to see its status, payment details and dispute options. Messaging inside an order isn't available yet.",
   chatPickAction: 'Go to Your orders',
   chatReasonTitle: 'Order chat isn’t connected yet',
   chatReasonBody:
@@ -182,7 +183,7 @@ const es = {
   chatEmpty: 'Aún no hay mensajes.',
   chatPickTitle: 'Elige una orden',
   chatPickBody:
-    'El chat de la orden se abre desde una de tus órdenes. Elige una orden para ver sus mensajes, datos de pago y opciones de disputa.',
+    'Los detalles de tu orden se abren desde una de tus órdenes. Elige una orden para ver su estado, los datos de pago y las opciones de disputa. La mensajería dentro de una orden aún no está disponible.',
   chatPickAction: 'Ir a Tus órdenes',
   chatReasonTitle: 'El chat del pedido aún no está conectado',
   chatReasonBody:
@@ -318,7 +319,7 @@ const fr = {
   chatEmpty: 'Aucun message pour l’instant.',
   chatPickTitle: 'Choisissez une commande',
   chatPickBody:
-    'Le chat d’une commande s’ouvre depuis l’une de vos commandes. Choisissez une commande pour voir ses messages, ses informations de paiement et les options de litige.',
+    'Les détails de votre commande s’ouvrent depuis l’une de vos commandes. Choisissez une commande pour voir son statut, les informations de paiement et les options de litige. La messagerie au sein d’une commande n’est pas encore disponible.',
   chatPickAction: 'Aller à Vos commandes',
   chatReasonTitle: 'Le chat de la commande n’est pas encore connecté',
   chatReasonBody:

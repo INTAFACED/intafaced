@@ -36,7 +36,9 @@ it('says on the page that saving is off and why, without talking about servers',
   const html = renderToStaticMarkup(<QuantMemoryNotice />);
   expect(html).toContain('Saving to the library is switched off');
   expect(html).toContain('not private to your account');
-  expect(html).not.toMatch(/memory|restart|database|quant service/i);
+  expect(html).toContain('a restart erases it');
+  expect(html).toContain('no version history');
+  expect(html).not.toMatch(/database|quant service/i);
 });
 
 it('the library says it is shared and that saving is off', () => {

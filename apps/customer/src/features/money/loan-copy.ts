@@ -14,7 +14,8 @@ const messages = {
   riskUnavailable: 'Loan risk unavailable',
   riskUnavailableNote: 'No usable ratio is available for this loan. Refresh the loan and risk to check again.',
   riskRange: 'LTV, uncapped or capped',
-  riskNote: 'Current loan risk. The time of the price used isn’t available. This ratio doesn’t promise any collateral can be released.',
+  riskNote:
+    "Loan risk as last reported. The time of the price used isn't available, so it may not be current. This ratio doesn't promise any collateral can be released.",
   riskRefresh: 'Refresh loan risk',
   portfolioRange: 'Uncapped or capped',
   pendingPrincipal: 'Principal in pending record',
@@ -53,7 +54,7 @@ const es = {
   riskUnavailableNote: 'No hay una proporción utilizable para este préstamo. Actualiza el préstamo y el riesgo para comprobarlo de nuevo.',
   riskRange: 'LTV, sin tope o con tope',
   riskNote:
-    'Riesgo actual del préstamo. No se dispone de la hora del precio usado. Esta proporción no garantiza que se pueda liberar garantía.',
+    'Riesgo del préstamo según el último informe. No se dispone de la hora del precio usado, así que puede no estar al día. Esta proporción no garantiza que se pueda liberar garantía.',
   riskRefresh: 'Actualizar riesgo del préstamo',
   portfolioRange: 'Sin tope o con tope',
   pendingPrincipal: 'Capital en el registro pendiente',
@@ -93,7 +94,7 @@ const fr = {
   riskUnavailableNote: 'Aucun ratio exploitable n’est disponible pour ce prêt. Actualise le prêt et le risque pour vérifier à nouveau.',
   riskRange: 'LTV, sans plafond ou plafonné',
   riskNote:
-    'Risque actuel du prêt. L’heure du prix utilisé n’est pas disponible. Ce ratio ne promet pas qu’une garantie pourra être libérée.',
+    'Risque du prêt selon le dernier relevé. L’heure du prix utilisé n’est pas disponible, il peut donc ne pas être à jour. Ce ratio ne promet pas qu’une garantie pourra être libérée.',
   riskRefresh: 'Actualiser le risque du prêt',
   portfolioRange: 'Sans plafond ou plafonné',
   pendingPrincipal: 'Capital dans l’enregistrement en attente',

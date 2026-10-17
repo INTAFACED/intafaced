@@ -88,7 +88,7 @@ const fr = {
   reviewBoundary:
     'Une cotation au comptant utilise une retenue différente et ne permet pas de consentir à un ordre de résultat. Les résultats et le règlement requièrent la source publiée et le service de règlement autorisé.',
   planning: 'Planifier la garantie',
-  quantityError: 'Saisis une quantité décimale exacte positive.',
+  quantityError: 'Saisissez une quantité décimale exacte positive.',
   planningBody:
     'Calcule la règle publiée d’une unité de garantie pour une quantité positive de contrats. Les frais, l’admission et la retenue finale restent indisponibles.',
   more: 'Explorer More →',

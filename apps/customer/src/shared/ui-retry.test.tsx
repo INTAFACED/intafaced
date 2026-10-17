@@ -19,6 +19,8 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(canTryAgain(refusal({ reason: 'aborted' }))).toBe(true);
     expect(canTryAgain(refusal({ reason: 'error', code: 'edge.upstream_unavailable' }))).toBe(true);
     expect(canTryAgain(refusal({ reason: 'error', code: 'trade.rate_limited' }))).toBe(true);
+    expect(canTryAgain(refusal({ reason: 'unreachable', code: 'trade.market_status_unknown' }))).toBe(true);
+    expect(canTryAgain(refusal({ reason: 'error', code: 'trade.lifecycle_authority_unavailable' }))).toBe(true);
   });
   it('is not offered when something is not switched on, allowed or listed', () => {
     expect(canTryAgain(refusal({ code: 'bank.earn_rate_unset' }))).toBe(false);
