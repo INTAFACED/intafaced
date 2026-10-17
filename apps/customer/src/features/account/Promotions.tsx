@@ -45,7 +45,32 @@ type Known = {
 type Problem = 'storage' | 'locks' | 'another';
 const empty: ShareJournal = { records: [], failed: false };
 
-export function Promotions() {
+export type PromotionsView = 'overview' | 'link' | 'records';
+/** Each promotion address opens its own section; the bare address and the invitations address show both. */
+export function promotionsViewFor(path: string): PromotionsView {
+  const clean = path.split('?')[0]!.replace(/\/+$/, '');
+  return clean === '/uc/promotion/mycards' ? 'link' : clean === '/uc/promotion/mypromotion' ? 'records' : 'overview';
+}
+const promotionTabs: ReadonlyArray<{ view: PromotionsView; href: string; label: 'tabOverview' | 'tabLink' | 'tabRecords' }> = [
+  { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
+  { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
+  { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
+];
+export function PromotionTabs({ view }: { view: PromotionsView }) {
+  const { t } = copy.useCopy();
+  return (
+    <nav className="promotions__tabs" aria-label={t('tabsLabel')}>
+      {promotionTabs.map((tab) => (
+        <a key={tab.view} href={tab.href} aria-current={tab.view === view ? 'page' : undefined}>
+          {t(tab.label)}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
+  const view = promotionsViewFor(path);
   const { api, userId, session } = useSession();
   const { t, Copy, requestedLocale, languageFor } = copy.useCopy();
   const [review, setReview] = useState<Intent | null>(null);
@@ -478,62 +503,69 @@ export function Promotions() {
             <Copy k={problem ?? 'storage'} />
           </p>
         )}
-        <div className="promotions__columns">
-          <section className="promotions__link" aria-label={t('linkTitle')}>
-            <h2 ref={readyHeading} tabIndex={-1}>
-              <Copy k="linkTitle" />
-            </h2>
-            {visibleLink ? (
-              <>
-                <p className="muted" role="status">
-                  <Copy k="snapshot" />
-                </p>
-                {privateField(visibleLink, t('link'))}
-                <div className="promotions__visits">
-                  <span>
-                    <Copy k="visits" />
-                  </span>
-                  <strong lang="zxx">{visibleLink.hits}</strong>
-                </div>
-                <div className="promotions__actions">
-                  <Button disabled={busy} onClick={() => void copyLink(visibleLink)}>
-                    <Copy k="copy" />
-                  </Button>
-                  <Button variant="secondary" disabled={blocked} onClick={() => open('revoke-current')}>
-                    <Copy k="reviewRevoke" />
-                  </Button>
-                </div>
-                {copied && (
-                  <p role="status">
-                    <Copy k={copied} />
+        <PromotionTabs view={view} />
+        <div className={view === 'overview' ? 'promotions__columns' : 'promotions__columns promotions__columns--single'}>
+          {view !== 'records' && (
+            <section className="promotions__link" aria-label={t('linkTitle')}>
+              <h2 ref={readyHeading} tabIndex={-1}>
+                <Copy k="linkTitle" />
+              </h2>
+              {visibleLink ? (
+                <>
+                  <p className="muted" role="status">
+                    <Copy k="snapshot" />
                   </p>
-                )}
-              </>
-            ) : (
-              <>
-                <h3>
-                  <Copy k="noLink" />
-                </h3>
-                <p className="muted">
-                  <Copy k="noLinkBody" />
-                </p>
-                <Button disabled={blocked} onClick={() => open('create')}>
-                  <Copy k="reviewCreate" />
-                </Button>
-              </>
-            )}
-            <p className="promotions__caption">
-              <Copy k="lifetime" />
-            </p>
-          </section>
-          <div id="promotion-referrals">
-            <ReferralRecords />
-          </div>
+                  {privateField(visibleLink, t('link'))}
+                  <div className="promotions__visits">
+                    <span>
+                      <Copy k="visits" />
+                    </span>
+                    <strong lang="zxx">{visibleLink.hits}</strong>
+                  </div>
+                  <div className="promotions__actions">
+                    <Button disabled={busy} onClick={() => void copyLink(visibleLink)}>
+                      <Copy k="copy" />
+                    </Button>
+                    <Button variant="secondary" disabled={blocked} onClick={() => open('revoke-current')}>
+                      <Copy k="reviewRevoke" />
+                    </Button>
+                  </div>
+                  {copied && (
+                    <p role="status">
+                      <Copy k={copied} />
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h3>
+                    <Copy k="noLink" />
+                  </h3>
+                  <p className="muted">
+                    <Copy k="noLinkBody" />
+                  </p>
+                  <Button disabled={blocked} onClick={() => open('create')}>
+                    <Copy k="reviewCreate" />
+                  </Button>
+                </>
+              )}
+              <p className="promotions__caption">
+                <Copy k="lifetime" />
+              </p>
+            </section>
+          )}
+          {view !== 'link' && (
+            <div id="promotion-referrals">
+              <ReferralRecords />
+            </div>
+          )}
         </div>
         <div className="actions">
-          <a className="text-link" href="#promotion-referrals">
-            <Copy k="referrals" /> ↓
-          </a>
+          {view !== 'records' && (
+            <a className="text-link" href={view === 'overview' ? '#promotion-referrals' : '/uc/promotion/mypromotion'}>
+              <Copy k="referrals" /> {view === 'overview' ? '↓' : '→'}
+            </a>
+          )}
           <a className="text-link" href="/uc/account">
             <Copy k="account" /> →
           </a>

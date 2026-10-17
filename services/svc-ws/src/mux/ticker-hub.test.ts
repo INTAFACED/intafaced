@@ -179,6 +179,7 @@ describe('TickerHub — absence, refusal and cleanup', () => {
     const noMax = new FakeSink();
     expect(hub({ maxConnections: undefined }).attach(null, noMax, 0)).toBeNull();
     expect(noMax.closed?.code).toBe(CLOSE_POLICY);
+    expect(noMax.closed?.reason).toContain('mux_max_seats_unset');
     const h = hub({ maxConnections: 1 });
     h.attach(null, new FakeSink(), 0);
     const over = new FakeSink();

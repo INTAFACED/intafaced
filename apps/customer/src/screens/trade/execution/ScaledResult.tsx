@@ -9,7 +9,7 @@ import { roomWords } from '../rooms/refusals';
 import type { RoomWriter } from '../rooms/write';
 import { execCopy } from './copy';
 import { useTradeApi, type ExecMarket } from './data';
-import { findGroup, isLive, summarizeBatch } from './model';
+import { findGroup, isLive } from './model';
 import { ConfirmDialog, Why } from './parts';
 import type { ScaledRun } from './ScaledForm';
 
@@ -20,8 +20,10 @@ interface Line {
   price: string | null;
   size: string | null;
   clientOrderId: string;
-  placed: 'success' | 'refused' | 'unknown' | null;
+  /** `found` / `absent` are an unconfirmed order after a status check: it was on the book, or it was not. */
+  placed: 'success' | 'refused' | 'unknown' | 'found' | 'absent' | null;
   detail: string | null;
+  code: string | null;
   order: Order | null;
 }
 
@@ -50,13 +52,16 @@ export function ScaledResult({
         const row = run.rows[g.index - 1]!;
         const item = run.results?.find((r) => r.clientOrderId === g.clientOrderId) ?? run.results?.[g.index - 1] ?? null;
         const words = item?.status === 'refused' ? roomWords({ code: item.error?.intafacedCode, message: item.error?.message }) : null;
+        const placed: Line['placed'] =
+          item?.status === 'unknown' && found !== null ? (g.order ? 'found' : 'absent') : (item?.status ?? null);
         return {
           index: g.index,
           price: row.price,
           size: row.size,
           clientOrderId: g.clientOrderId,
-          placed: item?.status ?? null,
+          placed,
           detail: words ? `${words.title}. ${words.body}` : null,
+          code: words?.code ?? null,
           order: g.order,
         };
       })
@@ -67,12 +72,20 @@ export function ScaledResult({
         clientOrderId: o.clientOrderId ?? o.id,
         placed: null,
         detail: null,
+        code: null,
         order: o,
       }));
   if (!run && found === null) return null;
 
   const live = (found ?? []).filter(isLive);
-  const summary = run?.results ? summarizeBatch(run.results) : null;
+  const summary = run?.results
+    ? {
+        placed: lines.filter((l) => l.placed === 'success' || l.placed === 'found').length,
+        refused: lines.filter((l) => l.placed === 'refused').length,
+        unknown: lines.filter((l) => l.placed === 'unknown').length,
+        absent: lines.filter((l) => l.placed === 'absent').length,
+      }
+    : null;
 
   async function cancelAll() {
     const next: Record<string, CancelResult> = {};
@@ -102,14 +115,18 @@ export function ScaledResult({
   const placedWord = (l: Line) =>
     l.placed === 'success'
       ? t('Placed')
-      : l.placed === 'refused'
-        ? t('Refused')
-        : l.placed === 'unknown'
-          ? t('Not confirmed')
-          : t('Not reported');
-  const tone = (l: Line) => (l.placed === 'success' ? 'up' : l.placed === 'refused' ? 'error' : 'warn');
+      : l.placed === 'found'
+        ? t('Placed, found on the book')
+        : l.placed === 'absent'
+          ? t('Not on the book')
+          : l.placed === 'refused'
+            ? t('Refused')
+            : l.placed === 'unknown'
+              ? t('Not confirmed')
+              : t('Not reported');
+  const tone = (l: Line) => (l.placed === 'success' || l.placed === 'found' ? 'up' : l.placed === 'refused' ? 'error' : 'warn');
   const columns: TableColumn<Line>[] = [
-    { id: 'n', header: '#', value: (l) => String(l.index) },
+    { id: 'n', header: '#', pin: 'start', value: (l) => String(l.index) },
     {
       id: 'price',
       header: t('Price'),
@@ -128,7 +145,12 @@ export function ScaledResult({
       id: 'detail',
       header: t('Detail'),
       width: 320,
-      cell: (l) => <span className="whitespace-normal break-words">{l.detail ?? '—'}</span>,
+      cell: (l) => (
+        <span className="whitespace-normal break-words">
+          {l.detail ?? '—'}
+          {l.code ? <span className="block break-all text-xs text-fg-2">{l.code}</span> : null}
+        </span>
+      ),
       value: (l) => l.detail,
     },
     {
@@ -150,6 +172,7 @@ export function ScaledResult({
             {t('{k} of {n} placed', { k: String(summary.placed), n: String(run.rows.length) })}
             {summary.refused > 0 ? `, ${t('{n} refused', { n: String(summary.refused) })}` : ''}
             {summary.unknown > 0 ? `, ${t('{n} not confirmed', { n: String(summary.unknown) })}` : ''}
+            {summary.absent > 0 ? `, ${t('{n} not on the book', { n: String(summary.absent) })}` : ''}
           </span>
         ) : null}
         {run ? (
@@ -171,7 +194,7 @@ export function ScaledResult({
       ) : live.length === 0 ? (
         <p className="m-0 text-sm text-fg-2">{t('No open orders in this ladder')}</p>
       ) : null}
-      <Table label={t('Ladder result')} density="dense" columns={columns} rows={lines} getRowId={(l) => l.clientOrderId} />
+      <Table label={t('Ladder result')} density="dense" columns={columns} rows={lines} minWidth={900} getRowId={(l) => l.clientOrderId} />
       <ConfirmDialog
         open={confirm}
         title={t('Cancel the open orders of this ladder?')}

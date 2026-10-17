@@ -54,4 +54,17 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(html).not.toContain('token.params_missing');
     expect(html).not.toContain('Try again');
   });
+  it('never says nothing was changed for a write whose outcome is unknown, even with a code', () => {
+    const html = renderToStaticMarkup(
+      <Failure
+        result={refusal({ reason: 'uncertain', message: 'trade.matching_unavailable', code: 'trade.matching_unavailable' })}
+        retry={() => undefined}
+      />,
+    );
+    expect(html).toContain('Outcome not confirmed');
+    expect(html).toContain('Check the original request before trying again');
+    expect(html).not.toMatch(/nothing was changed|isn.t trading|paused/i);
+    expect(html).not.toContain('trade.matching_unavailable');
+    expect(html).not.toContain('Try again');
+  });
 });

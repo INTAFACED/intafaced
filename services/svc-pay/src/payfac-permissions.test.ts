@@ -71,6 +71,8 @@ describe('D26-P1-P2 payfac permissions map', () => {
     expect(areaForSurface('trpc.payment.list')).toBe(areaForSurface('rest.payments.list'));
     expect(areaForSurface('trpc.merchant.balances')).toBe(areaForSurface('rest.balances.read'));
     expect(areaForSurface('trpc.merchant.createLink')).toBe(areaForSurface('rest.payment-links.create'));
+    expect(areaForSurface('trpc.merchant.getLink')).toBe(areaForSurface('rest.payment-links.get'));
+    expect(areaForSurface('trpc.merchant.listLinks')).toBe(areaForSurface('rest.payment-links.list'));
     expect(areaForSurface('trpc.merchant.checkoutSettings.get')).toBe(areaForSurface('trpc.merchant.profile'));
   });
 
@@ -82,6 +84,7 @@ describe('D26-P1-P2 payfac permissions map', () => {
   it('payment-links REST maps to payment.link — same area as tRPC createLink', () => {
     expect(PAYFAC_SURFACE_AREAS['rest.payment-links.create']).toBe('payment.link');
     expect(PAYFAC_SURFACE_AREAS['rest.payment-links.list']).toBe('payment.link');
+    expect(PAYFAC_SURFACE_AREAS['rest.payment-links.get']).toBe('payment.link');
     expect(PAYFAC_SURFACE_AREAS['rest.payment-links.deactivate']).toBe('payment.link');
   });
 
