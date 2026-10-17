@@ -30,6 +30,13 @@ import type { PortalApi } from '../api';
 import type { Customer, CustomerDetail, customerSummarySchema } from '../schemas';
 
 type Summary = z.infer<typeof customerSummarySchema>;
+/** "1 subscription, 2 mandates": the count and its noun agree. */
+function recurringNote(t: (key: any, vars?: any) => string, subs: number, mandates: number): string {
+  return t('recurringNote', {
+    subs: subs === 1 ? t('subscriptionsOne') : t('subscriptionsMany', { n: subs }),
+    mandates: mandates === 1 ? t('mandatesOne') : t('mandatesMany', { n: mandates }),
+  });
+}
 export const customerHref = (ref: string) => `/pay/customers/${encodeURIComponent(ref)}`;
 
 /** `/pay/customers`: the references your payments carried. Nothing else about a person is stored. */
@@ -162,9 +169,7 @@ export function CustomersView({
                         {c.customerRef}
                       </a>
                       {(c.subscriptionCount > 0 || c.mandateCount > 0) && (
-                        <small className="pay-cell-note">
-                          {t('recurringNote', { subs: c.subscriptionCount, mandates: c.mandateCount })}
-                        </small>
+                        <small className="pay-cell-note">{recurringNote(t, c.subscriptionCount, c.mandateCount)}</small>
                       )}
                     </th>
                     <td className="numeric">
@@ -263,7 +268,7 @@ export function CustomerDetailView({
                 <Kpi
                   label={t('kpiRecurring')}
                   value={c.subscriptionCount + c.mandateCount}
-                  note={t('recurringNote', { subs: c.subscriptionCount, mandates: c.mandateCount })}
+                  note={recurringNote(t, c.subscriptionCount, c.mandateCount)}
                 />
                 <Kpi label={t('colFirstSeen')} value={<PayTime value={c.firstSeenAt} />} />
                 <Kpi label={t('colLastSeen')} value={<PayTime value={c.lastSeenAt} />} />

@@ -826,6 +826,7 @@
     }
     .pe-card-link {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       gap: 12px;
       padding: 14px 4px;
@@ -842,6 +843,11 @@
     .pe-card-side {
       justify-items: end;
       text-align: right;
+      margin-left: auto;
+      max-width: 100%;
+    }
+    .pe-card-main {
+      flex: 1 1 140px;
     }
     .pe-card-amount {
       white-space: nowrap;
@@ -921,4 +927,9 @@
   .if-business .pp-kpi {
     padding: 14px;
   }
+}
+
+/* The portal keeps lime for the primary action and the active tab: a loading dot is neutral here. */
+.plo .loading-dot {
+  background: var(--color-muted);
 }

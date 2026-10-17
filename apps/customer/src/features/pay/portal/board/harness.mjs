@@ -108,6 +108,13 @@ export async function go(page, path) {
     dispatchEvent(new PopStateEvent('popstate'));
   }, path);
   await page.waitForLoadState('networkidle').catch(() => undefined);
+  // A cold dev server compiles the room's code on first use; wait for the room instead of reading the "Opening room" shell.
+  await page
+    .waitForFunction(() => !/Opening room…/.test(document.querySelector('main')?.innerText ?? document.body.innerText), null, {
+      timeout: 90_000,
+    })
+    .catch(() => undefined);
+  await page.waitForLoadState('networkidle').catch(() => undefined);
   await page.waitForTimeout(250);
 }
 

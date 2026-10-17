@@ -283,6 +283,8 @@ const en = {
   netNoVolume: 'No payments in the last 30 days',
   netNoVolumeBody: 'Volume appears here once this business takes payments.',
   netPaymentsCount: '{n} payments',
+  netPaymentsCountOne: '1 payment',
+  netRecentBodyOne: 'The newest payment. This is not the whole 30 days above.',
   netRecentTitle: 'Newest payments',
   netRecentBody: 'The newest {n} payments. This is not the whole 30 days above.',
   netNoRecent: 'No payments yet',

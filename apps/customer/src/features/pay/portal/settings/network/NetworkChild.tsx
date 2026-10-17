@@ -115,13 +115,21 @@ function Summary({ data }: { data: SubSummary }) {
           <ul className="sa-list" aria-label={t('netVolumeTitle')}>
             {data.volume.items.map((v) => (
               <li key={v.assetCode}>
-                <MoneyText value={v.volume} asset={v.assetCode} /> <span className="muted">· {t('netPaymentsCount', { n: v.count })}</span>
+                <MoneyText value={v.volume} asset={v.assetCode} />{' '}
+                <span className="muted">· {v.count === 1 ? t('netPaymentsCountOne') : t('netPaymentsCount', { n: v.count })}</span>
               </li>
             ))}
           </ul>
         )}
       </PaySection>
-      <PaySection title={t('netRecentTitle')} description={t('netRecentBody', { n: data.recentPayments?.items.length ?? 0 })}>
+      <PaySection
+        title={t('netRecentTitle')}
+        description={
+          data.recentPayments?.items.length === 1
+            ? t('netRecentBodyOne')
+            : t('netRecentBody', { n: data.recentPayments?.items.length ?? 0 })
+        }
+      >
         {data.recentPayments === null ? (
           <p className="muted">{t('netNoPaymentAccess')}</p>
         ) : data.recentPayments.items.length === 0 ? (

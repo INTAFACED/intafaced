@@ -256,7 +256,13 @@ export function MerchantBilling({ pay, invoices }: { pay: BusinessPayApi; invoic
 }
 /** A billing cadence in words, never the service's raw value. An unknown one is shown as it came rather than guessed. */
 export function cadenceWord(cadence: string): string {
-  return cadence === 'daily' ? payCopy.t('daily') : cadence === 'weekly' ? payCopy.t('weekly') : cadence === 'monthly' ? payCopy.t('monthly') : cadence;
+  return cadence === 'daily'
+    ? payCopy.t('daily')
+    : cadence === 'weekly'
+      ? payCopy.t('weekly')
+      : cadence === 'monthly'
+        ? payCopy.t('monthly')
+        : cadence;
 }
 export function CreateMandate({ pay, refresh, portal }: { pay: BusinessPayApi; refresh: () => void; portal?: PortalApi }) {
   const [expanded, setExpanded] = useState(false);

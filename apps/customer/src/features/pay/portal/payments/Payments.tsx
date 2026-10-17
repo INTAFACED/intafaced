@@ -18,6 +18,7 @@ import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
 import { plainCode } from '../ui/plain-code';
+import { actionWords } from '../settings/activity/model';
 import { RelatedLinks } from '../ui/RelatedLinks';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
@@ -490,7 +491,7 @@ function ActivityList({ activity }: { activity: Loaded<ActivityItem[]> }) {
       label={t('pay_activity')}
       items={activity.map((a) => ({
         at: a.occurredAt,
-        title: plainCode(a.action),
+        title: actionWords(a.objectType, a.action),
         ...(a.detail.amount ? { detail: `${a.detail.amount}${a.detail.asset ? ` ${a.detail.asset}` : ''}` } : {}),
       }))}
     />

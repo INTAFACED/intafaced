@@ -269,8 +269,7 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
                       <span className="plo-payment-label">
                         <strong>{paymentLabel(payment)}</strong>
                         <span>
-                          <Chip kind="payment" value={payment.status} /> ·{' '}
-                          <DateTime value={payment.createdAt} timeZone={UTC} dayOnly />
+                          <Chip kind="payment" value={payment.status} /> · <DateTime value={payment.createdAt} timeZone={UTC} dayOnly />
                         </span>
                       </span>
                       <span className="plo-payment-amount">

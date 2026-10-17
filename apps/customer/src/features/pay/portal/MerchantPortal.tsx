@@ -20,11 +20,7 @@ import { authorityFromAccess } from './access/authority';
  * until one is, and a null fee means an account cannot be opened from onboarding.
  * `MerchantAccessProvider` sits at the root: every page and the frame read who is signed in from it.
  */
-export function MerchantPortal(props: {
-  path: string;
-  authority?: PayBusinessAuthority | null;
-  starterFeeBps?: number | null;
-}) {
+export function MerchantPortal(props: { path: string; authority?: PayBusinessAuthority | null; starterFeeBps?: number | null }) {
   return (
     <MerchantAccessProvider>
       <PortalRooms {...props} />

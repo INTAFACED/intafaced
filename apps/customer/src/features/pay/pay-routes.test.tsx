@@ -56,7 +56,15 @@ describe('/pay rooms through the normal app (no PayBusinessProvider)', () => {
 
   it('opens the rooms for the owner of an approved business, with no refusal about a business account contract', () => {
     answers.myAccess = ready({ memberships: [owner] });
-    answers.merchant = ready({ id: MERCHANT, userId: ME, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: null, feeBps: null });
+    answers.merchant = ready({
+      id: MERCHANT,
+      userId: ME,
+      mode: 'gateway',
+      status: 'active',
+      kybStatus: 'approved',
+      kybRef: null,
+      feeBps: null,
+    });
     for (const path of ['/pay/merchant', '/pay/links', '/pay/payments', '/pay/refunds', '/pay/payouts']) {
       const out = renderToString(<PayRoutes path={path} />);
       expect(out, path).toContain('Business navigation');

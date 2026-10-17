@@ -48,8 +48,7 @@ function PayRooms({ path }: { path: string }) {
     return <P2P key={path} path={path} />;
   const redirect = portalRedirect(path);
   if (redirect) return <Redirect to={redirect} />;
-  if (parsePortalRoute(path))
-    return <MerchantPortal key={path} path={path} authority={authority} />;
+  if (parsePortalRoute(path)) return <MerchantPortal key={path} path={path} authority={authority} />;
   // The older sandbox tools stay reachable by address only (`?view=tools`).
   if (isLegacyTool(path))
     return (
