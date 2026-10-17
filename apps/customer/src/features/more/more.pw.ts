@@ -11,10 +11,10 @@ test('Quant Studio keeps the draft on this device, closes the shared library, an
   await page.getByLabel('Simulated starting cash').fill('0.000000000000000123');
   await page.getByLabel('Block 1 symbol').fill('ACTUAL/USD');
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
-  await expect(page.getByText('Saved strategies are not private to accounts yet, so the shared library is closed.')).toBeVisible();
+  await expect(page.getByText('Saving to a library is off on this service, so the library is closed.')).toBeVisible();
   const save = page.getByRole('button', { name: 'Save to library', exact: true });
   await expect(save).toBeDisabled();
-  await expect(page.getByText('Saved strategies are not private to your account yet, so drafts stay on this device.')).toBeVisible();
+  await expect(page.getByText('Saving to a library is off on this service. Your draft stays on this device.')).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');

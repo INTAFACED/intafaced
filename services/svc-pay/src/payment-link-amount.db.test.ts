@@ -6,19 +6,21 @@
  * the decimal and 18 after — are refused at insert. Amounts are decimal strings
  * on the wire. This file does not parse them as JS numbers.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from './payment-events-test-reset.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const drizzle = join(here, '..', 'drizzle');
+const drizzleDir = join(here, '..', 'drizzle');
 
-/** 0002 creates the table. 0021 refuses a bad price. 0000 is the merchant parent. */
-const migrations = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0021_pay_payment_link_amount.sql'].map((f) =>
-  readFileSync(join(drizzle, f), 'utf8'),
-);
+/** Every forward migration, so the amount check and later columns are both present. */
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 /** Largest magnitude numeric(38,18) can store: 20 nines, then 18. */
 const FITS_NUMERIC_38_18 = '99999999999999999999.999999999999999999';
@@ -83,7 +85,7 @@ describe('payment link amount', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE pay.payment_links, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(sql, 'pay', 'TRUNCATE pay.payment_links, pay.merchants RESTART IDENTITY CASCADE');
     const rows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchants (user_id) VALUES ('payment-link-amount') RETURNING id
     `;

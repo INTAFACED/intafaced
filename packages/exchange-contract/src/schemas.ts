@@ -399,6 +399,10 @@ export const positionSchema = z.object({
   symbol: z.string(),
   timestamp: timestampMs,
   datetime: isoDatetime,
+  /** Same instant as `datetime`. Named so a desk can show "opened" without guessing. */
+  openedAt: isoDatetime.optional(),
+  /** Caller open key. Null on a legacy row that predates the column. */
+  clientOpenId: z.string().nullable().optional(),
   side: z.enum(['long', 'short']),
   /**
    * Lifecycle. `closing` = trader asked to exit while no usable mark existed
@@ -414,6 +418,8 @@ export const positionSchema = z.object({
   markPrice: decimal.nullable(),
   notional: decimal,
   leverage: decimal.nullable(),
+  /** Set when `leverage` is null because the row never recorded one. Never inferred. */
+  leverageReason: z.enum(['leverage_not_recorded']).nullable().optional(),
   collateral: decimal.nullable(),
   initialMargin: decimal.nullable(),
   maintenanceMargin: decimal.nullable(),

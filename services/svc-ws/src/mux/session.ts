@@ -18,6 +18,15 @@ import {
 import { publishedPositiveMs } from './idle.js';
 import type { MarketResolver } from './resolver.js';
 import type { TickerHub } from './ticker-hub.js';
+import {
+  FRESHNESS_LIMIT_KEY,
+  FRESHNESS_LIMIT_UNSET,
+  MARK_UNAVAILABLE,
+  isPublishedFreshnessSeconds,
+  markFrame,
+  markIsStale,
+  type MarkFeed,
+} from '../public/futures-mark.js';
 
 /**
  * ONE MULTIPLEXED CONNECTION.
@@ -88,6 +97,13 @@ export interface MuxSessionDeps {
   readonly idleMs?: number;
   readonly log: HubLogger;
   readonly clock?: () => number;
+  /**
+   * Published futures mark. Absent refuses `ws.mark_unavailable`.
+   * `markFreshnessSeconds` blank refuses `ws.freshness_limit_unset` and sends
+   * no mark frame. Never invent a 300s limit.
+   */
+  readonly markFeed?: MarkFeed;
+  readonly markFreshnessSeconds?: number;
 }
 
 interface Entry {
@@ -295,6 +311,7 @@ export class MuxSession {
   }
 
   async #subscribe(spec: ChannelSpec, i: number): Promise<Result> {
+    if (spec.ch === 'futures.mark') return this.#subscribeMark(spec, i);
     let marketId: string | null = null;
     let symbol: string | null = null;
     if (spec.market !== undefined) {
@@ -335,6 +352,39 @@ export class MuxSession {
     return ok(i, spec, marketId, symbol);
   }
 
+  /**
+   * Public mark. A blank freshness limit refuses before any price is read.
+   * A stale observation sends no mark frame. The frame carries the feed's
+   * own timestamp and no account field.
+   */
+  async #subscribeMark(spec: Extract<ChannelSpec, { ch: 'futures.mark' }>, i: number): Promise<Result> {
+    const limit = this.#deps.markFreshnessSeconds;
+    if (!isPublishedFreshnessSeconds(limit)) {
+      return fail(i, spec, null, FRESHNESS_LIMIT_UNSET, `${FRESHNESS_LIMIT_KEY} is unset`);
+    }
+    const resolved = await this.#deps.resolver.resolve(spec.symbol);
+    if (this.#closed) return fail(i, spec, null, 'unavailable', 'connection closing');
+    if (resolved === null) return fail(i, spec, null, 'unknown_market', `no such market ${spec.symbol}`);
+    const feed = this.#deps.markFeed;
+    if (!feed) return fail(i, spec, resolved.id, MARK_UNAVAILABLE, `no mark feed for ${spec.symbol}`);
+    let mark: Awaited<ReturnType<MarkFeed['read']>>;
+    try {
+      mark = await feed.read(spec.symbol);
+    } catch {
+      return fail(i, spec, resolved.id, MARK_UNAVAILABLE, `no mark feed for ${spec.symbol}`);
+    }
+    if (mark === null || mark.symbol !== spec.symbol) {
+      return fail(i, spec, resolved.id, MARK_UNAVAILABLE, `no mark feed for ${spec.symbol}`);
+    }
+    const frame = markFrame(mark);
+    if (frame === null) return fail(i, spec, resolved.id, MARK_UNAVAILABLE, `no mark feed for ${spec.symbol}`);
+    if (markIsStale(mark.observedAt, this.#clock(), limit)) {
+      return ok(i, spec, resolved.id, spec.symbol, 'stale');
+    }
+    this.#socket.send(JSON.stringify(frame));
+    return ok(i, spec, resolved.id, spec.symbol);
+  }
+
   #attach(spec: ChannelSpec, marketId: string | null, sink: DepthSink): (() => void) | null {
     switch (spec.ch) {
       case 'book':
@@ -345,10 +395,16 @@ export class MuxSession {
         return this.#deps.candles.attach(marketId as string, spec.interval, sink, this.#clock());
       case 'ticker':
         return this.#deps.tickers.attach(marketId, sink, this.#clock());
+      case 'futures.mark':
+        return null;
     }
   }
 
   #lookup(spec: ChannelSpec): { key: string; entry: Entry | undefined; marketId: string | null } {
+    if (spec.ch === 'futures.mark') {
+      const key = subscriptionKey(spec, null);
+      return { key, entry: this.#subs.get(key), marketId: null };
+    }
     const marketId = spec.market === undefined ? null : (this.#aliases.get(spec.market) ?? spec.market);
     const key = subscriptionKey(spec, marketId);
     return { key, entry: this.#subs.get(key), marketId };
@@ -375,6 +431,8 @@ export class MuxSession {
         return outcomeResult(i, spec, marketId, this.#deps.tickers.resync(entry.sink, this.#clock()));
       case 'trades':
         return fail(i, spec, marketId, 'unsupported', 'trades are a tape of independent prints; there is nothing to resync');
+      case 'futures.mark':
+        return fail(i, spec, marketId, 'unsupported', 'a mark is one observation; there is nothing to resync');
     }
   }
 
@@ -505,6 +563,7 @@ function fail(i: number, spec: ChannelSpec, marketId: string | null, code: MuxEr
     ch: spec.ch,
     ...(marketId === null ? {} : { market: marketId }),
     ...(spec.ch === 'candles' ? { interval: spec.interval } : {}),
+    ...(spec.ch === 'futures.mark' ? { symbol: spec.symbol } : {}),
     ok: false,
     code,
     message,

@@ -535,10 +535,12 @@ export type BankErrorCode =
   | 'bank.personal_transfer_fee_unwired'
   | 'bank.personal_transfer_limit_exceeded'
   | 'bank.personal_transfer_daily_limit_exceeded'
-  /** Same transfer id, different note, payee, amount, or request. */
+  /** Same transfer id, different note, payee, amount, request, or reference. */
   | 'bank.personal_transfer_conflict'
   | 'bank.personal_transfer_not_found'
   | 'bank.personal_note_invalid'
+  /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
+  | 'bank.personal_reference_invalid'
   | 'bank.personal_request_not_found'
   | 'bank.personal_request_closed'
   | 'bank.personal_request_expired'
@@ -573,7 +575,29 @@ export type BankErrorCode =
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
   /** Operator business-approval page size unpublished. Blank is not 50. */
-  | 'bank.ops_business_approvals_limit_unset';
+  | 'bank.ops_business_approvals_limit_unset'
+  /** A transfer id was reused with a different note or reference. */
+  | 'bank.transfer_message_conflict'
+  /** The activity id is not in this customer's history. */
+  | 'bank.activity_not_found'
+  /** Lookup stopped before history ended, so absence is not proven. */
+  | 'bank.activity_lookup_bounded'
+  /** A from/to or amount range is backwards. */
+  | 'bank.activity_range'
+  /** A note command id was reused with different text. */
+  | 'bank.activity_note_conflict'
+  /** A dispute id was reused with a different reason or transaction. */
+  | 'bank.activity_dispute_conflict'
+  /** This customer already has an open dispute on that transaction. */
+  | 'bank.activity_dispute_exists'
+  /** Statement dates are backwards or longer than 366 days. */
+  | 'bank.statement_range'
+  /** PDF statements are one UTC calendar month. */
+  | 'bank.statement_pdf_one_month'
+  /** More posted lines than a statement file will carry. Narrow the dates. */
+  | 'bank.statement_too_large'
+  /** No service secret, or activity could not be read, so no file was built. */
+  | 'bank.statement_unavailable';
 
 export class BankError extends Error {
   constructor(

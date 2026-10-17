@@ -10,8 +10,11 @@ import {
   type TreasuryData,
 } from '@/lib/merchants/loaders';
 import type { FounderMerchantSection, FounderMerchantSectionPage, MerchantMetricsSnapshot } from '@intafaced/contracts';
+import type { TierView } from '@/lib/merchants/control-model';
 import type { FounderScreen } from './screens';
 import type { NotePage } from './notes';
+import { loadControlAudit, loadLimitRequests, loadTiers } from './control-reads';
+import { auditInput, type ControlAuditList, type LimitRequestList } from './control-model';
 import { parseRiskWindow, one, SCREEN_SECTIONS, slugOf, type Query, type RiskWindowKey } from './read-model';
 import {
   loadBalances,
@@ -87,6 +90,13 @@ export interface OpsData {
   live?: PayCallResult<ReadOf<typeof loadLiveSummary>>;
   risk?: PayCallResult<ReadOf<typeof loadRiskSummary>>;
   riskWindow?: RiskWindowKey;
+  /** F54 */
+  tiers?: PayCallResult<TierView[]>;
+  /** F58 */
+  limitRequests?: PayCallResult<LimitRequestList>;
+  /** F64: the read, or the reasons the filters could not be sent. */
+  audit?: PayCallResult<ControlAuditList>;
+  auditErrors?: string[];
 }
 type ReadOf<F extends (...args: never[]) => Promise<PayCallResult<unknown>>> = Extract<Awaited<ReturnType<F>>, { kind: 'ok' }>['data'];
 export interface OpsOptions {
@@ -143,8 +153,15 @@ export async function loadOps(
   }
   if (merchantId && screen.id === 'F22') data.notes = await loadNotes(ctx, merchantId, query);
   if (screen.id === 'F05') data.recent = await loadRecentMerchants(ctx, query);
-  if (screen.id === 'F37') data.payouts = await loadPayoutList(ctx, query);
+  if (screen.id === 'F37' || screen.id === 'F35') data.payouts = await loadPayoutList(ctx, query);
   if (screen.id === 'F32') data.disputes = await loadDisputeList(ctx, query);
+  if (screen.id === 'F54') data.tiers = await loadTiers(ctx);
+  if (screen.id === 'F58') data.limitRequests = await loadLimitRequests(ctx, query);
+  if (screen.id === 'F64') {
+    const asked = auditInput(query);
+    if (asked.ok) data.audit = await loadControlAudit(ctx, asked.input);
+    else data.auditErrors = asked.errors;
+  }
   if (screen.id === 'F02') data.live = await loadLiveSummary(ctx);
   if (screen.id === 'F03') {
     data.riskWindow = parseRiskWindow(one(query, 'window'));

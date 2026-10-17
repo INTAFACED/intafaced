@@ -176,6 +176,7 @@ export function checkOrderSideForPositionMode(input: OrderSideForPositionModeInp
 type OpenWithMode = OpenPositionInput & {
   readonly positionMode?: unknown;
   readonly positionSide?: unknown;
+  readonly reduceOnly?: boolean;
 };
 
 type PlaceWithMode = PlaceOrderInput & {
@@ -204,6 +205,11 @@ export function installPositionModeOpen(ctor: typeof PositionService): void {
   const origOpen = proto.open;
   proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
     const tagged = input as OpenWithMode;
+    if (tagged.reduceOnly === true) {
+      const mode = parsePositionMode(tagged.positionMode == null ? 'one_way' : tagged.positionMode);
+      if (tagged.positionMode != null && !mode.ok) refuseOpen(mode);
+      return origOpen.call(this, input, principal);
+    }
     const mode = parsePositionMode(tagged.positionMode);
     if (!mode.ok) refuseOpen(mode);
     const side = checkOrderSideForPositionMode({

@@ -20,7 +20,7 @@ import {
   type PayHaltEvent,
   type PayHaltOperatorStatus,
   type PayHaltPendingClear,
-  type PayoutApproval,
+  type FounderApprovalQueueItem,
 } from '@intafaced/contracts';
 import { asPricingRule, asTier, asUsage, type PricingRuleView, type TierView, type UsageView } from './control-model';
 import { addDays, dayOf, midnight } from './dates';
@@ -226,14 +226,14 @@ export const APPROVAL_PAGE = 200;
 export const APPROVAL_MAX_PAGES = 5;
 
 export interface ApprovalQueueData {
-  readonly approvals: PayoutApproval[];
+  readonly approvals: FounderApprovalQueueItem[];
   /** True when the queue is longer than the pages read; the page says so rather than implying it is complete. */
   readonly truncated: boolean;
 }
 
 /** Every payout approval waiting at the founder step, oldest first. The service pages by sequence; this reads a bounded number of pages. */
 export async function loadApprovalQueue(ctx: PayCallContext): Promise<PayCallResult<ApprovalQueueData>> {
-  const approvals: PayoutApproval[] = [];
+  const approvals: FounderApprovalQueueItem[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < APPROVAL_MAX_PAGES; page += 1) {
     const result = await payCall(

@@ -51,7 +51,22 @@ export const SAME_PERSON_ACTION_TYPES = [
   // trade:withdraw bearer until a bank change reads the approval (one service per PR).
   'bank.step_up.ramps.offramp',
   'bank.step_up.ramps.setWithdrawDestination',
+  // Merchant payout destination. Identity mints it; svc-pay consumes it.
+  // A bank door cannot spend this approval (target service follows the prefix).
+  'pay.step_up.payoutDestination.set',
+  'bank.step_up.bills.pay',
+  'bank.step_up.bills.recurring',
+  'bank.step_up.global.send',
 ] as const;
+
+/**
+ * Same-person rows are consumed only by the service named on the row.
+ * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`, because
+ * identity refuses a consume whose caller is not the target service.
+ */
+export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' {
+  return actionType.startsWith('pay.step_up.') ? 'svc-pay' : 'svc-bank';
+}
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 
 export function isSamePersonActionType(actionType: string): actionType is SamePersonActionType {
@@ -85,6 +100,17 @@ export const actionApprovalSchema = z.object({
    */
   approverIsFounder: z.boolean().optional(),
   requesterIsFounder: z.boolean().optional(),
+  /**
+   * Set when the row has been consumed. `get` returns these to the requester, the approver, and an
+   * operator holding `admin:read`. Other readers of the same row do not receive them.
+   */
+  consumedAt: z.string().datetime({ offset: true }).optional(),
+  consumedByRequestId: z.string().min(1).max(128).optional(),
+  /**
+   * Set only when `consume` is retried with the same request id that already consumed the row.
+   * A different request id is `action_approval.consumed`, not this value.
+   */
+  consumption: z.literal('already_consumed_by_this_request').optional(),
 });
 export type ActionApproval = z.infer<typeof actionApprovalSchema>;
 
@@ -135,6 +161,18 @@ export const actionApprovalConsumeInputSchema = z.object({
    */
   principalUserId: z.string().min(1).max(128).optional(),
   principalSessionId: z.string().min(1).max(128).optional(),
+  /**
+   * Client idempotency key for this consume. The same key after a lost reply returns the
+   * original consumed row with `consumption: already_consumed_by_this_request`. A different
+   * key is `action_approval.consumed`. Omitted: one-shot consume, and a retry cannot be
+   * told apart from another caller (the previous behaviour).
+   */
+  requestId: z.string().min(1).max(128).optional(),
+  /**
+   * The person who consumed a four-eyes row, when the caller is a session (edge kill).
+   * This is not the same-person principal pair: a four-eyes row still refuses `principalUserId`.
+   */
+  consumerPrincipalId: z.string().min(1).max(128).optional(),
 });
 export type ActionApprovalConsumeInput = z.infer<typeof actionApprovalConsumeInputSchema>;
 

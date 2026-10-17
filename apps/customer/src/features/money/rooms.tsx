@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
+import { dec } from '../../data/decimal';
 import { useSession } from '../session/session';
 import { usePreferences, savePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -1016,7 +1017,11 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                         <dt>
                           <Text k="rooms.minimum.principal" />
                         </dt>
-                        <dd>{funds(product.minPrincipal, product.debtAssetId)}</dd>
+                        <dd>
+                          {dec(product.minPrincipal) === 0n
+                            ? copyText('rooms.no.minimum')
+                            : funds(product.minPrincipal, product.debtAssetId)}
+                        </dd>
                       </div>
                       <div>
                         <dt>

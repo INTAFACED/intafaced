@@ -27,7 +27,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect the requested payout and its approval context before opening the existing decision flow.',
     ['Requested payout', 'Maker and checker', 'Screening and masked destination', 'Decision and audit history'],
-    'Masked destinations, the first founder signature and combined approval history await the next backend update. The existing queue retains its hash-bound two-founder decision flow.',
+    "The pay service has no single read of one approval's decision history, so none is shown here; control changes by merchant are on Activity and audit. Signing stays on the approvals queue, where each decision is bound to the payload hash.",
     'Open approval queue',
   ),
   screen(
@@ -37,7 +37,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'MONITOR',
     'Follow payments from intake through ledger posting, settlement and delivery.',
     ['Payments received', 'Ledger posted', 'Settled', 'Payouts sent', 'Conversions', 'Webhooks delivered'],
-    'The live summary counts payments, payouts and refunds by state and gives queue ages. The event stream, duplicate markers, ledger-posted, conversion and webhook counters are not in it yet, so they are not shown.',
+    'The live summary counts payments, payouts and refunds by state and gives queue ages. It does not carry the event stream, duplicate markers, ledger-posted, conversion or webhook counters, so they are not shown.',
   ),
   screen(
     'F03',
@@ -55,7 +55,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'FORM',
     'Prepare a merchant account with an owner, verification path and effective controls.',
     ['Business and owner', 'Archetype and tier', 'Pricing and caps', 'Review and second founder'],
-    'The pay service creates a merchant only for the signed-in caller. A founder invitation with owner assignment is not in the pay service yet, so this page lists merchants and cannot create one for someone else.',
+    'The pay service creates a merchant only for the signed-in caller. It has no founder invitation with owner assignment, so this page lists merchants and cannot create one for someone else.',
     'Create merchant',
   ),
   screen(
@@ -65,7 +65,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'QUEUE',
     'Review submitted businesses, missing documents and verification decisions.',
     ['Merchant', 'Verification status', 'Submitted at', 'Age / SLA', 'Reviewer'],
-    'There is no founder-wide KYB list. Merchant-specific current/history reads cannot supply this queue.',
+    'svc-pay has no founder-wide KYB list. Merchant-specific current/history reads cannot supply this queue.',
   ),
   screen(
     'F27',
@@ -141,7 +141,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Look up payments across merchants using payment identifiers and references.',
     ['Payment', 'Merchant', 'Amount', 'Status', 'Rail', 'Created at'],
-    'There is no founder-wide payment search procedure. Merchant payment reads cannot safely stand in for it.',
+    'svc-pay has no founder-wide payment search. Merchant payment reads cannot safely stand in for it.',
   ),
   screen(
     'F35',
@@ -150,7 +150,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Track settlement windows, fees and failed workflows across merchants.',
     ['Settlement', 'Merchant', 'Gross / fee / net', 'Status', 'Window'],
-    'There is no founder-wide settlement list or aggregate. Failed-first sorting and export await that projection.',
+    'Each row is one settlement window with its fee and net. The pay service has no settlement aggregate, failed-first sort or full export; filter by status to see failed windows.',
   ),
   screen(
     'F36',
@@ -178,7 +178,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect approval, screening and destination evidence before retrying a payout.',
     ['Maker and checker', 'Screening result', 'Destination and transaction', 'Lifecycle and audit'],
-    'Masked destinations, payout detail and fee snapshots await the next backend update.',
+    'The payout read has no masked destination, payout detail or fee snapshot.',
     'Review retry',
   ),
   screen(
@@ -246,7 +246,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review tier definitions, caps and approval requirements.',
     ['Tier and archetype', 'Caps', 'Pricing and reserve', 'Approval threshold'],
-    'Tier definitions and merchant counts need the next backend projection; no commercial values are supplied here.',
+    'This page reads tier definitions only. Changing a tier takes the two-founder change flow, which this console does not offer, and no commercial value is supplied here.',
   ),
   screen(
     'F55',
@@ -284,7 +284,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review effective caps, usage and merchants approaching a configured limit.',
     ['Scope', 'Cap', 'Usage', 'Headroom', 'Last changed'],
-    'Global usage and limit-increase requests await the next backend projection. Unconfigured limits remain unset.',
+    'The pay service has no global cap-usage read, so usage and headroom are not shown. Unconfigured limits stay unset; open a merchant’s Controls to compare a request with its current caps.',
   ),
   screen(
     'F59',
@@ -331,7 +331,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Trace state changes to their actor, second approver and before/after values.',
     ['Action and resource', 'Actor', 'Second approver', 'Before / after', 'Reason', 'Time'],
-    'The founder control audit projection is being built. An absent audit read does not mean no changes occurred.',
+    'This list holds control-audit rows: merchant, tier, pricing and approval decisions, plus capture reconciliations, dispute conflicts, invoice and over-cap events and destination reads. Other activity is not in this list, and a failed read never means no changes occurred.',
   ),
   screen(
     'F65',
@@ -387,7 +387,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DASH',
     'Trace fee and spread revenue to ledger-backed merchant activity.',
     ['Fee revenue', 'Spread revenue', 'Merchant breakdown', 'Daily ledger reconciliation'],
-    'Fee snapshots and revenue breakdowns await the next backend projection.',
+    'svc-pay has no per-merchant fee-versus-spread revenue breakdown.',
   ),
   screen(
     'F71',
@@ -486,7 +486,7 @@ export function resolveScreen(path: string): { screen: FounderScreen; resourceId
   return null;
 }
 const DRILLDOWN_GAP: Record<string, string> = {
-  conversion: 'The conversion order reader (workstream W6) is not built, so quotes, fills and venue order identifiers cannot be read.',
+  conversion: 'The conversion order reader does not exist, so quotes, fills and venue order identifiers cannot be read.',
   pricing: 'Effective pricing rules and history are read in the merchant Controls tab.',
   limits: 'Cap usage, tier and overrides are read in the merchant Controls tab.',
   operator: 'Notes are read from the operator notes service.',

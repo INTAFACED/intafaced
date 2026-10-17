@@ -23,7 +23,7 @@ export function TreasuryView({
       {showHeader ? (
         <PageHead
           title="Treasury and halts"
-          purpose="How much the platform is exposed per asset, which operations are paused, and whether anything pauses by itself. Read only: changing a limit or a halt needs two founders and is not done from this page yet."
+          purpose="How much the platform is exposed per asset, which operations are paused, and whether anything pauses by itself. Read only: changing a limit or a halt needs two founders and is not done from this page."
           back={{ href: '/merchants', label: 'Merchants dashboard' }}
         />
       ) : null}
@@ -114,7 +114,7 @@ export function TreasuryView({
                         <th scope="row">{a.assetCode}</th>
                         <td className="mp-right mp-num">
                           {a.openConversionInventory === null ? (
-                            <span className="mp-muted">Not measured yet</span>
+                            <span className="mp-muted">Not measured</span>
                           ) : (
                             formatAmount(a.openConversionInventory)
                           )}

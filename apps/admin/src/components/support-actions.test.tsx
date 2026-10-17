@@ -12,7 +12,7 @@ import {
   type TicketActionsViewProps,
 } from './support-ticket-actions';
 import { TicketExtras } from './support-ticket-extras';
-import { KbPanelView, emptyKbForm, kbPublishRequest, kbPublishWhy, type KbPanelViewProps } from './support-kb-panel';
+import { KbPanelView, emptyKbForm, kbEnglishText, kbPublishRequest, kbPublishWhy, type KbPanelViewProps } from './support-kb-panel';
 
 const T1 = '22222222-2222-4222-8222-222222222222';
 const U = '33333333-3333-4333-8333-333333333333';
@@ -276,6 +276,22 @@ describe('help articles panel', () => {
     expect(m).toContain('<td>3</td>');
     expect(buttonTag(m, 'Unpublish')).not.toContain('disabled');
     expect(buttonTag(m, 'Edit as new version')).not.toContain('disabled');
+  });
+  it('shows the English title next to each key and says new article text goes in the catalogue in the code', () => {
+    const m = panel();
+    expect(m).toContain('Sign-in and account access');
+    expect(m).toContain('support.kb.account_access.title');
+    expect(m).toContain('help catalogue in the code');
+    expect(m).not.toMatch(/soon|yet|will be|coming/i);
+    expect(kbEnglishText('support.kb.account_access.title')).toBe('Sign-in and account access');
+    expect(kbEnglishText('support.kb.nope.title')).toBeNull();
+    expect(kbEnglishText('toString')).toBeNull();
+    const unknown = panel({
+      kb: kb({
+        articles: { kind: 'ok', data: [{ id: 'kb-x', titleKey: 'support.kb.nope.title', bodyKey: 'support.kb.nope.body', revision: 1 }] },
+      }),
+    });
+    expect(unknown).toContain('No English text in the catalogue for this key');
   });
   it('keeps the publish form on the page, off with a reason until it is filled in', () => {
     const m = panel();

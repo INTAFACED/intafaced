@@ -92,5 +92,5 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 - **Market listing / premium fees** are §13 unwired (D26-P1-M2): recipes exist so the vendor lifecycle can book owner-published fees without inventing magnitudes; no svc-market writer yet (VendorService moves no value; commerce wire is M1).
 - **Market purchase** (`marketPurchase`) is live via svc-market commerce — commission bps still owner-gated upstream.
 - Conformance + MemoryLedger prove sum-to-zero; Postgres proves CHECK constraints.
-- **orderHoldAmend** is qty-up extra size on the existing `orderHold` pot (sequenced key). Not a second hold. Live via `services/svc-trade/src/spot/qty-up-amend.ts`.
+- **orderHoldAmend** is qty-up extra size on the existing `orderHold` pot (sequenced key). Not a second hold. §13: `services/svc-trade/src/spot/qty-up-amend.ts` only reduces remaining quantity and does not post it.
 - **D26-P2-11 live-path closure:** every registry key is `live` (production caller) or an explicit §13 socket — machine inventory in `src/recipes/live-path-inventory.ts` (executed by `live-path-inventory.test.ts`). `chargebackOpen`, `chargebackShortfall`, `chargebackWon`, and `chargebackShortfallRecovered` are live in that inventory. `chargebackOpen` is posted from `services/svc-pay/src/chargeback-ledger.ts`. Do not invent recipes to close a path; socket it.

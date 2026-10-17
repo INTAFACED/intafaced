@@ -269,7 +269,12 @@ describe('svc-protocol mount — the public surface', () => {
 const RPC = 'http://localhost:8545';
 
 function unreachable(what: string): ChainUnavailableError {
-  return new ChainUnavailableError('protocol.chain_unreachable', `${what}: no answer from the EVM RPC at ${RPC}`);
+  return new ChainUnavailableError(
+    'protocol.chain_unreachable',
+    'The chain connection is not available right now.',
+    undefined,
+    `${what}: no answer from the EVM RPC at http://127.0.0.1`,
+  );
 }
 
 /** A chain that behaves as the configured one does today: it cannot be read. */
@@ -315,7 +320,9 @@ function deadChain(overrides: Record<string, unknown> = {}) {
       tokenFactoryConfigured: false,
       tokenFactoryDeployed: false,
       refusalCode: 'protocol.chain_unreachable',
-      reason: `status: no answer from the EVM RPC at ${RPC}`,
+      reason: 'The chain connection is not available right now.',
+      expectedChainId: null,
+      actualChainId: null,
     }),
     ...overrides,
   };
