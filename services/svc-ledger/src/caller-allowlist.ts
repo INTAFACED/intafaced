@@ -11,9 +11,10 @@ import type { RecipeName } from '@intafaced/ledger-client';
  * Not granted, on purpose:
  *   · `subAccountTransfer` — `RECIPE_MATRIX` cites svc-identity `router.ts`,
  *     which only mentions the recipe in a comment. Nothing posts it.
+ *   · `orderHoldAmend` — svc-trade `qty-up-amend.ts` no longer calls it.
  *   · `marketMakerSeedFund`, insurance top-up, chargeback shortfall/won/
  *     recovered, listing fee, premium placement — tests or parked sockets.
- *   · svc-mining-pool — it can build a client; no production `.post` call.
+ *   · svc-mining-pool — it can build a client; no production `recipes.` call.
  *
  * `feeCharge` is the exception to the recipe's own module. The registry sample
  * uses a caller-chosen module; the live meter defaults that module to `agents`
@@ -75,6 +76,7 @@ export const LEDGER_POST_ALLOWLIST = {
   'svc-pay': {
     chargebackOpen: g('pay', 'services/svc-pay/src/chargeback-ledger.ts'),
     deposit: g('ledger', 'services/svc-pay/src/user-money-service.ts'),
+    depositReverse: g('ledger', 'services/svc-pay/src/rails/deposit-reorg.ts'),
     fxConversion: g('pay', 'services/svc-pay/src/conversion/service.ts'),
     fxConversionHold: g('pay', 'services/svc-pay/src/conversion/service.ts'),
     fxConversionLateFill: g('pay', 'services/svc-pay/src/conversion/service.ts'),
@@ -110,7 +112,6 @@ export const LEDGER_POST_ALLOWLIST = {
     marketMakerOrderHold: g('trade', 'services/svc-trade/src/otc/settle.ts'),
     marketMakerOrderHoldRelease: g('trade', 'services/svc-trade/src/mm/seed-market.ts'),
     orderHold: g('trade', 'services/svc-trade/src/otc/settle.ts'),
-    orderHoldAmend: g('trade', 'services/svc-trade/src/spot/qty-up-amend.ts'),
     orderHoldRelease: g('trade', 'services/svc-trade/src/convert/settle.ts'),
     rewardPay: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     sweepFeesToRewards: g('token', 'services/svc-trade/src/copy/fee-share.ts'),

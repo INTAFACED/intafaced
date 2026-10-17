@@ -5,14 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
-import { formatAmount, parseAmount as amt, recipes, type PostRequest, type RecipeName } from '@intafaced/ledger-client';
-import {
-  CALLER_SECRET_ENV_NAMES,
-  LEDGER_CALLER_SERVICES,
-  LEDGER_POST_ALLOWLIST,
-  callerSecretEnvName,
-  type LedgerCallerService,
-} from './caller-allowlist.js';
+import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
+import { CALLER_SECRET_ENV_NAMES, LEDGER_CALLER_SERVICES, LEDGER_POST_ALLOWLIST, callerSecretEnvName } from './caller-allowlist.js';
 import { callerBindingCounts, callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
 import { createLedgerRouter } from './router.js';
 import { registerS2sHttp } from './s2s-http.js';
@@ -153,13 +147,13 @@ describe('ledger post allowlist cites real callers', () => {
       }
     }
 
-    expect(pairs.size).toBe(67);
-    const services = new Set([...pairs].map((pair) => pair.split(' ')[0]));
-    expect(services.size).toBe(8);
-    for (const pair of pairs) {
-      const [service, recipe] = pair.split(' ');
-      expect(service && recipe && granted(service, recipe), pair).toBe(true);
+    const allowlist = new Set<string>();
+    for (const [service, grants] of Object.entries(LEDGER_POST_ALLOWLIST)) {
+      for (const recipe of Object.keys(grants)) allowlist.add(`${service} ${recipe}`);
     }
+    const missing = [...pairs].filter((pair) => !allowlist.has(pair)).sort();
+    const stray = [...allowlist].filter((pair) => !pairs.has(pair)).sort();
+    expect({ missing, stray }).toEqual({ missing: [], stray: [] });
   });
 });
 
@@ -176,12 +170,6 @@ function productionSources(dir: string): string[] {
     out.push(path);
   }
   return out;
-}
-
-function granted(service: string, recipe: string): boolean {
-  if (!Object.hasOwn(LEDGER_POST_ALLOWLIST, service)) return false;
-  const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService];
-  return Object.hasOwn(grants, recipe as RecipeName);
 }
 
 describe('POST /trpc/post caller binding', () => {
