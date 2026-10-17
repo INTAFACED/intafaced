@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { assertTestDatabase } from '@intafaced/db';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { PostgresDeliveryStore, PostgresTargetStore } from '../channel-store.js';
 import { type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
@@ -18,9 +19,8 @@ import { PostgresCommandLog, PostgresDigestPrefStore, PostgresHoldStore, Postgre
 import { encodeRecentCursor } from './recent.js';
 
 /**
- * Durable rows on the shared test database named `test`.
- * This file does not call assertTestDatabase: that helper refuses any name
- * that does not end in `_test`, and the lead database is named `test`.
+ * Durable rows on a test database: the lead shared database named `test`,
+ * or any name `assertTestDatabase` accepts (`intafaced_test` and other `*_test`).
  * It never drops or truncates a table. Cleanup deletes only this file's ids.
  */
 
@@ -35,14 +35,22 @@ const PAGE_USER = 'n0t1f7be-5555-4555-8555-555555555555';
 const RELEASE_USER = 'n0t1f7be-6666-4666-8666-666666666666';
 const PAGE_OTHER = 'n0t1f7be-7777-4777-8777-777777777777';
 
-/** Unset means this file is not the caller. The package suite must not inherit a database named `test`: older helpers refuse it. */
+/** Unset means this file is not the caller. */
 const client: Sql | null = URL ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
 
+/**
+ * The lead shared database is named `test`. CI and compose use `*_test`.
+ * `assertTestDatabase` is the repo guard for the suffix; the exact name `test`
+ * is the one extra it does not already allow. Anything else is refused.
+ */
+async function assertNotifyPrefsDatabase(db: Sql): Promise<void> {
+  const rows = await db<{ db: string }[]>`SELECT current_database() AS db`;
+  if (rows[0]?.db === 'test') return;
+  await assertTestDatabase(db, 'svc-notify notify-prefs.pg.test');
+}
+
 async function applyMigrations(db: Sql): Promise<void> {
-  const name = await db<{ db: string }[]>`SELECT current_database() AS db`;
-  if (name[0]?.db !== 'test') {
-    throw new Error(`refusing notify prefs pg test: current_database is ${name[0]?.db ?? 'unknown'}, expected test`);
-  }
+  await assertNotifyPrefsDatabase(db);
   await db`CREATE SCHEMA IF NOT EXISTS notify`;
   await db`
     CREATE TABLE IF NOT EXISTS notify.__migrations (
