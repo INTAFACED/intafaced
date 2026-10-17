@@ -1,13 +1,15 @@
 import type { Sql } from 'postgres';
+import { createScreeningGuards, type ScreeningGuardDeps } from '../../screening/guard.js';
 import type { PartialPayGuards } from '../guards.js';
 
 /**
- * Guard slot for W9 KYT and name screening.
+ * Guard slot for W9 screening of a custodial send.
  *
- * Owned by that workstream alone: implement the hooks it needs here, built from
- * code under `services/svc-pay/src/screening/**`. Until then it contributes nothing, so today's behaviour is
- * unchanged. A hook refuses by throwing a typed error; see seams/guards.ts.
+ * A missing result, an unknown category, a blank sanctions list, or a screener
+ * that is down or silent is unavailable, not clear. The send is refused before
+ * the ledger payout or withdrawal hold. No supplier is wired here: Phantom has
+ * not named one, and this slot does not invent list contents.
  */
-export function createW9ScreeningGuards(_deps: { sql: Sql }): PartialPayGuards {
-  return {};
+export function createW9ScreeningGuards(deps: { sql: Sql } & Partial<Omit<ScreeningGuardDeps, 'sql'>>): PartialPayGuards {
+  return createScreeningGuards(deps);
 }

@@ -1,6 +1,8 @@
 import { mergeRouters } from '@intafaced/contracts';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
+import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
@@ -8,6 +10,7 @@ import type { RegistriesMountDeps } from '../registries/index.js';
 import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { InvoiceLinkPort } from '../merchant-ops/invoices.js';
+import type { PayService } from '../payment-service.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
@@ -44,6 +47,9 @@ export function createPayNamespaces(deps: {
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
   sql?: Sql;
+  ledger?: Pick<LedgerClient, 'balances'>;
+  webhooksAllowLocalHttp?: boolean;
+  webhookRetry?: WebhookRetryLimit;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
@@ -52,10 +58,15 @@ export function createPayNamespaces(deps: {
   invoiceLinks?: InvoiceLinkPort;
   /** Production passes the Postgres dispute store. Omitted keeps the memory store. */
   disputes?: DisputeCaseStore;
+  /** Payment, refund, settlement and link lists for founder drill-down. */
+  pay?: PayService;
 }) {
   const opsDeps = {
     founderAuthority: deps.founderAuthority,
     sql: deps.sql,
+    ledger: deps.ledger,
+    webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
+    webhookRetry: deps.webhookRetry,
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,
     disputes: deps.disputes,
@@ -71,6 +82,9 @@ export function createPayNamespaces(deps: {
       control: deps.control,
       halts: deps.payHalts?.store,
       conversion: deps.conversion,
+      sql: deps.sql,
+      pay: deps.pay,
+      disputes: deps.disputes,
     }),
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

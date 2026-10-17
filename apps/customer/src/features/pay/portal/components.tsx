@@ -233,6 +233,7 @@ const chips = {
     running: ['chipExport_running', 'tipExport_running', 'neutral'],
     ready: ['chipExport_ready', 'tipExport_ready', 'good'],
     failed: ['chipExport_failed', 'tipExport_failed', 'bad'],
+    expired: ['chipExport_expired', 'tipExport_expired', 'neutral'],
   },
   member: {
     active: ['chipMember_active', 'tipMember_active', 'good'],

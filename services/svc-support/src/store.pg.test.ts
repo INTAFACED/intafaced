@@ -19,6 +19,9 @@ const MIGRATION_0002 = readFileSync(join(here, '..', 'drizzle', '0002_support_li
 const MIGRATION_0003 = readFileSync(join(here, '..', 'drizzle', '0003_kb_articles.sql'), 'utf8');
 const MIGRATION_0004 = readFileSync(join(here, '..', 'drizzle', '0004_kb_article_versions.sql'), 'utf8');
 const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_audit_delete_refused.sql'), 'utf8');
+const MIGRATION_0009 = readFileSync(join(here, '..', 'drizzle', '0009_support_ratings.sql'), 'utf8');
+const MIGRATION_0010 = readFileSync(join(here, '..', 'drizzle', '0010_support_attachments.sql'), 'utf8');
+const MIGRATION_0011 = readFileSync(join(here, '..', 'drizzle', '0011_kb_topic_and_feedback.sql'), 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OP_A = '33333333-3333-4333-8333-333333333333';
@@ -41,6 +44,9 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0003);
   await sql.unsafe(MIGRATION_0004);
   await sql.unsafe(MIGRATION_0005);
+  await sql.unsafe(MIGRATION_0009);
+  await sql.unsafe(MIGRATION_0010);
+  await sql.unsafe(MIGRATION_0011);
 }
 
 afterAll(async () => {

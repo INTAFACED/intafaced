@@ -4,17 +4,28 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MODULE_IDS, isModuleId, type ModuleId } from '@intafaced/config';
 import { Panel } from '@intafaced/ui';
 import { fetchKillSwitches, type ControlPlaneState } from '@/lib/control-plane-browser';
-import { MODULE_WRITE_UNAVAILABLE, decodeSnapshot, unavailable } from '@/lib/control-plane-contract';
+import { decodeSnapshot, unavailable } from '@/lib/control-plane-contract';
+import { ModuleKillDesk } from '@/components/module-kill-desk';
 import './module-state-inspector.css';
 
 function hashSelection(): ModuleId {
   const value = new URLSearchParams(location.hash.slice(1)).get('module');
   return value && isModuleId(value) ? value : 'trade';
 }
-export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneState; onRead: (state: ControlPlaneState) => void }) {
+export interface ModuleStateInspectorProps {
+  plane: ControlPlaneState;
+  onRead: (state: ControlPlaneState) => void;
+  /** Deployment reason module writes are off, or null when the console can send. */
+  writesBlocked: string | null;
+  /** The signed-in founder, so the desk can tell the requester from the second founder. */
+  userId: string;
+}
+
+export function ModuleStateInspector({ plane, onRead, writesBlocked, userId }: ModuleStateInspectorProps) {
   const [module, setModule] = useState<ModuleId>('trade');
   const [filter, setFilter] = useState('all');
   const [limit, setLimit] = useState(12);
+  const [readAt, setReadAt] = useState<string | null>(null);
   const sequence = useRef(0),
     controller = useRef<AbortController | null>(null);
   const reload = useCallback(async () => {
@@ -24,7 +35,10 @@ export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneSta
     controller.current = next;
     onRead(unavailable('loading', 'Reading the original module state…', 'admin.kill_read_loading'));
     const result = await fetchKillSwitches({ signal: next.signal });
-    if (request === sequence.current && !next.signal.aborted) onRead(result);
+    if (request === sequence.current && !next.signal.aborted) {
+      setReadAt(result.status === 'reachable' ? new Date().toISOString() : null);
+      onRead(result);
+    }
   }, [onRead]);
   useEffect(() => {
     setModule(hashSelection());
@@ -58,7 +72,10 @@ export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneSta
   return (
     <Panel title="Module state" className="module-inspector">
       <div className="mi-heading">
-        <p>Read current edge state and historical audit. These reads do not grant module write access.</p>
+        <p>
+          Read the current edge state and its audit, and ask for a kill or re-enable of a module (two different operators must agree; this
+          console admits only founders). Reading never changes anything.
+        </p>
         <button className="adm-btn" type="button" onClick={() => void reload()}>
           Refresh module state
         </button>
@@ -188,12 +205,18 @@ export function ModuleStateInspector({ plane, onRead }: { plane: ControlPlaneSta
               </section>
             </>
           )}
-          <section className="mi-write-boundary">
-            <h3>Module writes unavailable</h3>
-            <p>{MODULE_WRITE_UNAVAILABLE}</p>
-            <button className="adm-btn" type="button" disabled>
-              Kill / re-enable unavailable
-            </button>
+          <section className="mi-controls" aria-label={`Controls for ${module}`}>
+            <h3>Module controls</h3>
+            <ModuleKillDesk
+              key={module}
+              module={module}
+              snapshot={snapshot}
+              readAt={readAt}
+              loading={plane.status === 'loading'}
+              writesBlocked={writesBlocked}
+              userId={userId}
+              onReload={() => void reload()}
+            />
           </section>
         </div>
       </div>

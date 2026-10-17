@@ -499,7 +499,7 @@ export function createLedgerRouter(
           const prior = await ledger.freezeState();
           const consumed = await consumeLedgerApproval(approvals, input, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
           const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
-          const state = await ledger.unfreeze(ctx.principal.userId);
+          const state = await ledger.unfreeze(ctx.principal.userId, confirmOperatorId);
           return { postingEnabled: !state.frozen, frozenReason: state.reason, frozenBy: state.actor, confirmOperatorId };
         } catch (err) {
           throw toTrpcError(err);

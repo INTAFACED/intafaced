@@ -96,7 +96,64 @@ export function toPublicKb(article: SupportKbArticle): SupportKbArticle {
     version,
     revision: article.revision ?? version,
     ...(article.published != null ? { published: article.published } : {}),
+    ...(article.category != null && article.category !== '' ? { category: article.category } : {}),
+    ...(article.tags != null && article.tags.length > 0 ? { tags: [...article.tags] } : {}),
   };
+}
+
+/**
+ * Published articles that share a category or a tag with `id`.
+ * The article itself is never included. Unpublished rows are not in
+ * `publishedOnly`, so they cannot appear. No category and no tags → empty.
+ * A missing or unpublished id is empty (the public door does not confirm it).
+ */
+export function relatedPublished(id: string, catalog: readonly SupportKbArticle[]): SupportKbArticle[] {
+  const published = publishedOnly(catalog);
+  const source = published.find((article) => article.id === id);
+  if (!source) return [];
+  const category = source.category ?? null;
+  const tags = new Set(source.tags ?? []);
+  if (category == null && tags.size === 0) return [];
+  return published.filter((article) => {
+    if (article.id === source.id) return false;
+    const shareCategory = category != null && article.category === category;
+    const shareTag = (article.tags ?? []).some((tag) => tags.has(tag));
+    return shareCategory || shareTag;
+  });
+}
+
+/** citedArticleIds max, reused so a tag list does not grow a new cap. */
+const KB_TAG_MAX = 20;
+/** publishKb titleKey / bodyKey input max. */
+const KB_TOPIC_LEN = 200;
+
+export function assertKbTopic(input: { category?: string | null; tags?: readonly string[] | null }): {
+  category: string | null;
+  tags: string[] | null;
+} {
+  const category = input.category?.trim() ?? '';
+  if (category.length > KB_TOPIC_LEN) {
+    throw new KbCatalogError('KB category is too long', 'support.kb_invalid');
+  }
+  if (category && VENDOR_SMELL.test(category)) {
+    throw new KbCatalogError('KB keys must stay vendor-clean', 'support.kb_vendor_name');
+  }
+  const raw = input.tags ?? [];
+  if (raw.length > KB_TAG_MAX) {
+    throw new KbCatalogError('KB tags exceed the cited-article list bound', 'support.kb_invalid');
+  }
+  const tags: string[] = [];
+  for (const tag of raw) {
+    const trimmed = tag.trim();
+    if (!trimmed || trimmed.length > KB_TOPIC_LEN) {
+      throw new KbCatalogError('KB tag is empty or too long', 'support.kb_invalid');
+    }
+    if (VENDOR_SMELL.test(trimmed)) {
+      throw new KbCatalogError('KB keys must stay vendor-clean', 'support.kb_vendor_name');
+    }
+    if (!tags.includes(trimmed)) tags.push(trimmed);
+  }
+  return { category: category || null, tags: tags.length > 0 ? tags : null };
 }
 
 const VENDOR_SMELL = /\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i;

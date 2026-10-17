@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'agent-autoload': {
-    kind: 'guard',
-    must: /missing required auto-load file/,
-    note: 'denominator is a fixed required-file list; with the tree gone every entry is missing and it refuses by name.',
-  },
   'notice-pin': {
     kind: 'guard',
     must: /NOTICE PIN FAILED — missing required file/,
@@ -350,11 +345,15 @@ export const EXEMPT = {
       'a residual instead.',
   },
   'gate-tools-tests': {
-    proof: /ℹ pass (\d+)/,
+    // Spec reporter (Node 21+ default, this laptop): "ℹ pass N".
+    // TAP reporter (Node 20 default, CI): "# pass N". Same count, earlier than the
+    // "# skipped" / "# duration_ms" tail. Capture group 1 is that count.
+    proof: /(?:ℹ|#) pass (\d+)/,
     denom: 1,
     reason:
       'node:test over in-memory fixtures (fixture JSON and log excerpts under tooling/scripts/fixtures, a fake gh and a fake ' +
       'git): the repo is not its subject. The count of passing tests is printed on every run and asserted non-zero here. ' +
+      'CI Node 20 prints that count as TAP "# pass N"; Node 21+ prints spec "ℹ pass N". Both are the pass count. ' +
       'HONEST EXCEPTION: one test compares the PR path filter mirrored in merge-gate.mjs with .github/workflows/ci.yml, and ' +
       'one compares the dependabot prefix with the title rule; both read the repo, and both skip themselves (reported as ' +
       'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',

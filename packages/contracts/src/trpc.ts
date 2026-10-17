@@ -89,13 +89,15 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
 }
 
 const t = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
     const code = causeCode(cause);
+    const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
     return {
       ...shape,
       data: {
         ...shape.data,
+        ...(requestId ? { requestId } : {}),
         // Surface our own error codes so clients can branch on
         // 'ledger.insufficient_funds' rather than parsing prose.
         intafacedCode: cause instanceof AuthError || cause instanceof JurisdictionError ? cause.code : undefined,

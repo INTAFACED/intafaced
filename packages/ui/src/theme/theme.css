@@ -69,6 +69,8 @@
   --color-up-hover: var(--if-up-hover);
   --color-down-hover: var(--if-down-hover);
   --color-up-bg-soft: var(--if-up-bg-soft);
+  --color-error: var(--if-error);
+  --color-error-text: var(--if-error-text);
   --color-lime: var(--if-lime);
   --color-lime-hover: var(--if-lime-hover);
   --color-lime-press: var(--if-lime-press);
