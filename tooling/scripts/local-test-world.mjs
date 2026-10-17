@@ -101,6 +101,9 @@ export function assertLocalTarget({ home = os.homedir(), urls = [EDGE], env = pr
   }
   if (marker?.kind !== MARKER_KIND) throw new GuardError('refusing: marker file is not a local test stack marker');
   const ports = new Set(Object.values(marker.ports ?? {}).map(String));
+  if (String(marker.ports?.edge) !== new URL(EDGE).port) {
+    throw new GuardError(`refusing: the stack marker's edge port is not ${new URL(EDGE).port}, which is where this script sends its calls`);
+  }
   const dbHost = marker.database?.host;
   if (dbHost !== undefined && dbHost !== LOCAL_HOST) throw new GuardError(`refusing: database host ${dbHost} is not ${LOCAL_HOST}`);
   for (const raw of urls) {
@@ -220,6 +223,22 @@ function writePrivate(file, obj) {
   fs.chmodSync(file, 0o600);
 }
 
+/** Same as writePrivate, but a crash mid-write cannot leave a truncated file: tmp (600), fsync, rename, chmod 600. */
+function writePrivateAtomic(file, obj) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.tmp-${process.pid}`;
+  const fd = fs.openSync(tmp, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(obj, null, 2)}\n`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
+  fs.chmodSync(file, 0o600);
+}
+
 function psql(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
@@ -314,13 +333,14 @@ export const totpStepAt = (ms) => Math.floor(ms / TOTP_STEP_MS);
  */
 export async function freshTotpCode({ secret, lastStep = 0, totp, now = Date.now, wait = sleep }) {
   while (totpStepAt(now()) <= Number(lastStep ?? 0)) await wait(1000);
-  const step = totpStepAt(now());
-  return { code: await totp(secret), step };
+  const t = now();
+  // One instant for both: the code is made for `t`, and the step recorded is the step of `t`.
+  return { code: await totp(secret, t), step: totpStepAt(t) };
 }
 
 /**
  * The LOCAL TEST owner's second factor (TOTP). The secret lives only in the populate state
- * file (mode 600), never in a log or a printed line. `totp` turns a secret into a 6-digit code.
+ * file (mode 600), never in a log or a printed line. `totp(secret, atMs)` turns a secret into the 6-digit code for that instant.
  */
 export class OwnerFactor {
   constructor({ file, totp, now = Date.now, wait = sleep, log = () => {} }) {
@@ -339,7 +359,7 @@ export class OwnerFactor {
     return typeof this.data.pendingSecret === 'string' && this.data.pendingSecret ? this.data.pendingSecret : null;
   }
   save() {
-    writePrivate(this.file, {
+    writePrivateAtomic(this.file, {
       kind: 'intafaced-local-test-owner-factor',
       label: LABEL,
       note: 'LOCAL TEST account second factor (TOTP). Not a person. Never valid outside this stack. Secrets: do not print.',
@@ -367,12 +387,22 @@ export class OwnerFactor {
     this.data.pendingRecoveryCodes = Array.isArray(recoveryCodes) ? recoveryCodes : [];
     this.save();
   }
+  /** The step of the code about to confirm the pending secret, written down first so a later login never repeats it. */
+  markPendingStep(step) {
+    this.data.pendingStep = step;
+    this.save();
+  }
+  /** Last step identity may have seen for the pending secret. */
+  get pendingLastStep() {
+    return Math.max(Number(this.data.pendingStep ?? 0), Number(this.data.lastStep ?? 0));
+  }
   /** The pending secret was confirmed with a code on `step`. */
   adoptPending(step) {
     this.data.secret = this.data.pendingSecret;
     this.data.recoveryCodes = this.data.pendingRecoveryCodes ?? [];
     delete this.data.pendingSecret;
     delete this.data.pendingRecoveryCodes;
+    delete this.data.pendingStep;
     this.data.lastStep = step;
     this.data.enrolledAt = new Date().toISOString();
     this.save();
@@ -414,7 +444,18 @@ class EdgeClient {
   }
   async login() {
     const totpCode = this.factor ? await this.factor.nextCode() : undefined;
-    const res = await this.http('POST', '/api/identity/trpc/auth.login', loginRequestBody(this.account, totpCode), false);
+    let res = await this.http('POST', '/api/identity/trpc/auth.login', loginRequestBody(this.account, totpCode), false);
+    // A crash between a good totp.confirm and adoptPending leaves the live secret as the pending one: try it once.
+    if (
+      !res.json?.result?.data?.accessToken &&
+      !totpCode &&
+      this.factor?.pendingSecret &&
+      /mfa_required|Two-factor code required/i.test(refusalText(res))
+    ) {
+      const { code, step } = await this.factor.codeFor(this.factor.pendingSecret, this.factor.pendingLastStep);
+      res = await this.http('POST', '/api/identity/trpc/auth.login', loginRequestBody(this.account, code), false);
+      if (res.json?.result?.data?.accessToken) this.factor.adoptPending(step);
+    }
     const data = res.json?.result?.data;
     if (!data?.accessToken) throw new Error(`login refused for ${this.account.handle} (${res.status}): ${refusalText(res)}`);
     this.adopt(data);
@@ -1933,6 +1974,15 @@ async function resignInForMerchantScopes(user, record, why) {
   }
 }
 
+/** The `mfa` claim of an access token payload, or null when it cannot be read. */
+export function accessTokenMfa(token) {
+  try {
+    return JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8')).mfa === true;
+  } catch {
+    return null;
+  }
+}
+
 /** What a totp.enrol refusal means for populate. Nothing is ever reset. */
 export function ownerFactorRefusal(refusal) {
   const why = String(refusal ?? '');
@@ -1958,11 +2008,21 @@ async function ensureOwnerSecondFactor(ctx) {
     return { ok: false, changed: false };
   }
   if (factor.secret) {
+    if (user.token && accessTokenMfa(user.token) === false) {
+      record(
+        'merchant',
+        item,
+        'refused',
+        'populate holds a TOTP secret but this session has no second factor (stack reset?). Move world-owner-factor.json aside and rerun; populate never deletes it',
+      );
+      return { ok: false, changed: false };
+    }
     record('merchant', item, 'exists', 'LOCAL TEST secret held in the populate state file (mode 600)');
     return { ok: true, changed: false };
   }
   const confirmWith = async (secret) => {
     const { code, step } = await factor.codeFor(secret, 0);
+    factor.markPendingStep(step);
     const confirmed = await call(user, 'm', 'identity', 'totp.confirm', { secret, code });
     return { confirmed, step };
   };
@@ -2588,12 +2648,12 @@ async function cmdPopulate(argv) {
   const factor = new OwnerFactor({
     file: p.ownerFactor,
     log,
-    totp: async (secret) => {
+    totp: async (secret, t) => {
       if (!totpFn) {
         const gates = await gatesApi();
         totpFn = (await gates.makeContext({ log })).totp.totp;
       }
-      return totpFn(secret);
+      return totpFn(secret, { at: new Date(t) });
     },
   });
   const user = new EdgeClient(account, factor);

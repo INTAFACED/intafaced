@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +65,7 @@ import {
   welcomeRef,
   localEmailOutboxPath,
   OwnerFactor,
+  accessTokenMfa,
   freshTotpCode,
   loginRequestBody,
   ownerFactorRefusal,
@@ -679,6 +680,56 @@ try {
     } finally {
       rmSync(factorDir, { recursive: true, force: true });
     }
+  }
+  {
+    // F1: the clock moves across a 30 s boundary while the code is being made; code and step must agree.
+    let clock = 50 * 30_000 + 29_900;
+    const out = await freshTotpCode({
+      secret: 'S',
+      lastStep: 40,
+      totp: async (secret, t) => {
+        clock += 500;
+        return `${secret}@${totpStepAt(t)}`;
+      },
+      now: () => clock,
+      wait: () => assert.fail('no wait'),
+    });
+    assert.equal(out.step, 50);
+    assert.equal(out.code, 'S@50');
+    assert.ok(totpStepAt(clock) > out.step, 'the clock really crossed the boundary');
+  }
+  {
+    const mfaToken = (mfa) => `h.${Buffer.from(JSON.stringify({ mfa })).toString('base64url')}.s`;
+    assert.equal(accessTokenMfa(mfaToken(true)), true);
+    assert.equal(accessTokenMfa(mfaToken(false)), false);
+    assert.equal(accessTokenMfa('garbage'), null);
+    const dir = mkdtempSync(join(tmpdir(), 'owner-factor-b-'));
+    try {
+      const file = join(dir, 'f.json');
+      let clock = 200 * 30_000;
+      const mk = () =>
+        new OwnerFactor({ file, totp: (s, t) => `${s}@${totpStepAt(t)}`, now: () => clock, wait: async () => (clock += 30_000) });
+      const f = mk();
+      f.savePending('PENDING-LIVE-SECRET', ['rc']);
+      f.markPendingStep(200);
+      assert.equal(mk().pendingLastStep, 200, 'a later login never repeats the confirm step');
+      assert.equal(readdirSync(dir).length, 1, 'atomic write leaves no tmp file behind');
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      f.adoptPending(201);
+      assert.equal(mk().secret, 'PENDING-LIVE-SECRET');
+      assert.equal(mk().data.pendingStep, undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const login = worldSrc.slice(worldSrc.indexOf('  async login() {'), worldSrc.indexOf('  async ensureAccount()'));
+    assert.match(login, /pendingSecret/);
+    assert.match(login, /adoptPending/);
+    assert.match(worldSrc, /writePrivateAtomic[\s\S]*fsyncSync[\s\S]*renameSync/);
+    assert.equal(
+      worldSrc.includes('unlinkSync(this.file') || worldSrc.includes('rmSync(this.file'),
+      false,
+      'never deletes the factor file',
+    );
   }
   assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /holds|does not hold/);
   assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /nothing was reset/);
