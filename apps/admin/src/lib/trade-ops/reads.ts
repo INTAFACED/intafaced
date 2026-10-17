@@ -2,6 +2,7 @@ import 'server-only';
 import { readKillSwitches } from '@/lib/control-plane-client';
 import type { KillSwitchSnapshot } from '@/lib/control-plane-contract';
 import { edgeCall, trpcSpec, type TradeCtx } from './edge';
+import { parseEffectiveFees, type EffectiveFees } from './fees-model';
 import { killStateOutcome } from './kill-switch-model';
 import type { Outcome } from './outcome';
 
@@ -33,6 +34,7 @@ export interface MarketRow {
   readonly minQty: string;
   readonly maxQty: string | null;
   readonly minNotional: string;
+  /** Listing metadata. NOT what customers are charged: see readEffectiveFees. */
   readonly makerBps: number;
   readonly takerBps: number;
   readonly listedAt: string | null;
@@ -75,6 +77,15 @@ export function readMarkets(ctx: TradeCtx, limit = 200): Promise<Outcome<readonl
       return rows.every((r): r is MarketRow => r !== null) ? rows : null;
     }),
   );
+}
+
+/**
+ * GET /api/v1/admin/fees (scope admin:read): the fee schedule customers are charged, per market, with its source.
+ * An unpublished schedule answers 503 trade.fee_schedule_blank, which arrives here as a refusal: never a guessed number.
+ * The maker/taker bps on a MarketRow are listing metadata and are not charged.
+ */
+export function readEffectiveFees(ctx: TradeCtx): Promise<Outcome<EffectiveFees>> {
+  return edgeCall(ctx, { method: 'GET', path: '/api/v1/admin/fees', parse: parseEffectiveFees });
 }
 
 // ── Market lifecycle (authoritative status) ─────────────────────────────────
