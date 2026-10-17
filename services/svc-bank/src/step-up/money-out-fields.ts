@@ -26,6 +26,8 @@ export function toUserBinding(i: {
   amount: string;
   /** Trimmed note. Omitted from the hash when there is no note, so older approvals still match. */
   note?: string;
+  /** Payment reference. Omitted from the hash when absent, same rule as the note. */
+  reference?: string;
   /** Set when this send settles a payment request. Omitted otherwise. */
   requestId?: string;
 }): DoorBinding {
@@ -40,6 +42,7 @@ export function toUserBinding(i: {
       assetId: i.assetId,
       amount: i.amount,
       ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
       ...(i.requestId ? { requestId: i.requestId } : {}),
     },
   };
@@ -52,6 +55,8 @@ export function createTransferBinding(i: {
   toSpaceId: string;
   assetId: string;
   amount: string;
+  note?: string;
+  reference?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.create',
@@ -63,6 +68,8 @@ export function createTransferBinding(i: {
       toSpaceId: i.toSpaceId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
     },
   };
 }

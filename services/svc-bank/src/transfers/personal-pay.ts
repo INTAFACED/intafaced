@@ -17,6 +17,7 @@ import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handl
 import type { PersonalRequestNotices } from './request-notices.js';
 
 const NOTE_MAX = 140;
+const REFERENCE_MAX = 64;
 /** A reserved send the client never retried. Older than this, and with no ledger posting, it stops counting toward the daily cap. */
 const STALE_RESERVATION_MS = 15 * 60 * 1000;
 
@@ -28,6 +29,7 @@ export interface PersonalTransferView {
   readonly amount: string;
   readonly assetId: string;
   readonly note: string | null;
+  readonly reference: string | null;
   readonly requestId: string | null;
   readonly fromHandle: string | null;
   readonly toHandle: string | null;
@@ -67,6 +69,7 @@ export interface PersonalRequestView {
 
 export interface TransferFact {
   readonly note: string | null;
+  readonly reference: string | null;
   readonly counterpartyHandle: string | null;
 }
 
@@ -79,6 +82,7 @@ interface TransferRow {
   asset_id: string;
   amount: string;
   note: string | null;
+  reference: string | null;
   from_handle: string | null;
   to_handle: string | null;
   request_id: string | null;
@@ -116,7 +120,7 @@ const REQUEST_COLS = `
 `;
 
 const TRANSFER_COLS = `
-  transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note,
+  transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note, reference,
   from_handle, to_handle, request_id, status, created_at
 `;
 
@@ -132,6 +136,20 @@ export function plainNote(value: string | null | undefined): string | null {
     );
   }
   return note;
+}
+
+/** Printable ASCII, trimmed. Blank becomes null. Anything else is refused. */
+export function plainReference(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const reference = value.trim();
+  if (reference === '') return null;
+  if (reference.length > REFERENCE_MAX || !/^[\x20-\x7E]+$/.test(reference)) {
+    throw new BankError(
+      `A payment reference is printable text up to ${REFERENCE_MAX} characters (bank.personal_reference_invalid)`,
+      'bank.personal_reference_invalid',
+    );
+  }
+  return reference;
 }
 
 function utcDayStart(now: Date): Date {
@@ -167,11 +185,13 @@ export class PersonalPayService {
     toUserId: string;
     amount: Amount;
     note?: string | null;
+    reference?: string | null;
     requestId?: string | null;
     now?: Date;
   }): Promise<PersonalTransferView> {
     const now = this.now(input.now);
     const note = plainNote(input.note);
+    const reference = plainReference(input.reference);
     const requestId = input.requestId ?? null;
     const toUserId = input.toUserId.trim();
     const from = await this.spaces.get(input.fromSpaceId);
@@ -185,6 +205,7 @@ export class PersonalPayService {
       assetId: from.assetId,
       amount: input.amount,
       note,
+      reference,
       requestId,
     };
 
@@ -219,10 +240,10 @@ export class PersonalPayService {
       const handles = await this.snapshotHandles(input.actorUserId, toUserId);
       const inserted = await tx<TransferRow[]>`
         INSERT INTO bank.personal_transfers (
-          transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, from_handle, to_handle, request_id, status, created_at
+          transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, reference, from_handle, to_handle, request_id, status, created_at
         ) VALUES (
           ${input.transferId}, ${input.actorUserId}, ${input.fromSpaceId}, ${toUserId}, ${from.assetId},
-          ${formatAmount(input.amount)}::numeric, ${note}, ${handles.from}, ${handles.to}, ${requestId}, 'reserved', ${now}
+          ${formatAmount(input.amount)}::numeric, ${note}, ${reference}, ${handles.from}, ${handles.to}, ${requestId}, 'reserved', ${now}
         )
         RETURNING ${tx.unsafe(TRANSFER_COLS)}
       `;
@@ -325,7 +346,7 @@ export class PersonalPayService {
     for (const row of rows) {
       if (!row.ledger_tx_id) continue;
       const counterpartyHandle = row.from_user_id === userId ? row.to_handle : row.from_handle;
-      out.set(row.ledger_tx_id, { note: row.note, counterpartyHandle });
+      out.set(row.ledger_tx_id, { note: row.note, reference: row.reference, counterpartyHandle });
     }
     return out;
   }
@@ -874,6 +895,7 @@ export class PersonalPayService {
       amount: formatAmount(parseAmount(row.amount)),
       assetId: row.asset_id,
       note: row.note,
+      reference: row.reference,
       requestId: row.request_id,
       fromHandle: row.from_handle,
       toHandle: row.to_handle,
@@ -912,6 +934,7 @@ function sameTransfer(
     assetId: string;
     amount: Amount;
     note: string | null;
+    reference: string | null;
     requestId: string | null;
   },
 ): boolean {
@@ -922,6 +945,7 @@ function sameTransfer(
     row.asset_id === input.assetId &&
     parseAmount(row.amount) === input.amount &&
     (row.note ?? null) === input.note &&
+    (row.reference ?? null) === input.reference &&
     (row.request_id ?? null) === input.requestId
   );
 }
