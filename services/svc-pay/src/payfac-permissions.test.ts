@@ -71,6 +71,7 @@ describe('D26-P1-P2 payfac permissions map', () => {
     expect(areaForSurface('trpc.payment.list')).toBe(areaForSurface('rest.payments.list'));
     expect(areaForSurface('trpc.merchant.balances')).toBe(areaForSurface('rest.balances.read'));
     expect(areaForSurface('trpc.merchant.createLink')).toBe(areaForSurface('rest.payment-links.create'));
+    expect(areaForSurface('trpc.merchant.checkoutSettings.get')).toBe(areaForSurface('trpc.merchant.profile'));
   });
 
   it('refund surface is not the same area as capture — value-out is its own grant', () => {

@@ -310,6 +310,8 @@ export type PayErrorCode =
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
   | 'pay.list_range_invalid'
+  /** A stored checkout profile is not an object, or its domain list is not strings. */
+  | 'pay.checkout_settings_unreadable'
   // ── User money in and out (`user-money-service.ts`) ──
   | 'pay.rail_unknown'
   /** The rail exists but does not accept hand-typed operator credits. */
@@ -1055,6 +1057,17 @@ function listFilters(input: { search?: string; assetId?: string; from?: string; 
   }
 }
 
+/** JSON object as stored. An array or a scalar is unreadable, not an empty object. */
+function storedJsonObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function storedDomainList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return null;
+  return value;
+}
+
 /** Which statuses may legally follow which. Anything else is a bug, not an edge case. */
 const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   created: ['authorized', 'failed'],
@@ -1443,6 +1456,11 @@ export class PayService {
    * Pages are keyset-ordered by `(created_at, id)` descending. Search matches the
    * payment id, the rail reference, or the customer reference stored on the
    * created event. The fee snapshot and failure are the stored rows, or null.
+   *
+   * `linkId` keeps payments whose checkout session names that link. The seek
+   * uses `checkout_sessions_link_status_idx` (`link_id`, `status`). A link that
+   * is missing or belongs to another merchant matches no session of this
+   * merchant, so the page is empty. That is not an error.
    */
   async listPayments(input: {
     merchantId: string;
@@ -1453,6 +1471,7 @@ export class PayService {
     assetId?: string;
     from?: string;
     to?: string;
+    linkId?: string;
     /**
      * Sandbox keys pass `sandbox` so the page and its cursor are chosen from
      * sandbox rails only. Filtering after the page would let `nextCursor`
@@ -1467,11 +1486,23 @@ export class PayService {
     const cursorAt = filters.cursor?.createdAtCursor ?? null;
     const cursorId = filters.cursor?.id ?? null;
     const sandboxOnly = input.railMode === 'sandbox';
+    const linkId = input.linkId ?? null;
+    const linkFilter =
+      linkId === null
+        ? this.sql``
+        : this.sql`AND p.id IN (
+             SELECT s.payment_id
+               FROM pay.checkout_sessions s
+              WHERE s.link_id = ${linkId}
+                AND s.merchant_id = ${input.merchantId}
+                AND s.payment_id IS NOT NULL
+           )`;
     const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
       SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
              to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payments p
        WHERE p.merchant_id = ${input.merchantId}
+         ${linkFilter}
          AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
          AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
          AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
@@ -1562,6 +1593,57 @@ export class PayService {
       RETURNING id
     `;
     return { id: rows[0]!.id, merchantId: input.merchantId };
+  }
+
+  /**
+   * The checkout profile `createProfile` stored most recently for this merchant.
+   * No row is `not_configured`. A row returns the JSON and domains that write
+   * stored, including empty objects. A non-object payload refuses; it is not
+   * rewritten to `{}`.
+   */
+  async getCheckoutSettings(merchantId: string): Promise<
+    | { status: 'not_configured' }
+    | {
+        status: 'configured';
+        profileId: string;
+        checkoutConfig: Record<string, unknown>;
+        feeRouting: Record<string, unknown>;
+        domains: string[];
+        createdAt: string;
+      }
+  > {
+    await this.getMerchant(merchantId);
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        checkout_config: unknown;
+        fee_routing: unknown;
+        domains: unknown;
+        created_at: Date;
+      }>
+    >`
+      SELECT id, checkout_config, fee_routing, domains, created_at
+        FROM pay.payment_profiles
+       WHERE merchant_id = ${merchantId}
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return { status: 'not_configured' };
+    const checkoutConfig = storedJsonObject(row.checkout_config);
+    const feeRouting = storedJsonObject(row.fee_routing);
+    const domains = storedDomainList(row.domains);
+    if (!checkoutConfig || !feeRouting || !domains) {
+      throw new PayError('Stored checkout settings are not a readable object', 'pay.checkout_settings_unreadable');
+    }
+    return {
+      status: 'configured',
+      profileId: row.id,
+      checkoutConfig,
+      feeRouting,
+      domains,
+      createdAt: row.created_at.toISOString(),
+    };
   }
 
   /**

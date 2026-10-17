@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
+  payCheckoutSettingsGetInputSchema,
+  payCheckoutSettingsSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
@@ -644,6 +646,22 @@ export function createPayRouter(
             return pay.createProfile(input);
           }),
         ),
+
+      /**
+       * The checkout profile the write above stored, newest row for this merchant.
+       * No row is `not_configured`. Same area as the write (`checkout.profile`).
+       */
+      checkoutSettings: router({
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(payCheckoutSettingsGetInputSchema)
+          .output(payCheckoutSettingsSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.checkoutSettings.get', 'profile.read');
+              return pay.getCheckoutSettings(input.merchantId);
+            }),
+          ),
+      }),
 
       /** Hosted checkout pointer — token returned once. */
       createLink: scopedProcedure('pay:write', { module: 'pay' })
