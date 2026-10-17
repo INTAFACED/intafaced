@@ -8,7 +8,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, userAvailable } from '@intafaced/ledger-client';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -85,10 +84,11 @@ describe('TEST futures seed', () => {
     expect(databaseLooksLocalOrTest('test')).toBe(true);
     const refused = spawnSync(process.execPath, [script, '--fixture', fixturePath], {
       encoding: 'utf8',
-      env: { ...process.env, NODE_ENV: 'test', TRADE_DATABASE_URL: 'postgres://127.0.0.1:55432/intafaced' },
+      env: { ...process.env, NODE_ENV: 'test', TRADE_DATABASE_URL: 'postgres://127.0.0.1:1/intafaced' },
     });
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toMatch(/does not look like a local or test database/);
+    expect(refused.stderr).not.toMatch(/ECONNREFUSED|connect/i);
   });
 
   it('accepts the TEST fixture without touching the production leverage cap', async () => {
@@ -159,7 +159,7 @@ describe('open with a blank leverage cap', () => {
         ];
       }
       throw new Error(`unexpected sql ${text}`);
-    }) as unknown as Sql;
+    }) as unknown as ConstructorParameters<typeof PositionService>[0];
     const ledger = new MemoryLedger();
     const positions = new PositionService(sql, ledger, {
       marks: memoryMarkBook().source(),
