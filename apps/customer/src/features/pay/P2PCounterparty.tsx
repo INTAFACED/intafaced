@@ -21,7 +21,7 @@ export function CounterpartyName({ resource }: { resource: ReturnType<typeof use
     <p className="p2p-counterparty-id" data-testid="counterparty-name">
       {handle ? (
         <span lang="zxx">{`@${handle}`}</span>
-      ) : resource.status === 'ready' ? (
+      ) : resource.status === 'ready' && resource.data.profile?.status === 'absent' ? (
         <>
           <span aria-hidden="true">—</span> <small className="muted">{p2pDepth.t('traderNoHandle')}</small>
         </>

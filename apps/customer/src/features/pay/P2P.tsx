@@ -259,10 +259,7 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
   );
 }
 function OrderRows({ pay, userId, rows }: { pay: PersonalPayApi; userId: string | null; rows: Trade[] }) {
-  const unread = useUnreadCounts(
-    pay,
-    rows.map((trade) => trade.id),
-  );
+  const unread = useUnreadCounts(pay, rows);
   return (
     <DataTable
       headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), payCopy.t('status'), '']}

@@ -18,7 +18,7 @@ const ME = 'b0000000-0000-4000-8000-000000000001';
 const THEM = 's0000000-0000-4000-8000-000000000002';
 const MOD = 'm0000000-0000-4000-8000-000000000003';
 const TRADE = '11111111-1111-4111-8111-111111111111';
-const trade = { buyerId: ME, sellerId: THEM };
+const trade = { buyerId: ME, sellerId: THEM, status: 'escrowed' as const };
 const NOW = Date.parse('2026-10-18T12:00:00Z');
 
 const message = (n: number, over: Partial<ChatMessage> = {}): ChatMessage => ({
@@ -40,6 +40,7 @@ const state = (over: Partial<ChatState> = {}): ChatState => ({
   firstUnread: null,
   lastNotified: null,
   nextReadMs: 5000,
+  unreadBelow: null,
   ...over,
 });
 const view = (over: Partial<Parameters<typeof ChatView>[0]> = {}) =>
@@ -49,8 +50,10 @@ const view = (over: Partial<Parameters<typeof ChatView>[0]> = {}) =>
       trade={trade}
       viewer={ME}
       now={NOW}
+      counterparty="@test_friend"
       draft=""
       onDraft={() => {}}
+      onQuick={() => {}}
       onSend={() => {}}
       onRefresh={() => {}}
       onResend={() => {}}
@@ -125,7 +128,7 @@ describe('the order chat', () => {
   it('keeps send off until there is text, and says why', () => {
     const empty = view();
     expect(empty).toMatch(/<button[^>]*\sdisabled=""[^>]*>Send message/);
-    expect(empty).toContain('Send is off while the box is empty.');
+    expect(empty).toContain('Send is off while the box is empty. Press Enter to send, Shift+Enter for a new line.');
     expect(empty).toContain('maxLength="2000"');
     const typed = view({ draft: 'hello' });
     expect(typed).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Send message/);
@@ -322,7 +325,7 @@ describe('follow and block', () => {
     const out = renderToString(<BlockConfirmBody busy={false} failure={null} onConfirm={() => {}} onCancel={() => {}} />);
     expect(out).toContain('Their offers are hidden from you and yours from them');
     expect(out).toContain('Orders that are already open stay open, with their chat.');
-    expect(out).toContain('You can unblock them any time.');
+    expect(out).toContain('If you follow them, blocking also unfollows them. You can unblock them any time.');
     expect(out).toContain('Cancel');
     expect(out).toContain('>Block<');
     const busy = renderToString(<BlockConfirmBody busy failure="unconfirmed" onConfirm={() => {}} onCancel={() => {}} />);
@@ -464,6 +467,7 @@ import { findRoom, resolveAlias } from '../../../app/navigation';
 import { features } from '../../../app/feature-registry';
 import { matchPath } from '../../../app/path-match';
 import { OrderResult } from '../P2POrder';
+import { orderCopy } from '../p2p-order-copy';
 import type { Trade } from '../schemas';
 
 const fullTrade = (over: Partial<Trade> = {}): Trade => ({
@@ -488,20 +492,77 @@ const fullTrade = (over: Partial<Trade> = {}): Trade => ({
 });
 
 describe('chat on a closed order', () => {
-  it('shows the history read-only with the reason, and no box or send button', () => {
-    const out = view({ closed: true, state: state({ messages: [message(1)] }) });
+  const closedTrade = (status: 'released' | 'cancelled') => ({ ...trade, status });
+
+  it('keeps the box and send button on a cancelled order, and says messages still reach the other person', () => {
+    const out = view({ trade: closedTrade('cancelled'), state: state({ messages: [message(1)] }) });
     expect(out).toContain('message number 1');
+    expect(out).toContain('<textarea');
+    expect(out).toMatch(/Send message/);
     expect(out).toContain('data-testid="chat-closed"');
-    expect(out).toContain('This order is closed, so the chat is read-only.');
-    expect(out).not.toContain('<textarea');
-    expect(out).not.toContain('Send message');
+    expect(out).toContain('Messages still reach the other person. If you paid and the order was cancelled, ask for the refund here');
   });
 
-  it('keeps the box and send button on an open order', () => {
-    const out = view({ closed: false });
-    expect(out).toContain('<textarea');
-    expect(out).toContain('Send message');
-    expect(out).not.toContain('data-testid="chat-closed"');
+  it('keeps the box on a released order, with its own note', () => {
+    const out = view({ trade: closedTrade('released'), draft: 'thanks' });
+    expect(out).toContain('This order is released. Messages still reach the other person.');
+    expect(out).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Send message/);
+  });
+
+  it('shows no closed note on an open order', () => {
+    expect(view()).not.toContain('data-testid="chat-closed"');
+  });
+});
+
+describe('the chat header, quick replies and warning', () => {
+  it('names the other side and shows the order status in words', () => {
+    const out = view();
+    expect(out).toContain('data-testid="chat-head"');
+    expect(out).toContain('@test_friend');
+    expect(out).toContain('Seller');
+    expect(out).toContain('>In escrow<');
+  });
+
+  it('offers the buyer “I have paid” and “Please release” as text to insert, not as sends', () => {
+    const out = view();
+    expect(out).toContain('data-testid="chat-quick"');
+    expect(out).toContain('>I have paid<');
+    expect(out).toContain('>Please release<');
+    expect(out).not.toContain('Payment received');
+    expect(out).toMatch(/<button type="button">I have paid<\/button>/);
+  });
+
+  it('offers the seller “Payment received” and “Please send the payment proof in chat”', () => {
+    const out = view({ viewer: THEM });
+    expect(out).toContain('>Payment received<');
+    expect(out).toContain('>Please send the payment proof in chat<');
+    expect(out).not.toContain('>I have paid<');
+  });
+
+  it('warns the seller, and only the seller, before releasing', () => {
+    const warning = 'Don’t release until the money is in your account. Check your bank, not a screenshot.';
+    expect(view({ viewer: THEM })).toContain(warning);
+    expect(view({ viewer: THEM, trade: { ...trade, status: 'fiat_sent' } })).toContain(warning);
+    expect(view({ viewer: ME })).not.toContain(warning);
+    expect(view({ viewer: THEM, trade: { ...trade, status: 'released' } })).not.toContain(warning);
+  });
+
+  it('shows the quick replies and warning in Spanish and French too', () => {
+    for (const locale of ['es', 'fr'] as const) {
+      const copy = p2pChatCopy.forLocale(locale);
+      for (const key of ['quickPaid', 'quickRelease', 'quickReceived', 'quickProof', 'sellerWarning', 'closedCancelledNote'] as const)
+        expect(copy.t(key)).not.toBe(p2pChatCopy.forLocale('en').t(key));
+    }
+  });
+
+  it('marks a dispute with the warning colour, not the neutral one', () => {
+    expect(renderToString(<TradeStatus status="disputed" />)).toContain('data-status="pending"');
+    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="working"');
+  });
+
+  it('says how many unread messages wait below while the chat is out of view', () => {
+    expect(view({ state: state({ unreadBelow: 3 }) })).toContain('3 new below.');
+    expect(view()).not.toContain('data-testid="chat-unread-below"');
   });
 });
 
@@ -568,9 +629,9 @@ describe('the order timeline says what is being waited for', () => {
 });
 
 describe('who a counterparty is', () => {
-  it('shows the public handle when the service returns one, and a dash with the reason when it does not', async () => {
+  it('shows the handle when there is one, a dash only when identity says there is none, and “Member” when it cannot say', async () => {
     const { TraderName } = await import('./Trader');
-    const record = (handle: string | null) => ({
+    const record = (handle: string | null, profile?: 'unwired' | 'absent' | 'found') => ({
       ok: true as const,
       data: {
         tradesTotal: 0,
@@ -584,13 +645,18 @@ describe('who a counterparty is', () => {
         merchant: null,
         handle,
         memberSince: null,
+        ...(profile ? { profile: { status: profile } } : {}),
       },
     });
-    expect(renderToString(<TraderName record={record('test_friend')} />)).toContain('@test_friend');
-    const none = renderToString(<TraderName record={record(null)} />);
-    expect(none).toContain('—');
-    expect(none).toContain('No public handle');
-    expect(none).not.toContain('Member');
+    expect(renderToString(<TraderName record={record('test_friend', 'found')} />)).toContain('@test_friend');
+    const absent = renderToString(<TraderName record={record(null, 'absent')} />);
+    expect(absent).toContain('—');
+    expect(absent).toContain('No public handle');
+    for (const unknown of [record(null, 'unwired'), record(null)]) {
+      const out = renderToString(<TraderName record={unknown} />);
+      expect(out).toContain('Member');
+      expect(out).not.toContain('No public handle');
+    }
   });
 
   it('reads the profile status the service sends alongside a missing handle', async () => {
@@ -624,23 +690,49 @@ describe('your own offer reads from the maker side', () => {
 
 describe('a completed order', () => {
   const done = fullTrade({ status: 'released', resolution: 'released', settledAt: '2026-10-18T10:05:00Z' });
-  it('tells the buyer what they received and paid, from the order record', () => {
+  const recorded = fullTrade({ status: 'released', resolution: 'released', settledAt: null });
+  it('tells the buyer what they received and paid, once the ledger has settled', () => {
     const out = renderToString(<OrderResult trade={done} seller={false} />);
     expect(out).toContain('You received');
     expect(out).toContain('10 USDT released from escrow, before any service fee');
     expect(out).toContain('You paid (external payment)');
     expect(out).toContain('10 USD');
   });
-  it('tells the seller what they sent and were paid', () => {
+  it('tells the seller what left their escrow, with no fee row, since the fee comes out of the buyer’s share', () => {
     const out = renderToString(<OrderResult trade={done} seller />);
     expect(out).toContain('You sent');
-    expect(out).toContain('10 USDT released to the buyer');
+    expect(out).toContain('10 USDT released from your escrow');
     expect(out).toContain('You received (external payment)');
+    expect(out).not.toContain('Service fee');
+    expect(out).not.toContain('released to the buyer');
   });
-  it('does not invent a fee: the record has none, and the screen says that', () => {
+  it('does not invent a fee for the buyer, and never mentions a quote', () => {
     const out = renderToString(<OrderResult trade={done} seller={false} />);
     expect(out).toContain('Service fee');
-    expect(out).toContain('Not on the order record.');
-    expect(out).not.toMatch(/Service fee[^<]*<\/dt><dd[^>]*>\s*0/);
+    expect(out).toContain('Not on the order record this page reads. It is taken from the released amount.');
+    expect(out).not.toMatch(/quote/i);
+  });
+  it('claims nothing was received until the ledger has settled', () => {
+    for (const seller of [false, true]) {
+      const out = renderToString(<OrderResult trade={recorded} seller={seller} />);
+      expect(out).toContain('data-testid="order-result-unsettled"');
+      expect(out).toContain('Release recorded. The ledger payout isn’t confirmed.');
+      expect(out).not.toContain('You received');
+      expect(out).not.toContain('You sent');
+    }
+  });
+  it('words the unsettled line in Spanish and French', () => {
+    for (const locale of ['es', 'fr'] as const)
+      expect(orderCopy.forLocale(locale).t('releasePending')).not.toBe(orderCopy.forLocale('en').t('releasePending'));
+  });
+});
+
+describe('an address segment placed in a query', () => {
+  it('stays one value however it is written', () => {
+    const room = findRoom('/p2p/orders/abc')!;
+    const out = resolveAlias(room, '/p2p/orders/a%26next%3D%2Fevil');
+    expect(out).toBeDefined();
+    const query = new URLSearchParams(out!.split('?')[1]);
+    expect([...query.keys()]).toEqual(['tradeId']);
   });
 });

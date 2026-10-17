@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Button, StateBlock } from '@intafaced/ui';
 import { uiCopy } from '../../../shared/ui-copy';
 import { PaySection } from '../components';
@@ -6,6 +6,8 @@ import type { PersonalPayApi } from '../pay-api';
 import type { Trade } from '../schemas';
 import { p2pChatCopy } from './p2p-chat-copy';
 import { p2pDepth } from './p2p-depth-copy';
+import { TradeStatus } from './P2PDepth';
+import { TraderName, useTraders } from './Trader';
 import { ChatStore, MAX_CHAT_TEXT, chatTime, senderRole, type ChatState, type PendingMessage, type ServiceFailure } from './p2p-chat-model';
 
 type ChatT = ReturnType<typeof p2pChatCopy.useCopy>['t'];
@@ -124,9 +126,10 @@ export function ChatView({
   trade,
   viewer,
   now,
-  closed = false,
+  counterparty,
   draft,
   onDraft,
+  onQuick,
   onSend,
   onRefresh,
   onResend,
@@ -134,13 +137,15 @@ export function ChatView({
   onDiscard,
 }: {
   state: ChatState;
-  trade: Pick<Trade, 'buyerId' | 'sellerId'>;
+  trade: Pick<Trade, 'buyerId' | 'sellerId' | 'status'>;
   viewer: string | null;
   now: number;
-  /** A released or cancelled order: its history stays readable, and nothing more is written to it. */
-  closed?: boolean;
+  /** The other side's name: a handle or a plain word, never an account id. */
+  counterparty: ReactNode;
   draft: string;
   onDraft: (value: string) => void;
+  /** Put a ready-made sentence in the box. Nothing is sent until the person sends it. */
+  onQuick: (text: string) => void;
   onSend: () => void;
   onRefresh: () => void;
   onResend: (clientId: string) => void;
@@ -151,6 +156,7 @@ export function ChatView({
   const depth = p2pDepth.useCopy();
   const ui = uiCopy.useCopy();
   const hintId = useId();
+  const box = useRef<HTMLTextAreaElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const count = state.messages.length + state.pending.length;
@@ -166,10 +172,28 @@ export function ChatView({
   }, [own]);
   const ready = state.phase === 'ready';
   const empty = draft.trim().length === 0;
+  const me = viewer === trade.buyerId ? 'buyer' : viewer === trade.sellerId ? 'seller' : null;
+  const closed = trade.status === 'released' || trade.status === 'cancelled';
+  const quick = me === 'buyer' ? [t('quickPaid'), t('quickRelease')] : me === 'seller' ? [t('quickReceived'), t('quickProof')] : [];
   const hint = state.phase === 'loading' ? t('loading') : state.phase === 'failed' ? t('composeOffLoad') : t('composeHint');
   return (
     <div className="p2p-chat" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
+      <div className="p2p-chat-head" data-testid="chat-head">
+        <strong>{counterparty}</strong>
+        {me ? <span className="muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
+        <TradeStatus status={trade.status} />
+      </div>
       <p className="muted">{t('intro')}</p>
+      {me === 'seller' && (trade.status === 'escrowed' || trade.status === 'fiat_sent') ? (
+        <p className="p2p-chat-warning" role="note" data-testid="chat-seller-warning">
+          {t('sellerWarning')}
+        </p>
+      ) : null}
+      {state.unreadBelow ? (
+        <p className="p2p-chat-new" role="status" data-testid="chat-unread-below">
+          {t('unreadBelow', { count: state.unreadBelow })}
+        </p>
+      ) : null}
       {state.phase === 'loading' ? <StateBlock kind="loading" label={ui.t('loading')} /> : null}
       {state.phase === 'failed' ? (
         <div className="p2p-chat-problem" role="alert" data-testid="chat-load-failed">
@@ -255,43 +279,58 @@ export function ChatView({
       ) : null}
       {closed ? (
         <p className="muted" data-testid="chat-closed">
-          {t('closedNote')}
+          {trade.status === 'cancelled' ? t('closedCancelledNote') : t('closedReleasedNote')}
         </p>
-      ) : (
-        <>
-          <form
-            className="p2p-chat-compose"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (ready && !empty) onSend();
+      ) : null}
+      {!closed && quick.length > 0 && ready ? (
+        <div className="p2p-chat-quick" role="group" aria-label={t('quickLabel')} data-testid="chat-quick">
+          {quick.map((text) => (
+            <button
+              key={text}
+              type="button"
+              onClick={() => {
+                onQuick(text);
+                box.current?.focus();
+              }}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <form
+        className="p2p-chat-compose"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready && !empty) onSend();
+        }}
+      >
+        <label className="field p2p-chat-field">
+          <span>{depth.t('chatLabel')}</span>
+          <textarea
+            ref={box}
+            value={draft}
+            rows={2}
+            maxLength={MAX_CHAT_TEXT}
+            placeholder={depth.t('chatPlaceholder')}
+            aria-describedby={hintId}
+            onChange={(event) => onDraft(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter sends and Shift+Enter starts a new line. A key that confirms an input method's text is left alone.
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && ready && !empty) {
+                event.preventDefault();
+                onSend();
+              }
             }}
-          >
-            <label className="field p2p-chat-field">
-              <span>{depth.t('chatLabel')}</span>
-              <textarea
-                value={draft}
-                rows={2}
-                maxLength={MAX_CHAT_TEXT}
-                placeholder={depth.t('chatPlaceholder')}
-                aria-describedby={hintId}
-                onChange={(event) => onDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && ready && !empty) {
-                    event.preventDefault();
-                    onSend();
-                  }
-                }}
-              />
-            </label>
-            <Button type="submit" variant="primary" disabled={!ready || empty} aria-describedby={hintId}>
-              {depth.t('chatSend')}
-            </Button>
-          </form>
-          <p className="muted p2p-chat-hint" id={hintId}>
-            {hint} <span>{t('charCount', { used: draft.length, max: MAX_CHAT_TEXT })}</span>
-          </p>
-        </>
-      )}
+          />
+        </label>
+        <Button type="submit" variant="primary" disabled={!ready || empty} aria-describedby={hintId}>
+          {depth.t('chatSend')}
+        </Button>
+      </form>
+      <p className="muted p2p-chat-hint" id={hintId}>
+        {hint} <span>{t('charCount', { used: draft.length, max: MAX_CHAT_TEXT })}</span>
+      </p>
       <div className="p2p-chat-notes">
         <p className="muted">{t('liveNote')}</p>
         <p className="muted">{t('attachmentsOff')}</p>
@@ -314,24 +353,43 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
   const { t } = p2pChatCopy.useCopy();
   const closed = useRef(false);
   closed.current = trade.status === 'released' || trade.status === 'cancelled';
+  // Reading the thread marks it read, so it is read only while it is on screen. Without a way to tell, it counts as seen.
+  const inView = useRef(typeof IntersectionObserver === 'undefined');
+  const frame = useRef<HTMLDivElement>(null);
   const store = useMemo(
     () =>
       new ChatStore({
         list: (page, signal) => pay.chatMessages(trade.id, page, signal),
         send: (text, clientId) => pay.chatSend(trade.id, text, clientId),
+        unread: (signal) => pay.chatUnread(trade.id, signal),
         viewer: userId,
         newId: newClientId,
         closed: () => closed.current,
         visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+        inView: () => inView.current,
       }),
     [pay, trade.id, userId],
   );
   useEffect(() => {
-    store.start();
     const onVisibility = () => store.visibilityChanged();
     document.addEventListener('visibilitychange', onVisibility);
+    let observer: IntersectionObserver | undefined;
+    if (typeof IntersectionObserver !== 'undefined' && frame.current) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          const seen = entries.some((entry) => entry.isIntersecting);
+          if (seen === inView.current) return;
+          inView.current = seen;
+          store.visibilityChanged();
+        },
+        { threshold: 0.1 },
+      );
+      observer.observe(frame.current);
+    }
+    store.start();
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      observer?.disconnect();
       store.stop();
     };
   }, [store]);
@@ -344,37 +402,40 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, []);
+  const otherId = trade.buyerId === userId ? trade.sellerId : trade.buyerId;
+  const traders = useTraders(pay, [otherId]);
+  const setBox = (value: string) => {
+    taken.current = value;
+    setDraft(value);
+  };
   return (
-    <PaySection title={t('title')}>
-      <ChatView
-        state={state}
-        trade={trade}
-        viewer={userId}
-        now={now}
-        closed={closed.current}
-        draft={draft}
-        onDraft={(value) => {
-          taken.current = value;
-          setDraft(value);
-        }}
-        onSend={() => {
-          const text = taken.current || draft;
-          if (!text.trim()) return;
-          taken.current = '';
-          setDraft('');
-          void store.send(text);
-        }}
-        onRefresh={() => void store.refresh()}
-        onResend={(clientId) => void store.resend(clientId)}
-        onEdit={(clientId) => {
-          const text = store.discard(clientId);
-          if (text === null) return;
-          const next = draft ? `${text}\n${draft}` : text;
-          taken.current = next;
-          setDraft(next);
-        }}
-        onDiscard={(clientId) => void store.discard(clientId)}
-      />
-    </PaySection>
+    <div ref={frame}>
+      <PaySection title={t('title')}>
+        <ChatView
+          state={state}
+          trade={trade}
+          viewer={userId}
+          now={now}
+          counterparty={<TraderName record={traders[otherId.toLowerCase()] ?? null} />}
+          draft={draft}
+          onDraft={setBox}
+          onQuick={(text) => setBox(draft.trim() ? `${draft.trimEnd()} ${text}` : text)}
+          onSend={() => {
+            const text = taken.current || draft;
+            if (!text.trim()) return;
+            setBox('');
+            void store.send(text);
+          }}
+          onRefresh={() => void store.refresh()}
+          onResend={(clientId) => void store.resend(clientId)}
+          onEdit={(clientId) =>
+            void store.take(clientId).then((outcome) => {
+              if (outcome.status === 'text') setBox(draft ? `${outcome.text}\n${draft}` : outcome.text);
+            })
+          }
+          onDiscard={(clientId) => void store.take(clientId)}
+        />
+      </PaySection>
+    </div>
   );
 }

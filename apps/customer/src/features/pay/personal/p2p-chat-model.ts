@@ -171,6 +171,8 @@ export type ChatState = {
   lastNotified: boolean | null;
   /** Milliseconds until the next automatic read, or null when none is scheduled. */
   nextReadMs: number | null;
+  /** Unread messages counted without reading (and so without marking) the thread, while it is out of view. */
+  unreadBelow: number | null;
 };
 
 export type ChatPorts = {
@@ -180,13 +182,26 @@ export type ChatPorts = {
   viewer: string | null;
   newId: () => string;
   closed: () => boolean;
+  /** Whether the browser tab is showing. Nothing is read while it is not. */
   visible: () => boolean;
+  /**
+   * Whether the conversation itself is on screen. Reading the thread marks it read, so while it is out of view only
+   * `unread` (which marks nothing) is asked. Absent means always in view.
+   */
+  inView?: () => boolean;
+  unread?: (signal: AbortSignal) => Promise<ApiResult<{ unread: number }>>;
   timers?: { set: (run: () => void, ms: number) => unknown; clear: (handle: unknown) => void };
 };
 
 const PAGE = 100;
 const MAX_PAGES_PER_READ = 20;
 export const MAX_CHAT_TEXT = 2000;
+
+export type ReadOutcome = 'ok' | 'failed' | 'stale';
+/** A reply that no retry will change: the person has to act, so reading stops until they ask again. */
+const FINAL_FAILURES: ReadonlySet<ServiceFailure> = new Set(['notParty', 'signIn', 'verify', 'region']);
+
+export type TakeOutcome = { status: 'text'; text: string } | { status: 'sent' } | { status: 'unchecked'; kind: ServiceFailure };
 
 export type SendOutcome = { ok: true } | { ok: false; kind: 'empty' | 'tooLong' | ServiceFailure };
 
@@ -201,6 +216,7 @@ export class ChatStore {
     firstUnread: null,
     lastNotified: null,
     nextReadMs: null,
+    unreadBelow: null,
   };
   private listeners = new Set<() => void>();
   private cursor: string | null = null;
@@ -208,7 +224,7 @@ export class ChatStore {
   private failures = 0;
   private timer: unknown = null;
   private running = false;
-  private reading: Promise<void> | null = null;
+  private reading: Promise<ReadOutcome> | null = null;
   private opened = false;
   private controller = new AbortController();
   private readonly timers: NonNullable<ChatPorts['timers']>;
@@ -245,7 +261,7 @@ export class ChatStore {
     this.reading = null;
   }
 
-  /** The page was hidden or shown. Nothing is read while hidden; showing it reads at once. */
+  /** The tab or the conversation came into or went out of view. Nothing is read while the tab is hidden. */
   visibilityChanged(): void {
     if (!this.running) return;
     if (this.ports.visible()) {
@@ -257,10 +273,10 @@ export class ChatStore {
     }
   }
 
-  /** A person asked for a fresh read. */
-  refresh(): Promise<void> {
+  /** A person asked for a fresh read of the thread, which is on screen because they asked. */
+  refresh(): Promise<ReadOutcome> {
     this.quiet = 0;
-    return this.read();
+    return this.read(true);
   }
 
   private clearTimer() {
@@ -281,18 +297,20 @@ export class ChatStore {
 
   /**
    * One read of everything after the newest message held. Reads never overlap; one asked for during another runs
-   * after it, so its answer is never older than the request.
+   * after it, so its answer is never older than the request. Out of view, only the unread count is read.
    */
-  private read(): Promise<void> {
-    if (!this.running) return Promise.resolve();
-    if (this.reading) return this.reading.then(() => this.read());
+  private read(force = false): Promise<ReadOutcome> {
+    if (!this.running) return Promise.resolve('stale');
+    if (this.reading) return this.reading.then(() => this.read(force));
     this.clearTimer();
-    const run: Promise<void> = this.readPages()
-      .catch(() => {
+    const outOfView = !force && this.ports.inView !== undefined && !this.ports.inView() && this.ports.unread !== undefined;
+    const run: Promise<ReadOutcome> = (outOfView ? this.peek() : this.readPages())
+      .catch((): ReadOutcome => {
         this.failures += 1;
         if (this.state.phase === 'loading') this.set({ phase: 'failed', loadFailure: 'generic' });
         else this.set({ refreshFailure: 'generic' });
         this.schedule();
+        return 'failed';
       })
       .finally(() => {
         if (this.reading === run) this.reading = null;
@@ -301,22 +319,43 @@ export class ChatStore {
     return run;
   }
 
-  private async readPages(): Promise<void> {
+  /** Count unread messages without reading the thread, so nothing is marked read that nobody has seen. */
+  private async peek(): Promise<ReadOutcome> {
+    const signal = this.controller.signal;
+    const result = await this.ports.unread!(signal);
+    if (signal.aborted) return 'stale';
+    if (!result.ok) {
+      this.failures += 1;
+      this.schedule();
+      return 'failed';
+    }
+    this.failures = 0;
+    this.quiet += 1;
+    this.set({ unreadBelow: result.data.unread });
+    this.schedule();
+    return 'ok';
+  }
+
+  private async readPages(): Promise<ReadOutcome> {
     const signal = this.controller.signal;
     let gained = 0;
     let unread = 0;
     for (let page = 0; page < MAX_PAGES_PER_READ; page++) {
       const result = await this.ports.list({ cursor: this.cursor, limit: PAGE }, signal);
-      if (signal.aborted) return;
+      if (signal.aborted) return 'stale';
       if (!result.ok) {
-        if (result.reason === 'aborted') return;
+        if (result.reason === 'aborted') return 'stale';
         const kind = serviceFailureKind(result);
-        if (kind === 'viewChanged') return;
+        if (kind === 'viewChanged') return 'stale';
         this.failures += 1;
         if (this.state.phase === 'loading') this.set({ phase: 'failed', loadFailure: kind });
         else this.set({ refreshFailure: kind });
-        this.schedule();
-        return;
+        // A reply no retry can change is not asked for again on a timer; the person's "Try again" still works.
+        if (FINAL_FAILURES.has(kind)) {
+          this.clearTimer();
+          this.set({ nextReadMs: null });
+        } else this.schedule();
+        return 'failed';
       }
       if (page === 0) unread = result.data.unread;
       const merged = mergeMessages(this.state.messages, result.data.messages);
@@ -332,6 +371,7 @@ export class ChatStore {
       phase: 'ready',
       loadFailure: null,
       refreshFailure: null,
+      unreadBelow: null,
       messages: this.state.messages,
       pending: this.settle(this.state.pending, this.state.messages),
     };
@@ -343,6 +383,7 @@ export class ChatStore {
     this.quiet = gained > 0 ? 0 : this.quiet + 1;
     this.set(patch);
     this.schedule();
+    return 'ok';
   }
 
   /** A pending message the service now lists is no longer pending, however its own reply went. */
@@ -397,30 +438,47 @@ export class ChatStore {
   }
 
   /**
-   * Try a held message again. The thread is read first, because a lost reply may have stored it; only if the service
-   * still does not list it is it sent again, under the same id, so it cannot appear twice.
+   * Try a held message again. The thread is read first, because a lost reply may have stored it; only if that read
+   * finished and the service still does not list the message is it sent again, under the same id.
    */
   async resend(clientId: string): Promise<SendOutcome> {
     const item = this.state.pending.find((candidate) => candidate.clientId === clientId);
     if (!item) return { ok: true };
     this.patchPending(clientId, { status: 'sending', failure: null });
-    await this.refresh();
-    const stillHeld = this.state.pending.find((candidate) => candidate.clientId === clientId);
-    if (!stillHeld) return { ok: true };
-    if (this.state.phase === 'failed' || this.state.refreshFailure) {
+    const outcome = await this.refresh();
+    if (!this.state.pending.some((candidate) => candidate.clientId === clientId)) return { ok: true };
+    if (outcome !== 'ok') {
       // Nothing was learned about whether it is stored, so it is not sent blind.
-      this.patchPending(clientId, { status: 'unconfirmed', failure: this.state.refreshFailure ?? this.state.loadFailure ?? 'unconfirmed' });
-      return { ok: false, kind: this.state.refreshFailure ?? this.state.loadFailure ?? 'unconfirmed' };
+      const kind = outcome === 'failed' ? (this.state.refreshFailure ?? this.state.loadFailure ?? 'unconfirmed') : 'unconfirmed';
+      this.patchPending(clientId, { status: 'unconfirmed', failure: kind });
+      return { ok: false, kind };
     }
     return this.dispatch(clientId);
   }
 
-  /** Drop a held message and hand back its text. */
-  discard(clientId: string): string | null {
+  /**
+   * Take a held message back, to edit it or drop it. A message whose reply was lost may already be stored, and
+   * giving its text a new id would post it twice, so it is looked for first: found means it was sent, and only a read
+   * that finished without it lets the text go.
+   */
+  async take(clientId: string): Promise<TakeOutcome> {
     const item = this.state.pending.find((candidate) => candidate.clientId === clientId);
-    if (!item) return null;
+    if (!item) return { status: 'sent' };
+    if (item.status === 'failed') {
+      this.set({ pending: this.state.pending.filter((candidate) => candidate.clientId !== clientId) });
+      return { status: 'text', text: item.text };
+    }
+    this.patchPending(clientId, { status: 'sending', failure: null });
+    const outcome = await this.refresh();
+    const held = this.state.pending.find((candidate) => candidate.clientId === clientId);
+    if (!held) return { status: 'sent' };
+    if (outcome !== 'ok') {
+      const kind = outcome === 'failed' ? (this.state.refreshFailure ?? this.state.loadFailure ?? 'unconfirmed') : 'unconfirmed';
+      this.patchPending(clientId, { status: 'unconfirmed', failure: kind });
+      return { status: 'unchecked', kind };
+    }
     this.set({ pending: this.state.pending.filter((candidate) => candidate.clientId !== clientId) });
-    return item.text;
+    return { status: 'text', text: held.text };
   }
 }
 
@@ -463,7 +521,8 @@ export function contactStanding(contacts: Contacts, peer: string): ContactStandi
   };
 }
 
-export type ContactOutcome = { ok: true; contacts: Contacts } | { ok: false; kind: ServiceFailure };
+/** `contacts` on a failure is the service's lists after any step that did succeed first. */
+export type ContactOutcome = { ok: true; contacts: Contacts } | { ok: false; kind: ServiceFailure; contacts?: Contacts };
 
 /**
  * One follow, unfollow, block or unblock. A change keeps its idempotency key until the service has answered, so asking
@@ -477,10 +536,12 @@ export async function changeContact(
   change: ContactChange,
   peerId: string,
 ): Promise<ContactOutcome> {
-  const slot = `${change}:${peerId.toLowerCase()}`;
+  // Account ids are stored exactly as sent and matched exactly, so a differently cased id would block no one.
+  const peer = peerId.toLowerCase();
+  const slot = `${change}:${peer}`;
   const key = keys.get(slot) ?? `contact:${change}:${newId()}`;
   keys.set(slot, key);
-  const result = await api.setContact(change, peerId, key);
+  const result = await api.setContact(change, peer, key);
   if (result.ok) {
     keys.delete(slot);
     return { ok: true, contacts: result.data };
@@ -488,4 +549,27 @@ export async function changeContact(
   // A clear refusal means nothing changed, so the next try is a new request. Anything else keeps the key.
   if (sendRefusalIsDefinite(result) && result.code !== 'p2p.idempotency_in_progress') keys.delete(slot);
   return { ok: false, kind: serviceFailureKind(result) };
+}
+
+/**
+ * Block, and stop following first when the person follows them. The service keeps follow and block as separate
+ * lists and does not unfollow on a block, so this does it as its own change with its own key. If the unfollow goes
+ * through and the block does not, the lists after the unfollow come back with the refusal.
+ */
+export async function blockAndUnfollow(
+  api: { setContact: (change: ContactChange, peerId: string, key: string) => Promise<ApiResult<Contacts>> },
+  keys: Map<string, string>,
+  newId: () => string,
+  peerId: string,
+  following: boolean,
+): Promise<ContactOutcome> {
+  let after: Contacts | undefined;
+  if (following) {
+    const unfollowed = await changeContact(api, keys, newId, 'unfollow', peerId);
+    if (!unfollowed.ok) return unfollowed;
+    after = unfollowed.contacts;
+  }
+  const blocked = await changeContact(api, keys, newId, 'block', peerId);
+  if (blocked.ok) return blocked;
+  return after ? { ...blocked, contacts: after } : blocked;
 }

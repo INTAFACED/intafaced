@@ -36,7 +36,10 @@ const STATUS_KEY = {
 export function TradeStatus({ status }: { status: Trade['status'] }) {
   const { t } = p2pDepth.useCopy();
   return (
-    <StatusTag status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : 'working'} label={t(STATUS_KEY[status])} />
+    <StatusTag
+      status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : status === 'disputed' ? 'pending' : 'working'}
+      label={t(STATUS_KEY[status])}
+    />
   );
 }
 

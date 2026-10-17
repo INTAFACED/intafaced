@@ -34,9 +34,10 @@ const en = {
   youPaidExternal: 'You paid (external payment)',
   youReceivedExternal: 'You received (external payment)',
   receivedValue: '{amount} {asset} released from escrow, before any service fee',
-  sentValue: '{amount} {asset} released to the buyer',
+  sentValue: '{amount} {asset} released from your escrow',
   serviceFee: 'Service fee',
-  serviceFeeValue: 'Not on the order record. The quote you reviewed before ordering showed it.',
+  serviceFeeValue: 'Not on the order record this page reads. It is taken from the released amount.',
+  releasePending: 'Release recorded. The ledger payout isn’t confirmed.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -74,9 +75,10 @@ const es = {
   youPaidExternal: 'Pagaste (pago externo)',
   youReceivedExternal: 'Recibiste (pago externo)',
   receivedValue: '{amount} {asset} liberados del depósito, antes de cualquier comisión del servicio',
-  sentValue: '{amount} {asset} liberados al comprador',
+  sentValue: '{amount} {asset} liberados de tu depósito',
   serviceFee: 'Comisión del servicio',
-  serviceFeeValue: 'No figura en el registro del pedido. La cotización que revisaste antes de pedir la mostraba.',
+  serviceFeeValue: 'No figura en el registro del pedido que lee esta página. Se descuenta del importe liberado.',
+  releasePending: 'Liberación registrada. El pago en el libro mayor no está confirmado.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -114,8 +116,9 @@ const fr = {
   youPaidExternal: 'Vous avez payé (paiement externe)',
   youReceivedExternal: 'Vous avez reçu (paiement externe)',
   receivedValue: '{amount} {asset} libérés du séquestre, avant tout frais de service',
-  sentValue: '{amount} {asset} libérés à l’acheteur',
+  sentValue: '{amount} {asset} libérés de votre séquestre',
   serviceFee: 'Frais de service',
-  serviceFeeValue: 'Absents du dossier de la commande. Le devis que vous avez examiné avant de commander les indiquait.',
+  serviceFeeValue: 'Absents du dossier de la commande lu par cette page. Ils sont prélevés sur le montant libéré.',
+  releasePending: 'Libération enregistrée. Le paiement dans le grand livre n’est pas confirmé.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

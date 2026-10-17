@@ -7,6 +7,7 @@ import {
   POLL_CLOSED_MS,
   POLL_ERROR_MAX_MS,
   POLL_IDLE_MAX_MS,
+  blockAndUnfollow,
   changeContact,
   chatTime,
   contactStanding,
@@ -401,9 +402,52 @@ describe('ChatStore: sending without double-posting', () => {
     h.send.mockResolvedValueOnce(refuse('forbidden', { code: 'FORBIDDEN', status: 403 }));
     expect(await h.store.send('hello')).toEqual({ ok: false, kind: 'readOnly' });
     expect(h.store.getState().pending).toMatchObject([{ status: 'failed', failure: 'readOnly', text: 'hello' }]);
-    expect(h.store.discard('id-1')).toBe('hello');
+    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'hello' });
     expect(h.store.getState().pending).toEqual([]);
-    expect(h.store.discard('id-1')).toBeNull();
+    expect(await h.store.take('id-1')).toEqual({ status: 'sent' });
+    h.store.stop();
+  });
+
+  it('looks for an unconfirmed message before giving its text back, so editing cannot post it twice', async () => {
+    const h = await ready();
+    h.send.mockResolvedValueOnce(refuse('uncertain', { status: 502 }));
+    await h.store.send('paid');
+    // The service had stored it under that client id.
+    h.list.mockResolvedValueOnce(page([msg({ senderId: ME, text: 'paid', clientId: 'id-1' })]));
+    expect(await h.store.take('id-1')).toEqual({ status: 'sent' });
+    expect(h.store.getState().pending).toEqual([]);
+    expect(h.store.getState().messages.map((m) => m.text)).toEqual(['paid']);
+    expect(h.send).toHaveBeenCalledTimes(1);
+    h.store.stop();
+  });
+
+  it('gives an unconfirmed message’s text back only after a read that finished without it', async () => {
+    const h = await ready();
+    h.send.mockResolvedValueOnce(refuse('uncertain'));
+    await h.store.send('paid');
+    h.list.mockResolvedValueOnce(page([]));
+    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'paid' });
+    expect(h.store.getState().pending).toEqual([]);
+    h.store.stop();
+  });
+
+  it('keeps an unconfirmed message when the check itself fails, and says why', async () => {
+    const h = await ready();
+    h.send.mockResolvedValueOnce(refuse('uncertain'));
+    await h.store.send('paid');
+    h.list.mockResolvedValueOnce(refuse('unreachable'));
+    expect(await h.store.take('id-1')).toEqual({ status: 'unchecked', kind: 'noService' });
+    expect(h.store.getState().pending).toMatchObject([{ status: 'unconfirmed', failure: 'noService', text: 'paid' }]);
+    h.store.stop();
+  });
+
+  it('does not resend after a read that did not finish', async () => {
+    const h = await ready();
+    h.send.mockResolvedValueOnce(refuse('uncertain'));
+    await h.store.send('hello');
+    h.list.mockResolvedValueOnce(refuse('aborted', { code: 'pay.p2p_view_changed' }));
+    expect(await h.store.resend('id-1')).toEqual({ ok: false, kind: 'unconfirmed' });
+    expect(h.send).toHaveBeenCalledTimes(1);
     h.store.stop();
   });
 
@@ -491,6 +535,51 @@ describe('unread counts for the order list', () => {
 });
 
 describe('follow and block', () => {
+  it('sends the account id in lower case', async () => {
+    const setContact = vi.fn<(change: string, peer: string, key: string) => Promise<ApiResult<Contacts>>>(async () =>
+      ok({ following: [], blocking: [] }),
+    );
+    await changeContact({ setContact }, new Map(), () => 'k', 'block', THEM.toUpperCase());
+    expect(setContact).toHaveBeenCalledWith('block', THEM, 'contact:block:k');
+  });
+
+  it('unfollows first when blocking someone you follow, each change under its own key', async () => {
+    const setContact = vi
+      .fn<(change: string, peer: string, key: string) => Promise<ApiResult<Contacts>>>()
+      .mockResolvedValueOnce(ok({ following: [], blocking: [] }))
+      .mockResolvedValueOnce(ok({ following: [], blocking: [THEM] }));
+    const outcome = await blockAndUnfollow({ setContact }, new Map(), () => 'k', THEM, true);
+    expect(outcome).toEqual({ ok: true, contacts: { following: [], blocking: [THEM] } });
+    expect(setContact.mock.calls.map((call) => call[0])).toEqual(['unfollow', 'block']);
+    expect(new Set(setContact.mock.calls.map((call) => call[2])).size).toBe(2);
+  });
+
+  it('only blocks when you did not follow them', async () => {
+    const setContact = vi.fn<(change: string, peer: string, key: string) => Promise<ApiResult<Contacts>>>(async () =>
+      ok({ following: [], blocking: [THEM] }),
+    );
+    await blockAndUnfollow({ setContact }, new Map(), () => 'k', THEM, false);
+    expect(setContact.mock.calls.map((call) => call[0])).toEqual(['block']);
+  });
+
+  it('does not block when the unfollow fails', async () => {
+    const setContact = vi.fn(async () => refuse('forbidden', { code: 'FORBIDDEN', status: 403 }));
+    expect(await blockAndUnfollow({ setContact }, new Map(), () => 'k', THEM, true)).toEqual({ ok: false, kind: 'readOnly' });
+    expect(setContact).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the lists after the unfollow when the block then fails', async () => {
+    const setContact = vi
+      .fn<(change: string, peer: string, key: string) => Promise<ApiResult<Contacts>>>()
+      .mockResolvedValueOnce(ok({ following: [], blocking: [] }))
+      .mockResolvedValueOnce(refuse('uncertain', { status: 502 }));
+    expect(await blockAndUnfollow({ setContact }, new Map(), () => 'k', THEM, true)).toEqual({
+      ok: false,
+      kind: 'unconfirmed',
+      contacts: { following: [], blocking: [] },
+    });
+  });
+
   const lists = (over: Partial<Contacts> = {}): Contacts => ({ following: [], blocking: [], ...over });
 
   it('reads standing from the service lists, without regard to case', () => {
@@ -541,5 +630,116 @@ describe('follow and block', () => {
     expect(await changeContact(self, keys, () => 'x', 'follow', ME)).toEqual({ ok: false, kind: 'self' });
     const signedOut = { setContact: async () => refuse('unauthorized', { status: 401 }) };
     expect(await changeContact(signedOut, keys, () => 'x', 'follow', THEM)).toEqual({ ok: false, kind: 'signIn' });
+  });
+});
+
+describe('reading only what is on screen', () => {
+  function viewing() {
+    let inView = false;
+    const unread = vi.fn<NonNullable<ChatPorts['unread']>>(async () => ok({ unread: 3 }));
+    const h = harness({ inView: () => inView, unread });
+    return {
+      ...h,
+      unread,
+      see: () => {
+        inView = true;
+        h.store.visibilityChanged();
+      },
+      leave: () => {
+        inView = false;
+        h.store.visibilityChanged();
+      },
+    };
+  }
+
+  it('counts unread without reading the thread while the chat is off screen, so nothing is marked read', async () => {
+    const h = viewing();
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.list).not.toHaveBeenCalled();
+    expect(h.unread).toHaveBeenCalledTimes(1);
+    expect(h.store.getState().unreadBelow).toBe(3);
+    expect(h.store.getState().phase).toBe('loading');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(h.list).not.toHaveBeenCalled();
+    expect(h.unread.mock.calls.length).toBeGreaterThan(1);
+    h.store.stop();
+  });
+
+  it('reads the thread when it comes into view, and clears the count below', async () => {
+    const h = viewing();
+    h.list.mockResolvedValue(page([msg()], { unread: 3 }));
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    h.see();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.list).toHaveBeenCalledTimes(1);
+    expect(h.store.getState()).toMatchObject({ phase: 'ready', unreadBelow: null, unreadAtOpen: 3 });
+    h.store.stop();
+  });
+
+  it('goes back to counting when the chat scrolls out of view', async () => {
+    const h = viewing();
+    h.store.start();
+    h.see();
+    await vi.advanceTimersByTimeAsync(0);
+    const reads = h.list.mock.calls.length;
+    h.leave();
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(h.list.mock.calls.length).toBe(reads);
+    expect(h.unread).toHaveBeenCalled();
+    h.store.stop();
+  });
+
+  it('still reads the thread when the person presses refresh', async () => {
+    const h = viewing();
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await h.store.refresh();
+    expect(h.list).toHaveBeenCalledTimes(1);
+    h.store.stop();
+  });
+});
+
+describe('a reply no retry can change', () => {
+  it.each([
+    ['notParty', refuse('error', { code: 'p2p.trade_not_found', status: 404 })],
+    ['signIn', refuse('unauthorized', { status: 401 })],
+  ] as const)('stops polling after %s, and “Try again” still works', async (_name, failure) => {
+    const h = harness();
+    h.list.mockResolvedValueOnce(failure);
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.store.getState().phase).toBe('failed');
+    expect(h.store.getState().nextReadMs).toBeNull();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(h.list).toHaveBeenCalledTimes(1);
+    h.list.mockResolvedValueOnce(page([msg()]));
+    await h.store.refresh();
+    expect(h.store.getState().phase).toBe('ready');
+    h.store.stop();
+  });
+
+  it('keeps polling after a failure that can pass', async () => {
+    const h = harness();
+    h.list.mockResolvedValueOnce(refuse('unreachable'));
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.store.getState().nextReadMs).not.toBeNull();
+  });
+});
+
+describe('which orders get an unread timer', () => {
+  it('reads every order once and re-reads only the open ones', async () => {
+    const { unreadTargets } = await import('./Unread');
+    const targets = unreadTargets([
+      { id: 'a', status: 'escrowed' },
+      { id: 'b', status: 'released' },
+      { id: 'c', status: 'cancelled' },
+      { id: 'd', status: 'disputed' },
+      { id: 'a', status: 'escrowed' },
+    ]);
+    expect(targets.all).toBe('a,b,c,d');
+    expect(targets.open).toBe('a,d');
   });
 });

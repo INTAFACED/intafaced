@@ -193,10 +193,15 @@ it('names a trader by handle, never by account id, and says what the record retu
   expect(summary).toContain('120 orders');
   expect(summary).toContain('98.5%');
   expect(summary).toContain('releases in about 3 min');
+  // Identity not connected (no profile status): nothing is known about the member, so it stays "Member".
   const unnamed = renderToString(<TraderName record={{ ok: true, data: { ...record.data, handle: null } }} />);
-  expect(unnamed).toContain('—');
-  expect(unnamed).toContain('No public handle');
-  expect(unnamed).not.toContain('Member');
+  expect(unnamed).toContain('Member');
+  const absent = renderToString(
+    <TraderName record={{ ok: true, data: { ...record.data, handle: null, profile: { status: 'absent' } } }} />,
+  );
+  expect(absent).toContain('—');
+  expect(absent).toContain('No public handle');
+  expect(absent).not.toContain('Member');
   // A maker beyond the board's cap has no record asked for: Member, no spinner, no summary.
   expect(renderToString(<TraderName record={null} />)).toContain('Member');
   expect(renderToString(<TraderName record={null} />)).not.toContain('aria-busy');
@@ -295,8 +300,10 @@ it('names the counterparty by handle, or says there is none, and never by accoun
   const named = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ handle: 'test_friend' }) }} />);
   expect(named).toContain('@test_friend');
   const unnamed = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation() }} />);
-  expect(unnamed).toContain('—');
-  expect(unnamed).toContain('No public handle');
+  expect(unnamed).toContain('Member');
+  const absent = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ profile: { status: 'absent' } }) }} />);
+  expect(absent).toContain('—');
+  expect(absent).toContain('No public handle');
   const failed = renderToString(
     <CounterpartyName resource={{ status: 'failed', failure: { ok: false, reason: 'error', message: 'x' } }} />,
   );

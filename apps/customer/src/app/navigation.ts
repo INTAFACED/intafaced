@@ -532,14 +532,18 @@ const aliasParameter = /:([A-Za-z][A-Za-z0-9]*)/g;
 export function resolveAlias(room: Room, path: string, search = ''): string | undefined {
   if (!room.alias) return undefined;
   const params = matchPath(room.path, path) ?? {};
-  const target = room.alias.replace(aliasParameter, (whole, name: string) => {
-    const value = params[name];
-    if (value === undefined) return whole;
-    return name === 'pair' ? normalizePair(value) : value;
-  });
-  const [targetPath = '/', targetQuery = ''] = target.split('?');
+  const fill = (text: string, encode: boolean) =>
+    text.replace(aliasParameter, (whole, name: string) => {
+      const value = params[name];
+      if (value === undefined) return whole;
+      const shaped = name === 'pair' ? normalizePair(value) : value;
+      // A segment placed in a query is one value, whatever characters it carries.
+      return encode ? encodeURIComponent(shaped) : shaped;
+    });
+  const [aliasPath = '/', aliasQuery = ''] = room.alias.split('?');
+  const targetPath = fill(aliasPath, false);
   const query = new URLSearchParams(search);
-  for (const [key, value] of new URLSearchParams(targetQuery)) query.set(key, value);
+  for (const [key, value] of new URLSearchParams(fill(aliasQuery, true))) query.set(key, value);
   const text = query.toString();
   return text ? `${targetPath}?${text}` : targetPath;
 }

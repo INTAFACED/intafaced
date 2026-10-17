@@ -27,8 +27,17 @@ const en = {
   sendAgain: 'Send again',
   edit: 'Edit',
   discard: 'Discard',
-  closedNote: 'This order is closed, so the chat is read-only. The history stays here to read.',
-  composeHint: 'Send is off while the box is empty. Press Ctrl+Enter or ⌘+Enter to send.',
+  closedCancelledNote:
+    'This order is cancelled. Messages still reach the other person. If you paid and the order was cancelled, ask for the refund here and keep your proof.',
+  closedReleasedNote: 'This order is released. Messages still reach the other person.',
+  sellerWarning: 'Don’t release until the money is in your account. Check your bank, not a screenshot.',
+  quickLabel: 'Quick replies',
+  quickPaid: 'I have paid',
+  quickRelease: 'Please release',
+  quickReceived: 'Payment received',
+  quickProof: 'Please send the payment proof in chat',
+  unreadBelow: '{count} new below. They stay unread until this chat is on screen.',
+  composeHint: 'Send is off while the box is empty. Press Enter to send, Shift+Enter for a new line.',
   composeOffLoad: 'Sending is off because the messages couldn’t be loaded. Load them again first.',
   charCount: '{used} of {max} characters',
   notifiedOff: 'Saved. The other person isn’t alerted outside the app, so they see it when they open this order or their orders list.',
@@ -74,7 +83,7 @@ const en = {
   savedUnblock: 'You unblocked this member.',
   blockTitle: 'Block this member?',
   blockBody:
-    'Their offers are hidden from you and yours from them, and neither of you can place a new order with the other. Orders that are already open stay open, with their chat. You can unblock them any time.',
+    'Their offers are hidden from you and yours from them, and neither of you can place a new order with the other. Orders that are already open stay open, with their chat. If you follow them, blocking also unfollows them. You can unblock them any time.',
   blockConfirm: 'Block',
   blockCancel: 'Cancel',
 } as const;
@@ -106,8 +115,17 @@ const es = {
   sendAgain: 'Enviar de nuevo',
   edit: 'Editar',
   discard: 'Descartar',
-  closedNote: 'Este pedido está cerrado, así que el chat es de solo lectura. El historial sigue aquí para leerlo.',
-  composeHint: 'Enviar está desactivado mientras el cuadro está vacío. Pulsa Ctrl+Intro o ⌘+Intro para enviar.',
+  closedCancelledNote:
+    'Este pedido está cancelado. Los mensajes siguen llegando a la otra persona. Si pagaste y el pedido se canceló, pide aquí el reembolso y guarda tu comprobante.',
+  closedReleasedNote: 'Este pedido está liberado. Los mensajes siguen llegando a la otra persona.',
+  sellerWarning: 'No liberes hasta que el dinero esté en tu cuenta. Revisa tu banco, no una captura de pantalla.',
+  quickLabel: 'Respuestas rápidas',
+  quickPaid: 'Ya pagué',
+  quickRelease: 'Por favor, libera',
+  quickReceived: 'Pago recibido',
+  quickProof: 'Por favor, envía el comprobante de pago en el chat',
+  unreadBelow: '{count} nuevos más abajo. Siguen sin leer hasta que este chat esté en pantalla.',
+  composeHint: 'Enviar está desactivado mientras el cuadro está vacío. Pulsa Intro para enviar y Mayús+Intro para una línea nueva.',
   composeOffLoad: 'Enviar está desactivado porque no se pudieron cargar los mensajes. Cárgalos de nuevo primero.',
   charCount: '{used} de {max} caracteres',
   notifiedOff:
@@ -151,7 +169,7 @@ const es = {
   savedUnblock: 'Has desbloqueado a este miembro.',
   blockTitle: '¿Bloquear a este miembro?',
   blockBody:
-    'Sus ofertas se ocultan para ti y las tuyas para él, y ninguno de los dos puede hacer un pedido nuevo al otro. Los pedidos que ya están abiertos siguen abiertos, con su chat. Puedes desbloquearlo cuando quieras.',
+    'Sus ofertas se ocultan para ti y las tuyas para él, y ninguno de los dos puede hacer un pedido nuevo al otro. Los pedidos que ya están abiertos siguen abiertos, con su chat. Si lo sigues, al bloquearlo también dejas de seguirlo. Puedes desbloquearlo cuando quieras.',
   blockConfirm: 'Bloquear',
   blockCancel: 'Cancelar',
 } satisfies Record<keyof typeof en, string>;
@@ -183,8 +201,17 @@ const fr = {
   sendAgain: 'Renvoyer',
   edit: 'Modifier',
   discard: 'Supprimer',
-  closedNote: 'Cette commande est clôturée : le chat est en lecture seule. L’historique reste ici pour être lu.',
-  composeHint: 'L’envoi est désactivé tant que la zone est vide. Appuyez sur Ctrl+Entrée ou ⌘+Entrée pour envoyer.',
+  closedCancelledNote:
+    'Cette commande est annulée. Les messages parviennent toujours à l’autre personne. Si vous avez payé et que la commande a été annulée, demandez le remboursement ici et gardez votre preuve.',
+  closedReleasedNote: 'Cette commande est libérée. Les messages parviennent toujours à l’autre personne.',
+  sellerWarning: 'Ne libérez pas avant que l’argent soit sur votre compte. Vérifiez votre banque, pas une capture d’écran.',
+  quickLabel: 'Réponses rapides',
+  quickPaid: 'J’ai payé',
+  quickRelease: 'Merci de libérer',
+  quickReceived: 'Paiement reçu',
+  quickProof: 'Merci d’envoyer la preuve de paiement dans le chat',
+  unreadBelow: '{count} nouveaux plus bas. Ils restent non lus tant que ce chat n’est pas à l’écran.',
+  composeHint: 'L’envoi est désactivé tant que la zone est vide. Appuyez sur Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne.',
   composeOffLoad: 'L’envoi est désactivé car les messages n’ont pas pu être chargés. Rechargez-les d’abord.',
   charCount: '{used} caractères sur {max}',
   notifiedOff:
@@ -228,7 +255,7 @@ const fr = {
   savedUnblock: 'Vous avez débloqué ce membre.',
   blockTitle: 'Bloquer ce membre ?',
   blockBody:
-    'Ses offres vous sont masquées et les vôtres lui sont masquées, et ni l’un ni l’autre ne peut passer une nouvelle commande à l’autre. Les commandes déjà ouvertes restent ouvertes, avec leur chat. Vous pouvez le débloquer à tout moment.',
+    'Ses offres vous sont masquées et les vôtres lui sont masquées, et ni l’un ni l’autre ne peut passer une nouvelle commande à l’autre. Les commandes déjà ouvertes restent ouvertes, avec leur chat. Si vous le suivez, le bloquer vous désabonne aussi. Vous pouvez le débloquer à tout moment.',
   blockConfirm: 'Bloquer',
   blockCancel: 'Annuler',
 } satisfies Record<keyof typeof en, string>;

@@ -307,11 +307,19 @@ test('P2P keeps release behind seller-confirmed external payment and runs the or
     },
   ];
   const sends = [];
+  const seen = { list: 0, unread: 0 };
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/**', async (route) => {
     const url = route.request().url();
     if (url.includes('trades.get')) return reply(route, trade);
-    if (url.includes('chat.messages.list')) return reply(route, { messages: stored, nextCursor: null, unread: 1 });
+    if (url.includes('chat.unread')) {
+      seen.unread += 1;
+      return reply(route, { tradeId: orderId, unread: 1 });
+    }
+    if (url.includes('chat.messages.list')) {
+      seen.list += 1;
+      return reply(route, { messages: stored, nextCursor: null, unread: 1 });
+    }
     if (url.includes('chat.messages.send')) {
       const body = route.request().postDataJSON();
       sends.push(body);
@@ -332,9 +340,17 @@ test('P2P keeps release behind seller-confirmed external payment and runs the or
   await mount(page, `/chat?tradeId=${orderId}`);
   await expect(page.getByRole('heading', { name: 'Where this order is' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Release escrow' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Order chat' })).toBeVisible();
+  await expect.poll(() => seen.unread).toBeGreaterThan(0);
+  // Off screen, the thread is not read, so nothing is marked read that nobody has seen.
+  expect(seen.list).toBe(0);
+  await page.getByRole('heading', { name: 'Order chat' }).scrollIntoViewIfNeeded();
   await expect(page.getByText('I have sent the payment')).toBeVisible();
+  expect(seen.list).toBeGreaterThan(0);
   await expect(page.getByText('New messages (1)')).toBeVisible();
+  await expect(page.getByTestId('chat-seller-warning')).toBeVisible();
+  await page.getByRole('button', { name: 'Payment received' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Payment received');
+  await page.getByRole('textbox', { name: 'Message' }).fill('');
   const send = page.getByRole('button', { name: 'Send message' });
   await expect(send).toBeDisabled();
   await page.getByRole('textbox', { name: 'Message' }).fill('Received, releasing soon');
@@ -398,9 +414,10 @@ test('A lost chat reply is checked before it is sent again, so it posts once', a
     return reply(route, null, 404);
   });
   await mount(page, `/chat?tradeId=${orderId}`);
+  await page.getByRole('heading', { name: 'Order chat' }).scrollIntoViewIfNeeded();
   await expect(page.getByText('No messages yet.')).toBeVisible();
   await page.getByRole('textbox', { name: 'Message' }).fill('Paid, please check');
-  await page.getByRole('button', { name: 'Send message' }).click();
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
   await expect(page.getByTestId('chat-pending').getByText('Not confirmed')).toBeVisible();
   await page.getByRole('button', { name: 'Check and send' }).click();
   await expect(page.getByTestId('chat-pending')).toHaveCount(0);

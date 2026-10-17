@@ -43,8 +43,9 @@ export function TraderName({ record }: { record: ApiResult<Reputation> | null | 
   if (record === undefined) return <span aria-busy="true" />;
   const handle = record?.ok ? record.data.handle : null;
   if (handle) return <span lang="zxx">{`@${handle}`}</span>;
-  // The service answered and has no public handle to give: say so, rather than a name that looks like one.
-  if (record?.ok)
+  // Identity answered and holds no public profile for this member: say so. When identity is not connected at all
+  // (`unwired`, or no status) nothing is known about the member, so it stays "Member".
+  if (record?.ok && record.data.profile?.status === 'absent')
     return (
       <span>
         <span aria-hidden="true">—</span> <small className="muted">{t('traderNoHandle')}</small>

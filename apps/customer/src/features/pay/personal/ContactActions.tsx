@@ -6,7 +6,14 @@ import type { PersonalPayApi } from '../pay-api';
 import type { Contacts } from '../schemas';
 import { FailureText } from './OrderChat';
 import { p2pChatCopy } from './p2p-chat-copy';
-import { changeContact, contactStanding, serviceFailureKind, type ContactChange, type ServiceFailure } from './p2p-chat-model';
+import {
+  blockAndUnfollow,
+  changeContact,
+  contactStanding,
+  serviceFailureKind,
+  type ContactChange,
+  type ServiceFailure,
+} from './p2p-chat-model';
 
 const newKeyPart = (): string =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -174,12 +181,16 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
     setFailure(null);
     setSaved(null);
     try {
-      const outcome = await changeContact(pay, keys.current, newKeyPart, next, peerId);
+      const outcome =
+        next === 'block'
+          ? await blockAndUnfollow(pay, keys.current, newKeyPart, peerId, view.status === 'ready' && view.following)
+          : await changeContact(pay, keys.current, newKeyPart, next, peerId);
       if (outcome.ok) {
         setLists(outcome.contacts);
         setSaved(next);
         setConfirming(false);
       } else {
+        if (outcome.contacts) setLists(outcome.contacts);
         setFailure(outcome.kind);
         // After a lost reply the real state is unknown: read it again rather than leave the old buttons standing.
         if (outcome.kind === 'unconfirmed') {

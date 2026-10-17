@@ -13,7 +13,11 @@ import { TradeStatus } from './personal/P2PDepth';
 import { ContactActions } from './personal/ContactActions';
 import './p2p-order.css';
 
-/** What a released order came to, from the order record alone. The record carries no fee, and the screen says so. */
+/**
+ * What a released order came to, from the order record alone. "Released" is the recorded decision; the ledger pays out
+ * after it, so nothing is called received until the record carries the settlement time. The record has no fee, and the
+ * screen says so for the buyer, whose share the fee comes out of.
+ */
 export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }) {
   const { t } = orderCopy.useCopy();
   const fiat = `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`;
@@ -21,21 +25,26 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
   return (
     <section className="p2p-order-result" aria-label={t('resultTitle')} data-testid="order-result">
       <h3>{t('resultTitle')}</h3>
-      <PayDetails
-        values={
-          seller
-            ? [
-                [t('youSent'), t('sentValue', quantity)],
-                [t('youReceivedExternal'), fiat],
-                [t('serviceFee'), t('serviceFeeValue')],
-              ]
-            : [
-                [t('youReceived'), t('receivedValue', quantity)],
-                [t('youPaidExternal'), fiat],
-                [t('serviceFee'), t('serviceFeeValue')],
-              ]
-        }
-      />
+      {trade.settledAt === null ? (
+        <p className="muted" data-testid="order-result-unsettled">
+          {t('releasePending')}
+        </p>
+      ) : (
+        <PayDetails
+          values={
+            seller
+              ? [
+                  [t('youSent'), t('sentValue', quantity)],
+                  [t('youReceivedExternal'), fiat],
+                ]
+              : [
+                  [t('youReceived'), t('receivedValue', quantity)],
+                  [t('youPaidExternal'), fiat],
+                  [t('serviceFee'), t('serviceFeeValue')],
+                ]
+          }
+        />
+      )}
     </section>
   );
 }

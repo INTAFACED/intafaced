@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PersonalPayApi } from '../pay-api';
+import type { Trade } from '../schemas';
 import { p2pChatCopy } from './p2p-chat-copy';
 import { readUnreadCounts, type UnreadCount } from './p2p-chat-model';
 
@@ -7,36 +8,47 @@ import { readUnreadCounts, type UnreadCount } from './p2p-chat-model';
 export const UNREAD_REFRESH_MS = 60_000;
 
 /**
+ * Which orders to read: every one once, and on the timer only those still open. A closed order's count changes only if
+ * the other person writes after it closed, which the next visit to the list shows.
+ */
+export function unreadTargets(trades: ReadonlyArray<{ id: string; status: Trade['status'] }>): { all: string; open: string } {
+  const ids = (list: ReadonlyArray<{ id: string }>) => [...new Set(list.map((trade) => trade.id))].sort().join(',');
+  return { all: ids(trades), open: ids(trades.filter((trade) => trade.status !== 'released' && trade.status !== 'cancelled')) };
+}
+
+/**
  * Unread messages for each order shown, one `chat.unread` read per order, a few at a time. A count that could not be
  * read is reported as failed; it is never shown as zero.
  */
-export function useUnreadCounts(pay: PersonalPayApi, tradeIds: readonly string[]): Record<string, UnreadCount> {
-  const key = [...new Set(tradeIds)].sort().join(',');
+export function useUnreadCounts(
+  pay: PersonalPayApi,
+  trades: ReadonlyArray<{ id: string; status: Trade['status'] }>,
+): Record<string, UnreadCount> {
+  const { all, open } = unreadTargets(trades);
   const [counts, setCounts] = useState<Record<string, UnreadCount>>({});
   useEffect(() => {
-    if (!key) return;
-    const ids = key.split(',');
+    if (!all) return;
     let controller = new AbortController();
-    const run = () => {
+    const run = (key: string) => {
+      if (!key) return;
       controller.abort();
       controller = new AbortController();
-      const signal = controller.signal;
       void readUnreadCounts(
         (tradeId, abort) => pay.chatUnread(tradeId, abort),
-        ids,
-        signal,
+        key.split(','),
+        controller.signal,
         (tradeId, count) => setCounts((previous) => ({ ...previous, [tradeId]: count })),
       );
     };
-    run();
+    run(all);
     const timer = setInterval(() => {
-      if (document.visibilityState !== 'hidden') run();
+      if (document.visibilityState !== 'hidden') run(open);
     }, UNREAD_REFRESH_MS);
     return () => {
       clearInterval(timer);
       controller.abort();
     };
-  }, [pay, key]);
+  }, [pay, all, open]);
   return counts;
 }
 
