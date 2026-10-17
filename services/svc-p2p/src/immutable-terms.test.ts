@@ -317,7 +317,8 @@ describe('native P2P original terms and decisions', () => {
       const bus = new MemoryEventBus('svc-p2p');
       const publish = vi.spyOn(bus, 'publish');
       // The 100ms budget used to start when fetch started, so a slow CI loop aborted before the fixture
-      // posted. Abort the first signal only after that post, while the response is still held.
+      // posted. The body and error_body cases abort only after the client has the headers, so the abort
+      // lands while the held body is read.
       let abortHeld: (() => void) | undefined;
       const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
         const controller = new AbortController();
@@ -336,7 +337,8 @@ describe('native P2P original terms and decisions', () => {
       });
       vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const response = await realFetch(input, init);
-        if (held === 'error_body') headersSeen?.();
+        // One microtask later the client has continued past await fetch and is reading the held body.
+        if (held !== 'headers') queueMicrotask(() => headersSeen?.());
         return response;
       });
       const serviceWith = (timeoutMs: number) =>
@@ -364,7 +366,7 @@ describe('native P2P original terms and decisions', () => {
       try {
         const pending = service.cancelTrade(TRADE, SELLER);
         await committed;
-        if (held === 'error_body') await sawHeaders;
+        if (held !== 'headers') await sawHeaders;
         if (!abortHeld) throw new Error('ledger post committed before the client armed its abort');
         abortHeld();
         const failed = await pending.catch((error) => error as Error);
