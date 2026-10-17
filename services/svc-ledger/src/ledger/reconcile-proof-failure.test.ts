@@ -76,9 +76,7 @@ async function rehashBook(sql: Sql): Promise<void> {
   `;
   let previous: string | null = null;
   for (const tx of txs) {
-    const entries = await sql<
-      Array<{ id: string; account_id: string; asset_id: string; direction: 'debit' | 'credit'; amount: string }>
-    >`
+    const entries = await sql<Array<{ id: string; account_id: string; asset_id: string; direction: 'debit' | 'credit'; amount: string }>>`
       SELECT id::text AS id, account_id, asset_id, direction, amount::text AS amount
         FROM ledger_entries
        WHERE tx_id = ${tx.id}
@@ -232,12 +230,8 @@ describe('reconciliation failed proofs — real book', () => {
         frozenReason: 'reconcile_unproven',
         frozenBy: 'reconciliation',
       });
-      expect((await sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual([
-        'incomplete',
-        'incomplete',
-        'incomplete',
-      ]);
-      expect((await sql`SELECT outcome FROM reconcile_runs WHERE outcome = 'mismatch'`)).toEqual([]);
+      expect((await sql`SELECT outcome FROM reconcile_runs`).map((row) => row.outcome)).toEqual(['incomplete', 'incomplete', 'incomplete']);
+      expect(await sql`SELECT outcome FROM reconcile_runs WHERE outcome = 'mismatch'`).toEqual([]);
       expect(bus.emitted('ledgerReconciliationRunFailed').map((event) => event.payload.consecutiveIncomplete)).toEqual([1, 2, 3]);
     } finally {
       await sql.end({ timeout: 5 });
@@ -352,8 +346,7 @@ describe('reconciliation failed proofs — real book', () => {
             throw new Error('expected the cast to fail');
           },
         });
-      const tick = () =>
-        runScheduledReconciliationTick(fail, svc, log, { state, maxConsecutiveIncomplete: 3 });
+      const tick = () => runScheduledReconciliationTick(fail, svc, log, { state, maxConsecutiveIncomplete: 3 });
       await tick();
       await tick();
       await expect(svc.status()).resolves.toMatchObject({ postingEnabled: true });

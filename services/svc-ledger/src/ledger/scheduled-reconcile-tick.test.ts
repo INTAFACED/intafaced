@@ -27,8 +27,7 @@ import { truncateBook } from '../db/journal-guards.testkit.js';
 
 const FROZEN_LOG = 'LEDGER RECONCILIATION FAILED — posting frozen, operator attention required';
 const INCOMPLETE_LOG = 'LEDGER RECONCILIATION INCOMPLETE — the book was NOT verified and NOT frozen, operator attention required';
-const UNPROVEN_LOG =
-  'LEDGER RECONCILIATION UNPROVEN — posting frozen after consecutive incomplete runs, operator attention required';
+const UNPROVEN_LOG = 'LEDGER RECONCILIATION UNPROVEN — posting frozen after consecutive incomplete runs, operator attention required';
 const STALE_LOG = 'LEDGER RECONCILIATION STALE — the book is NOT verified, posting unchanged, operator attention required';
 
 function logSink(): { log: ReconcileTickLog; fatal: Array<{ obj: object; msg: string }>; info: Array<{ obj: object; msg: string }> } {
@@ -210,9 +209,13 @@ describe('scheduled reconciliation tick — returned result', () => {
     const { log, fatal } = logSink();
     const { ledger, froze, alerted } = recordingLedger();
     const thrown = Object.assign(new Error('CONNECTION_CLOSED 127.0.0.1:15485'), { code: 'CONNECTION_CLOSED' });
-    await runScheduledReconciliationTick(async () => {
-      throw thrown;
-    }, ledger, log);
+    await runScheduledReconciliationTick(
+      async () => {
+        throw thrown;
+      },
+      ledger,
+      log,
+    );
     expect(froze).toEqual([]);
     expect(alerted).toEqual([{ errorCode: 'CONNECTION_CLOSED', phase: 'tick', consecutiveIncomplete: 1, runId: null }]);
     expect(fatal.map((entry) => entry.msg)).toEqual([INCOMPLETE_LOG]);
@@ -238,8 +241,7 @@ describe('scheduled reconciliation tick — returned result', () => {
     const { log, fatal } = logSink();
     const { ledger, froze, alerted } = recordingLedger();
     const state = createReconcileTickState();
-    const tick = () =>
-      runScheduledReconciliationTick(async () => incompleteResult(), ledger, log, { state, maxConsecutiveIncomplete: 3 });
+    const tick = () => runScheduledReconciliationTick(async () => incompleteResult(), ledger, log, { state, maxConsecutiveIncomplete: 3 });
     await tick();
     await tick();
     expect(froze).toEqual([]);

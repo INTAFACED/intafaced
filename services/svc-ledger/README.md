@@ -56,12 +56,12 @@ An **inverted** window (`to` before `from`) refuses too — `ledger.history_rang
 
 **Publishes**
 
-| Subject                                  | When                          | Payload                                             |
-| ---------------------------------------- | ----------------------------- | --------------------------------------------------- |
-| `intafaced.ledger.tx.posted`             | after every commit            | tx id, module, reason, hash chain link, all entries |
-| `intafaced.ledger.reconciliation.failed` | balance drift detected        | account, cached vs replayed balance, difference     |
-| `intafaced.ledger.reconciliation_run.failed` | every incomplete run      | error code, phase, consecutive count, run id        |
-| `intafaced.ledger.freeze.updated`        | posting frozen or thawed      | `frozen`, `reason`, `actor`, `changedAt`            |
+| Subject                                      | When                     | Payload                                             |
+| -------------------------------------------- | ------------------------ | --------------------------------------------------- |
+| `intafaced.ledger.tx.posted`                 | after every commit       | tx id, module, reason, hash chain link, all entries |
+| `intafaced.ledger.reconciliation.failed`     | balance drift detected   | account, cached vs replayed balance, difference     |
+| `intafaced.ledger.reconciliation_run.failed` | every incomplete run     | error code, phase, consecutive count, run id        |
+| `intafaced.ledger.freeze.updated`            | posting frozen or thawed | `frozen`, `reason`, `actor`, `changedAt`            |
 
 `freeze.updated` carries both directions on one subject. Its stored idempotency key is `ledger.freeze:seq:<switch_seq>`. The sequence is allocated only while holding the actual `posting_freeze` row lock, so an earlier transaction start cannot reorder a later switch. `changedAt` is database observation time; replay order uses the sequence, not timestamps or UUIDs.
 
@@ -144,11 +144,11 @@ Runs on the owner-published `RECONCILE_CRON_MINUTES` cadence (blank / unset refu
 
 **Three outcomes, only one freezes.**
 
-| Outcome      | Meaning                                                                                     | Posting                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `ok`         | The proof finished and the book is consistent through `through_seq`.                        | Unchanged.                                                                                                    |
-| `mismatch`   | The proof **finished** and found drift, a broken hash chain, an unbalanced asset, a corrupt stored amount, or a non-text `chain_tip`. A snapshot write after `ok: true` is not a mismatch. | **Frozen** (`reconciliation mismatch`) and `reconciliation.failed` emitted for a balance drift.               |
-| `incomplete` | Any error that did not prove the book wrong, including Postgres, TLS, a code-less error, and a snapshot write after a green proof. | **Not frozen** until `RECONCILE_MAX_CONSECUTIVE_INCOMPLETE` in a row (default 3), the larger of this process and `reconcile_runs`. Each run emits `reconciliation_run.failed`. The Nth freezes as `reconcile_unproven`. An operator thaw does not reset that streak. |
+| Outcome      | Meaning                                                                                                                                                                                    | Posting                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`         | The proof finished and the book is consistent through `through_seq`.                                                                                                                       | Unchanged.                                                                                                                                                                                                                                                           |
+| `mismatch`   | The proof **finished** and found drift, a broken hash chain, an unbalanced asset, a corrupt stored amount, or a non-text `chain_tip`. A snapshot write after `ok: true` is not a mismatch. | **Frozen** (`reconciliation mismatch`) and `reconciliation.failed` emitted for a balance drift.                                                                                                                                                                      |
+| `incomplete` | Any error that did not prove the book wrong, including Postgres, TLS, a code-less error, and a snapshot write after a green proof.                                                         | **Not frozen** until `RECONCILE_MAX_CONSECUTIVE_INCOMPLETE` in a row (default 3), the larger of this process and `reconcile_runs`. Each run emits `reconciliation_run.failed`. The Nth freezes as `reconcile_unproven`. An operator thaw does not reset that streak. |
 
 A mismatch is frozen when the proof **finishes**, not while it reads: posts continue on a broken book for the duration of one proof. That cost is accepted and written down in [`docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md`](../../docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md).
 

@@ -156,10 +156,7 @@ async function noteIncomplete(
     }
     // Backoff stays on the in-memory count. The alert carries the larger streak.
     state.skipTicks = backoffTicks(state.consecutiveIncomplete);
-    log.fatal(
-      { ...extra, ...announced, skipNextTicks: state.skipTicks, frozenReason: RECONCILE_UNPROVEN_REASON },
-      UNPROVEN_LOG,
-    );
+    log.fatal({ ...extra, ...announced, skipNextTicks: state.skipTicks, frozenReason: RECONCILE_UNPROVEN_REASON }, UNPROVEN_LOG);
     return;
   }
   state.skipTicks = backoffTicks(state.consecutiveIncomplete);

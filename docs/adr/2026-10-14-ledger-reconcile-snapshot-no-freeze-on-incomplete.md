@@ -35,6 +35,6 @@ The regression tests exercise real PostgreSQL statement cancellation, durable mi
 
 Migration `0022` adds `reconcile_runs`; apply it before deploying the new runner. Old instances retain the old timeout-freeze behavior until replaced. Its down migration refuses to discard recorded proof history. Existing journal guards from current main remain in force.
 
-| Rule id                                    | Rule                                                                                                                            | Status            |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Rule id                                    | Rule                                                                                                                                                                                                                | Status                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | `LEDGER-RECONCILE-NO-FREEZE-ON-INCOMPLETE` | One incomplete run does not freeze posting. A proven mismatch freezes immediately. After N consecutive incomplete runs (default 3) posting freezes as `reconcile_unproven`. Stale verification alone never freezes. | Accepted, phase 1, D-128 |
