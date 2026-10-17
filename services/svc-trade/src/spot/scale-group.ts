@@ -91,6 +91,7 @@ export interface ScaleGroupPorts {
   sql: Sql;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
   cancelOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
+  findClientOrder(principal: Principal, input: { marketId: string; clientOrderId: string }): Promise<OrderRecord | null>;
   marketBySymbol(symbol: string): Promise<Market | null>;
   available(userId: string, assetId: string): Promise<Amount>;
 }
@@ -234,8 +235,10 @@ export async function createScaleGroup(ports: ScaleGroupPorts, principal: Princi
         clientOrderId: level.clientOrderId,
       });
     } catch (err) {
-      await rollbackScaleChildren(ports, principal, placed, level.index, childRefusalCode(err));
-      throw new DeskError(`scale child ${level.index} refused: ${childRefusalCode(err)}`, TRADE_SCALE_CHILD_REFUSED);
+      const childCode = childRefusalCode(err);
+      const survived = await thrownScaleChild(ports, principal, market.id, level, childCode);
+      await rollbackScaleChildren(ports, principal, survived ? [...placed, survived] : placed, level.index, childCode);
+      throw new DeskError(`scale child ${level.index} refused: ${childCode}`, TRADE_SCALE_CHILD_REFUSED);
     }
     const matches = plannedChildMatches(order, market, input.side, level);
     const replayedTerminal = order.status === 'cancelled' || order.status === 'rejected' || order.status === 'expired';
@@ -301,6 +304,32 @@ function plannedChildMatches(order: OrderRecord, market: Market, side: OrderSide
 
 function isLiveScaleStatus(status: string): boolean {
   return status === 'open' || status === 'pending' || status === 'recovery_required' || status === 'hold_unknown';
+}
+
+/**
+ * placeOrder can throw after the row and its hold exist. A live row is cancelled
+ * with the children that returned. A filled row is included and then left filled.
+ * A lookup that itself throws names the client id as unconfirmed.
+ */
+async function thrownScaleChild(
+  ports: ScaleGroupPorts,
+  principal: Principal,
+  marketId: string,
+  level: PlannedLevel,
+  childCode: string,
+): Promise<OrderRecord | null> {
+  let row: OrderRecord | null;
+  try {
+    row = await ports.findClientOrder(principal, { marketId, clientOrderId: level.clientOrderId });
+  } catch {
+    throw new DeskError(
+      `scale child ${level.index} refused: ${childCode}; rollback incomplete; unconfirmed: ${level.clientOrderId}`,
+      TRADE_SCALE_ROLLBACK_INCOMPLETE,
+    );
+  }
+  if (!row || row.clientOrderId !== level.clientOrderId) return null;
+  if (isLiveScaleStatus(row.status) || row.status === 'filled') return row;
+  return null;
 }
 
 function childRefusalCode(err: unknown): string {

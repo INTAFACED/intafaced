@@ -1305,6 +1305,7 @@ export class TradeService {
       sql: this.sql,
       placeOrder: (principal: Principal, input: PlaceOrderInput) => this.placeOrder(principal, input),
       cancelOrder: (principal: Principal, orderId: string) => this.cancelOrder(principal, orderId),
+      findClientOrder: (principal: Principal, input: { marketId: string; clientOrderId: string }) => this.findClientOrder(principal, input),
       marketBySymbol: (symbol: string) => this.marketBySymbol(symbol),
       available: async (userId: string, assetId: string) => (await this.ledger.balance(userAvailable(userId, assetId))).amount,
     };

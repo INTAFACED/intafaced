@@ -2145,7 +2145,24 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         displayQty && deps.findClientOrder
           ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
           : null;
-      const order = await deps.placeOrder(principal, input);
+      let order: OrderRecord;
+      try {
+        order = await deps.placeOrder(principal, input);
+      } catch (placeErr) {
+        if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
+          try {
+            const row = await deps.findClientOrder(principal, {
+              symbol: input.symbol,
+              marketId: input.marketId,
+              clientOrderId: input.clientOrderId,
+            });
+            if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
+          } catch {
+            // The customer's answer stays the original place error.
+          }
+        }
+        throw placeErr;
+      }
       if (displayQty && deps.icebergDisplay) {
         if (deps.findClientOrder && prior) {
           const storedPeak = await deps.icebergDisplay.read(order.id);

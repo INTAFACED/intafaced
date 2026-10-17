@@ -33,6 +33,7 @@ import {
   TRADE_SCALE_GROUP_NOT_FOUND,
   TRADE_SCALE_INSUFFICIENT_BALANCE,
   TRADE_SCALE_LEVEL_INVALID,
+  TRADE_SCALE_ROLLBACK_INCOMPLETE,
   type ScaleGroupPorts,
 } from '../spot/scale-group.js';
 import { TradeError, type Market } from '../spot/types.js';
@@ -565,6 +566,7 @@ describe('desk acceptance (shared test postgres)', () => {
       sql,
       marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
       cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
+      findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
       available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
       placeOrder: async (principal, input) => {
         const clientOrderId = input.clientOrderId ?? '';
@@ -615,6 +617,85 @@ describe('desk acceptance (shared test postgres)', () => {
     expect(openRetry[0]?.n).toBe(0);
     expect(groupsRetry[0]?.n).toBe(0);
     expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(before);
+  });
+
+  it('rolls back a scale child whose placeOrder threw after its row exists', async () => {
+    await fund(ALICE, 'USDT', '10000');
+    const alice = principalFor(ALICE, [...BOTH]);
+    const before = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+    const ports: ScaleGroupPorts = {
+      sql,
+      marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+      cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
+      findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
+      available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
+      placeOrder: async (principal, input) => {
+        if (input.clientOrderId === 'scale:lost-ladder:2') {
+          await trade.placeOrder(principal, input);
+          throw new TradeError('lost reply', 'trade.hold_unknown');
+        }
+        return trade.placeOrder(principal, input);
+      },
+    };
+    const input = {
+      market: scaleMarket.symbol,
+      side: 'buy' as const,
+      totalQty: '5.1',
+      levels: 5,
+      priceFrom: '100',
+      priceTo: '104',
+      clientGroupId: 'lost-ladder',
+    };
+    await expect(createScaleGroup(ports, alice, input)).rejects.toMatchObject({ code: TRADE_SCALE_CHILD_REFUSED });
+    const live = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM trade.orders
+      WHERE user_id = ${ALICE}::uuid AND status IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+    `;
+    const groups = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM scale_groups`;
+    expect(live[0]?.n).toBe(0);
+    expect(groups[0]?.n).toBe(0);
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(before);
+  });
+
+  it('names the order when rollback of a thrown scale child cannot cancel it', async () => {
+    await fund(ALICE, 'USDT', '10000');
+    const alice = principalFor(ALICE, [...BOTH]);
+    let level2Id = '';
+    const ports: ScaleGroupPorts = {
+      sql,
+      marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+      findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
+      available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
+      placeOrder: async (principal, input) => {
+        const order = await trade.placeOrder(principal, input);
+        if (input.clientOrderId === 'scale:lost-ladder:2') {
+          level2Id = order.id;
+          throw new TradeError('lost reply', 'trade.hold_unknown');
+        }
+        return order;
+      },
+      cancelOrder: async (principal, orderId) => {
+        if (orderId === level2Id) throw new TradeError('cancel failed', 'trade.matching_unavailable');
+        return trade.cancelOrder(principal, orderId);
+      },
+    };
+    const refused = await createScaleGroup(ports, alice, {
+      market: scaleMarket.symbol,
+      side: 'buy',
+      totalQty: '5.1',
+      levels: 5,
+      priceFrom: '100',
+      priceTo: '104',
+      clientGroupId: 'lost-ladder',
+    }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(level2Id.length).toBeGreaterThan(0);
+    expect(refused).toMatchObject({
+      code: TRADE_SCALE_ROLLBACK_INCOMPLETE,
+      message: expect.stringContaining(level2Id),
+    });
   });
 
   it('places scale children in a private id namespace so a manual order is not a child', async () => {
@@ -906,6 +987,49 @@ describe('desk acceptance (shared test postgres)', () => {
       SELECT count(*)::int AS n FROM trade.order_iceberg_display WHERE order_id = ${orderId}::uuid
     `;
     expect(rows[0]?.n).toBe(0);
+    await app.close();
+  });
+
+  it('returns the iceberg and its peak when a lost reply is retried with the same body', async () => {
+    await fund(ALICE, 'USDT', '2000');
+    let calls = 0;
+    const app = Fastify();
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      icebergDisplay: sqlIcebergDisplay(sql),
+      findClientOrder: (principal: Principal, input: { symbol?: string; marketId?: string; clientOrderId?: string }) =>
+        trade.findClientOrder(principal, input),
+      marketBySymbol: (symbol: string) => trade.marketBySymbol(symbol),
+      marketById: (marketId: string) => trade.marketById(marketId),
+      lifecycleForMarket: (market: Market) => READY_MARKET_LIFECYCLE.snapshot(market),
+      placeOrder: async (principal: Principal, input: PlaceOrderInput) => {
+        const order = await trade.placeOrder(principal, input);
+        calls += 1;
+        if (calls === 1) throw new TradeError('lost reply', 'trade.hold_unknown');
+        return order;
+      },
+    } as unknown as PrivateRestDeps);
+    const headers = signedHeaders();
+    const body = {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      amount: '10',
+      price: '100',
+      clientOrderId: 'ice-lost-1',
+      displayQty: '1',
+    };
+    const first = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: body });
+    expect(first.statusCode).not.toBe(201);
+    const retry = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: body });
+    expect(retry.statusCode).toBe(201);
+    const orderId = retry.json().id as string;
+    expect(retry.json().displayQty).toBe('1');
+    const rows = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM trade.order_iceberg_display WHERE order_id = ${orderId}::uuid
+    `;
+    expect(rows[0]?.n).toBe(1);
     await app.close();
   });
 });
