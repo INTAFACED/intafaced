@@ -44,6 +44,8 @@
  * journal, and no `DATABASE_URL` at all.
  * svc-mining-pool is listed: it ships drizzle SQL for mining_pool.windows
  * and mining_pool.shares, and compose gives it DATABASE_URL.
+ * svc-quant is listed: it ships drizzle SQL for the paper strategy library,
+ * and compose gives it DATABASE_URL.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -66,6 +68,7 @@ const SERVICES = [
   ['svc-market', 'market'],
   ['svc-mining-pool', 'mining_pool'],
   ['svc-ops', 'ops'],
+  ['svc-quant', 'quant'],
 ];
 
 const host = process.env.POSTGRES_HOST ?? 'postgres';

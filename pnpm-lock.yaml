@@ -1938,6 +1938,9 @@ importers:
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../../packages/ledger-client
@@ -1953,9 +1956,15 @@ importers:
       '@trpc/server':
         specifier: ^11.19.0
         version: 11.19.0(typescript@5.9.3)
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       zod:
         specifier: ^3.24.1
         version: 3.25.76

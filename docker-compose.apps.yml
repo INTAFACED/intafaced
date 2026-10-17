@@ -1519,9 +1519,14 @@ services:
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
+      # Role svc_quant and schema quant come from postgres-init.
+      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env)
+      # still refuses quant.database_pool_max_unset.
+      DATABASE_URL: postgres://svc_quant:${SVC_QUANT_DB_PASSWORD:-svc_quant}@postgres:5432/intafaced
     expose: ['4021']
     healthcheck: *healthcheck
-    depends_on: {}
+    depends_on:
+      <<: *needs-schema
 
   # CRM / team / warehouse revenue / projects (ops.business-systems).
   # Non-custodial. Blank analytics replica → ops.warehouse_unwired.
