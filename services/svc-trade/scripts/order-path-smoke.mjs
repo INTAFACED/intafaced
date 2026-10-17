@@ -208,10 +208,12 @@ async function publishSmokeLifecycleAuthority(contracts, marketId) {
 // svc-trade refuses PLACE with trade.matching_market_missing until svc-matching
 // lists the market, and matching lists it only after `POST /markets/:id/open`
 // consumes an identity action approval: one person proposes, a DIFFERENT person
-// approves with MFA, and matching consumes that approval at identity. This
-// reproduces that path with two throwaway `local-test` operators and a real
-// TOTP enrolment, and forges nothing:
-//   · the approver's MFA flag comes from a real `auth.login` with a TOTP code,
+// approves with MFA, and matching consumes that approval at identity. Opening a
+// market is founder-only, so both people must be live founders. This reproduces
+// that path with two throwaway `local-test` founders (enrolled with identity's
+// own founder invites and pinned as its founder pair by the CX-8 boot helper)
+// and a real TOTP enrolment each, and forges nothing:
+//   · each founder's MFA flag comes from a real `auth.login` with a TOTP code,
 //     read back from the verified access token (the way the edge would);
 //   · the approval is proposed, approved and consumed through identity's own
 //     tRPC doors and matching's own route.
@@ -279,24 +281,69 @@ async function registerLocalTestOperator(contracts, role) {
   return { handle, email, password, userId: session.userId, accessToken: session.accessToken };
 }
 
-async function openMarketInMatching(contracts, marketId) {
-  if (!EDGE) throw new Error('opening the market needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
-  const requester = await registerLocalTestOperator(contracts, 'req');
-  const approver = await registerLocalTestOperator(contracts, 'apr');
+/**
+ * Enrol one smoke founder: a single-use founder invite (`auth.registerFounder`, public sign-up stays closed),
+ * then a real TOTP enrolment so identity can pin the account into the founder pair at its next boot.
+ */
+async function registerLocalTestFounder(contracts, role, invite) {
+  const suffix = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  const password = randomBytes(18).toString('base64url');
+  const handle = `localtest_cx8_${role}_${suffix}`;
+  const email = `${handle}@example.test`;
+  let session;
+  try {
+    session = await identityCall(contracts, 'auth.registerFounder', { invite, handle, email, password }, null);
+  } catch (err) {
+    throw new Error(
+      `${(err && err.message) || err} (founder enrolment needs a database whose founder pair is not pinned yet: use a fresh one)`,
+    );
+  }
+  const principal = await principalOf(session.accessToken);
+  const enrol = await identityCall(contracts, 'totp.enrol', {}, principal);
+  await identityCall(contracts, 'totp.confirm', { secret: enrol.secret, code: totpCode(enrol.secret, Date.now()) }, principal);
+  return { handle, email, password, userId: session.userId, totpSecret: enrol.secret };
+}
 
-  // Approver: real TOTP enrolment, then a real MFA login.
-  const approverPrincipal = await principalOf(approver.accessToken);
-  const enrol = await identityCall(contracts, 'totp.enrol', {}, approverPrincipal);
-  await identityCall(contracts, 'totp.confirm', { secret: enrol.secret, code: totpCode(enrol.secret, Date.now()) }, approverPrincipal);
+/**
+ * Phase 1, run by the CX-8 boot helper (`--enrol-founders`) while identity is up with founder invites and no
+ * founder pair: enrol the two smoke founders and print them as one machine-read line. The boot helper then
+ * restarts identity with the pair pinned to these two ids and passes the line back as CX8_FOUNDERS_JSON.
+ * SMOKE RIG ONLY: throwaway `localtest_cx8_*` accounts, created per run; they are not the real founders.
+ */
+async function enrolFounders() {
+  const invites = (process.env.CX8_FOUNDER_INVITES ?? '').split(',').filter(Boolean);
+  if (invites.length !== 2) throw new Error('--enrol-founders needs CX8_FOUNDER_INVITES (two founder invite codes)');
+  const contracts = await loadContracts();
+  const founders = [];
+  for (const [i, role] of ['fa', 'fb'].entries()) founders.push(await registerLocalTestFounder(contracts, role, invites[i]));
+  console.log(`CX8_FOUNDERS_JSON=${JSON.stringify(founders)}`);
+}
+
+/** Phase 2: a real password + TOTP login for a smoke founder; the principal is read back from the verified token. */
+async function founderMfaPrincipal(contracts, founder) {
   // The enrolment code's step is spent (replay-protected); the next step's code is inside identity's +/-1 step drift window.
-  const mfaSession = await identityCall(
+  const session = await identityCall(
     contracts,
     'auth.login',
-    { identifier: approver.email, password: approver.password, totpCode: totpCode(enrol.secret, Date.now() + 30_000) },
+    { identifier: founder.email, password: founder.password, totpCode: totpCode(founder.totpSecret, Date.now() + 30_000) },
     null,
   );
-  const approverMfa = await principalOf(mfaSession.accessToken);
-  if (!approverMfa.mfa) throw new Error('approver login did not yield an MFA session');
+  const principal = await principalOf(session.accessToken);
+  if (!principal.mfa) throw new Error(`founder ${founder.handle} login did not yield an MFA session`);
+  return principal;
+}
+
+// Opening a market (`matching.open`) is a founder-only action: identity needs a live founder to propose and a
+// different live founder to approve, each on an MFA session. The CX-8 boot helper enrols the two smoke founders
+// through identity's own founder invites and pins them as the founder pair before this runs.
+async function openMarketInMatching(contracts, marketId) {
+  if (!EDGE) throw new Error('opening the market needs EDGE_PRINCIPAL_SECRET (the smoke acts as the edge)');
+  const founders = JSON.parse(process.env.CX8_FOUNDERS_JSON ?? '[]');
+  if (founders.length !== 2)
+    throw new Error('opening the market needs two enrolled smoke founders (CX8_FOUNDERS_JSON, set by the CX-8 boot helper)');
+  const [requester, approver] = founders;
+  const requesterMfa = await founderMfaPrincipal(contracts, requester);
+  const approverMfa = await founderMfaPrincipal(contracts, approver);
 
   // Requester proposes; approver approves; matching consumes.
   const action = { actionType: 'matching.open', targetService: 'svc-matching', targetId: `open:${marketId}`, expectedVersion: '1' };
@@ -307,9 +354,14 @@ async function openMarketInMatching(contracts, marketId) {
     contracts,
     'actionApproval.propose',
     { ...action, payloadHash, policyVersion: 'local-test:cx8-smoke-policy-v1' },
-    await principalOf(requester.accessToken),
+    requesterMfa,
   );
-  const approved = await identityCall(contracts, 'actionApproval.approve', { approvalId: proposed.approvalId }, approverMfa);
+  const approved = await identityCall(
+    contracts,
+    'actionApproval.approve',
+    { approvalId: proposed.approvalId, expectedPayloadHash: payloadHash },
+    approverMfa,
+  );
 
   const body = JSON.stringify({
     operatorId: requester.userId,
@@ -332,7 +384,7 @@ async function openMarketInMatching(contracts, marketId) {
   })();
   if (!res.ok || json?.accepted !== true)
     throw new Error(`matching open for ${marketId} not accepted ${res.status}: ${text.slice(0, 400)}`);
-  log(`SEED matching open (local-test operators ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
+  log(`SEED matching open (local-test founders ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
 }
 
 /** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run. */
@@ -700,6 +752,8 @@ async function stressIdempotentPlace(contracts) {
 }
 
 async function main() {
+  if (process.argv.includes('--enrol-founders')) return enrolFounders();
+
   log('CX-8 assembled path — trade + matching + ledger (prod-claim agent-max path C)');
   log(`TRADE=${TRADE} MATCHING=${MATCHING} LEDGER=${LEDGER} STRICT=${STRICT} L3=${L3} STRESS_N=${STRESS_N}`);
 
