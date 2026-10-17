@@ -73,6 +73,8 @@ const SETTLEMENTS = [
   ['bb000002', 'TEST-2026-W40', 'USDT', 'paid_out'],
   ['bb000001', 'TEST-2026-W39', 'USDT', 'paid_out'],
 ];
+/** Hours after a statement is finalised that a paid-out settlement was sent (the approval rounds happen in between). */
+export const PAYOUT_SENT_AFTER = 21 * 3600_000;
 const USDT_GROUP_SIZES = { bb000001: 5, bb000002: 5, bb000003: 5, bb000004: 5, bb000006: 3 };
 
 export const DESTINATIONS = [
@@ -179,7 +181,8 @@ function populate(world, now) {
       assetId: asset,
       method: n % 2 ? 'TEST-crypto-transfer' : 'TEST-card-sandbox',
       railAdapter: n % 2 ? 'crypto-native' : 'card-sandbox',
-      railRef: status === 'created' ? null : `TEST-rail-${String(n).padStart(4, '0')}`,
+      // a reference a person can read out: the same number as the order it paid for ("TEST order 1008")
+      railRef: status === 'created' ? null : `TEST-${1000 + n}`,
       status,
       capturedAmount: taken ? amount : '0',
       refundedAmount: status === 'refunded' ? amount : '0',
@@ -229,6 +232,8 @@ function populate(world, now) {
     const gross = sum(members.map((p) => toU(p.amount)));
     const fees = sum(members.map((p) => toU(p.fee)));
     const newest = Math.max(...members.map((p) => Date.parse(p.createdAt)));
+    // a settlement opens with its oldest payment and is finalised two hours after its newest one
+    const openedAt = Math.min(...members.map((p) => Date.parse(p.createdAt)));
     const createdAt = newest + 2 * 3600_000;
     const id = `${short}-0000-4000-8000-00000000000${6 - index}`;
     for (const p of members) p.settlementId = id;
@@ -245,9 +250,11 @@ function populate(world, now) {
       payoutMethod: paid ? 'crypto-native' : null,
       payoutRef: paid ? (short === 'bb000002' ? 'TEST-tx-0xabc123' : 'TEST-tx-0xdef456') : null,
       status,
+      openedAt: iso(openedAt),
       createdAt: iso(createdAt),
-      sentAt: paid ? iso(createdAt + 3600_000) : null,
-      settledAt: paid ? iso(createdAt + 7200_000) : null,
+      // a payout waits for its approval, so it leaves the morning after the statement is finalised
+      sentAt: paid ? iso(createdAt + PAYOUT_SENT_AFTER) : null,
+      settledAt: paid ? iso(createdAt + PAYOUT_SENT_AFTER + 3600_000) : null,
       failedAt: status === 'failed' ? iso(createdAt + 3600_000) : null,
       failure: status === 'failed' ? { code: 'pay.rail_declined', message: 'The payment network declined this payout.' } : null,
       // The first (newest) settlement carries the fee as it was worked out; the others predate that record.
@@ -275,30 +282,49 @@ function populate(world, now) {
   world.settlements.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   world.settlementById = (id) => world.settlements.find((s) => s.id === id);
 
-  // ---- refunds: refunded payments (settled/posted), plus one refund the network turned back ---------------------------
+  // ---- refunds: refunded payments, a part refund of a settled one, and one refund the network turned back -------------
+  // A refund the service confirmed is "settled": the payment says refunded (or part refunded) from that moment. A refund is
+  // taken from the pot the money is in: still being settled (clearing) until its payment is in a settlement, then proceeds.
+  const settledAfter = (paymentRow) => {
+    const settlement = world.settlements.find((x) => x.id === paymentRow.settlementId);
+    return settlement ? Date.parse(settlement.createdAt) + 21 * 3600_000 : null;
+  };
+  // [payment, status, part amount or null for all of it]; the part refund is on a payment that is already in a settlement
+  const partlyRefunded = world.payments.find(
+    (p) => p.status === 'settled' && p.settlementId === world.settlements.find((x) => x.short === 'bb000004')?.id,
+  );
   const refundRows = [
-    [3, 'posted', 'clearing', 'clearing'],
-    [13, 'settled', 'clearing', 'clearing'],
-    [REVERSED_REFUND, 'reversed', 'clearing', 'clearing'],
+    [world.payments[2], 'settled', null],
+    [world.payments[12], 'settled', null],
+    [world.payments[REVERSED_REFUND - 1], 'reversed', null],
+    ...(partlyRefunded ? [[partlyRefunded, 'settled', '25.00']] : []),
   ];
-  world.refunds = refundRows.map(([n, status, source, pot], i) => {
-    const p = world.payments[n - 1];
-    const createdAt = Date.parse(p.createdAt) + 6 * 3600_000;
+  world.refundsOf = (paymentId) => world.refunds.filter((r) => r.paymentId === paymentId);
+  world.refunds = refundRows.map(([p, status, part], i) => {
+    const amount = part ?? p.amount;
+    const createdAt = settledAfter(p) ?? Date.parse(p.createdAt) + 6 * 3600_000;
+    const fromSettled = p.settlementId !== null;
     p.refundId = `TEST-refund-${i + 1}`;
+    if (part) p.refundedAmount = part; // a fully refunded payment already says so
     return {
       id: `cc10000${i + 1}-0000-4000-8000-00000000010${i + 1}`,
       refundId: `TEST-refund-${i + 1}`,
       paymentId: p.id,
       merchantId: MERCHANT_ID,
-      amount: p.amount,
+      amount,
       assetId: p.assetId,
       reason: null,
       actor: null,
       status,
       createdAt: iso(createdAt),
-      settledAt: status === 'settled' ? iso(createdAt + 3600_000) : null,
-      source,
-      ledgerEffect: { recorded: true, pot, ledgerTxId: `cc2000${i}1-0000-4000-8000-000000000001`, direction: 'credit' },
+      settledAt: status === 'settled' ? iso(createdAt + 60_000) : null,
+      source: fromSettled ? 'settled' : 'clearing',
+      ledgerEffect: {
+        recorded: true,
+        pot: fromSettled ? 'merchantProceeds' : 'clearing',
+        ledgerTxId: `cc2000${i}1-0000-4000-8000-000000000001`,
+        direction: 'credit',
+      },
       payment: { paymentId: p.id, status: p.status },
     };
   });
@@ -465,7 +491,8 @@ function attachAggregates(world, now) {
         .map((assetCode) => ({ assetCode, value: pick(mine.filter((p) => p.assetId === assetCode)) }))
         .filter((row) => row.value !== null);
     const taken = (list) => list.filter((p) => isTaken(p.status));
-    const refundedOf = (list) => sum(list.filter((p) => p.status === 'refunded').map((p) => toU(p.refundedAmount)));
+    // everything given back on a payment that took money, a part refund included
+    const refundedOf = (list) => sum(taken(list).map((p) => toU(p.refundedAmount)));
     const capturedOf = (list) => sum(taken(list).map((p) => toU(p.capturedAmount)));
     const settlementsIn = world.settlements.filter((s) => {
       const at = Date.parse(s.createdAt);
@@ -536,7 +563,12 @@ function attachAggregates(world, now) {
       if (s.status === 'paid_out') add(s.sentAt, 'payout', s.net, 'proceeds', 'credit', { proceeds: -toU(s.net), settlementId: s.id });
     }
     for (const r of world.refunds.filter((x) => x.assetId === assetId && (x.status === 'posted' || x.status === 'settled'))) {
-      add(r.createdAt, 'refund', r.amount, 'clearing', 'credit', { clearing: -toU(r.amount), paymentId: r.paymentId });
+      // the refund comes out of the pot its money is in: still being settled, or already settled to the merchant
+      const fromProceeds = r.source === 'settled';
+      add(r.createdAt, 'refund', r.amount, fromProceeds ? 'proceeds' : 'clearing', 'credit', {
+        [fromProceeds ? 'proceeds' : 'clearing']: -toU(r.amount),
+        paymentId: r.paymentId,
+      });
     }
     lines.sort((a, b) => a.at - b.at);
     let clearing = 0n;

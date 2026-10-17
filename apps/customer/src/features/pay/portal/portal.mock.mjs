@@ -8,7 +8,7 @@
 //   settings/b-mock.mjs (developers, reports and analytics).
 // A part returns NOT_MINE for a procedure it does not own. `mock-contract.test.ts` parses every answer with the same
 // schemas the client uses, so a fixture that drifts from the real shape fails a test instead of a screenshot.
-import { NOT_MINE, USER_ID, mockContext, refuse } from './mock/shared.mjs';
+import { DAY, NOT_MINE, USER_ID, iso, mockContext, ok, refuse } from './mock/shared.mjs';
 import { createCoreMock } from './mock/core.mjs';
 import { createWritesMock } from './mock/writes.mjs';
 import { createMoneyMock } from './money/mock.mjs';
@@ -36,7 +36,30 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     createSettingsMock(ctx),
   ];
 
+  // A reload or a typed address starts the app again with nothing in memory, and the app asks the identity service to
+  // restore the sign-in from the cookie. The stand-in plays the cookie: once a request has carried the signed-in token,
+  // the person counts as signed in until the app signs out, and the restore answers with a session. Before that nothing
+  // answers, so the sign-in form still shows first. A caller that cannot show request headers (the preview server) is
+  // always treated as signed in, because it answers the sign-in itself.
+  let signedIn = false;
+  let token = 'TEST-only';
+  const heldToken = (route) => {
+    const headers = route.request().headers?.();
+    if (!headers) return undefined; // no headers to read
+    const bearer = /^Bearer\s+(.+)$/i.exec(headers.authorization ?? '');
+    return bearer ? bearer[1] : null;
+  };
+  /** Notes the signed-in token on a request (pay and identity both carry it). Returns it, or null, or undefined when headers cannot be read. */
+  const noteSignIn = (route) => {
+    const held = heldToken(route);
+    if (held) {
+      signedIn = true;
+      token = held;
+    }
+    return held;
+  };
   async function handle(route) {
+    noteSignIn(route);
     const url = new URL(route.request().url());
     const procedure = decodeURIComponent(url.pathname.split('/trpc/')[1] ?? '');
     const method = route.request().method();
@@ -58,11 +81,19 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     unmounted.push(procedure);
     return refuse(route, 404, '', `No procedure ${procedure}`);
   }
-  /** Identity procedures (sessions, devices) are answered only when a part owns them; anything else falls through to the test's own route. */
+  /** Identity procedures (sessions, devices, restoring a sign-in) are answered only when something here owns them; anything else falls through to the test's own route. */
   async function handleIdentity(route) {
     const url = new URL(route.request().url());
     const procedure = decodeURIComponent(url.pathname.split('/trpc/')[1] ?? '');
     const method = route.request().method();
+    const held = noteSignIn(route);
+    if (procedure === 'auth.refresh' && (signedIn || held === undefined)) {
+      return ok(route, { userId: USER_ID, accessToken: token, expiresAt: iso(Date.now() + 30 * DAY) });
+    }
+    if (procedure === 'auth.logout') {
+      signedIn = false;
+      return ok(route, { ok: true });
+    }
     const input = method === 'GET' ? (JSON.parse(url.searchParams.get('input') ?? 'null') ?? {}) : (route.request().postDataJSON() ?? {});
     for (const part of parts) {
       const answered = await part.handle(procedure, input, route);

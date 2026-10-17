@@ -189,6 +189,14 @@ export function createAccountMock(ctx) {
       .map((r, i) => ({ ...r, id: `act-${String(i + 1).padStart(3, '0')}` }));
   };
 
+  /**
+   * The child a request names. The Network board opens `/pay/network/TEST-child`, which stands for the first child, so the
+   * page shows a business instead of an error. Any other id is either a business that is not in this network, or, for an
+   * account that is not a platform at all, a read this account has no network for.
+   */
+  const childFor = (id) => state.children.find((c) => c.id === (id === 'TEST-child' ? CHILD_A : id));
+  const noChild = (route) =>
+    ctx.myAccess === 'payfac' ? refuse(route, 403, 'pay.submerchant_out_of_scope') : refuse(route, 403, 'pay.submerchant_not_onboarded');
   return {
     async handle(procedure, input, route) {
       const gone = scenario === 'new';
@@ -289,12 +297,12 @@ export function createAccountMock(ctx) {
         case 'submerchant.list':
           return ok(route, state.children);
         case 'submerchant.get': {
-          const row = state.children.find((c) => c.id === input.merchantId);
-          return row ? ok(route, row) : refuse(route, 404, 'pay.merchant_not_found');
+          const row = childFor(input.merchantId);
+          return row ? ok(route, row) : noChild(route);
         }
         case 'submerchant.summary': {
-          const row = state.children.find((c) => c.id === input.merchantId);
-          if (!row) return refuse(route, 404, 'pay.merchant_not_found');
+          const row = childFor(input.merchantId);
+          if (!row) return noChild(route);
           return ok(route, {
             ...row,
             displayName: row.id === CHILD_A ? 'TEST Child Alpha' : null,
@@ -338,12 +346,12 @@ export function createAccountMock(ctx) {
         case 'submerchantPermission.list':
           return ok(
             route,
-            state.grants.filter((g) => g.subjectMerchantId === input.subjectMerchantId),
+            state.grants.filter((g) => g.subjectMerchantId === (childFor(input.subjectMerchantId)?.id ?? input.subjectMerchantId)),
           );
         case 'submerchantPermission.history':
           return ok(
             route,
-            state.permEvents.filter((g) => g.subjectMerchantId === input.subjectMerchantId),
+            state.permEvents.filter((g) => g.subjectMerchantId === (childFor(input.subjectMerchantId)?.id ?? input.subjectMerchantId)),
           );
         case 'submerchantPermission.grant':
         case 'submerchantPermission.revoke': {

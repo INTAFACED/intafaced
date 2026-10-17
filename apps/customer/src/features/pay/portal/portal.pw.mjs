@@ -676,8 +676,9 @@ test('limits: usage bars with exact figures and reset times, and nothing invente
   await signIn(page, '/pay/limits');
   await expect(page.getByRole('heading', { name: 'Limits and tier', level: 1 })).toBeVisible();
   await expect(page.getByRole('progressbar')).toHaveCount(4);
-  // today's intake is what the payments of the last day add up to
-  const usedToday = mock.world.figures(Date.now() - 86_400_000).captured.find((row) => row.assetCode === 'USDT').amount;
+  // today's intake is what the payments since midnight UTC add up to (the limit resets at midnight UTC)
+  const usedToday =
+    mock.world.figures(Math.floor(Date.now() / 86_400_000) * 86_400_000).captured.find((row) => row.assetCode === 'USDT')?.amount ?? '0';
   const [whole, fraction = ''] = usedToday.split('.');
   await expect(
     page

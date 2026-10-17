@@ -1,6 +1,6 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
-import { RULE, fromU, isTaken, toU } from '../mock/world.mjs';
+import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, hex, iso, ok, page, refuse, startOfDay } from '../mock/shared.mjs';
+import { RULE, fromU, toU } from '../mock/world.mjs';
 
 /** Settlements, approvals, pricing and limits. */
 export function createMoneyMock(ctx) {
@@ -14,15 +14,23 @@ export function createMoneyMock(ctx) {
     world.destinations[0] ?? { railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x7a3f…4421' },
   );
   const settlementNo = (short) => settlements.find((x) => x.short === short);
-  // [id, settlement, status, maker, checker, created (h ago), decided (h after created) or null, expires (h from now)]
+  // Every approval is placed on its own settlement's timeline: a request is made after the statement is finalised, and a
+  // payout is sent only after the approval that let it go. [id, settlement, status, maker, checker, created, decided or
+  // null, hash letter, optional expiry]. Times are ms; `after(stl, hours)` is hours after that statement was finalised, `ago(hours)` is before now.
+  const finance = TEAM.finance.userId;
+  const after = (short, hours) => Date.parse(settlementNo(short).createdAt) + hours * 3600_000;
+  const ago = (hours) => now - hours * 3600_000;
+  const APPROVAL_LIFE = 48 * 3600_000;
+  // The payout of the oldest settlement predates approvals, so it has none. The one before it was asked for, turned down,
+  // asked for again and then approved: the rejected request and the approved one are on the same settlement.
   const approvals = activity
     ? [
-        ['cc000001', 'bb000003', 'pending', 'TEST-user-finance', null, 5, null, 43, 'a'],
-        ['cc000002', 'bb000004', 'pending', USER_ID, null, 1.5, null, 22, 'b'],
-        ['cc000003', 'bb000002', 'consumed', 'TEST-user-finance', USER_ID, 9 * 24, 1, -7 * 24, 'c'],
-        ['cc000004', 'bb000005', 'voided', USER_ID, null, 3 * 24, 1 / 6, -24, 'd'],
-        ['cc000005', 'bb000001', 'rejected', USER_ID, 'TEST-user-finance', 16 * 24, 2, -14 * 24, 'e'],
-      ].map(([short, stl, status, maker, checker, createdHoursAgo, decidedAfter, expiresIn, hash]) => {
+        ['cc000001', 'bb000003', 'pending', finance, null, ago(5), null, 'a'],
+        ['cc000002', 'bb000004', 'pending', USER_ID, null, ago(1.5), null, 'b', now + 22 * 3600_000],
+        ['cc000003', 'bb000002', 'consumed', finance, USER_ID, after('bb000002', 5), after('bb000002', 20), 'c'],
+        ['cc000004', 'bb000005', 'voided', USER_ID, null, ago(72), ago(72) + 600_000, 'd'],
+        ['cc000005', 'bb000002', 'rejected', USER_ID, finance, after('bb000002', 1), after('bb000002', 3), 'e'],
+      ].map(([short, stl, status, maker, checker, createdAt, decidedAt, hash, expiresAt]) => {
         const settlement = settlementNo(stl);
         return {
           approvalId: `${short}-0000-4000-8000-00000000000${short.slice(-1)}`,
@@ -34,15 +42,17 @@ export function createMoneyMock(ctx) {
           status,
           makerUserId: maker,
           checkerUserId: checker,
-          createdAt: iso(now - createdHoursAgo * 3600_000),
-          decidedAt: decidedAfter === null ? null : iso(now - createdHoursAgo * 3600_000 + decidedAfter * 3600_000),
-          expiresAt: iso(now + expiresIn * 3600_000),
+          createdAt: iso(createdAt),
+          decidedAt: decidedAt === null ? null : iso(decidedAt),
+          expiresAt: iso(expiresAt ?? createdAt + APPROVAL_LIFE),
           ...DEST,
         };
       })
     : [];
   state.approvals = approvals;
   const configured = activity;
+  // Sized so the waiting 2,287 approval is over what is left of today while the 1,280 one and the 236 settlement fit.
+  const DAILY_PAYOUT_LIMIT = '2000';
   const control = {
     merchantId: MERCHANT_ID,
     tierId: configured ? 'test-tier-a' : null,
@@ -52,7 +62,7 @@ export function createMoneyMock(ctx) {
           { kind: 'per_payment', assetCode: 'USDT', limit: '5000' },
           { kind: 'daily_intake', assetCode: 'USDT', limit: '20000' },
           { kind: 'monthly_intake', assetCode: 'USDT', limit: '250000' },
-          { kind: 'daily_payout', assetCode: 'USDT', limit: '10000' },
+          { kind: 'daily_payout', assetCode: 'USDT', limit: DAILY_PAYOUT_LIMIT },
           { kind: 'beneficiaries_per_day', limit: 5 },
         ]
       : null,
@@ -83,40 +93,60 @@ export function createMoneyMock(ctx) {
     version: configured ? '4' : '0',
     updatedAt: configured ? iso(now - 12 * DAY) : null,
   };
-  const intake = (windowMs) => {
-    const f = world.figures(now - windowMs);
-    return f.captured.find((row) => row.assetCode === 'USDT')?.amount ?? '0';
+  // Intake is counted for the UTC day (it resets at midnight UTC), so it is the same figure Home shows for "today".
+  const intake = (from) => world.figures(from).captured.find((row) => row.assetCode === 'USDT')?.amount ?? '0';
+  const dayStart = startOfDay(now);
+  const dayEnd = dayStart + DAY;
+  const left = (limit, used) => fromU(toU(limit) > toU(used) ? toU(limit) - toU(used) : 0n);
+  /** What was sent out today, worked out from the settlements that were paid out today. */
+  const paidOutToday = () => {
+    const sent = settlements.filter((x) => x.status === 'paid_out' && x.sentAt && Date.parse(x.sentAt) >= dayStart && x.assetId === 'USDT');
+    return { amount: fromU(sent.reduce((t, x) => t + toU(x.net), 0n)), destinations: sent.length ? 1 : 0 };
   };
-  const dayEnd = Math.ceil(now / DAY) * DAY;
-  const left = (limit, used) => fromU(toU(limit) - toU(used));
-  const usage = {
-    merchantId: MERCHANT_ID,
-    tierId: control.tierId,
-    asOf: iso(now - 20_000),
-    rows: configured
-      ? [
-          { kind: 'per_payment', assetCode: 'USDT', limit: '5000', used: null, remaining: null, resetsAt: null },
-          {
-            kind: 'daily_intake',
-            assetCode: 'USDT',
-            limit: '20000',
-            used: intake(DAY),
-            remaining: left('20000', intake(DAY)),
-            resetsAt: iso(dayEnd),
-          },
-          {
-            kind: 'monthly_intake',
-            assetCode: 'USDT',
-            limit: '250000',
-            used: intake(30 * DAY),
-            remaining: left('250000', intake(30 * DAY)),
-            resetsAt: iso(dayEnd + 14 * DAY),
-          },
-          // TEST figure: today's payouts are already near the daily limit, so a large approval can show its warning.
-          { kind: 'daily_payout', assetCode: 'USDT', limit: '10000', used: '9800', remaining: '200', resetsAt: iso(dayEnd) },
-          { kind: 'beneficiaries_per_day', assetCode: null, limit: '5', used: '2', remaining: '3', resetsAt: iso(dayEnd) },
-        ]
-      : [],
+  const usageNow = () => {
+    const paid = paidOutToday();
+    return {
+      merchantId: MERCHANT_ID,
+      tierId: control.tierId,
+      asOf: iso(now - 20_000),
+      rows: configured
+        ? [
+            { kind: 'per_payment', assetCode: 'USDT', limit: '5000', used: null, remaining: null, resetsAt: null },
+            {
+              kind: 'daily_intake',
+              assetCode: 'USDT',
+              limit: '20000',
+              used: intake(dayStart),
+              remaining: left('20000', intake(dayStart)),
+              resetsAt: iso(dayEnd),
+            },
+            {
+              kind: 'monthly_intake',
+              assetCode: 'USDT',
+              limit: '250000',
+              used: intake(dayStart - 29 * DAY),
+              remaining: left('250000', intake(dayStart - 29 * DAY)),
+              resetsAt: iso(dayEnd + 14 * DAY),
+            },
+            {
+              kind: 'daily_payout',
+              assetCode: 'USDT',
+              limit: DAILY_PAYOUT_LIMIT,
+              used: paid.amount,
+              remaining: left(DAILY_PAYOUT_LIMIT, paid.amount),
+              resetsAt: iso(dayEnd),
+            },
+            {
+              kind: 'beneficiaries_per_day',
+              assetCode: null,
+              limit: '5',
+              used: String(paid.destinations),
+              remaining: String(5 - paid.destinations),
+              resetsAt: iso(dayEnd),
+            },
+          ]
+        : [],
+    };
   };
   const quote = (input) => {
     const rule = control.pricing?.find((r) => r.assetCode === input.assetCode);
@@ -267,7 +297,7 @@ export function createMoneyMock(ctx) {
         case 'merchantControl.get':
           return ok(route, control);
         case 'merchantControl.usage':
-          return ok(route, usage);
+          return ok(route, usageNow());
         case 'merchantControl.pricing.preview': {
           const q = quote(input);
           return q ? ok(route, q) : refuse(route, 412, 'pay.pricing_unconfigured');
@@ -330,9 +360,44 @@ export function createMoneyMock(ctx) {
         case 'settlement.lifecycle': {
           const x = SETTLEMENT(input.settlementId);
           if (!x) return refuse(route, 404, 'pay.settlement_not_found');
-          const e = (n, kind, h, extra = {}) => ({
-            id: hex('ab', n),
-            at: iso(now - h * 3600_000),
+          // The timeline is drawn from the settlement's own dates and its approvals, so every settlement tells its own story:
+          // it opens with its oldest payment, is finalised when its statement is posted, is asked for, approved or turned
+          // down in between, and is sent and confirmed only after the approval that let it go.
+          const dest = DEST;
+          const own = approvals.filter((a) => a.settlementId === x.id).sort((p, q) => p.createdAt.localeCompare(q.createdAt));
+          const raw = [
+            { kind: 'settlement.opened', at: x.openedAt },
+            ...(x.status === 'paid_out' ? [] : [{ kind: 'settlement.posted', at: x.createdAt }]),
+            ...own.flatMap((a) => [
+              { kind: 'approval.requested', at: a.createdAt, approvalId: a.approvalId, ...dest },
+              ...(a.status === 'pending'
+                ? []
+                : [
+                    {
+                      kind: {
+                        consumed: 'approval.approved',
+                        approved: 'approval.approved',
+                        rejected: 'approval.rejected',
+                        voided: 'approval.voided',
+                      }[a.status],
+                      at: a.decidedAt,
+                      approvalId: a.approvalId,
+                      ...dest,
+                    },
+                  ]),
+            ]),
+            ...(x.status === 'paid_out'
+              ? [
+                  { kind: 'rail.sent', at: x.sentAt, ...dest },
+                  { kind: 'rail.confirmed', at: x.settledAt, ...dest },
+                ]
+              : []),
+          ]
+            .filter((e) => e.kind && e.at)
+            .sort((p, q) => p.at.localeCompare(q.at));
+          const events = raw.map(({ kind, at, ...extra }, i) => ({
+            id: hex('ab', i + 1),
+            at,
             timeKnown: true,
             kind,
             approvalId: null,
@@ -341,20 +406,7 @@ export function createMoneyMock(ctx) {
             destinationMasked: null,
             failure: null,
             ...extra,
-          });
-          const dest = DEST;
-          const events =
-            x.status === 'paid_out'
-              ? [
-                  e(1, 'settlement.opened', 300),
-                  e(2, 'approval.requested', 120, { approvalId: 'cc000005-0000-4000-8000-000000000005', ...dest }),
-                  e(3, 'approval.rejected', 118, { approvalId: 'cc000005-0000-4000-8000-000000000005', ...dest }),
-                  e(4, 'approval.requested', 100, { approvalId: 'cc000003-0000-4000-8000-000000000003', ...dest }),
-                  e(5, 'approval.approved', 98, { approvalId: 'cc000003-0000-4000-8000-000000000003', ...dest }),
-                  e(6, 'rail.sent', 97, dest),
-                  e(7, 'rail.confirmed', 96, dest),
-                ]
-              : [e(1, 'settlement.opened', 100), ...(x.status === 'pending' ? [] : [e(2, 'settlement.posted', 90)])];
+          }));
           return ok(route, {
             settlementId: x.id,
             status: x.status,

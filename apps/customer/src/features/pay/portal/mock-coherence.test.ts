@@ -45,7 +45,18 @@ const micro = (v: string) => {
 };
 const total = (values: string[]) => values.reduce((t, v) => t + micro(v), 0n);
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+/** Back to a decimal string with at least two places, like the stand-in writes amounts. */
+const fromMicro = (v: bigint) => {
+  const fraction = (v % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '').padEnd(2, '0');
+  return `${v / 1_000_000n}.${fraction}`;
+};
 const thirtyDays = { from: new Date(NOW - 30 * DAY).toISOString(), to: new Date(NOW + 1).toISOString() };
+/** Midnight UTC of NOW's day. The pages say "days are UTC days": Today starts here, 7 days is six before it, 30 days is 29. */
+const MIDNIGHT = Math.floor(NOW / DAY) * DAY;
+const sinceMidnight = (days: number) => MIDNIGHT - (days - 1) * DAY;
+/** The whole UTC days the Analytics page asks for ("30d" = today and the 29 before, end exclusive). */
+const utcDays = (days: number) => ({ from: new Date(sinceMidnight(days)).toISOString(), to: new Date(MIDNIGHT + DAY).toISOString() });
+const TAKEN = ['captured', 'settled', 'refunded', 'disputed'];
 
 describe('the stand-in is one set of facts', () => {
   const mock = createPortalMock('active', { now: NOW });
@@ -108,10 +119,10 @@ describe('the stand-in is one set of facts', () => {
       merchantId: MERCHANT,
       window: { kind: 'preset', preset: 'rolling_30d' },
     });
-    const fees = await call(mock, 'merchantAnalytics.fees', { merchantId: MERCHANT, bucket: 'day', ...thirtyDays });
+    const fees = await call(mock, 'merchantAnalytics.fees', { merchantId: MERCHANT, bucket: 'day', ...utcDays(30) });
     for (const asset of ['USDT', 'USD']) {
       const fromList = total(
-        payments.filter((p) => p.assetId === asset && Date.parse(p.createdAt) >= NOW - 30 * DAY).map((p) => p.refundedAmount),
+        payments.filter((p) => p.assetId === asset && Date.parse(p.createdAt) >= sinceMidnight(30)).map((p) => p.refundedAmount),
       );
       const home = snapshot.refunded.find((r: Any) => r.assetCode === asset)?.amount ?? '0';
       const page = total((fees.items as Any[]).filter((i) => i.assetCode === asset).map((i) => i.refunded));
@@ -128,7 +139,8 @@ describe('the stand-in is one set of facts', () => {
       ['rolling_30d', 30],
     ] as const) {
       const snapshot = await call(mock, 'merchantMetrics.snapshot', { merchantId: MERCHANT, window: { kind: 'preset', preset } });
-      const inside = payments.filter((p) => Date.parse(p.createdAt) >= NOW - days * DAY);
+      // whole UTC days, so "today" is since midnight and "30 days" is today and the 29 before
+      const inside = payments.filter((p) => Date.parse(p.createdAt) >= sinceMidnight(days));
       expect(snapshot.paymentCount, preset).toBe(inside.length);
       expect(
         snapshot.statusMix.reduce((t: number, r: Any) => t + r.count, 0),
@@ -380,5 +392,381 @@ describe('writes change the one set of facts', () => {
     expect((await call(createPortalMock('quiet', { now: NOW }), 'merchant.checkoutSettings.get', { merchantId: MERCHANT })).status).toBe(
       'not_configured',
     );
+  });
+});
+
+// ---- the contradictions the second acceptance audit found: each one is pinned here so it cannot come back ------------------
+describe('the stand-in never contradicts itself', () => {
+  const mock = createPortalMock('active', { now: NOW });
+  const world = mock.world as Any;
+  const statementOf = (m: Mock, assetId = 'USDT', to = NOW + 1) =>
+    all(m, 'merchant.statement.list', {
+      merchantId: MERCHANT,
+      assetId,
+      from: new Date(NOW - 60 * DAY).toISOString(),
+      to: new Date(to).toISOString(),
+    });
+
+  it('keeps every refund on its payment, and the payment history proves each one with the same refund id', async () => {
+    const refunds = await all(mock, 'payment.refunds.list', {});
+    const payments = await all(mock, 'payment.list', {});
+    expect(refunds.length).toBeGreaterThanOrEqual(4);
+    for (const p of payments) {
+      const mine = refunds.filter((r) => r.paymentId === p.id);
+      const given = mine.filter((r) => r.status !== 'reversed').reduce((t, r) => t + micro(r.amount), 0n);
+      expect(micro(p.refundedAmount), `refunded on ${p.id}`).toBe(given);
+      const history = await call(mock, 'payment.history', { paymentId: p.id });
+      // time order, and every event a page can prove a refund with
+      expect(history.map((e: Any) => e.ts)).toEqual([...history.map((e: Any) => e.ts)].sort());
+      for (const r of mine) {
+        const posted = history.filter((e: Any) => e.event === 'refund.posted' && e.payload.refundId === r.refundId);
+        expect(posted.length, `${r.refundId} posted`).toBe(1);
+        expect(posted[0].payload.amount).toBe(r.amount);
+        const confirmedEvent = r.status === 'reversed' ? 'refund.reversed' : 'refunded';
+        const confirmed = history.filter((e: Any) => e.event === confirmedEvent && e.payload.refundId === r.refundId);
+        expect(confirmed.length, `${r.refundId} ${confirmedEvent}`).toBe(1);
+        expect(micro(confirmed[0].payload.amount)).toBe(micro(r.amount));
+        if (r.status === 'settled') expect(confirmed[0].ts).toBe(r.settledAt);
+      }
+    }
+    // a part refund is among them: the payment keeps its own status and says how much has gone back
+    const part = payments.find((p) => micro(p.refundedAmount) > 0n && p.status !== 'refunded');
+    expect(part, 'a part-refunded payment').toBeDefined();
+    expect(micro(part.refundedAmount)).toBeLessThan(micro(part.capturedAmount));
+  });
+
+  it('proves a refund made now, a part refund included, with a refunded event that carries its refund id', async () => {
+    const m = createPortalMock('active', { now: NOW });
+    const target = (await all(m, 'payment.list', { status: 'captured' }))[0];
+    await call(m, 'payment.refund', { paymentId: target.id, amount: '10.00', refundId: 'TEST-part-1' });
+    await call(m, 'payment.refund', { paymentId: target.id, amount: '5.00', refundId: 'TEST-part-2' });
+    // the same request again is a replay: no third refund
+    await call(m, 'payment.refund', { paymentId: target.id, amount: '5.00', refundId: 'TEST-part-2' });
+    const history = await call(m, 'payment.history', { paymentId: target.id });
+    for (const [id, amount] of [
+      ['TEST-part-1', '10.00'],
+      ['TEST-part-2', '5.00'],
+    ]) {
+      const refunded = history.filter((e: Any) => e.event === 'refunded' && e.payload.refundId === id);
+      expect(refunded.length, id).toBe(1);
+      expect(refunded[0].payload.amount).toBe(amount);
+      expect(history.filter((e: Any) => e.event === 'refund.posted' && e.payload.refundId === id).length).toBe(1);
+    }
+    const after = await call(m, 'payment.get', { paymentId: target.id });
+    expect(micro(after.refundedAmount)).toBe(micro('15'));
+    expect(after.status).toBe('captured');
+    // the rest goes back: the payment is refunded, and the refund list agrees
+    const rest = fromMicro(micro(target.amount) - micro('15'));
+    await call(m, 'payment.refund', { paymentId: target.id, amount: rest, refundId: 'TEST-part-3' });
+    expect((await call(m, 'payment.get', { paymentId: target.id })).status).toBe('refunded');
+    const list = await all(m, 'payment.refunds.list', { paymentId: target.id });
+    expect(list.map((r) => r.status)).toEqual(['settled', 'settled', 'settled']);
+  });
+
+  it('says the same about a refund on the refund list, the payment and the refund itself', async () => {
+    const refunds = await all(mock, 'payment.refunds.list', {});
+    for (const r of refunds) {
+      const detail = await call(mock, 'payment.refunds.get', { refundEventId: r.id });
+      expect(detail.status, r.refundId).toBe(r.status);
+      expect(detail.settledAt, r.refundId).toBe(r.settledAt);
+      const payment = await call(mock, 'payment.get', { paymentId: r.paymentId });
+      // a refund the network confirmed has a completion time; one still in progress has none; a payment never reads
+      // Refunded while one of its refunds is still in progress
+      expect(r.settledAt !== null, `${r.refundId} completed`).toBe(r.status === 'settled');
+      if (payment.status === 'refunded')
+        expect(refunds.filter((x) => x.paymentId === r.paymentId).every((x) => x.status !== 'posted')).toBe(true);
+      if (r.status === 'reversed') expect(payment.status).not.toBe('refunded');
+    }
+  });
+
+  it('takes a refund from the pot its money is in: pending until the payment is settled, then the settled balance', async () => {
+    const refunds = (await all(mock, 'payment.refunds.list', {})).filter((r) => r.status !== 'reversed');
+    const lines = await statementOf(mock);
+    const kinds = new Set<string>();
+    for (const r of refunds) {
+      const settled = world.paymentById(r.paymentId).settlementId !== null;
+      kinds.add(settled ? 'settled' : 'clearing');
+      expect(r.source, r.refundId).toBe(settled ? 'settled' : 'clearing');
+      expect(r.ledgerEffect.pot).toBe(settled ? 'merchantProceeds' : 'clearing');
+      const line = lines.find((l) => l.kind === 'refund' && l.paymentId === r.paymentId);
+      expect(line, `a statement line for ${r.refundId}`).toBeDefined();
+      expect(line.account, r.refundId).toBe(settled ? 'proceeds' : 'clearing');
+    }
+    expect([...kinds].sort()).toEqual(['clearing', 'settled']);
+    // and a refund made now follows the same rule
+    const m = createPortalMock('active', { now: NOW });
+    const inSettlement = (await all(m, 'payment.list', { status: 'settled' })).find((p) => p.assetId === 'USDT')!;
+    const fresh = (await all(m, 'payment.list', { status: 'captured' })).find((p) => p.assetId === 'USDT')!;
+    await call(m, 'payment.refund', { paymentId: inSettlement.id, amount: '1.00', refundId: 'TEST-from-settled' });
+    await call(m, 'payment.refund', { paymentId: fresh.id, amount: '1.00', refundId: 'TEST-from-pending' });
+    const made = await all(m, 'payment.refunds.list', {});
+    expect(made.find((r) => r.refundId === 'TEST-from-settled').source).toBe('settled');
+    expect(made.find((r) => r.refundId === 'TEST-from-pending').source).toBe('clearing');
+    // refunds made now are stamped with the real clock, which is later than the stand-in's fixed one
+    const after = await statementOf(m, 'USDT', Date.now() + DAY);
+    expect(after.find((l) => l.kind === 'refund' && l.paymentId === inSettlement.id && l.amount === '1.00').account).toBe('proceeds');
+    expect(after.find((l) => l.kind === 'refund' && l.paymentId === fresh.id).account).toBe('clearing');
+  });
+
+  it('gives each settlement its own timeline, drawn from its payments’ dates and its approvals', async () => {
+    const settlements = (await call(mock, 'settlement.list', { limit: 50 })).items as Any[];
+    const story = new Set<string>();
+    for (const s of settlements) {
+      const lifecycle = await call(mock, 'settlement.lifecycle', { settlementId: s.id });
+      const events = lifecycle.events as Any[];
+      const memberTimes = (world.settlementById(s.id).members as string[]).map((id) => Date.parse(world.paymentById(id).createdAt));
+      const opened = events.find((e) => e.kind === 'settlement.opened');
+      // it opens with its oldest payment, and nothing happens before that
+      expect(Date.parse(opened.at), `${s.window} opens`).toBe(Math.min(...memberTimes));
+      expect(events.every((e) => e.at >= opened.at)).toBe(true);
+      expect(events.map((e) => e.at)).toEqual([...events.map((e) => e.at)].sort());
+      // it is finalised two hours after its newest payment (a paid-out one goes straight on to its approvals)
+      const posted = events.find((e) => e.kind === 'settlement.posted');
+      if (s.status !== 'paid_out') expect(Date.parse(posted.at), `${s.window} finalised`).toBe(Math.max(...memberTimes) + 2 * 3600_000);
+      else expect(posted).toBeUndefined();
+      // approvals come after the statement is final
+      for (const e of events.filter((x) => x.kind.startsWith('approval.')))
+        expect(Date.parse(e.at), `${s.window} ${e.kind}`).toBeGreaterThan(Math.max(...memberTimes));
+      if (s.status === 'paid_out') {
+        const sent = events.find((e) => e.kind === 'rail.sent');
+        const confirmed = events.find((e) => e.kind === 'rail.confirmed');
+        for (const e of events.filter((x) => x.kind.startsWith('approval.'))) expect(e.at < sent.at).toBe(true);
+        expect(events.at(-1)).toBe(confirmed);
+        expect(Date.parse(confirmed.at)).toBeGreaterThan(Date.parse(sent.at));
+      }
+      story.add(`${opened.at}|${posted?.at ?? ''}`);
+    }
+    // no two settlements share the same dates
+    expect(story.size).toBe(settlements.length);
+  });
+
+  it('keeps an approval’s status in step with its payout’s status', async () => {
+    const approvals = await all(mock, 'merchantControl.approvals.list', {});
+    const settlements = (await call(mock, 'settlement.list', { limit: 50 })).items as Any[];
+    const byId = new Map(settlements.map((s) => [s.id, s]));
+    for (const a of approvals) {
+      const s = byId.get(a.settlementId)!;
+      const later = approvals.filter((x) => x.settlementId === a.settlementId && x.createdAt > a.createdAt);
+      if (a.status === 'consumed' || a.status === 'approved') expect(s.status, `${a.approvalId} used`).toBe('paid_out');
+      // a payout that went ahead after a rejection or a withdrawal was asked for again, and that later request was approved
+      if (a.status === 'rejected' || a.status === 'voided' || a.status === 'pending') {
+        if (s.status === 'paid_out')
+          expect(
+            later.some((x) => x.status === 'consumed'),
+            `${a.approvalId} ${a.status} but paid out`,
+          ).toBe(true);
+        else expect(['posted', 'failed']).toContain(s.status);
+      }
+      // the person who asks is never the person who decides
+      if (a.checkerUserId) expect(a.checkerUserId).not.toBe(a.makerUserId);
+    }
+    // a payout above the approval threshold was approved first, except the oldest, which predates approvals
+    const oldest = settlements.reduce((m, s) => (s.createdAt < m.createdAt ? s : m));
+    for (const s of settlements.filter((x) => x.status === 'paid_out' && x.id !== oldest.id && micro(x.net) >= micro('1000')))
+      expect(
+        approvals.some((a) => a.settlementId === s.id && a.status === 'consumed'),
+        s.window,
+      ).toBe(true);
+    // the lifecycle tells the same story as the approvals
+    for (const s of settlements) {
+      const events = (await call(mock, 'settlement.lifecycle', { settlementId: s.id })).events as Any[];
+      for (const a of approvals.filter((x) => x.settlementId === s.id)) {
+        const mine = events.filter((e) => e.approvalId === a.approvalId).map((e) => e.kind);
+        expect(mine[0]).toBe('approval.requested');
+        const decided: Record<string, string | undefined> = {
+          consumed: 'approval.approved',
+          approved: 'approval.approved',
+          rejected: 'approval.rejected',
+          voided: 'approval.voided',
+        };
+        expect(mine[1]).toBe(decided[a.status as string]);
+      }
+    }
+  });
+
+  it('counts today’s payouts in the daily limit, and leaves a payable settlement that fits and an approval that does not', async () => {
+    const usage = await call(mock, 'merchantControl.usage', { merchantId: MERCHANT });
+    const row = usage.rows.find((r: Any) => r.kind === 'daily_payout');
+    const settlements = (await call(mock, 'settlement.list', { limit: 50 })).items as Any[];
+    const today = settlements
+      .filter((s) => s.status === 'paid_out' && s.assetId === 'USDT' && Date.parse(world.settlementById(s.id).sentAt) >= MIDNIGHT)
+      .reduce((t, s) => t + micro(s.net), 0n);
+    expect(micro(row.used)).toBe(today);
+    expect(micro(row.remaining)).toBe(micro(row.limit) - today);
+    const approvals = await all(mock, 'merchantControl.approvals.list', { status: 'pending' });
+    const waiting = new Set(approvals.map((a) => a.settlementId));
+    const payable = settlements.filter((s) => s.status === 'posted' && s.assetId === 'USDT' && !waiting.has(s.id));
+    expect(
+      payable.some((s) => micro(s.net) <= micro(row.remaining)),
+      'a settlement that can be paid out now',
+    ).toBe(true);
+    expect(
+      approvals.some((a) => micro(a.amount) > micro(row.remaining)),
+      'one approval over what is left',
+    ).toBe(true);
+    expect(
+      approvals.some((a) => micro(a.amount) <= micro(row.remaining)),
+      'one approval that fits',
+    ).toBe(true);
+    // paying one out uses the limit up by exactly its size
+    const m = createPortalMock('active', { now: NOW });
+    const settlement = payable.find((s) => micro(s.net) <= micro(row.remaining))!;
+    await call(m, 'settlement.payout', { settlementId: settlement.id, railId: 'crypto-native' });
+    const next = (await call(m, 'merchantControl.usage', { merchantId: MERCHANT })).rows.find((r: Any) => r.kind === 'daily_payout');
+    expect(micro(next.used)).toBe(micro(settlement.net));
+    expect(micro(next.remaining)).toBe(micro(row.remaining) - micro(settlement.net));
+  });
+
+  it('shows the same figure as Paid in, Captured and Gross for the same days', async () => {
+    for (const [preset, days] of [
+      ['today', 1],
+      ['rolling_7d', 7],
+      ['rolling_30d', 30],
+    ] as const) {
+      const snapshot = await call(mock, 'merchantMetrics.snapshot', { merchantId: MERCHANT, window: { kind: 'preset', preset } });
+      const volume = await call(mock, 'merchantAnalytics.volume', { merchantId: MERCHANT, bucket: 'day', ...utcDays(days) });
+      const fees = await call(mock, 'merchantAnalytics.fees', { merchantId: MERCHANT, bucket: 'day', ...utcDays(days) });
+      const listed = (await all(mock, 'payment.list', { from: utcDays(days).from })).filter((p) => TAKEN.includes(p.status));
+      for (const asset of ['USDT', 'USD']) {
+        const captured = micro(snapshot.captured.find((r: Any) => r.assetCode === asset)?.amount ?? '0');
+        expect(total((volume.items as Any[]).filter((i) => i.assetCode === asset).map((i) => i.volume)), `${preset} volume ${asset}`).toBe(
+          captured,
+        );
+        expect(total((fees.items as Any[]).filter((i) => i.assetCode === asset).map((i) => i.gross)), `${preset} gross ${asset}`).toBe(
+          captured,
+        );
+        const refunded = micro(snapshot.refunded.find((r: Any) => r.assetCode === asset)?.amount ?? '0');
+        expect(
+          total((fees.items as Any[]).filter((i) => i.assetCode === asset).map((i) => i.refunded)),
+          `${preset} refunded ${asset}`,
+        ).toBe(refunded);
+        // and the payments list, asked for the same days, adds up to it
+        expect(total(listed.filter((p) => p.assetId === asset).map((p) => p.capturedAmount)), `${preset} listed ${asset}`).toBe(captured);
+      }
+    }
+  });
+
+  it('counts the intake limits for the same UTC days Home calls today and 30 days', async () => {
+    const usage = await call(mock, 'merchantControl.usage', { merchantId: MERCHANT });
+    const today = await call(mock, 'merchantMetrics.snapshot', { merchantId: MERCHANT, window: { kind: 'preset', preset: 'today' } });
+    const month = await call(mock, 'merchantMetrics.snapshot', { merchantId: MERCHANT, window: { kind: 'preset', preset: 'rolling_30d' } });
+    expect(usage.rows.find((r: Any) => r.kind === 'daily_intake').used).toBe(
+      today.captured.find((r: Any) => r.assetCode === 'USDT').amount,
+    );
+    expect(usage.rows.find((r: Any) => r.kind === 'monthly_intake').used).toBe(
+      month.captured.find((r: Any) => r.assetCode === 'USDT').amount,
+    );
+  });
+
+  it('names a person the same way on the Team page and in a notification', async () => {
+    const team = await all(mock, 'merchantOps.team.list', {});
+    const labels = team.map((m) => m.label).filter(Boolean);
+    const notes = await all(mock, 'merchantOps.notifications.list', {});
+    const joined = notes.find((n) => n.kind === 'team_change');
+    expect(
+      labels.some((label) => joined.title.includes(label)),
+      joined.title,
+    ).toBe(true);
+    for (const n of notes) for (const m of team) expect(`${n.title} ${n.body ?? ''}`, n.title).not.toContain(m.userId);
+  });
+
+  it('gives a payment a reference a person can read out, and the dispute on it the same one', async () => {
+    const payments = await all(mock, 'payment.list', {});
+    for (const p of payments.filter((x) => x.railRef)) {
+      expect(p.railRef, p.id).not.toMatch(/rail/i);
+      // the same number as the order it paid for: payment 8 is "TEST order 1008" and "TEST-1008"
+      const number = Number.parseInt(p.id.slice(2, 8), 10);
+      expect(p.railRef).toBe(`TEST-${1000 + number}`);
+      if (p.description.startsWith('TEST order')) expect(p.description).toBe(`TEST order ${1000 + number}`);
+    }
+    const disputes = await all(mock, 'merchantOps.disputes.list', {});
+    expect(disputes.length).toBeGreaterThan(0);
+    for (const d of disputes) {
+      const payment = await call(mock, 'payment.get', { paymentId: d.paymentId });
+      const detail = await call(mock, 'merchantOps.disputes.get', { disputeId: d.disputeId });
+      expect(detail.payment.paymentId).toBe(payment.id);
+      expect(payment.railRef).toMatch(/^TEST-\d{4}$/);
+    }
+  });
+
+  it('describes each sign-in with a device and an address, marked as test values', async () => {
+    const seats = await call(mock, 'listSessions', { userId: '22222222-2222-4222-8222-222222222222', limit: 50 });
+    expect(seats.sessions.length).toBeGreaterThan(1);
+    for (const seat of seats.sessions) {
+      expect(seat.device).toMatch(/^TEST /);
+      // 198.51.100.0/24 and 203.0.113.0/24 are reserved for documentation: no such address belongs to a person
+      expect(seat.ip).toMatch(/^(198\.51\.100|203\.0\.113)\.\d{1,3}$/);
+      expect(Number.isFinite(Date.parse(seat.lastSeenAt))).toBe(true);
+    }
+    expect(seats.sessions.filter((s: Any) => s.current).length).toBe(1);
+  });
+
+  it('answers the network reads for a business that is not in the network with a not-a-platform refusal, not a 404', async () => {
+    const child = (await call(mock, 'submerchant.list', { merchantId: MERCHANT, limit: 100 }))[0];
+    expect((await call(mock, 'submerchant.get', { merchantId: child.id })).id).toBe(child.id);
+    // the Network board opens /pay/network/TEST-child: it stands for the first business in the network
+    expect((await call(mock, 'submerchant.get', { merchantId: 'TEST-child' })).id).toBe(child.id);
+    expect((await call(mock, 'submerchant.summary', { merchantId: 'TEST-child' })).id).toBe(child.id);
+    await expect(call(mock, 'submerchant.get', { merchantId: 'TEST-nobody' })).rejects.toThrow(/403.*pay\.submerchant_not_onboarded/);
+    await expect(call(mock, 'submerchant.summary', { merchantId: 'TEST-nobody' })).rejects.toThrow(/403/);
+    const platform = createPortalMock('active', { now: NOW, myAccess: 'payfac' });
+    await expect(call(platform, 'submerchant.get', { merchantId: 'TEST-nobody' })).rejects.toThrow(/403.*pay\.submerchant_out_of_scope/);
+  });
+
+  it('makes one payment link for one request key, and hands back the address the service built', async () => {
+    const m = createPortalMock('active', { now: NOW });
+    const first = await call(m, 'merchant.createLink', { merchantId: MERCHANT, label: 'TEST once', idempotencyKey: 'TEST-link-key' });
+    const again = await call(m, 'merchant.createLink', { merchantId: MERCHANT, label: 'TEST once', idempotencyKey: 'TEST-link-key' });
+    expect(again).toEqual(first);
+    expect(first.checkoutUrl).toContain(first.prefix);
+    expect((await all(m, 'merchant.listLinks', { merchantId: MERCHANT })).filter((l) => l.label === 'TEST once').length).toBe(1);
+  });
+});
+
+describe('the stand-in restores a sign-in the way the cookie would', () => {
+  /** A page that only records the routes the stand-in installs, so the identity handler can be driven directly. */
+  async function identityOf(mock: Mock) {
+    const routes: { pattern: string; handler: (route: Any) => Promise<unknown> }[] = [];
+    await mock.install({
+      route: async (pattern: string, handler: (route: Any) => Promise<unknown>) => routes.push({ pattern, handler }),
+    } as never);
+    const handler = routes.find((r) => r.pattern.includes('/api/identity/'))!.handler;
+    return async (procedure: string, headers: Record<string, string> = {}, withHeaders = true) => {
+      let answer: { status: number; body: string } | 'fallback' = 'fallback';
+      const request = {
+        url: () => `http://stand-in.test/api/identity/trpc/${procedure}`,
+        method: () => 'POST',
+        postDataJSON: () => ({}),
+        ...(withHeaders ? { headers: () => headers } : {}),
+      };
+      await handler({
+        request: () => request,
+        fulfill: async (r: { status?: number; body: string }) => {
+          answer = { status: r.status ?? 200, body: r.body };
+        },
+        fallback: async () => undefined,
+      });
+      return answer === 'fallback' ? answer : { status: answer.status, data: JSON.parse(answer.body).result?.data };
+    };
+  }
+
+  it('says nothing before anyone has signed in, then restores the session on a reload, until sign-out', async () => {
+    const identity = await identityOf(createPortalMock('active', { now: NOW }));
+    expect(await identity('auth.refresh')).toBe('fallback');
+    // the person signs in: their next requests carry the token the app holds
+    expect(await identity('listSessions', { authorization: 'Bearer TEST-signed-in' })).not.toBe('fallback');
+    const restored = (await identity('auth.refresh')) as Any;
+    expect(restored.status).toBe(200);
+    expect(restored.data.userId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(restored.data.accessToken).toBe('TEST-signed-in');
+    expect(Date.parse(restored.data.expiresAt)).toBeGreaterThan(Date.now());
+    // signing out forgets it
+    expect(((await identity('auth.logout')) as Any).data).toEqual({ ok: true });
+    expect(await identity('auth.refresh')).toBe('fallback');
+  });
+
+  it('always restores for a caller that cannot show request headers (the preview server answers sign-in itself)', async () => {
+    const identity = await identityOf(createPortalMock('active', { now: NOW }));
+    expect(((await identity('auth.refresh', {}, false)) as Any).status).toBe(200);
   });
 });
