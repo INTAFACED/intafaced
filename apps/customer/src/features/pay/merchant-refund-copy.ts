@@ -20,7 +20,8 @@ const en = {
   unknownBody: 'We didn’t get a clear answer. Check what happened before you send another refund.',
   check: 'Check original refund',
   noMatch: 'No sign of this refund yet',
-  historyWindow: 'We looked through the {count} most recent updates on this payment. Newer ones may not have appeared yet.',
+  historyWindow: 'We checked the first {count} recorded updates (oldest first). A later refund may be beyond this window.',
+  historyAll: 'We checked all {count} recorded updates on this payment.',
   noProof: 'This does not confirm or cancel the refund.',
   paused: 'New refunds stay paused until this one is sorted out.',
   recorded: 'Refund recorded',
@@ -48,6 +49,9 @@ const en = {
   loading: 'Reading the captured payment…',
   readRetry: 'Retry payment read',
   readFailed: 'This didn’t go through. Check the payment and try again.',
+  notConfirmed: 'We couldn’t confirm this refund yet. Nothing new will be sent. Check again.',
+  permissionMissing: 'This account can’t refund payments. Ask an owner or admin to give it the refund permission.',
+  merchantInactive: 'Refunds are on hold until this business is active and verified. Contact support if this looks wrong.',
   noCaptured: 'No captured amount is available to refund.',
   unavailableBody: 'We couldn’t verify the refund. Try the check again.',
   contextChanged: 'The account or review changed. Review the current payment again.',
@@ -73,7 +77,9 @@ const es: Record<keyof typeof en, string> = {
   unknownBody: 'Conserva la referencia original mientras compruebas su resultado registrado.',
   check: 'Comprobar reembolso original',
   noMatch: 'Ningún resultado coincidente',
-  historyWindow: 'Se revisaron las {count} novedades más recientes de este pago. Es posible que aún no aparezcan las más nuevas.',
+  historyWindow:
+    'Se revisaron las primeras {count} novedades registradas (las más antiguas primero). Un reembolso posterior puede quedar fuera de esta ventana.',
+  historyAll: 'Se revisaron las {count} novedades registradas de este pago.',
   noProof: 'Esto no confirma ni cancela el reembolso.',
   paused: 'Los nuevos reembolsos siguen pausados mientras este original esté sin resolver.',
   recorded: 'Reembolso registrado',
@@ -102,6 +108,10 @@ const es: Record<keyof typeof en, string> = {
   loading: 'Leyendo el pago capturado…',
   readRetry: 'Reintentar lectura del pago',
   readFailed: 'No se ha completado. Revisa el pago e inténtalo de nuevo.',
+  notConfirmed: 'Todavía no se pudo confirmar este reembolso. No se enviará nada nuevo. Vuelve a comprobarlo.',
+  permissionMissing: 'Esta cuenta no puede reembolsar pagos. Pide a un propietario o administrador el permiso de reembolso.',
+  merchantInactive:
+    'Los reembolsos están en pausa hasta que este negocio esté activo y verificado. Contacta con soporte si parece un error.',
   noCaptured: 'No hay importe capturado disponible para reembolso.',
   unavailableBody:
     'No se pudo verificar el reembolso original. Conserva su referencia y reintenta la comprobación protegida del historial.',
@@ -129,7 +139,8 @@ const fr: Record<keyof typeof en, string> = {
   check: 'Vérifier le remboursement original',
   noMatch: 'Aucun résultat correspondant',
   historyWindow:
-    'Nous avons examiné les {count} mises à jour les plus récentes de ce paiement. Les plus récentes peuvent ne pas encore apparaître.',
+    'Nous avons examiné les {count} premières mises à jour enregistrées (les plus anciennes d’abord). Un remboursement plus récent peut être hors de cette fenêtre.',
+  historyAll: 'Nous avons examiné les {count} mises à jour enregistrées de ce paiement.',
   noProof: 'Cela ne confirme ni n’annule le remboursement.',
   paused: 'Les nouveaux remboursements restent suspendus tant que cet original n’est pas résolu.',
   recorded: 'Remboursement enregistré',
@@ -160,10 +171,40 @@ const fr: Record<keyof typeof en, string> = {
   loading: 'Lecture du paiement capturé…',
   readRetry: 'Réessayer la lecture du paiement',
   readFailed: 'L’opération n’a pas abouti. Vérifiez le paiement et réessayez.',
+  notConfirmed: 'Nous n’avons pas encore pu confirmer ce remboursement. Rien de nouveau ne sera envoyé. Vérifiez à nouveau.',
+  permissionMissing:
+    'Ce compte ne peut pas rembourser de paiements. Demandez la permission de remboursement à un propriétaire ou administrateur.',
+  merchantInactive:
+    'Les remboursements sont suspendus tant que cette entreprise n’est pas active et vérifiée. Contactez le support si cela semble anormal.',
   noCaptured: 'Aucun montant capturé n’est disponible pour remboursement.',
   unavailableBody:
     'Le remboursement original n’a pas pu être vérifié. Conservez sa référence et réessayez la vérification protégée de l’historique.',
   contextChanged: 'Le compte ou la vérification a changé. Vérifiez à nouveau le paiement actuel.',
   failed: 'Le remboursement original n’a pas été confirmé.',
 };
+/** Window the history read can see: `payment.history` has no cursor, oldest first, 200 rows. */
+export const HISTORY_WINDOW = 200;
+export type RefundFailureKey =
+  | 'busy'
+  | 'invalidAmount'
+  | 'contextChanged'
+  | 'permissionMissing'
+  | 'merchantInactive'
+  | 'unavailableBody'
+  | 'notConfirmed'
+  | 'readFailed';
+/**
+ * Which plain message a refund failure shows. A held refund reference means a refund may have
+ * been dispatched, so an unrecognised failure never says "didn't go through".
+ */
+export function refundFailureKey(input: { code?: string; busy: boolean; referenceHeld: boolean }): RefundFailureKey {
+  const { code, busy, referenceHeld } = input;
+  if (busy) return 'busy';
+  if (code === 'pay.refund_amount_invalid' || code === 'pay.refund_input_invalid') return 'invalidAmount';
+  if (code === 'pay.refund_context_changed') return 'contextChanged';
+  if (code === 'pay.business_permission_missing' || code === 'pay.business_authority_missing') return 'permissionMissing';
+  if (code === 'pay.business_merchant_inactive' || code === 'pay.business_merchant_mismatch') return 'merchantInactive';
+  if (code?.startsWith('pay.refund_')) return 'unavailableBody';
+  return referenceHeld ? 'notConfirmed' : 'readFailed';
+}
 export const refundCopy = defineCopy('merchant-refund', en, { es, fr });

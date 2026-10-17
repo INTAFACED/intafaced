@@ -39,11 +39,13 @@ import {
   amountProblem,
   blankDraft,
   blankLine,
+  digestOf,
   displayStatus,
   draftAmount,
   draftProblems,
   dueAtOf,
   hostedLinkUrl,
+  invoiceBody,
   invoiceEvents,
   invoiceName,
   isOverdue,
@@ -51,6 +53,7 @@ import {
   lineProblem,
   linesTotal,
   matchingPayments,
+  resolveBodyRequestId,
   sameAmount,
 } from './invoice-model';
 import { invoiceSchema, type Invoice } from './schemas';
@@ -155,7 +158,7 @@ describe('invoice rules the form and the buttons follow', () => {
     expect(sameAmount('120.01', '120')).toBe(false);
   });
   it('builds the checkout address from the one-time token', () => {
-    expect(hostedLinkUrl('https://pay.example', 'a b')).toBe('https://pay.example/pay/checkout?token=a%20b');
+    expect(hostedLinkUrl('https://pay.example', 'a b')).toBe('https://pay.example/api/pay/checkout?token=a%20b');
   });
   it('parses an invoice as the service sends it', () => {
     expect(invoiceSchema.safeParse(invoice()).success).toBe(true);
@@ -349,5 +352,49 @@ describe('invoice line items and exact totals', () => {
     );
     expect(out).toContain('Overdue');
     expect(out).toContain('past its due date');
+  });
+});
+
+class FakeStore {
+  data = new Map<string, string>();
+  get length() {
+    return this.data.size;
+  }
+  key = (i: number) => [...this.data.keys()][i] ?? null;
+  getItem = (k: string) => this.data.get(k) ?? null;
+  setItem = (k: string, v: string) => void this.data.set(k, v);
+  removeItem = (k: string) => void this.data.delete(k);
+}
+describe('create-invoice request id storage', () => {
+  const draft = { ...blankDraft('USDT'), amount: '12.5', customerEmail: 'TEST-person@example.test', description: 'TEST private note' };
+  it('keeps one key holding only a digest and an id, never the typed fields', () => {
+    const store = new FakeStore();
+    let n = 0;
+    const id = resolveBodyRequestId(store, 'invoice-create', digestOf(JSON.stringify(invoiceBody(draft))), () => `id-${++n}`);
+    expect([...store.data.keys()]).toEqual(['portal:request:invoice-create']);
+    const raw = store.getItem('portal:request:invoice-create')!;
+    expect(Object.keys(JSON.parse(raw)).sort()).toEqual(['digest', 'id']);
+    expect(raw).not.toMatch(/TEST-person|private note|12\.5/);
+    expect(id).toBe('id-1');
+  });
+  it('reuses the id only while the body is unchanged', () => {
+    const store = new FakeStore();
+    let n = 0;
+    const mint = () => `id-${++n}`;
+    const d1 = digestOf(JSON.stringify(invoiceBody(draft)));
+    const d2 = digestOf(JSON.stringify(invoiceBody({ ...draft, amount: '13' })));
+    expect(d1).not.toBe(d2);
+    expect(resolveBodyRequestId(store, 'invoice-create', d1, mint)).toBe('id-1');
+    expect(resolveBodyRequestId(store, 'invoice-create', d1, mint)).toBe('id-1');
+    expect(resolveBodyRequestId(store, 'invoice-create', d2, mint)).toBe('id-2');
+    expect(store.data.size).toBe(1);
+  });
+  it('removes keys the earlier format wrote and replaces an unreadable value', () => {
+    const store = new FakeStore();
+    store.setItem('portal:request:invoice-create:{"email":"TEST-person@example.test"}', 'old');
+    store.setItem('portal:request:invoice-create', 'not json');
+    store.setItem('portal:request:invoice:abc:send', 'keep');
+    expect(resolveBodyRequestId(store, 'invoice-create', 'd', () => 'fresh')).toBe('fresh');
+    expect([...store.data.keys()].sort()).toEqual(['portal:request:invoice-create', 'portal:request:invoice:abc:send']);
   });
 });

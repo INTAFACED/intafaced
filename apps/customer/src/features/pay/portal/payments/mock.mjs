@@ -113,7 +113,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: 0,
       createdAt: iso(Date.now()),
-      checkoutUrl: `/pay/checkout?token=${link.token}`,
+      checkoutUrl: `/api/pay/checkout?token=${link.token}`,
     };
     const at = world.links.findIndex((l) => l.id === record.id);
     if (at >= 0) world.links.splice(at, 1);
@@ -147,7 +147,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: paidVia ? 1 : 0,
       createdAt: invoice.sentAt,
-      checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
+      checkoutUrl: `/api/pay/checkout?token=TEST-token-${prefix}`,
     });
   }
   // exact 18-place arithmetic, so a refused product is refused for the same reason the service refuses it
@@ -391,6 +391,10 @@ export function createPaymentsMock(ctx) {
               (!input.search || l.label.toLowerCase().includes(input.search.toLowerCase()) || l.prefix === input.search),
           );
           return ok(route, page(rows, input));
+        }
+        case 'merchant.getLink': {
+          const x = state.links.find((l) => l.id === input.linkId);
+          return x ? ok(route, x) : refuse(route, 404, 'pay.link_not_found');
         }
         case 'subscription.list': {
           const rows = state.subscriptions.filter(

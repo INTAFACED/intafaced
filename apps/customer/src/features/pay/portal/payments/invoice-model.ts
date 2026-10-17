@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { MAX_AMOUNT, SCALE } from '@intafaced/ledger-client/money';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { newRequestId } from '../model';
+import { checkoutAddressFor } from './checkout-address';
 import type { Invoice, InvoiceDisplayStatus, InvoiceStatus } from './schemas';
 
 /** Why an amount typed into the invoice form can't be sent, or null when it can. The service rejects the same cases. */
@@ -156,7 +157,7 @@ export function invoiceEvents(invoice: Invoice): Array<{ at: string; key: Timeli
 }
 
 /** The address a customer opens to pay. It exists only for the one call that minted the token. */
-export const hostedLinkUrl = (origin: string, token: string) => `${origin}/pay/checkout?token=${encodeURIComponent(token)}`;
+export const hostedLinkUrl = checkoutAddressFor;
 
 /** Payments that could settle an invoice: paid, in the same asset, for exactly its amount. The service checks the same three things. */
 export function matchingPayments<T extends { status: string; assetId: string; amount: string }>(
@@ -204,4 +205,95 @@ export function useRequestId(scope: string): { id: string; renew: () => void } {
     setId(made);
   }, [scope]);
   return { id, renew };
+}
+
+/** The body `createInvoice` sends, without its request id: the one canonical form the request id is tied to. */
+export function invoiceBody(draft: InvoiceDraft) {
+  const hasLines = draft.lineItems.length > 0;
+  return {
+    assetId: draft.assetId.trim(),
+    amount: draftAmount(draft),
+    ...(draft.customerRef.trim() ? { customerRef: draft.customerRef.trim() } : {}),
+    ...(draft.customerEmail.trim() ? { customerEmail: draft.customerEmail.trim() } : {}),
+    ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
+    ...(draft.dueDate ? { dueAt: dueAtOf(draft.dueDate) } : {}),
+    ...(hasLines
+      ? {
+          lineItems: draft.lineItems.map((line) => ({
+            kind: line.kind,
+            description: line.description.trim(),
+            quantity: line.quantity.trim(),
+            unitAmount: line.unitAmount.trim(),
+          })),
+        }
+      : {}),
+  };
+}
+
+/** A short fingerprint of text (two 53-bit mixes, 26 hex characters). Not secret: it only tells two bodies apart, so the stored key never holds the body. */
+export function digestOf(text: string): string {
+  const mix = (seed: number) => {
+    let h1 = 0xdeadbeef ^ seed;
+    let h2 = 0x41c6ce57 ^ seed;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+  };
+  return mix(0) + mix(1);
+}
+
+type KeyStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
+/**
+ * The request id for a body. One storage key (`portal:request:<scope>`) holds `{digest, id}`: the id is reused only
+ * when the digest of the body about to be sent matches, so a changed form gets a fresh id and nothing typed is stored.
+ * Keys the earlier format wrote (`<scope>:<the whole draft>`) are removed.
+ */
+export function resolveBodyRequestId(store: KeyStore, scope: string, digest: string, mint: () => string = newRequestId): string {
+  const key = `portal:request:${scope}`;
+  for (let i = store.length - 1; i >= 0; i--) {
+    const name = store.key(i);
+    if (name?.startsWith(`${key}:`)) store.removeItem(name);
+  }
+  try {
+    const saved = JSON.parse(store.getItem(key) ?? 'null') as { digest?: unknown; id?: unknown } | null;
+    if (saved && saved.digest === digest && typeof saved.id === 'string' && saved.id) return saved.id;
+  } catch {
+    /* an unreadable value is replaced below */
+  }
+  const id = mint();
+  store.setItem(key, JSON.stringify({ digest, id }));
+  return id;
+}
+
+/** `useRequestId` for a create form: the id follows the digest of the body, and `renew` starts a fresh one after a confirmed outcome. */
+export function useBodyRequestId(scope: string, body: unknown): { id: string; renew: () => void } {
+  const digest = digestOf(JSON.stringify(body));
+  const read = (d: string) => {
+    try {
+      return resolveBodyRequestId(sessionStorage, scope, d);
+    } catch {
+      return newRequestId();
+    }
+  };
+  const [state, setState] = useState(() => ({ digest, id: read(digest) }));
+  let current = state;
+  if (state.digest !== digest) {
+    current = { digest, id: read(digest) };
+    setState(current);
+  }
+  const renew = useCallback(() => {
+    const id = newRequestId();
+    try {
+      sessionStorage.setItem(`portal:request:${scope}`, JSON.stringify({ digest, id }));
+    } catch {
+      /* the id still renews in memory */
+    }
+    setState({ digest, id });
+  }, [scope, digest]);
+  return { id: current.id, renew };
 }

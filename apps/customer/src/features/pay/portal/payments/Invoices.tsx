@@ -24,6 +24,7 @@ import { addressOf } from './Links';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
+import { useDebouncedValue } from './use-debounced';
 import {
   allowedActions,
   blankDraft,
@@ -41,6 +42,8 @@ import {
   localDay,
   matchingPayments,
   MAX_INVOICE_LINES,
+  useBodyRequestId,
+  invoiceBody,
   useRequestId,
   type DraftField,
   type InvoiceDraft,
@@ -221,7 +224,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
   const today = localDay(new Date());
   const problems = draftProblems(draft, today);
   const ready = Object.keys(problems).length === 0;
-  const request = useRequestId(`invoice-create:${JSON.stringify(draft)}`);
+  const request = useBodyRequestId('invoice-create', invoiceBody(draft));
   const shown = (key: DraftField) => (touched[key] && problems[key] ? t(`inv_problem_${problems[key]!}`) : undefined);
   const assets = useAssetChoices(portal, merchantId, draft.assetId);
   const hasLines = draft.lineItems.length > 0;
@@ -398,27 +401,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                 </>
               )
             }
-            perform={() =>
-              portal.createInvoice({
-                requestId: request.id,
-                assetId: asset,
-                amount: total,
-                ...(draft.customerRef.trim() ? { customerRef: draft.customerRef.trim() } : {}),
-                ...(draft.customerEmail.trim() ? { customerEmail: draft.customerEmail.trim() } : {}),
-                ...(draft.description.trim() ? { description: draft.description.trim() } : {}),
-                ...(draft.dueDate ? { dueAt: dueAtOf(draft.dueDate) } : {}),
-                ...(hasLines
-                  ? {
-                      lineItems: draft.lineItems.map((line) => ({
-                        kind: line.kind,
-                        description: line.description.trim(),
-                        quantity: line.quantity.trim(),
-                        unitAmount: line.unitAmount.trim(),
-                      })),
-                    }
-                  : {}),
-              })
-            }
+            perform={() => portal.createInvoice({ requestId: request.id, ...invoiceBody(draft) })}
             onConfirmed={(invoice) => {
               request.renew();
               navigate(invoiceHref(invoice.id));
@@ -644,11 +627,10 @@ function MarkPaid({ portal, invoice, disabled, onDone }: { portal: PortalApi; in
   const merchantId = access.status === 'ready' ? access.merchantId : '';
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState('');
-  const key = useMemo(() => `portal:invoice-payments:${invoice.id}:${search}`, [invoice.id, search]);
-  const found = useResource(
-    (signal) => portal.paymentPage(merchantId, { assetId: invoice.assetId, search: search.trim() }, undefined, signal),
-    key,
-  );
+  // The service is asked once typing pauses, not on every key.
+  const term = useDebouncedValue(search.trim());
+  const key = useMemo(() => `portal:invoice-payments:${invoice.id}:${term}`, [invoice.id, term]);
+  const found = useResource((signal) => portal.paymentPage(merchantId, { assetId: invoice.assetId, search: term }, undefined, signal), key);
   const request = useRequestId(`invoice:${invoice.id}:paid:${picked}`);
   const candidates: Payment[] = found.resource.status === 'ready' ? matchingPayments(invoice, found.resource.data.items) : [];
   const chosen = candidates.find((p) => p.id === picked);

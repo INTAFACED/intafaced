@@ -302,6 +302,15 @@ describe('payment detail (P07)', () => {
     expect(out).toContain('href="/pay/refunds/new?payment=aa000001-0000-4000-8000-000000000001"');
     expect(out).not.toContain('Fee details weren’t recorded');
   });
+  it('explains a negative "Net after refunds": the fee is kept on a refund', () => {
+    const base = { amount: '10', capturedAmount: '10', pricingSnapshot: { fee: '2' } };
+    const negative = view({ payment: ready(payment({ ...base, refundedAmount: '10', status: 'refunded' })) });
+    expect(negative).toContain('Net after refunds');
+    expect(negative).toContain('Below zero because the processing fee is kept when a payment is refunded.');
+    const positive = view({ payment: ready(payment({ ...base, refundedAmount: '3' })) });
+    expect(positive).toContain('Net after refunds');
+    expect(positive).not.toContain('Below zero because');
+  });
   it('says plainly when the fee was not recorded, and offers no Refund once everything is refunded', () => {
     const out = view({ payment: ready(payment({ pricingSnapshot: null, refundedAmount: '125.5', status: 'refunded' })) });
     expect(out).toContain('Fee details weren’t recorded for this payment.');
