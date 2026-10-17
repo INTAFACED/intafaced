@@ -732,7 +732,7 @@ describe('the stand-in restores a sign-in the way the cookie would', () => {
     } as never);
     const handler = routes.find((r) => r.pattern.includes('/api/identity/'))!.handler;
     return async (procedure: string, headers: Record<string, string> = {}, withHeaders = true) => {
-      let answer: { status: number; body: string } | 'fallback' = 'fallback';
+      let answer = 'fallback' as { status: number; body: string } | 'fallback';
       const request = {
         url: () => `http://stand-in.test/api/identity/trpc/${procedure}`,
         method: () => 'POST',
