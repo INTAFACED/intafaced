@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError } from '@intafaced/ledger-client';
 import { closeHoldFailureAction, sumBuyFillNotional } from './close-position.js';
 
 describe('S03 flatten hold', () => {
@@ -15,6 +15,7 @@ describe('S03 flatten hold', () => {
 
   it('an unknown ledger reply keeps the close row; a definite shortfall deletes the intent', () => {
     expect(closeHoldFailureAction(new Error('connect timeout'))).toBe('keep_recovery');
-    expect(closeHoldFailureAction({ code: 'ledger.insufficient_funds' })).toBe('delete_intent');
+    expect(closeHoldFailureAction(new LedgerError('short', 'ledger.insufficient_funds'))).toBe('delete_intent');
+    expect(closeHoldFailureAction({ code: 'ledger.insufficient_funds' })).toBe('keep_recovery');
   });
 });

@@ -1,7 +1,7 @@
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
@@ -69,18 +69,20 @@ export function sumBuyFillNotional(fills: readonly { readonly price: string; rea
 /**
  * A definite ledger refusal deletes the intent row. A timeout or any other
  * unknown reply keeps the row and the hold for recovery. S02 owns the sweep.
+ * #4832's classifyHoldPostError replaces this function once both are on main.
  */
+const DEFINITE_HOLD_REFUSAL_CODES = new Set([
+  'ledger.insufficient_funds',
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.frozen',
+  'ledger.unauthenticated',
+  'ledger.freeze_attributed',
+]);
+
 export function closeHoldFailureAction(err: unknown): 'keep_recovery' | 'delete_intent' {
-  const code = err !== null && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
-  if (
-    code === 'ledger.insufficient_funds' ||
-    code === 'ledger.unbalanced' ||
-    code === 'ledger.invalid_entry' ||
-    code === 'ledger.frozen' ||
-    code === 'ledger.owner_identity'
-  ) {
-    return 'delete_intent';
-  }
+  if (err instanceof LedgerError && DEFINITE_HOLD_REFUSAL_CODES.has(err.code)) return 'delete_intent';
   return 'keep_recovery';
 }
 

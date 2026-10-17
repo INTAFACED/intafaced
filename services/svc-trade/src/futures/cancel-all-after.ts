@@ -30,7 +30,9 @@ export function armCancelAllAfter(input: {
   readonly publishedTimeouts: readonly number[];
   readonly nowMs: number;
   readonly countdownId: string;
-}): { readonly ok: true; readonly armed: ArmedCancelAllAfter | null } | { readonly ok: false; readonly code: typeof CANCEL_ALL_AFTER_REJECTED } {
+}):
+  | { readonly ok: true; readonly armed: ArmedCancelAllAfter | null }
+  | { readonly ok: false; readonly code: typeof CANCEL_ALL_AFTER_REJECTED } {
   if (!input.publishedTimeouts.includes(input.timeoutSec)) {
     return { ok: false, code: CANCEL_ALL_AFTER_REJECTED };
   }

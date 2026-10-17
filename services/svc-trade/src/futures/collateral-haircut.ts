@@ -6,50 +6,42 @@ import type { Principal } from '@intafaced/auth';
  * Yield-bearing / staked / lending-idle posted as IM refuses — that is a
  * separate product. Posted margin is not a loan.
  *
- * Hitch: wrap `PositionService.open` so the mill runs BEFORE
- * `recipes.futuresMarginLock`. Live boot: ledger-client.ts loads this mill.
- * router.ts / position-service.ts / margin-mode.ts / matching not recut.
+ * The credit check itself lives in PositionService.open, after the idempotent
+ * replay and on the margin that open already computed. This wrapper only
+ * refuses a loan, a non-cash collateral class, and a blank or invalid haircut
+ * before that open runs. Live boot: ledger-client.ts loads this mill.
  */
-import { userAvailable, type AccountRef, type Amount } from '@intafaced/ledger-client';
-import { mulBps } from '@intafaced/ledger-client/money';
-import { parseOwnerIntegerEnv } from '../owner-int-env.js';
-import { initialMargin } from './initial-margin.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import { UNSUPPORTED_COLLATERAL_CLASS, checkCollateralClassForMargin, type MarginModeRefuseCode } from './margin-mode.js';
+import {
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+  type OpenCreditDecision,
+} from './haircut-credit.js';
 
-export const HAIRCUT_UNSET = 'trade.haircut_unset' as const;
-export const HAIRCUT_CREDIT_SHORT = 'trade.haircut_credit_short' as const;
+export {
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  collateralCredit,
+  decideOpenCredit,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+} from './haircut-credit.js';
+export type { OpenCreditDecision } from './haircut-credit.js';
+
 export const MARGIN_IS_NOT_A_LOAN = 'trade.margin_is_not_a_loan' as const;
 
-export type HaircutRefuseCode =
-  | typeof HAIRCUT_UNSET
-  | typeof HAIRCUT_CREDIT_SHORT
-  | typeof MARGIN_IS_NOT_A_LOAN
-  | MarginModeRefuseCode;
+export type HaircutRefuseCode = typeof HAIRCUT_UNSET | typeof HAIRCUT_CREDIT_SHORT | typeof MARGIN_IS_NOT_A_LOAN | MarginModeRefuseCode;
 
 export type HaircutCheck =
-  | { readonly ok: true; readonly haircutBps: number }
-  | { readonly ok: false; readonly code: HaircutRefuseCode; readonly reason: string };
-
-export function readOwnerHaircutBps(env: NodeJS.ProcessEnv = process.env): unknown {
-  return env.TRADE_COLLATERAL_HAIRCUT_BPS;
-}
+  { readonly ok: true; readonly haircutBps: number } | { readonly ok: false; readonly code: HaircutRefuseCode; readonly reason: string };
 
 function present(raw: unknown): boolean {
   if (raw === undefined || raw === null) return false;
   if (typeof raw === 'string' && raw.trim() === '') return false;
   return true;
-}
-
-/** Owner integer bps. Blank / non-integer / negative refuses — never invent 0 or 10. */
-export function requireOwnerHaircutBps(raw: unknown): number {
-  const n = parseOwnerIntegerEnv(typeof raw === 'number' || typeof raw === 'string' ? raw : String(raw));
-  if (n == null || n < 0) {
-    throw Object.assign(new Error('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut'), {
-      code: HAIRCUT_UNSET,
-    });
-  }
-  return n;
 }
 
 export interface PostedMarginCollateralInput {
@@ -94,109 +86,6 @@ export function checkPostedMarginCollateral(input: PostedMarginCollateralInput):
   }
 }
 
-/**
- * How much of the posted cash counts toward initial margin.
- * 1000 bps on 100 credits 90. The cut is ceil so a fractional haircut never
- * invents credit. The initial-margin lock is a different number: this function
- * does not return it.
- */
-export function collateralCredit(postedCash: Amount, haircutBps: number): Amount {
-  if (postedCash <= 0n) return 0n as Amount;
-  if (!Number.isInteger(haircutBps) || haircutBps <= 0) return postedCash;
-  if (haircutBps >= 10_000) return 0n as Amount;
-  const cut = mulBps(postedCash, haircutBps, 'ceil');
-  const credit = postedCash - cut;
-  return (credit < 0n ? 0n : credit) as Amount;
-}
-
-export type OpenCreditDecision =
-  | { readonly ok: true; readonly credit: Amount; readonly lockAmount: Amount }
-  | { readonly ok: false; readonly code: typeof HAIRCUT_CREDIT_SHORT; readonly reason: string; readonly lockAmount: 0n };
-
-/**
- * Credit below the required initial margin refuses. The lock, when the open
- * proceeds, stays the full initial margin — the haircut does not shrink it.
- */
-export function decideOpenCredit(input: {
-  readonly postedCash: Amount;
-  readonly initialMargin: Amount;
-  readonly haircutBps: number;
-}): OpenCreditDecision {
-  const credit = collateralCredit(input.postedCash, input.haircutBps);
-  if (credit < input.initialMargin) {
-    return {
-      ok: false,
-      code: HAIRCUT_CREDIT_SHORT,
-      reason:
-        'posted collateral credit is below the initial margin — the haircut does not shrink the lock, so the open is refused and nothing is locked',
-      lockAmount: 0n,
-    };
-  }
-  return { ok: true, credit, lockAmount: input.initialMargin };
-}
-
-type CreditHost = {
-  sql: (
-    strings: TemplateStringsArray,
-    ...values: unknown[]
-  ) => Promise<ReadonlyArray<{ id: string; quote_asset: string; kind: string; status: string }>>;
-  ledger: { balance(ref: AccountRef): Promise<{ amount: Amount }> };
-  markFor(marketId: string, symbol: string, at: Date, authorisesSize: Amount | null): Promise<{ price: Amount }>;
-  now(): Date;
-};
-
-function asCreditHost(svc: object): CreditHost | null {
-  const host = svc as CreditHost;
-  if (typeof host.sql !== 'function' || typeof host.markFor !== 'function' || typeof host.now !== 'function') return null;
-  if (!host.ledger || typeof host.ledger.balance !== 'function') return null;
-  return host;
-}
-
-type CreditFigures = { readonly kind: 'figures'; readonly postedCash: Amount; readonly initialMargin: Amount } | { readonly kind: 'defer' };
-
-async function readOpenCreditFigures(host: CreditHost, input: OpenPositionInput): Promise<CreditFigures> {
-  let rows: ReadonlyArray<{ id: string; quote_asset: string; kind: string; status: string }>;
-  try {
-    rows = await host.sql`
-      SELECT id, quote_asset, kind, status
-      FROM trade.markets
-      WHERE symbol = ${input.symbol}
-      LIMIT 1
-    `;
-  } catch {
-    throw new FuturesError(
-      'collateral credit could not be read — refusing the open with no margin lock',
-      HAIRCUT_UNSET,
-      400,
-    );
-  }
-  const market = rows[0];
-  if (!market || market.kind !== 'futures' || market.status !== 'active') return { kind: 'defer' };
-  let mark: { price: Amount };
-  try {
-    mark = await host.markFor(market.id, input.symbol, host.now(), input.size);
-  } catch {
-    return { kind: 'defer' };
-  }
-  let margin: Amount;
-  try {
-    margin = initialMargin({ size: input.size, entryPrice: mark.price, leverage: input.leverage });
-  } catch {
-    return { kind: 'defer' };
-  }
-  let posted: { amount: Amount };
-  try {
-    posted = await host.ledger.balance(userAvailable(input.userId, market.quote_asset));
-  } catch {
-    throw new FuturesError(
-      'collateral credit could not be read — refusing the open with no margin lock',
-      HAIRCUT_UNSET,
-      400,
-    );
-  }
-  return { kind: 'figures', postedCash: posted.amount, initialMargin: margin };
-}
-
 type OpenWithCollateral = OpenPositionInput & {
   readonly collateralClass?: unknown;
   readonly haircutBps?: unknown;
@@ -225,20 +114,6 @@ export function installCollateralHaircutOpen(ctor: typeof PositionService): void
       asLoan: tagged.asLoan,
     });
     if (!check.ok) refuseOpen(check);
-    const host = asCreditHost(this);
-    if (host) {
-      const figures = await readOpenCreditFigures(host, input);
-      if (figures.kind === 'figures') {
-        const decision = decideOpenCredit({
-          postedCash: figures.postedCash,
-          initialMargin: figures.initialMargin,
-          haircutBps: check.haircutBps,
-        });
-        if (!decision.ok) refuseOpen(decision);
-        // decision.lockAmount is the full initial margin. origOpen posts that
-        // lock. The haircut is not applied to the locked amount.
-      }
-    }
     return origOpen.call(this, input, principal);
   };
 }
