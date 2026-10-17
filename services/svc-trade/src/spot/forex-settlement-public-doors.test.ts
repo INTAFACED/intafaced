@@ -213,8 +213,8 @@ describe('D26-P1-T7 public doors — complete refuse-closed forex product', () =
     };
     expect(payload.published).toBe(false);
     expect(payload.socket).toBe(FOREX_SETTLEMENT_SOCKET);
-    expect(payload.blockers).toEqual(['D26-P0-05', 'fiat_settle_rails']);
-    expect(payload.residual).toMatch(/never invent/i);
+    expect(payload.blockers).toEqual(['settlement_asset_law', 'fiat_settle_rails']);
+    expect(payload.residual).toMatch(/settlement asset/i);
     expect(payload.allowed?.productionActiveListing).toBe(false);
     expect(payload.allowed?.productionPlace).toBe(false);
     expect(payload.allowed?.paperListing).toBe(true);
@@ -229,7 +229,7 @@ describe('D26-P1-T7 public doors — complete refuse-closed forex product', () =
       paper: false,
     });
     expect(statusCode).toBe(400);
-    expect(body.error!.message).toMatch(new RegExp(`${FOREX_SETTLEMENT_SOCKET}|${FOREX_SETTLEMENT_REFUSE_CODE}|D26-P0-05`));
+    expect(body.error!.message).toMatch(/settlement asset/);
     await app.close();
   });
 

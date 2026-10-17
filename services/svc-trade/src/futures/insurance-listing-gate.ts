@@ -20,6 +20,7 @@
  * the shortfall bound cannot drift onto different pots.
  */
 import { formatAmount, type AccountRef, type Amount, type Balance } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { recipeInsuranceAccount } from './insurance-bound.js';
 import { formatAccountRef } from './profit-source.js';
 
@@ -68,15 +69,15 @@ export async function checkInsuranceFundedForListing(input: InsuranceListingGate
 
   const { amount: available } = await input.balance(account);
   if (available <= 0n) {
+    logRefusalSpec('trade.insurance_fund_empty');
     return {
       ok: false,
       account,
       available,
       code: INSURANCE_FUND_EMPTY,
       reason:
-        `futures cannot list for real money while insurance fund ${formatAccountRef(account)} ` +
-        `holds ${formatAmount(available)} ${input.quoteAsset} — DIRECTION:33 empty fund → no list ` +
-        `(capitalisation size/schedule remain owner law; this gate only requires a positive balance)`,
+        `Futures cannot be listed for real money yet: insurance fund ${formatAccountRef(account)} ` +
+        `holds ${formatAmount(available)} ${input.quoteAsset}. A positive balance is required. The target size is not set here.`,
     };
   }
 

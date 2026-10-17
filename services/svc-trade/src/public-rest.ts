@@ -11,6 +11,7 @@ import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-c
 import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
+import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -289,7 +290,7 @@ export function sessionStateForMarket(
  * as `trade.futures_disabled`) — not a retryable 503.
  */
 export const OPEN_POSITION_GATES_NOTE =
-  'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · ADL disclosure ack 403 (DIRECTION:34) · unnamed profit pot 403 NotSupported';
+  'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · auto-deleveraging disclosure acknowledgement 403 · unnamed profit pot 403 NotSupported';
 
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
@@ -595,13 +596,16 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * without reading source or probing 501s. Never invents mids/rates.
    */
   app.get('/api/v1/capabilities', async (_req, reply) => {
+    logRefusalSpec('paperListPolicy');
+    logRefusalSpec('trade.leverage_too_high');
+    logRefusalSpec('trade.adl_disclosure_required');
     const { CCXT_CAPABILITY_MATRIX, CCXT_REFUSE_ARMS } = await import('./ccxt-capability-matrix.js');
     return reply.code(200).send({
       asOfMs: now(),
       routes: CCXT_CAPABILITY_MATRIX,
       refuseArms: CCXT_REFUSE_ARMS,
       notes: {
-        paperListPolicy: 'paper markets stay listed with paper:true — exclude-from-list is Nitro product (N3)',
+        paperListPolicy: 'Paper markets stay listed with paper:true. Hiding them from this list is a separate product decision.',
         rateLimit: {
           enforcedBy: 'edge',
           publicPerMinute: RATE_LIMITS.publicPerMinute,

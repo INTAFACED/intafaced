@@ -6,6 +6,7 @@
  */
 
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './errors.js';
 
 export type OtcCounterpartyMode = 'platform' | 'maker';
@@ -108,16 +109,16 @@ export function parseOtcDeskLawJson(raw: string | null | undefined): OtcDeskLaw 
 /** Require published law or throw refuse-closed. */
 export function requirePublishedOtcDeskLaw(law: OtcDeskLaw | null | undefined): Extract<OtcDeskLaw, { published: true }> {
   if (!law || law.published !== true) {
-    throw new OtcError(
-      'OTC RFQ desk is refuse-closed until owner publishes DIRECTION §8 desk law (spread, stake gate, counterparty)',
-      'trade.otc_desk_law_blank',
-      OTC_DESK_LAW_RESIDUAL,
-    );
+    logRefusalSpec('trade.otc_desk_law_blank');
+    throw new OtcError(OTC_DESK_LAW_RESIDUAL, 'trade.otc_desk_law_blank', OTC_DESK_LAW_RESIDUAL);
   }
   return law;
 }
 
 export function otcDeskLawStatusLine(law: OtcDeskLaw): string {
-  if (law.published !== true) return 'published=0 residual=DIRECTION_§8_refuse_closed';
+  if (law.published !== true) {
+    logRefusalSpec('trade.otc_desk_law_blank');
+    return 'published=0 residual=otc_desk_law_unset';
+  }
   return `published=1 spreadBps=${law.spreadBps} counterparty=${law.counterparty} ttlMs=${law.quoteTtlMs} maxMidAgeSeconds=${law.maxMidAgeSeconds}`;
 }
