@@ -14,7 +14,15 @@ import { actorName } from '../account/actors';
 import { accountCopy } from '../account/copy';
 import { ACTIVITY_TYPES, type ActivityItem } from '../account/schemas';
 import { portalCopy } from '../copy';
+import { approvalStatuses } from '../../schemas';
 import { activityHref, actionWords } from './model';
+
+/** The words the Approvals page uses for an approval's status ("consumed" reads "Used"). */
+function approvalStatusWords(status: string, p: ReturnType<typeof portalCopy.useCopy>['t']): string {
+  return (approvalStatuses as readonly string[]).includes(status)
+    ? p(`chipApproval_${status}` as 'chipApproval_consumed')
+    : actionWords('', status);
+}
 
 type Filters = Record<string, string>;
 
@@ -77,6 +85,8 @@ export function ActivityView(props: {
       const key = `chipKyb_${to}` as 'chipKyb_none';
       return `${typeLabel('kyb')}: ${['none', 'pending', 'approved', 'rejected'].includes(to) ? p(key) : actionWords('kyb', to)}`;
     }
+    // One row per payout approval, so the row says what was done (asked for); where it stands now goes in the details.
+    if (item.objectType === 'approval') return t('payoutRequested');
     return `${typeLabel(item.objectType)}: ${actionWords(item.objectType, item.action)}`;
   };
   const details = (item: ActivityItem) => {
@@ -92,7 +102,8 @@ export function ActivityView(props: {
     if (d.host) parts.push(`${t('detailHost')}: ${d.host}`);
     if (d.eventType) parts.push(`${t('detailEvent')}: ${d.eventType.replace(/[._]+/g, ' ')}`);
     if (d.attempts) parts.push(t('detailAttempts', { n: d.attempts }));
-    if (d.status && item.objectType !== 'kyb') parts.push(actionWords('', d.status));
+    if (d.status && item.objectType === 'approval') parts.push(`${t('detailStatusNow')}: ${approvalStatusWords(d.status, p)}`);
+    else if (d.status && item.objectType !== 'kyb') parts.push(actionWords('', d.status));
     return parts.length ? (
       parts.map((part, i) => (
         <Fragment key={i}>
@@ -132,6 +143,7 @@ export function ActivityView(props: {
           hasMore={props.state.status === 'ready' ? props.state.hasMore : false}
         />
         <p className="muted">{t('searchHint')}</p>
+        <p className="muted">{t('activityPayoutNote')}</p>
         <ListShell state={props.state} retry={props.reload} empty={{ title: t('activityEmpty'), body: t('activityEmptyBody') }}>
           {(rows) => (
             <>

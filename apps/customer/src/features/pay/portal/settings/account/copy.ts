@@ -170,7 +170,7 @@ const en = {
   secondApprovalIsOn: 'Second approval is on.',
   secondApprovalIsOff: 'Second approval is off.',
   secondApprovalUnknown: 'We can’t read this setting.',
-  secondApprovalCantChange: 'It can’t be changed until we can read it. Check back later.',
+  secondApprovalCantChange: 'It can’t be changed until we can read it.',
   secondApprovalOn: 'Turn on second approval',
   secondApprovalOnBody: 'Legal-detail changes will need a second person on your team to confirm them.',
   secondApprovalOff: 'Turn off second approval',
@@ -250,6 +250,9 @@ const en = {
   detailEvent: 'Event',
   detailAttempts: '{n} attempts',
   detailNone: 'No further details',
+  detailStatusNow: 'Status now',
+  payoutRequested: 'Payout requested',
+  activityPayoutNote: 'Payout requests show when they were asked for and where they stand now.',
 
   // ---- network
   netNotPlatformTitle: 'This page is for platform accounts',

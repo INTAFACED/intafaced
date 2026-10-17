@@ -564,6 +564,8 @@ test('subscription review fixes: an uncertain create is checked, then resent onc
   await page.getByRole('dialog').getByRole('button', { name: 'Create subscription', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
   await expect(page.getByText('Outcome not confirmed').first()).toBeVisible();
+  // One notice about the lost reply: the specific outcome, not also the general one.
+  await expect(page.getByText(/earlier subscription action has not been confirmed/)).toHaveCount(0);
   const check = page.getByRole('button', { name: 'Check and finish the original request', exact: true });
   await expect(check).toBeVisible();
   // First check: nothing is open on the mandate, so the original request goes out once more, unchanged.

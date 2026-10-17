@@ -53,7 +53,7 @@ const rows = [
     action: 'payout_pending',
     objectType: 'approval',
     objectId: 'ap1',
-    detail: { destinationKind: 'bank', destinationMasked: '••••1234' },
+    detail: { status: 'pending', destinationKind: 'bank', destinationMasked: '••••1234' },
   }),
 ];
 const base = {
@@ -99,7 +99,15 @@ describe('activity', () => {
     expect(out).toContain('••••1234');
     expect(out).toContain('Payment: Captured');
     expect(out).toContain('Verification: Approved');
-    expect(out).toContain('Payout request: Pending');
+    expect(out).toContain('Payout requested');
+    expect(out).toContain('Payout requests show when they were asked for and where they stand now.');
+  });
+  it('names a payout approval by what was done and where it stands now, in the Approvals page words', () => {
+    const used = item({ id: 'a9', action: 'payout_consumed', objectType: 'approval', objectId: 'ap9', detail: { status: 'consumed' } });
+    const out = html({ state: list([used, rows[3]!]) });
+    expect(out).toContain('Status now: Used');
+    expect(out).toContain('Status now: Waiting');
+    expect(out).not.toContain('Consumed');
   });
   it('links every row to the page for the thing that changed', () => {
     const out = html();

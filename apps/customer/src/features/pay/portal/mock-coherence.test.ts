@@ -810,6 +810,29 @@ describe('what the stand-in mints is shaped like what the service mints', () => 
   });
 });
 
+describe('a subscription made since boot', () => {
+  it('has no billing history, and the seeded subscriptions keep their own', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const seeded = await all(mock, 'subscription.list', {});
+    const before = await Promise.all(seeded.map(async (s) => (await call(mock, 'subscription.cycles', { subscriptionId: s.id })).cycles));
+    const mandate = await call(mock, 'mandate.create', {
+      merchantId: MERCHANT,
+      customerId: 'TEST-cust-020',
+      assetId: 'USDT',
+      amount: '19.00',
+      cadence: 'monthly',
+      startsAt: new Date(NOW + DAY).toISOString(),
+    });
+    const made = await call(mock, 'subscription.create', { mandateId: mandate.id, path: 'crypto_invoice', idempotencyKey: 'TEST-hist' });
+    expect((await call(mock, 'subscription.cycles', { subscriptionId: made.id })).cycles).toEqual([]);
+    expect(await call(mock, 'subscription.listExecutions', { subscriptionId: made.id })).toEqual([]);
+    for (const [i, s] of seeded.entries()) {
+      expect((await call(mock, 'subscription.cycles', { subscriptionId: s.id })).cycles).toEqual(before[i]);
+    }
+    expect(before.some((c) => c.length > 0)).toBe(true);
+  });
+});
+
 describe('an approval the owner can decide and then send', () => {
   it('lets the owner approve a teammate’s request that fits today’s limit, and then send it', async () => {
     const mock = createPortalMock('active', { now: NOW });

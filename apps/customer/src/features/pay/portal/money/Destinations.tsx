@@ -62,6 +62,8 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
             href: '/pay/payouts/destinations',
             value: list.state.status !== 'ready' ? '—' : defaultRow ? defaultRow.destinationMasked : t('dstDefaultNone'),
             note: defaultRow ? railWords(t, defaultRow.railId) : undefined,
+            // Words ("None chosen") are set in the smaller value style, like the date tile; an address stays a figure.
+            size: defaultRow ? undefined : 'text',
           },
           {
             label: t('dstLastUsed'),
@@ -70,7 +72,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
             value: lastUsed ? <DateTime value={lastUsed} /> : '—',
             size: 'text',
           },
-          { label: t('dstScreening'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('notRecorded') },
+          { label: t('dstScreening'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('notRecorded'), size: 'text' },
         ]}
       />
       <ListBody

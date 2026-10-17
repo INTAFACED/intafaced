@@ -10,6 +10,9 @@ import { moneyMessages } from './money/copy';
 import { paymentsMessages } from './payments/copy';
 import { settingsMessages } from './settings/copy';
 import { accountMessages } from './settings/account/copy';
+import { analyticsMessages } from './settings/analytics/copy';
+import { developersMessages } from './settings/developers/copy';
+import { reportsMessages } from './settings/reports/copy';
 import { uiMessages } from './ui/copy';
 import { w3cMessages } from './w3c-copy';
 
@@ -28,6 +31,9 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.payments': paymentsMessages,
   'pay.portal.settings': settingsMessages,
   'pay.portal.settings.account': accountMessages,
+  'pay.portal.settings.analytics': analyticsMessages,
+  'pay.portal.settings.developers': developersMessages,
+  'pay.portal.settings.reports': reportsMessages,
 };
 
 const banned: Array<[name: string, pattern: RegExp]> = [
@@ -47,6 +53,7 @@ const banned: Array<[name: string, pattern: RegExp]> = [
     'a promise of later ("not connected yet", "available yet", "on the way", "soon"): say what is true now and what blocks it',
     /\b(not connected yet|available yet|on the way|coming soon|soon)\b/i,
   ],
+  ['a promise of what the person will be able to do, or a request to come back', /you(?:’|')ll be able to|check back later/i],
   ['"soon" as a promise', /\b(?:available|here|open|live) soon\b/i],
   ['a snake_case word', /\b[a-z]+(?:_[a-z0-9]+)+\b/],
   ['a service code', /\bpay\.[a-z_]+/],
@@ -73,7 +80,14 @@ describe('merchant portal copy', () => {
   });
   it('finds a banned word when there is one (the check can fail)', () => {
     expect(banned.some(([, pattern]) => pattern.test('Loaded from the backend'))).toBe(true);
-    for (const promise of ['Not connected yet', 'Not available yet', 'Invitations are on the way', 'We’ll try again soon'])
+    for (const promise of [
+      'Not connected yet',
+      'Not available yet',
+      'Invitations are on the way',
+      'We’ll try again soon',
+      'You’ll be able to see it here',
+      'Check back later.',
+    ])
       expect(
         banned.some(([, pattern]) => pattern.test(promise)),
         promise,

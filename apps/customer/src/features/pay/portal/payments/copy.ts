@@ -348,7 +348,7 @@ const en = {
   usageUnavailable: 'Your limits can’t be shown right now.',
   allLimits: 'See all limits',
   noLimits: 'No limits are set on your account yet.',
-  usageUnknown: 'Usage can’t be read here',
+  usageUnknown: 'Not counted against a running total',
   usageOf: 'of',
   usageResets: 'resets',
   cap_per_payment: 'Largest single payment',

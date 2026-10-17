@@ -415,18 +415,19 @@ function populate(world, now) {
     stalledAt: i === 2 ? iso(now - 2 * DAY) : null,
     stallReason: i === 2 ? 'arrears' : null,
   }));
+  /** Seeded subscription id -> the first charge that subscription billed. Any id not here (made since boot) has no history. */
+  const chargeBySubscription = new Map(world.subscriptions.map((s, i) => [s.id, { i, charge: world.payments[119 + i] }]));
   for (const customer of world.customers) {
     customer.mandateCount = world.mandates.filter((m) => m.customerId === customer.customerRef).length;
     customer.subscriptionCount = world.subscriptions.filter((s) => s.customerId === customer.customerRef).length;
   }
   /** Billing runs for one subscription: the page's "cycles" and "executions" views are both drawn from this one list. */
   world.executionsOf = (subscriptionId) => {
-    const i = world.subscriptions.findIndex((x) => x.id === subscriptionId);
-    // An unknown subscription has no billing history; never show another subscription's.
-    if (i < 0) return [];
-    // A subscription made since boot (past the four seeded) has not been billed yet.
-    const charge = i < 4 ? world.payments[119 + i] : undefined;
-    if (!charge) return [];
+    // Only the four seeded subscriptions have billing history; a subscription made since boot has none yet,
+    // and a new one is added at the top of the list, so list position can never be used to look history up.
+    const seeded = chargeBySubscription.get(subscriptionId);
+    if (!seeded?.charge) return [];
+    const { i, charge } = seeded;
     const first = Date.parse(charge.createdAt);
     return [
       {

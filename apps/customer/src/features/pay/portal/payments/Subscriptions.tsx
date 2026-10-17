@@ -489,7 +489,10 @@ function SubscriptionRecovery({
   check,
   onKnown,
   onSettled,
+  outcomeShown = false,
 }: {
+  /** True when the review above already says the outcome is not confirmed: the general notice is then left out. */
+  outcomeShown?: boolean;
   check: (current: () => boolean) => Promise<ApiResult<Subscription>>;
   onKnown: (subscription: Subscription) => void;
   onSettled?: (result: ApiResult<Subscription>) => void;
@@ -507,9 +510,11 @@ function SubscriptionRecovery({
   return (
     <div className="stack">
       {/* One message about the unconfirmed request: the latest check's answer replaces the general notice. */}
-      <p className="pp-callout" role="status">
-        {message || c.t('unresolvedSubscription')}
-      </p>
+      {(message || !outcomeShown) && (
+        <p className="pp-callout" role="status">
+          {message || c.t('unresolvedSubscription')}
+        </p>
+      )}
       <Button
         disabled={busy}
         onClick={async () => {
@@ -712,6 +717,9 @@ export function CreateSubscriptionView({
     mandates.status === 'ready' ? mandates.data.filter((m) => m.status === 'active' && (!taken.has(m.id) || m.id === mandateId)) : [];
   const selected = choices.find((m) => m.id === mandateId);
   const locked = Boolean(pay && mandateId && pay.guard.status(`${pay.authority!.userId}:subscription-create:${mandateId}`));
+  // The mandate whose create reply was lost and is said so by the review itself (it is forgotten when the choice changes).
+  const [uncertainShown, setUncertainShown] = useState('');
+  useEffect(() => setUncertainShown(''), [mandateId]);
   const allowed = posture.status === 'ready' && posture.data.paths.some((p) => p.path === path && p.charge !== 'refuse');
   return (
     <div className="stack">
@@ -753,6 +761,7 @@ export function CreateSubscriptionView({
                 {pay && locked && (
                   <SubscriptionRecovery
                     key={`${pay.authority!.userId}:${mandateId}`}
+                    outcomeShown={uncertainShown === mandateId}
                     check={(current) => replaySubscriptionCreate(pay, mandateId, path, current)}
                     onKnown={(data) => {
                       setCreateNotice('');
@@ -799,6 +808,7 @@ export function CreateSubscriptionView({
                       perform={async () => {
                         try {
                           const result = await createSubscriptionWithRecovery(pay, mandateId, path);
+                          setUncertainShown(!result.ok && result.reason === 'uncertain' ? mandateId : '');
                           // An unconfirmed reply is shown once, by the review and the check below it.
                           if (!result.ok && result.reason !== 'uncertain') setCreateNotice(result.message);
                           return result;

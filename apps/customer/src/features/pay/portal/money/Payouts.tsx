@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';
@@ -57,6 +58,36 @@ const FILTER_STATES = [
   ['not_ready', 'payNotReady', 'pending'],
 ] as const;
 
+/**
+ * A payout that was sent without an approval on file is still named for where it went, as its page does: the list
+ * does not carry the destination, so each such row's lifecycle is read once (at most 25, the page size) and kept.
+ */
+function useSentDestinations(portal: PortalApi, rows: PayoutItem[], approvals: ReadonlyMap<string, unknown> | null) {
+  const [found, setFound] = useState<ReadonlyMap<string, { destinationMasked: string }>>(new Map());
+  const ids = approvals
+    ? rows
+        .filter((r) => r.status === 'paid_out' && !approvals.get(r.id) && !found.has(r.id))
+        .map((r) => r.id)
+        .slice(0, 25)
+    : [];
+  const key = ids.join(',');
+  useEffect(() => {
+    if (!key) return;
+    const controller = new AbortController();
+    void Promise.all(
+      key.split(',').map(async (id) => {
+        const res = await portal.settlementLifecycle(id, controller.signal);
+        return res.ok && res.data.destination ? ([id, { destinationMasked: res.data.destination.destinationMasked }] as const) : null;
+      }),
+    ).then((pairs) => {
+      if (controller.signal.aborted) return;
+      setFound((prev) => new Map([...prev, ...pairs.filter((x): x is NonNullable<typeof x> => x !== null)]));
+    });
+    return () => controller.abort();
+  }, [key, portal]);
+  return found;
+}
+
 /** `/pay/payouts`: money leaving your balance, and where each payout is in approval. */
 export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
@@ -113,6 +144,8 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
     (r) => !stateFilter || payoutRowState(r, approvals) === stateFilter[0],
   );
   const shownState = list.state.status === 'ready' ? { ...list.state, items: rows } : list.state;
+  const sentTo = useSentDestinations(portal, rows, approvals);
+  const destinationOf = (id: string) => approvals?.get(id) ?? sentTo.get(id);
   const assets = [...new Set(rows.map((r) => r.assetId))].sort();
   const count = (state: 'ready' | 'awaiting_approval' | 'approved' | 'paid_out' | 'failed' | 'not_ready') => {
     if (!pic) return '—';
@@ -207,7 +240,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
         rowKey={(r) => r.id}
         href={(r) => `/pay/payouts/${encodeURIComponent(r.id)}`}
         columns={[
-          { header: t('colPayout'), cell: (r) => payoutName(t, locale, r, approvals?.get(r.id)) },
+          { header: t('colPayout'), cell: (r) => payoutName(t, locale, r, destinationOf(r.id)) },
           { header: t('colAmount'), cell: (r) => <MoneyText value={r.net} asset={r.assetId} test={test} /> },
           {
             header: t('colStatus'),
@@ -232,7 +265,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
           },
         ]}
         card={(r) => ({
-          title: payoutName(t, locale, r, approvals?.get(r.id)),
+          title: payoutName(t, locale, r, destinationOf(r.id)),
           time: <DateTime value={r.createdAt} />,
           amount: <MoneyText value={r.net} asset={r.assetId} test={test} />,
           status: <StatusChip entity="payout" value={payoutRowState(r, approvals)} />,
