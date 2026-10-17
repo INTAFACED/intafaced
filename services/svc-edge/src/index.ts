@@ -295,7 +295,7 @@ registerNetworkAccessGuard(app);
 registerAdminRoutes(app, admin);
 
 const matchingUrl = readMatchingUrl(env.MATCHING_URL);
-const matchingSecret = env.MATCHING_S2S_SECRET;
+const matchingSecret = env.MATCHING_EDGE_SIGNING_SECRET;
 registerMatchingOperatorRoutes(app, {
   tokens: tokenConfig,
   authenticateWrite: (header) => admin.authenticate(header),
@@ -304,7 +304,7 @@ registerMatchingOperatorRoutes(app, {
   blocked: !matchingUrl
     ? { code: 'matching_unconfigured', key: 'MATCHING_URL' }
     : !matchingSecret
-      ? { code: 'matching_credential_unconfigured', key: 'MATCHING_S2S_SECRET' }
+      ? { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' }
       : null,
   readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
 });
@@ -341,7 +341,7 @@ await app.register(async (api) => {
 
     if (isS2sPath(target.path)) {
       // Belt: the onRequest hook already refuses this. Kept so a future route
-      // that skips the hook cannot open the S2S plane.
+      // that skips the hook cannot open the service plane.
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 

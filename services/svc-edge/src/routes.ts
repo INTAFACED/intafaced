@@ -216,7 +216,7 @@ export function resolve(pathname: string): Resolved | null {
 }
 
 /**
- * S2S surfaces (`/internal/…`) must never cross this door.
+ * Service surfaces (`/internal/…`) must never cross this door.
  *
  * Pay, identity, token, bank, trade, p2p all mount cron/stake/rank jobs at
  * `/internal/*`, authenticated by `INTERNAL_SERVICE_SECRET`. The edge strips

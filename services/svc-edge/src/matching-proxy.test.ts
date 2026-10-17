@@ -211,6 +211,31 @@ describe('operator matching controls', () => {
     expect(calls).toEqual([]);
   });
 
+  it('refuses a blank signing key with matching_credential_unconfigured and names MATCHING_EDGE_SIGNING_SECRET', async () => {
+    let continued = false;
+    const app = mount({
+      matching: null,
+      blocked: { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' },
+      read: async () => {
+        continued = true;
+        return row();
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/trade-ops/matching/markets/BTC-USDT/halt',
+      headers: { authorization: await bearer(['admin:write']) },
+      payload: haltBody,
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({
+      code: 'matching_credential_unconfigured',
+      key: 'MATCHING_EDGE_SIGNING_SECRET',
+    });
+    expect(continued).toBe(false);
+    expect(JSON.stringify(res.json())).not.toContain('halted');
+  });
+
   it('refuses a blank matching URL with matching_unconfigured and names MATCHING_URL', async () => {
     const app = mount({ matching: null, blocked: { code: 'matching_unconfigured', key: 'MATCHING_URL' } });
     const res = await app.inject({

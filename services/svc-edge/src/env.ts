@@ -93,10 +93,13 @@ const schema = baseEnvSchema
       /**
        * Signs operator control calls to svc-matching as `svc-edge`.
        * Unset refuses `matching_credential_unconfigured` and names this key.
-       * Not the fleet service secret: this process still cannot sign as
-       * svc-trade, and a blank value is not replaced with one.
+       * svc-matching today verifies every caller with the fleet
+       * INTERNAL_SERVICE_SECRET and admits only svc-trade on these routes,
+       * so this key must never be set to INTERNAL_SERVICE_SECRET. The routes
+       * stay refusing (typed 502) until svc-matching has a per-caller key
+       * and admits svc-edge. A blank value is not replaced with one.
        */
-      MATCHING_S2S_SECRET: z.string().min(32).optional(),
+      MATCHING_EDGE_SIGNING_SECRET: z.string().min(32).optional(),
 
       /**
        * Dedicated read key matching IDENTITY_EDGE_AUTHORITY_SECRET in identity.

@@ -2,7 +2,7 @@
  * Operator door from the console onto svc-matching controls.
  *
  * Matching stays out of the catch-all proxy. Each procedure below is one
- * named path. Writes are signed as `svc-edge` with `MATCHING_S2S_SECRET`.
+ * named path. Writes are signed as `svc-edge` with `MATCHING_EDGE_SIGNING_SECRET`.
  * The audit row names the human requester and the human approver from the
  * identity approval. A typed-in second name is not that approval.
  *
@@ -57,7 +57,7 @@ export class MatchingApprovalUnavailable extends Error {
 
 export interface MatchingDoorBlock {
   readonly code: 'matching_unconfigured' | 'matching_credential_unconfigured';
-  readonly key: 'MATCHING_URL' | 'MATCHING_S2S_SECRET';
+  readonly key: 'MATCHING_URL' | 'MATCHING_EDGE_SIGNING_SECRET';
 }
 
 export interface MatchingOperatorRouteDeps {
@@ -172,7 +172,7 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Signed call. `secret` is `MATCHING_S2S_SECRET`, and the service name is
+ * Signed call. `secret` is `MATCHING_EDGE_SIGNING_SECRET`, and the service name is
  * `svc-edge`. The body carries the human operator ids; the signature does not
  * rename them to this service.
  */
