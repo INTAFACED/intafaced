@@ -7,6 +7,7 @@ import {
   type RailEvent,
   type RailHealth,
   type RailResult,
+  type PayoutRailStatus,
   type RailWebhookRequest,
   type SettlementInstruction,
 } from './rail-adapter.js';
@@ -261,10 +262,20 @@ export class CardSandboxAdapter implements RailAdapter {
     };
   }
 
+  payoutIdempotencyKey(s: SettlementInstruction): string {
+    return `po_${s.settlementId}`;
+  }
+
+  async queryPayout(idempotencyKey: string): Promise<PayoutRailStatus> {
+    const row = this.payouts.get(idempotencyKey);
+    if (!row) return { status: 'not_sent' };
+    return { status: 'sent', railRef: row.ref, amount: row.amount, assetId: row.assetId };
+  }
+
   async payout(s: SettlementInstruction): Promise<RailResult> {
     this.lastContact = this.now();
 
-    const ref = `po_${s.settlementId}`;
+    const ref = this.payoutIdempotencyKey(s);
     const forced = this.takeForcedFailure(ref, s.amount, s.assetId);
     if (forced) return forced;
 

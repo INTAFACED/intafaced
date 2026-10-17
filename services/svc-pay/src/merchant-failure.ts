@@ -15,6 +15,7 @@ const FAILURE_CATALOG: Readonly<Record<string, string>> = {
   'authorize.invalid_amount': 'The amount could not be authorized.',
   'capture.not_authorized': 'The payment was not authorized to capture.',
   'rail.failed': 'The payment could not be completed.',
+  'rail.not_sent': 'The payout was confirmed not sent.',
   'rail.unknown_reference': 'The payment reference was not recognized.',
   'chain.wrong_asset': 'The transfer used a different asset.',
   'chain.underpaid': 'The transfer was less than the amount due.',

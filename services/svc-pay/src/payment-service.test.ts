@@ -96,6 +96,7 @@ const migrations = [
   // dispute.opened records a rail due date. Evidence metadata is the parent of the byte table.
   '0065_pay_merchant_dispute_responses.sql',
   '0083_pay_dispute_deadlines_evidence.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
