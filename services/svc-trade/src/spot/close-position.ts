@@ -6,6 +6,7 @@ import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { env } from '../env.js';
+import { classifyHoldPostError, orderHoldIdempotencyKey } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -152,12 +153,31 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      throw err;
+      const outcome = classifyHoldPostError(err);
+      if (outcome === 'refused' || outcome === 'unsent') {
+        await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+        throw err;
+      }
+      await host.sql`
+        UPDATE trade.orders SET status = 'hold_unknown', updated_at = now()
+         WHERE id = ${orderId} AND status = 'pending'
+      `;
+      let booked = false;
+      try {
+        booked = (await host.ledger.getTxByKey(orderHoldIdempotencyKey(orderId))) != null;
+      } catch {
+        booked = false;
+      }
+      if (!booked) {
+        throw new TradeError(`order ${orderId} hold outcome is unknown; the close is kept for recovery`, 'trade.hold_unknown');
+      }
     }
   }
 
-  await host.sql`UPDATE trade.orders SET status = 'open', updated_at = now() WHERE id = ${orderId} AND status = 'pending'`;
+  await host.sql`
+    UPDATE trade.orders SET status = 'open', updated_at = now()
+     WHERE id = ${orderId} AND status IN ('pending', 'hold_unknown')
+  `;
 
   try {
     await host.applySubmitResult(market, orderId, result);

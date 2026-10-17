@@ -467,6 +467,13 @@ const schema = serviceEnvSchema
       TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: z.coerce.number().int().min(5_000).max(3_600_000).default(60_000),
 
       /**
+       * A market, IOC, or FOK order left in hold_unknown is released instead of
+       * submitted once it is older than this on the database clock. The customer
+       * was told the outcome was unknown. Default 30s. Min 1s. Max 10 minutes.
+       */
+      TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
+
+      /**
        * OTC RFQ desk law (trade.otc / D-S-02). JSON or empty.
        *
        * Empty (default) = unpublished → refuse-closed. Never invent spread bps,

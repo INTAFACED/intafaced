@@ -157,6 +157,8 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['trade'],
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+retainRawBody(app);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -176,6 +178,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
+  holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -290,8 +294,6 @@ const copy = new CopyService(ledger, {
 export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
-retainRawBody(app);
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);

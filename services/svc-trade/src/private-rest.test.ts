@@ -85,9 +85,17 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     );
     expect(wire.status).toBe('open'); // legacy CCXT vocabulary
     expect(wire.recoveryRequired).toBe(true);
+    expect(wire.holdUnknown).toBe(false);
     expect(wire.lifecycleState).toBe('RECOVERY_REQUIRED');
     expect(wire.executionOutcome).toMatchObject({ outcome: 'OUTCOME_UNKNOWN', state: 'SUBMIT_UNKNOWN' });
     expect(wire.executionOutcome?.reconciliationKey).toContain('trade.order.reconcile:');
+  });
+
+  it('maps hold_unknown to recoveryRequired so the customer does not send twice', () => {
+    const wire = presentCcxtOrder(fakeOrder({ status: 'hold_unknown' }), 'BTC/USDT');
+    expect(wire.status).toBe('open');
+    expect(wire.recoveryRequired).toBe(true);
+    expect(wire.holdUnknown).toBe(true);
   });
 
   it('presents an order that validates against orderSchema with decimal strings', () => {

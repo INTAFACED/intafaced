@@ -430,7 +430,7 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
             reconciliationKey: order.reconciliationKey,
           }
         : null,
-    recoveryRequired: order.status === 'recovery_required',
+    recoveryRequired: order.status === 'recovery_required' || order.status === 'hold_unknown',
     holdUnknown: order.status === 'hold_unknown',
     lifecycleState: order.status === 'recovery_required' ? ('RECOVERY_REQUIRED' as const) : null,
     fee: null as { cost: string; currency: string } | null,
