@@ -1110,11 +1110,12 @@ describe('native P2P original terms and decisions', () => {
             await tx.unsafe(read(file));
           });
         expect(
-          (await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' AS terms FROM p2p.p2p_trades t`)[0]
-            ?.terms,
+          (
+            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' AS terms FROM p2p.p2p_trades t`
+          )[0]?.terms,
         ).toEqual(original);
-        const row = (await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at FROM p2p.p2p_trades`)[0];
-        expect(row).toEqual({ amount: '100.000000000000000000', original_terms_claimed_at: null });
+        const row = (await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot FROM p2p.p2p_trades`)[0];
+        expect(row).toEqual({ amount: '100.000000000000000000', original_terms_claimed_at: null, terms_snapshot: null });
         await expect(legacy.sql`UPDATE p2p.p2p_trades SET original_terms_claimed_at = now() WHERE id = ${TRADE}`).rejects.toThrow();
         const ledger = new MemoryLedger();
         const posted = vi.spyOn(ledger, 'post');
