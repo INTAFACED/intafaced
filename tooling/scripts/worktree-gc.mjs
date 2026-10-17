@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 /**
- * worktree-gc — remove the CHECKOUTS of worktrees that are provably idle.
+ * worktree-gc — classify worktrees and report which look idle. It removes nothing.
  *
- *   node tooling/scripts/worktree-gc.mjs                  dry run (default)
- *   node tooling/scripts/worktree-gc.mjs --apply          print the plan, then refuse
- *   node tooling/scripts/worktree-gc.mjs --apply --yes    print the plan, then do it
+ *   node tooling/scripts/worktree-gc.mjs                  dry run / classify (default)
+ *   node tooling/scripts/worktree-gc.mjs --apply          removed: prints that removal is manual, exits 1
  *   node tooling/scripts/worktree-gc.mjs --check          exit 1 if worktree count > cap
  *   node tooling/scripts/worktree-gc.mjs --self-test      classifier fixtures (no git, no I/O)
+ *
+ * There is no apply path any more (AGENTS.md: never force-remove, never delete a
+ * branch, leave other agents' worktrees alone). Remove your OWN checkout by hand
+ * with `git worktree remove <path>`; the branch stays.
  *
  * ── WHY THIS FILE IS SHAPED LIKE THIS ────────────────────────────────────────
  * The previous version classified a worktree with exactly two tests — `git
  * status --porcelain` (dirty → keep) and `git cherry origin/main <ref>` (unique
- * commits → keep) — and called everything else SAFE, then on --apply ran
- * `git worktree remove --force` AND `git branch -D <branch>`.
+ * commits → keep) — and called everything else SAFE, then on its old apply mode ran
+ * a forced worktree removal AND a forced branch delete. That mode has been removed.
  *
  * That is wrong in a swarm, and it was wrong in production, twice:
  *
@@ -43,8 +46,7 @@
  *         (`pnpm wt <branch>` brings it back with the branch intact); force-
  *         deleting a branch is not. Deleting *history* is not this tool's job.
  *       · MAIN is identified from `--git-common-dir`, never from the cwd.
- *       · --apply alone is not consent. It prints the plan and exits 1; the
- *         removal needs `--apply --yes`.
+ *       · --apply no longer exists as an action: it says removal is manual and exits 1.
  *       · If the claim board cannot be read, NOTHING is SAFE (fail closed).
  *
  * (2) DETECT LIVENESS, with signals ordered most-authoritative first:
@@ -122,7 +124,6 @@ const WT_CAP = 20;
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
 const apply = has('--apply');
-const yes = has('--yes') || has('--confirm');
 const checkOnly = has('--check');
 const selfTest = has('--self-test');
 const dry = !apply && !checkOnly && !selfTest;
@@ -257,9 +258,24 @@ if (selfTest) {
     if (!ok) failed++;
     console.log(`  ${ok ? '✓' : '✖'} ${name.padEnd(58)} want=${want} got=${got.verdict} (${got.reason})`);
   }
-  console.log(
-    failed ? `\n✖ ${failed}/${cases.length} self-test cases failed` : `\n✓ ${cases.length}/${cases.length} self-test cases passed`,
-  );
+  // Wiring the classifier fixtures cannot see: this script never removes anything.
+  // Comment lines are dropped first so the prose above can still name what it forbids.
+  const code = readFileSync(new URL(import.meta.url), 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+    .join('\n');
+  const wiring = [
+    ['never runs git worktree remove', !/\[\s*'worktree'\s*,\s*'remove'/.test(code)],
+    ['never passes a force flag', !code.includes("'--" + "force'")],
+    ['never deletes a branch', !/\[\s*'branch'/.test(code)],
+    ['--apply refuses and exits 1', code.includes('--apply was removed') && /if \(apply\) \{[\s\S]*?process\.exit\(1\)/.test(code)],
+  ];
+  for (const [name, ok] of wiring) {
+    if (!ok) failed++;
+    console.log(`  ${ok ? '✓' : '✖'} ${name}`);
+  }
+  const total = cases.length + wiring.length;
+  console.log(failed ? `\n✖ ${failed}/${total} self-test cases failed` : `\n✓ ${total}/${total} self-test cases passed`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -417,7 +433,7 @@ const safe = rows.filter((r) => r.verdict === 'SAFE');
 const kept = rows.filter((r) => r.verdict === 'KEEP' && r.reason !== 'MAIN');
 
 // ─── report ─────────────────────────────────────────────────────────────────
-const mode = checkOnly ? 'CHECK' : apply ? (yes ? 'APPLY' : 'APPLY (plan only — no --yes)') : 'DRY-RUN';
+const mode = checkOnly ? 'CHECK' : 'DRY-RUN';
 console.log(`worktree-gc ${mode}`);
 console.log(
   `main=${mainSha.slice(0, 8)} main_checkout=${mainPath} total=${rows.length} safe=${safe.length} keep=${kept.length} cap=${WT_CAP} active_window=${activeMinutes}m`,
@@ -443,12 +459,20 @@ if (checkOnly) {
     console.error(
       `\n✖ worktree count ${rows.length} > cap ${WT_CAP}\n` +
         `  Review first:  pnpm wt:gc            (dry run — shows why each worktree is kept)\n` +
-        `  ${safe.length} look idle. Removing them is a separate, attended step (--apply --yes).\n`,
+        `  ${safe.length} look idle. Removal is manual: git worktree remove <path>, your own checkout only.\n`,
     );
     process.exit(1);
   }
   console.log(`\n✓ worktree count ${rows.length} ≤ cap ${WT_CAP}`);
   process.exit(0);
+}
+
+if (apply) {
+  console.error(
+    '\n✖ --apply was removed. worktree-gc only classifies; it never removes a checkout or deletes a branch.\n' +
+      `  ${safe.length} checkout(s) look idle. Remove a checkout you own by hand: git worktree remove <path>  (never --force; the branch stays).\n`,
+  );
+  process.exit(1);
 }
 
 if (dry) {
@@ -458,36 +482,3 @@ if (dry) {
   );
   process.exit(0);
 }
-
-// ─── apply ──────────────────────────────────────────────────────────────────
-if (!boardText) process.exit(1);
-
-console.log('\nPLAN — exactly these commands will run, and nothing else:');
-if (safe.length === 0) console.log('  (none)');
-for (const r of safe) console.log(`  git worktree remove --force "${r.path}"`);
-console.log(
-  `\nNot in the plan, on purpose: git branch -D. ${safe.length} branch(es) stay.\n` +
-    '  A removed checkout is recoverable; a force-deleted branch is not. If a branch\n' +
-    '  really is spent, delete it yourself, by name, after looking at it.',
-);
-
-if (!yes) {
-  console.error(
-    `\n✖ --apply on its own is not consent. ${safe.length} checkout(s) would be removed.\n` +
-      '  Read the plan above, then re-run with --yes:\n' +
-      `    node tooling/scripts/worktree-gc.mjs --apply --yes\n` +
-      '  Never run this unattended (docs/AXIS-DISPATCH-REVISED-ANTI-DRIFT-2026-08-08.md A8).\n',
-  );
-  process.exit(1);
-}
-
-let removed = 0;
-for (const r of safe) {
-  try {
-    git(['worktree', 'remove', '--force', r.path], { stdio: 'inherit' });
-    removed++;
-  } catch (e) {
-    console.error(`  FAIL remove ${r.path}: ${e.message}`);
-  }
-}
-console.log(`\n✓ removed ${removed}/${safe.length} idle checkouts · 0 branches deleted`);
