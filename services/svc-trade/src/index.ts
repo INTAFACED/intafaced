@@ -18,6 +18,10 @@ import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js
 import { createLedgerClient } from './ledger-client.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
+import { identityApprovalBook } from './admin/identity-approval.js';
+import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
+import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
+import { wireTradeOpsAdmin } from './admin/wire.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import { registerPrivateRest } from './private-rest.js';
@@ -129,6 +133,7 @@ await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
 await assertNoLocalTestLifecycleRows(sql, process.env);
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
   createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
@@ -308,7 +313,18 @@ const copy = new CopyService(ledger, {
     };
   },
 });
-export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
+export const appRouter = createTradeRouter(
+  trade,
+  otc,
+  copy,
+  tradingControls,
+  wireTradeOpsAdmin({
+    sql,
+    trade,
+    ledger,
+    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+  }),
+);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 if (venueBookPort && venuePublicAdapter) {
@@ -437,6 +453,7 @@ const mmSeedJobs = startMmSeedJobs({
     targets: mmSeedTargets,
   },
   statePath: env.TRADE_MM_SEED_STATE_PATH,
+  operatorSeedAllows: (marketId) => readOperatorSeedAllows(sql, marketId),
   recordSeededOrder: async (row) => {
     await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::text::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
   },

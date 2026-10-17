@@ -45,6 +45,8 @@ import {
 import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
+import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
+import { recordMarketStatusTransition } from '../admin/status-history.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
 import {
   HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS,
@@ -1031,6 +1033,7 @@ export class TradeService {
     `;
     const row = rows[0];
     if (!row) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
+    await recordMarketStatusTransition(this.sql, { marketId, fromStatus: current.status, toStatus: status });
     return toMarket(row);
   }
 
@@ -1458,6 +1461,7 @@ export class TradeService {
       return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
     }
     assertQty(market, input.qty);
+    await assertOperatorRiskOnPlace(this.sql, market.id, principal.userId, { price: input.price ?? null, qty: input.qty });
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
     // market orders, force post-only so the engine refuses unfair crosses).
@@ -1498,7 +1502,7 @@ export class TradeService {
       assertNotional(market, input.price, input.qty);
       fundingPrice = input.price;
     } else if (input.side === 'buy') {
-      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
       if (input.maxProtectionPrice != null && input.maxProtectionPrice < protectionPrice) {
         if (input.maxProtectionPrice <= 0n) {
           throw new TradeError('maxProtectionPrice must be positive', 'trade.invalid_price');
@@ -1513,7 +1517,7 @@ export class TradeService {
       // through an unpublished or missing bid. The bid is read once and shared
       // with the owner-limit reference below.
       const bid = await this.bestBid(market.id);
-      let floor = sellProtectionPriceFor(market, bid, this.slippageCapBps);
+      let floor = sellProtectionPriceFor(market, bid, await this.slippageCap(market.id));
       if (input.minProtectionPrice != null) {
         if (input.minProtectionPrice <= 0n) {
           throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
@@ -2293,7 +2297,7 @@ export class TradeService {
           try {
             let reference: Amount | null = input.price ?? null;
             if (reference == null && input.side === 'buy') {
-              reference = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+              reference = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
               const cap = input.maxProtectionPrice;
               if (cap != null && cap > 0n && cap < reference) reference = cap;
             }
@@ -2309,7 +2313,7 @@ export class TradeService {
         // A market sell with no floor must refuse before the original is cancelled.
         if (orderType === 'market' && input.side === 'sell') {
           try {
-            sellProtectionPriceFor(market, await this.bestBid(market.id), this.slippageCapBps);
+            sellProtectionPriceFor(market, await this.bestBid(market.id), await this.slippageCap(market.id));
           } catch (err) {
             if (err instanceof TradeError && (err.code === 'trade.protection_unset' || err.code === 'trade.no_reference_price')) {
               return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', err.code, false, requestAlreadyExists);
@@ -4731,6 +4735,11 @@ export class TradeService {
     }
     const refusal = checkMaxOrder({ limits, quoteAsset: market.quoteAsset, price: reference, qty });
     if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+  }
+
+  /** Operator slippage cap when set; otherwise the existing service cap (which may be unset). */
+  private async slippageCap(marketId: string): Promise<number | null> {
+    return (await operatorSlippageCapBps(this.sql, marketId)) ?? this.slippageCapBps;
   }
 
   private async bestAsk(marketId: string): Promise<Amount | null> {
