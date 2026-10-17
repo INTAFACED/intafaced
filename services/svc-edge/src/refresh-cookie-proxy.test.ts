@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Fastify from 'fastify';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,7 +84,7 @@ describe('refresh cookie at the edge', () => {
       headers: { cookie: 'ifc_rt=secret', origin: 'https://app.example.com', host: 'app.example.com' },
       allowedOrigins: [],
     });
-    expect(sameHost).toBeNull();
+    expect(sameHost).toEqual({ code: 'edge.origin_not_allowed' });
 
     const noCookie = refuseCookieCsrf({
       method: 'POST',
@@ -94,10 +95,95 @@ describe('refresh cookie at the edge', () => {
     expect(noCookie).toBeNull();
   });
 
-  it('index.ts uses the cookie proxy on the way in and the way out', () => {
+  it('index.ts refuses the cookie before it proxies upstream', () => {
     const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(src).toContain('refuseCookieCsrf(');
+    const csrfCall = src.indexOf('refuseCookieCsrf(');
+    const refuseReturn = src.indexOf('code: csrf.code');
+    const fetchCall = src.indexOf('await fetch(');
+    expect(csrfCall).toBeGreaterThan(-1);
+    expect(refuseReturn).toBeGreaterThan(csrfCall);
+    expect(fetchCall).toBeGreaterThan(refuseReturn);
     expect(src).toContain('prepareUpstreamRequestHeaders(');
     expect(src).toContain('forwardUpstreamResponseHeaders(');
+  });
+});
+
+describe('cookie csrf on refresh and logout', () => {
+  const allowed = ['https://app.example.com'] as const;
+
+  function decide(
+    headers: { [key: string]: string | string[] | undefined },
+    pathname = '/api/identity/trpc/auth.refresh',
+    origins: readonly string[] = allowed,
+  ) {
+    return refuseCookieCsrf({ method: 'POST', pathname, headers, allowedOrigins: origins });
+  }
+
+  it('refuses no Origin and no session header, and does not rotate or revoke', async () => {
+    let token = 'refresh-1';
+    let revoked = false;
+    const app = Fastify({ logger: false });
+    const gate = (method: string, url: string, headers: { [key: string]: string | string[] | undefined }) =>
+      refuseCookieCsrf({
+        method,
+        pathname: url.split('?')[0] ?? url,
+        headers,
+        allowedOrigins: allowed,
+      });
+    app.post('/api/identity/trpc/auth.refresh', async (req, reply) => {
+      const csrf = gate(req.method, req.url, req.headers);
+      if (csrf) return reply.code(403).send({ code: csrf.code });
+      token = 'refresh-2';
+      return { ok: true };
+    });
+    app.post('/api/identity/trpc/auth.logout', async (req, reply) => {
+      const csrf = gate(req.method, req.url, req.headers);
+      if (csrf) return reply.code(403).send({ code: csrf.code });
+      revoked = true;
+      return { ok: true };
+    });
+    await app.ready();
+    try {
+      const refresh = await app.inject({
+        method: 'POST',
+        url: '/api/identity/trpc/auth.refresh',
+        headers: { cookie: 'ifc_rt=refresh-1' },
+        payload: {},
+      });
+      expect(refresh.statusCode).toBe(403);
+      expect(refresh.json()).toEqual({ code: 'auth.csrf_origin_required' });
+      expect(token).toBe('refresh-1');
+
+      const logout = await app.inject({
+        method: 'POST',
+        url: '/api/identity/trpc/auth.logout',
+        headers: { cookie: 'ifc_rt=refresh-1' },
+        payload: {},
+      });
+      expect(logout.statusCode).toBe(403);
+      expect(logout.json()).toEqual({ code: 'auth.csrf_origin_required' });
+      expect(revoked).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('allows an Origin on the allowlist', () => {
+    expect(decide({ cookie: 'ifc_rt=secret', origin: 'https://app.example.com', host: 'edge.internal' })).toBeNull();
+  });
+
+  it('allows the session header with no Origin, including when the allowlist is empty', () => {
+    expect(decide({ cookie: 'ifc_rt=secret', 'x-session-request': '1' }, '/api/identity/trpc/auth.logout', [])).toBeNull();
+    expect(decide({ cookie: 'ifc_rt=secret', 'X-Session-Request': '1' }, '/api/identity/trpc/auth.refresh', [])).toBeNull();
+    expect(
+      decide({ cookie: 'ifc_rt=secret', origin: 'https://evil.example', 'x-session-request': '1' }, '/api/identity/trpc/auth.refresh', []),
+    ).toBeNull();
+  });
+
+  it('refuses an Origin that is not on the allowlist, even when it matches Host', () => {
+    expect(decide({ cookie: 'ifc_rt=secret', origin: 'https://evil.example', host: 'evil.example' })).toEqual({
+      code: 'edge.origin_not_allowed',
+    });
+    expect(decide({ cookie: 'ifc_rt=secret', 'x-session-request': '0' })).toEqual({ code: 'auth.csrf_origin_required' });
   });
 });
