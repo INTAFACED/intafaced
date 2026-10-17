@@ -507,6 +507,15 @@
     .mkt-table [data-col='action'] {
       display: none;
     }
+    /* Keep the complete quote visible when the base and quote cannot share a phone lane. */
+    .mkt-row:not(.mkt-row--panel) .mkt-name__ticker {
+      line-height: 20px;
+    }
+    .mkt-row:not(.mkt-row--panel) .mkt-name__quote {
+      display: block;
+      line-height: 16px;
+    }
+
     .mkt-cards {
       grid-template-columns: minmax(0, 1fr);
     }
