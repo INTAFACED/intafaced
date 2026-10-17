@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { createTestDb } from './fixture-truncate.testkit.js';
 import { AuthService } from './auth/auth-service.js';
 import { bindApiKeyAccount } from './auth/bind-api-key-account.js';
 import { bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';
@@ -86,6 +87,8 @@ if (!available) {
         originAllowlist: [],
         domainWhitelist: [],
         ipAllowlist: [],
+        requireSignature: false,
+        requireNonEmptyIpAllowlist: false,
       });
       await expect(door.assertApiKeyLive(created.id)).rejects.toMatchObject({ code: 'auth.api_key_revoked' });
       const listed = await auth.listApiKeys(session.userId, 200);
@@ -117,8 +120,11 @@ if (!available) {
         originAllowlist: [],
         domainWhitelist: [],
         ipAllowlist: [],
+        requireSignature: false,
+        requireNonEmptyIpAllowlist: false,
       });
       expect(open && 'accountId' in open).toBe(false);
+      expect(open && 'requestSigningSecret' in open).toBe(false);
       expect(open && 'expiresAt' in open).toBe(false);
       expect(open && 'scopes' in open).toBe(false);
       expect(open?.productScopes).not.toContain('trade');

@@ -5,6 +5,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { isValidOwnerId, type OwnerType } from '@intafaced/ledger-client';
+import { disableBalanceTrigger } from '../db/journal-guards.testkit.js';
 
 /**
  * THE INVARIANT LIVES IN POSTGRES (§4.2), AND THE MIGRATION THAT PUT IT THERE
@@ -256,6 +257,9 @@ describe('svc-ledger owner identity', () => {
           ('house'::owner_type,    'fees:trade',        'USDT', 'available'::account_kind, '',        0.4),
           ('treasury'::owner_type, 'rail:card-sandbox', 'USDT', 'available'::account_kind, '',   -11020)
       `;
+      // Seeds write one-sided journal entries on purpose; 0023's balance-at-commit
+      // trigger is tested in journal-immutable.db.test.ts.
+      await disableBalanceTrigger(db.sql);
       await seed(db);
       return db;
     }

@@ -101,6 +101,7 @@ describe('ledger_tx key and meta stay bound to the posted movement', () => {
     // A role that can disable the trigger can change the key. The stored hash
     // was computed with the original key, so the chain must not stay green.
     await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_key_immutable`;
+    await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_immutable`; // 0023: no UPDATE of the journal at all
     await db.sql`UPDATE ledger_tx SET idempotency_key = ${'rewritten-key'} WHERE id = ${first.id}`;
     const broken = await verifyChain(db.sql);
     expect(broken.ok).toBe(false);
@@ -268,6 +269,7 @@ describe('a legacy short digest cannot launder a rewritten key or meta', () => {
 
     const legacy = await legacyShortDigest(db.sql, first.id);
     await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_key_immutable`;
+    await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_immutable`; // 0023: no UPDATE of the journal at all
     await db.sql`
       UPDATE ledger_tx
          SET idempotency_key = ${'rewritten-short-key'}, hash = ${legacy}
@@ -354,6 +356,7 @@ describe('receipt and chain-tip identity use the immutable posted claim', () => 
     const request = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('1'), rail: 'test', railRef: 'receipt-proof' });
     const tx = await engine.post(request);
     await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_key_immutable`;
+    await db.sql`ALTER TABLE ledger_tx DISABLE TRIGGER ledger_tx_immutable`; // 0023: no UPDATE of the journal at all
     await db.sql`UPDATE ledger_tx SET meta = ${db.sql.json({ forged: 'metadata' })} WHERE id = ${tx.id}`;
     await expect(engine.getTxByKey(request.idempotencyKey)).rejects.toMatchObject({ code: 'ledger.posted_claim_mismatch' });
     await expect(engine.getTx(tx.id)).rejects.toMatchObject({ code: 'ledger.posted_claim_mismatch' });
@@ -361,6 +364,7 @@ describe('receipt and chain-tip identity use the immutable posted claim', () => 
     expect(formatAmount((await engine.balance(userAvailable(USER, 'USDT'))).amount)).toBe('1');
     await db.sql`UPDATE ledger_tx SET meta = ${db.sql.json({ rail: 'test', railRef: 'receipt-proof' })} WHERE id = ${tx.id}`;
     await db.sql`ALTER TABLE ledger_tx ENABLE TRIGGER ledger_tx_key_immutable`;
+    await db.sql`ALTER TABLE ledger_tx ENABLE TRIGGER ledger_tx_immutable`;
   });
 
   it('refuses a second posted key for the same journal movement', async () => {

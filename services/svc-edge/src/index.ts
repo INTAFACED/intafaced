@@ -356,6 +356,13 @@ await app.register(async (api) => {
       });
     }
 
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body
+      : typeof req.body === 'string'
+        ? Buffer.from(req.body)
+        : req.body instanceof Uint8Array
+          ? Buffer.from(req.body)
+          : Buffer.alloc(0);
     const exchanged = await exchangePrincipal(req.headers, {
       tokens: tokenConfig,
       edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -368,6 +375,7 @@ await app.register(async (api) => {
       // x-forwarded-for — principal-exchange strips those and writes this.
       clientIp: req.ip,
       resolvedProduct: target.upstream.module,
+      request: { method: req.method, path: `${url.pathname}${url.search}`, body: rawBody },
     });
 
     // A refused token is logged and the request continues as ANONYMOUS. The
