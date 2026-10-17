@@ -360,7 +360,7 @@ describe('POST as a signed-in founder', () => {
     expect(res.status).toBe(501);
     const body = (await res.json()) as { ok: boolean; refusal: { title: string; body: string } };
     expect(body.ok).toBe(false);
-    expect(body.refusal.title).toBe('This change is not built yet');
+    expect(body.refusal.title).toBe('This change is not switched on');
   });
 
   it('an answer in a shape the console does not know is a 502, not a success', async () => {

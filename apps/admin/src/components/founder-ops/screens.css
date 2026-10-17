@@ -98,3 +98,29 @@
 .mp-table .mp-right {
   white-space: nowrap;
 }
+.mp-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.mp-timeline {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+.mp-pre {
+  margin: 8px 0 0;
+  max-width: 56ch;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--if-border);
+  border-radius: 8px;
+  background: var(--if-surface);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

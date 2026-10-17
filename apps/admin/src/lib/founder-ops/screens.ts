@@ -27,7 +27,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect the requested payout and its approval context before opening the existing decision flow.',
     ['Requested payout', 'Maker and checker', 'Screening and masked destination', 'Decision and audit history'],
-    "This page is not wired to founderAdmin.approvals.list, and svc-pay has no single read of an approval's full history. The existing queue keeps its hash-bound two-founder decision flow.",
+    "The pay service has no single read of one approval's decision history, so none is shown here; control changes by merchant are on Activity and audit. Signing stays on the approvals queue, where each decision is bound to the payload hash.",
     'Open approval queue',
   ),
   screen(
@@ -37,7 +37,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'MONITOR',
     'Follow payments from intake through ledger posting, settlement and delivery.',
     ['Payments received', 'Ledger posted', 'Settled', 'Payouts sent', 'Conversions', 'Webhooks delivered'],
-    'The live summary counts payments, payouts and refunds by state and gives queue ages. The event stream, duplicate markers, ledger-posted, conversion and webhook counters are not in it yet, so they are not shown.',
+    'The live summary counts payments, payouts and refunds by state and gives queue ages. It does not carry the event stream, duplicate markers, ledger-posted, conversion or webhook counters, so they are not shown.',
   ),
   screen(
     'F03',
@@ -55,7 +55,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'FORM',
     'Prepare a merchant account with an owner, verification path and effective controls.',
     ['Business and owner', 'Archetype and tier', 'Pricing and caps', 'Review and second founder'],
-    'The pay service creates a merchant only for the signed-in caller. A founder invitation with owner assignment is not in the pay service yet, so this page lists merchants and cannot create one for someone else.',
+    'The pay service creates a merchant only for the signed-in caller. It has no founder invitation with owner assignment, so this page lists merchants and cannot create one for someone else.',
     'Create merchant',
   ),
   screen(
@@ -150,7 +150,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Track settlement windows, fees and failed workflows across merchants.',
     ['Settlement', 'Merchant', 'Gross / fee / net', 'Status', 'Window'],
-    'This page is not wired to founderAdmin.payouts.list, and svc-pay has no settlement aggregate, failed-first sort or export.',
+    'Each row is one settlement window with its fee and net. The pay service has no settlement aggregate, failed-first sort or full export; filter by status to see failed windows.',
   ),
   screen(
     'F36',
@@ -246,7 +246,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review tier definitions, caps and approval requirements.',
     ['Tier and archetype', 'Caps', 'Pricing and reserve', 'Approval threshold'],
-    'This page is not wired to founderAdmin.control.tiers.list, and svc-pay has no merchant-count-per-tier read; no commercial values are supplied here.',
+    'This page reads tier definitions only. Changing a tier takes the two-founder change flow, which this console does not offer, and no commercial value is supplied here.',
   ),
   screen(
     'F55',
@@ -284,7 +284,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review effective caps, usage and merchants approaching a configured limit.',
     ['Scope', 'Cap', 'Usage', 'Headroom', 'Last changed'],
-    'This page is not wired to founderAdmin.control.limitRequests.list, and svc-pay has no global cap-usage read. Unconfigured limits remain unset.',
+    'The pay service has no global cap-usage read, so usage and headroom are not shown. Unconfigured limits stay unset; open a merchant’s Controls to compare a request with its current caps.',
   ),
   screen(
     'F59',
@@ -331,7 +331,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Trace state changes to their actor, second approver and before/after values.',
     ['Action and resource', 'Actor', 'Second approver', 'Before / after', 'Reason', 'Time'],
-    'This page is not wired to founderAdmin.control.audit.list. An absent audit list here does not mean no changes occurred.',
+    'Only control changes are listed here: merchant, tier, pricing and approval decisions. Other activity is not in this list, and a failed read never means no changes occurred.',
   ),
   screen(
     'F65',

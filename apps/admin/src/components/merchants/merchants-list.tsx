@@ -92,7 +92,7 @@ export function MerchantsListView({ data, query }: { data: MerchantListPageData;
         <div className="mp-field">
           <label htmlFor="f-tier">Tier</label>
           <select id="f-tier" name="tier" className="mp-input" defaultValue="" disabled aria-describedby="f-tier-hint">
-            <option value="">Not available yet</option>
+            <option value="">Not available</option>
           </select>
         </div>
         <div className="mp-field">
