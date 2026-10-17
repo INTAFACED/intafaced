@@ -317,7 +317,7 @@ describe('dual-control configuration changes', () => {
       ],
       [
         'a different kind of change',
-        () => merchantTarget(merchantId, { kind: 'set_reserve', reserve: { rollingReserveBps: 0, holdDays: 0 } }),
+        () => merchantTarget(merchantId, { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } }),
         () => merchantTarget(merchantId, { kind: 'set_caps', caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '7' }] }),
       ],
       [
