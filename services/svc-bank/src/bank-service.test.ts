@@ -3009,6 +3009,14 @@ describe('svc-bank money PG-hard', () => {
         // only place "how much is available" is answered.
         'ramp_onramps.amount': 'a RECORD of one on-ramp credit; written once with its ledger tx id',
         'ramp_offramps.amount': 'a RECORD of one off-ramp instruction; written once with hold+settle tx ids',
+        'ramp_onramp_quotes.amount': 'the crypto AMOUNT the customer asked to buy on one quote; not a balance',
+        'ramp_onramp_quotes.pay_amount': 'the pay amount the rate source published for that quote; written once',
+        'ramp_onramp_quotes.fee': 'the fee the rate source published for that quote; not a tariff this service computed',
+        'ramp_onramp_quotes.rate': 'the rate the source published for that quote; frozen on the row',
+        'customer_onramps.amount': 'a copy of the quote amount on one partner instruction; this row does not credit the ledger',
+        'customer_onramps.pay_amount': 'the pay amount copied onto that instruction; written once',
+        'customer_onramps.fee': 'the fee copied onto that instruction; written once',
+        'customer_onramps.rate': 'the rate copied onto that instruction; written once',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.
