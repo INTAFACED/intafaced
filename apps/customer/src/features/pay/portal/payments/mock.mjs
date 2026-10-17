@@ -51,7 +51,10 @@ export function createPaymentsMock(ctx) {
     assetId: 'USDT',
     amount: '120.00',
     customerRef: `TEST-cust-${String(n).padStart(3, '0')}`,
+    customerEmail: `buyer${n}@example.test`,
     description: `TEST invoice ${n}`,
+    dueAt: null,
+    lineItems: [],
     paymentLinkId: status === 'sent' || status === 'paid' ? hex('1b', n) : null,
     paymentId: null,
     sentAt: status === 'sent' || status === 'paid' ? iso(now - (n + 1) * DAY) : null,
@@ -63,8 +66,17 @@ export function createPaymentsMock(ctx) {
   });
   state.invoices = activity
     ? [
-        invoiceRow(1, 'draft', { amount: '250.5', customerRef: null }),
-        invoiceRow(2, 'sent', { amount: '47.13', customerRef: 'TEST-cust-001' }),
+        invoiceRow(1, 'draft', {
+          amount: '250.5',
+          customerRef: null,
+          customerEmail: null,
+          dueAt: iso(now + 12 * DAY),
+          lineItems: [
+            { kind: 'charge', description: 'TEST design work', quantity: '3', unitAmount: '100', amount: '300' },
+            { kind: 'credit', description: 'TEST loyalty credit', quantity: '1', unitAmount: '49.5', amount: '-49.5' },
+          ],
+        }),
+        invoiceRow(2, 'sent', { amount: '47.13', customerRef: 'TEST-cust-001', dueAt: iso(now + 6 * DAY) }),
         invoiceRow(3, 'paid', {
           amount: '54.26',
           customerRef: world.payments[1].customerRef,
@@ -72,19 +84,115 @@ export function createPaymentsMock(ctx) {
           paidAt: world.payments[1].createdAt,
         }),
         invoiceRow(4, 'void'),
-        invoiceRow(5, 'sent', { amount: '1999.999999' }),
-        ...Array.from({ length: 24 }, (_, i) => invoiceRow(6 + i, ['draft', 'sent', 'paid', 'void'][i % 4], { amount: `${100 + i}.00` })),
+        invoiceRow(5, 'sent', { amount: '1999.999999', dueAt: iso(now - 3 * DAY) }),
+        ...Array.from({ length: 24 }, (_, i) => invoiceRow(6 + i, ['draft', 'sent', 'void', 'sent'][i % 4], { amount: `${100 + i}.00` })),
       ]
     : [];
+  let invoiceLinkCount = 500;
   const invoiceActions = new Map();
-  const mintLink = (invoice) => ({
-    id: invoice.paymentLinkId,
-    prefix: 'TESTlink',
-    expiresAt: iso(now + 30 * DAY),
-    maxUses: 1,
-    token: `TEST-token-${invoice.id.slice(0, 8)}`,
-    alreadyIssued: false,
-  });
+  /** The address of an invoice's payment link is also on the payment link's own page, as with the real service. */
+  const mintLink = (invoice) => {
+    const prefix = `TESTinv${invoice.id.slice(-2)}`;
+    const link = {
+      id: invoice.paymentLinkId,
+      prefix,
+      expiresAt: iso(now + 30 * DAY),
+      maxUses: 1,
+      token: `TEST-token-${invoice.id.slice(0, 8)}`,
+      alreadyIssued: false,
+    };
+    // A sent invoice's link is an ordinary one-time payment link: it is in the links list, with the invoice's amount.
+    const record = {
+      id: link.id,
+      prefix,
+      label: (invoice.description ?? 'Invoice').slice(0, 120),
+      amount: invoice.amount,
+      currency: invoice.assetId,
+      active: true,
+      expiresAt: link.expiresAt,
+      maxUses: 1,
+      uses: 0,
+      createdAt: iso(Date.now()),
+      checkoutUrl: `https://checkout.example.test/pay/checkout?token=${link.token}`,
+    };
+    const at = world.links.findIndex((l) => l.id === record.id);
+    if (at >= 0) world.links.splice(at, 1);
+    world.links.unshift(record);
+    return link;
+  };
+  /** The email as the service sends it: whole for the owner, partly hidden for everyone else. */
+  const emailFor = (email) => {
+    if (email === null || email === undefined) return null;
+    if (ctx.role === 'owner') return email;
+    const at = email.indexOf('@');
+    if (at <= 0) return '***';
+    const domain = email.slice(at + 1);
+    const dot = domain.lastIndexOf('.');
+    return `${email[0]}***@${dot > 0 ? `${domain[0]}***${domain.slice(dot)}` : `${domain[0] ?? '*'}***`}`;
+  };
+  const asInvoice = (row) => ({ ...row, customerEmail: emailFor(row.customerEmail) });
+  // Every sent or paid invoice already has its payment link in the links list, as it does on the real service.
+  for (const invoice of state.invoices.filter((x) => x.paymentLinkId)) {
+    const paidVia = invoice.status === 'paid' ? world.payments.find((p) => p.id === invoice.paymentId) : null;
+    const prefix = `TESTinv${invoice.id.slice(-2)}`;
+    if (paidVia) paidVia.linkId = invoice.paymentLinkId;
+    world.links.push({
+      id: invoice.paymentLinkId,
+      prefix,
+      label: (invoice.description ?? 'Invoice').slice(0, 120),
+      amount: invoice.amount,
+      currency: invoice.assetId,
+      active: invoice.status === 'sent',
+      expiresAt: iso(now + 30 * DAY),
+      maxUses: 1,
+      uses: paidVia ? 1 : 0,
+      createdAt: invoice.sentAt,
+      checkoutUrl: `https://checkout.example.test/pay/checkout?token=TEST-token-${prefix}`,
+    });
+  }
+  // exact 18-place arithmetic, so a refused product is refused for the same reason the service refuses it
+  const D18 = 10n ** 18n;
+  const d18 = (v) => {
+    const [whole, frac = ''] = String(v).split('.');
+    return BigInt(whole || '0') * D18 + BigInt(frac.padEnd(18, '0'));
+  };
+  const fromD18 = (n) => {
+    const neg = n < 0n;
+    const abs = neg ? -n : n;
+    const frac = (abs % D18).toString().padStart(18, '0').replace(/0+$/, '');
+    return `${neg ? '-' : ''}${abs / D18}${frac ? `.${frac}` : ''}`;
+  };
+  /** The service's checks on a create, in its order. Returns a refusal code, or the canonical lines. */
+  const checkInvoice = (input) => {
+    if (!/^\d+(\.\d{1,18})?$/.test(String(input.amount ?? '')) || !/[1-9]/.test(input.amount)) return { code: 'pay.invoice_amount_invalid' };
+    if (input.customerEmail !== undefined && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.customerEmail.trim())) return { code: 'pay.invoice_email_invalid' };
+    if (input.dueAt !== undefined && Number.isNaN(Date.parse(input.dueAt))) return { code: 'pay.invoice_due_invalid' };
+    if (!input.lineItems || input.lineItems.length === 0) return { lines: [] };
+    if (input.lineItems.length > 40) return { code: 'pay.invoice_lines_too_many' };
+    let total = 0n;
+    const lines = [];
+    for (const line of input.lineItems) {
+      const valid = (v) => /^\d+(\.\d{1,18})?$/.test(String(v));
+      if (!line.description?.trim() || !valid(line.quantity) || !valid(line.unitAmount) || d18(line.quantity) <= 0n)
+        return { code: 'pay.invoice_line_invalid' };
+      const product = d18(line.quantity) * d18(line.unitAmount);
+      if (product % D18 !== 0n) return { code: 'pay.invoice_line_not_exact' };
+      const magnitude = product / D18;
+      if (line.kind === 'credit' && magnitude === 0n) return { code: 'pay.invoice_line_invalid' };
+      const signed = line.kind === 'credit' ? -magnitude : magnitude;
+      total += signed;
+      lines.push({
+        kind: line.kind === 'credit' ? 'credit' : 'charge',
+        description: line.description.trim(),
+        quantity: fromD18(d18(line.quantity)),
+        unitAmount: fromD18(d18(line.unitAmount)),
+        amount: fromD18(signed),
+      });
+    }
+    if (total <= 0n) return { code: 'pay.invoice_total_not_positive' };
+    if (fromD18(total) !== fromD18(d18(input.amount))) return { code: 'pay.invoice_total_mismatch' };
+    return { lines };
+  };
   const payments = world.payments;
   /** A payment as the service sends it: the world's bookkeeping fields (link, fee, ids of what it belongs to) stay behind. */
   const asPayment = ({ n: _n, linkId: _l, fee: _f, settlementId: _s, disputeId: _d, refundId: _r, ...row }) => row;
@@ -195,27 +303,32 @@ export function createPaymentsMock(ctx) {
               inRange(i) &&
               (!input.search || i.customerRef === input.search || i.id === input.search.toLowerCase()),
           );
-          return ok(route, page(rows, input));
+          const shown = page(rows, input);
+          return ok(route, { ...shown, items: shown.items.map(asInvoice) });
         }
         case 'merchantOps.invoices.get': {
           const i = state.invoices.find((x) => x.id === input.invoiceId);
-          return i ? ok(route, i) : refuse(route, 404, 'pay.invoice_not_found');
+          return i ? ok(route, asInvoice(i)) : refuse(route, 404, 'pay.invoice_not_found');
         }
         case 'merchantOps.invoices.create': {
           const seen = invoiceActions.get(input.requestId);
-          if (seen) return ok(route, seen);
-          if (!/^\d+(\.\d+)?$/.test(input.amount) || !/[1-9]/.test(input.amount)) return refuse(route, 400, 'pay.invoice_amount_invalid');
+          if (seen) return ok(route, asInvoice(seen));
+          const checked = checkInvoice(input);
+          if (checked.code) return refuse(route, 400, checked.code);
           const row = invoiceRow(state.invoices.length + 40, 'draft', {
-            amount: input.amount,
+            amount: fromD18(d18(input.amount)),
             assetId: input.assetId,
             customerRef: input.customerRef ?? null,
+            customerEmail: input.customerEmail?.trim() ?? null,
             description: input.description ?? null,
+            dueAt: input.dueAt ? iso(Date.parse(input.dueAt)) : null,
+            lineItems: checked.lines,
             createdAt: iso(Date.now()),
             updatedAt: iso(Date.now()),
           });
           state.invoices.unshift(row);
           invoiceActions.set(input.requestId, row);
-          return ok(route, row);
+          return ok(route, asInvoice(row));
         }
         case 'merchantOps.invoices.send':
         case 'merchantOps.invoices.reissueLink': {
@@ -226,16 +339,20 @@ export function createPaymentsMock(ctx) {
             return refuse(route, 409, i.status === 'sent' ? 'pay.invoice_already_sent' : 'pay.invoice_not_draft');
           if (!sending && i.status !== 'sent') return refuse(route, 409, 'pay.invoice_not_draft');
           const seen = invoiceActions.get(input.requestId);
-          if (seen) return ok(route, { invoice: i, paymentLink: { ...seen, token: null, alreadyIssued: true } });
+          if (seen) return ok(route, { invoice: asInvoice(i), paymentLink: { ...seen, token: null, alreadyIssued: true } });
           if (sending) {
             i.status = 'sent';
             i.sentAt = iso(Date.now());
+          } else {
+            // re-issuing switches the old link off before the new one exists
+            const old = world.links.find((l) => l.id === i.paymentLinkId);
+            if (old) old.active = false;
           }
-          i.paymentLinkId = hex('1c', Math.floor(Math.random() * 1e6));
+          i.paymentLinkId = hex('1c', invoiceLinkCount++);
           i.updatedAt = iso(Date.now());
           const link = mintLink(i);
           invoiceActions.set(input.requestId, link);
-          return ok(route, { invoice: i, paymentLink: link });
+          return ok(route, { invoice: asInvoice(i), paymentLink: link });
         }
         case 'merchantOps.invoices.void': {
           const i = state.invoices.find((x) => x.id === input.invoiceId);
@@ -243,9 +360,11 @@ export function createPaymentsMock(ctx) {
           if (i.status === 'paid') return refuse(route, 409, 'pay.invoice_paid');
           if (i.status === 'void') return refuse(route, 409, 'pay.invoice_void');
           i.status = 'void';
+          const voidedLink = world.links.find((l) => l.id === i.paymentLinkId);
+          if (voidedLink) voidedLink.active = false;
           i.voidedAt = iso(Date.now());
           i.updatedAt = iso(Date.now());
-          return ok(route, i);
+          return ok(route, asInvoice(i));
         }
         case 'merchantOps.invoices.markPaidByPayment': {
           const i = state.invoices.find((x) => x.id === input.invoiceId);
@@ -260,7 +379,7 @@ export function createPaymentsMock(ctx) {
           i.paymentId = p.id;
           i.paidAt = iso(Date.now());
           i.updatedAt = iso(Date.now());
-          return ok(route, i);
+          return ok(route, asInvoice(i));
         }
         case 'merchant.listLinks': {
           const rows = state.links.filter(

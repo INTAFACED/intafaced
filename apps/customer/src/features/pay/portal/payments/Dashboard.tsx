@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { LayoutDashboard } from './DashboardHome';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
@@ -57,7 +57,15 @@ export function Dashboard({
 }
 export { LayoutDashboardView as DashboardView } from './DashboardHome';
 
-export function DashboardInsights({ data, retry }: { data: DashboardData; retry: () => void }) {
+export function DashboardInsights({
+  data,
+  retry,
+  issued,
+}: {
+  data: DashboardData;
+  retry: () => void;
+  issued?: (when: MetricPreset) => ReactNode;
+}) {
   const { t } = portalCopy.useCopy();
   const [period, setPeriod] = useState<MetricPreset>('today');
   const labels: Record<MetricPreset, string> = { today: t('periodToday'), rolling_7d: t('period7d'), rolling_30d: t('period30d') };
@@ -112,8 +120,18 @@ export function DashboardInsights({ data, retry }: { data: DashboardData; retry:
                       label={t('kpiRefunded')}
                       period={labels[period]}
                       value={<MoneyLines items={snap.refunded} />}
+                      note={t('kpiRefundedNote')}
                       href="/pay/payments"
                     />
+                    {issued && (
+                      <Kpi
+                        label={t('refundsIssuedLabel')}
+                        period={labels[period]}
+                        value={issued(period)}
+                        note={t('refundsIssuedNote')}
+                        href="/pay/refunds"
+                      />
+                    )}
                     <Kpi label={t('kpiNet')} period={labels[period]} value={<MoneyLines items={snap.net} />} note={t('kpiNetNote')} />
                     <Kpi
                       label={t('kpiFees')}

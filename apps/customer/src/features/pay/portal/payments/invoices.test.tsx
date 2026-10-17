@@ -37,10 +37,19 @@ import { InvoiceCreate, InvoiceDetailView } from './Invoices';
 import {
   allowedActions,
   amountProblem,
+  blankDraft,
+  blankLine,
+  displayStatus,
+  draftAmount,
   draftProblems,
+  dueAtOf,
   hostedLinkUrl,
   invoiceEvents,
   invoiceName,
+  isOverdue,
+  lineAmount,
+  lineProblem,
+  linesTotal,
   matchingPayments,
   sameAmount,
 } from './invoice-model';
@@ -54,7 +63,10 @@ const invoice = (patch: Partial<Invoice> = {}): Invoice => ({
   assetId: 'USDT',
   amount: '1999.999999',
   customerRef: 'TEST-cust-001',
+  customerEmail: 'b***@e***.test',
   description: 'TEST consulting',
+  dueAt: null,
+  lineItems: [],
   paymentLinkId: null,
   paymentId: null,
   sentAt: null,
@@ -94,13 +106,17 @@ describe('invoice rules the form and the buttons follow', () => {
     expect(amountProblem('0.000000000000000001')).toBeNull();
   });
   it('lists every problem with a draft, and none for a good one', () => {
-    expect(draftProblems({ assetId: 'usdt!', amount: '', customerRef: 'x'.repeat(201), description: 'a\u0007b' })).toEqual({
+    const draft = blankDraft('USDT');
+    expect(
+      draftProblems({ ...draft, assetId: 'usdt!', amount: '', customerRef: 'x'.repeat(201), description: 'a\u0007b', customerEmail: 'nope' }),
+    ).toEqual({
       assetId: 'format',
       amount: 'empty',
       customerRef: 'long',
+      customerEmail: 'email',
       description: 'control',
     });
-    expect(draftProblems({ assetId: 'USDT', amount: '12.5', customerRef: '', description: 'line one\nline two' })).toEqual({});
+    expect(draftProblems({ ...draft, amount: '12.5', description: 'line one\nline two' })).toEqual({});
   });
   it('offers only the actions the status allows', () => {
     expect(allowedActions('draft')).toEqual(['send', 'markPaid', 'void']);
@@ -136,7 +152,9 @@ describe('invoice rules the form and the buttons follow', () => {
   });
   it('parses an invoice as the service sends it', () => {
     expect(invoiceSchema.safeParse(invoice()).success).toBe(true);
+    // overdue is never stored: it is worked out from a sent invoice and its due date
     expect(invoiceSchema.safeParse({ ...invoice(), status: 'overdue' }).success).toBe(false);
+    expect(invoiceSchema.safeParse({ ...invoice(), lineItems: [{ kind: 'credit', description: 'x', quantity: '1', unitAmount: '2', amount: '-2' }] }).success).toBe(true);
   });
 });
 
@@ -179,7 +197,8 @@ describe('invoice detail', () => {
     expect(out).toContain('data-review="Send invoice"');
     expect(out).toContain('data-review="Void invoice"');
     expect(out).toContain('data-review="Mark as paid"');
-    expect(out).toContain('Due dates for invoices are on the way');
+    expect(out).toContain('No due date');
+    expect(out).not.toContain('Due dates for invoices are on the way');
     expect(out).not.toContain('Overdue');
   });
   it('shows the exact amount inside every money review', () => {
@@ -198,7 +217,8 @@ describe('invoice detail', () => {
     expect(out).toContain('href="/pay/links/1b000002-0000-4000-8000-000000000002"');
     expect(out).toContain('href="/pay/customers/TEST-cust-001"');
     expect(out).toContain('TEST-token');
-    expect(out).toContain('shown only this once');
+    expect(out).toContain('find this address again on the payment link');
+    expect(out).not.toContain('shown only this once');
   });
   it('paid: no actions, and the payment is a link', () => {
     const paid = invoice({ status: 'paid', paymentId: 'aa000002-0000-4000-8000-000000000002', paidAt: '2026-10-12T09:00:00.000Z' });
@@ -217,5 +237,98 @@ describe('invoice detail', () => {
     const out = detail(invoice());
     expect(out).toContain('data-review="Send invoice"');
     allowWrite = true;
+  });
+});
+
+describe('invoice line items and exact totals', () => {
+  const line = (patch: Partial<ReturnType<typeof blankLine>> = {}) => ({ ...blankLine(), description: 'TEST item', ...patch });
+  it('multiplies quantity by price exactly, with no floating-point error', () => {
+    // 0.1 * 3 and 0.7 * 0.1 are the classic float traps
+    expect(lineAmount(line({ quantity: '3', unitAmount: '0.1' }))).toBe('0.3');
+    expect(lineAmount(line({ quantity: '0.7', unitAmount: '0.1' }))).toBe('0.07');
+    expect(lineAmount(line({ quantity: '1.5', unitAmount: '19.99' }))).toBe('29.985');
+    expect(lineAmount(line({ quantity: '123456789.123456789', unitAmount: '1000000' }))).toBe('123456789123456.789');
+  });
+  it('shows a credit as a negative line and takes it off the total', () => {
+    const lines = [line({ quantity: '3', unitAmount: '100' }), line({ kind: 'credit', description: 'TEST credit', quantity: '1', unitAmount: '49.5' })];
+    expect(lineAmount(lines[1]!)).toBe('-49.5');
+    expect(linesTotal(lines)).toBe('250.5');
+    expect(draftAmount({ ...blankDraft('USDT'), lineItems: lines })).toBe('250.5');
+  });
+  it('refuses a product that needs more than 18 decimal places, instead of rounding it', () => {
+    expect(lineProblem(line({ quantity: '0.0000000001', unitAmount: '0.0000000001' }))).toBe('places');
+    expect(lineAmount(line({ quantity: '0.0000000001', unitAmount: '0.0000000001' }))).toBeNull();
+    expect(lineProblem(line({ quantity: '0', unitAmount: '5' }))).toBe('quantity');
+    expect(lineProblem(line({ quantity: '1', unitAmount: '-5' }))).toBe('unitAmount');
+    expect(lineProblem(line({ kind: 'credit', unitAmount: '0' }))).toBe('unitAmount');
+    expect(lineProblem(line({ description: '  ' }))).toBe('description');
+  });
+  it('needs a total above zero, and says so', () => {
+    const only = [line({ kind: 'credit', unitAmount: '5' })];
+    expect(draftProblems({ ...blankDraft('USDT'), lineItems: only })).toEqual({ lineItems: 'total' });
+    const balanced = [line({ unitAmount: '5' }), line({ kind: 'credit', unitAmount: '5' })];
+    expect(linesTotal(balanced)).toBe('0');
+    expect(draftProblems({ ...blankDraft('USDT'), lineItems: balanced })).toEqual({ lineItems: 'total' });
+    expect(draftProblems({ ...blankDraft('USDT'), lineItems: [line({ unitAmount: '5' }), line({ unitAmount: '' })] })).toEqual({ lineItems: 'lines' });
+    expect(draftProblems({ ...blankDraft('USDT'), lineItems: [line({ unitAmount: '5' })] })).toEqual({});
+  });
+  it('checks the typed amount only when there are no lines', () => {
+    expect(draftProblems({ ...blankDraft('USDT'), amount: '', lineItems: [line({ unitAmount: '5' })] })).toEqual({});
+  });
+  it('takes the due day as the end of that day, and refuses a day that has passed', () => {
+    const due = dueAtOf('2026-10-20');
+    expect(new Date(due).getTime()).toBe(new Date(2026, 9, 20, 23, 59, 59).getTime());
+    expect(draftProblems({ ...blankDraft('USDT'), amount: '5', dueDate: '2026-10-16' }, '2026-10-17')).toEqual({ dueDate: 'past' });
+    expect(draftProblems({ ...blankDraft('USDT'), amount: '5', dueDate: '2026-10-17' }, '2026-10-17')).toEqual({});
+    expect(draftProblems({ ...blankDraft('USDT'), amount: '5', dueDate: '17/10/2026' }, '2026-10-17')).toEqual({ dueDate: 'format' });
+  });
+  it('is overdue only when sent and past its due time', () => {
+    const now = Date.parse('2026-10-17T12:00:00.000Z');
+    expect(isOverdue(invoice({ status: 'sent', dueAt: '2026-10-16T12:00:00.000Z' }), now)).toBe(true);
+    expect(isOverdue(invoice({ status: 'sent', dueAt: '2026-10-18T12:00:00.000Z' }), now)).toBe(false);
+    expect(isOverdue(invoice({ status: 'sent', dueAt: null }), now)).toBe(false);
+    expect(isOverdue(invoice({ status: 'paid', dueAt: '2026-10-16T12:00:00.000Z' }), now)).toBe(false);
+    expect(isOverdue(invoice({ status: 'draft', dueAt: '2026-10-16T12:00:00.000Z' }), now)).toBe(false);
+    expect(displayStatus(invoice({ status: 'sent', dueAt: '2026-10-16T12:00:00.000Z' }), now)).toBe('overdue');
+  });
+  it('turns the new refusals into plain words', () => {
+    for (const code of [
+      'pay.invoice_email_invalid',
+      'pay.invoice_due_invalid',
+      'pay.invoice_line_invalid',
+      'pay.invoice_line_not_exact',
+      'pay.invoice_lines_too_many',
+      'pay.invoice_total_not_positive',
+      'pay.invoice_total_mismatch',
+    ]) {
+      const text = refusalText({ ok: false, reason: 'error', message: code, code });
+      expect(text).not.toMatch(/pay\./);
+      expect(text).toContain('Nothing was saved');
+    }
+  });
+  it('shows the lines, the credit as a minus, the due date and the exact total on the detail', () => {
+    allowWrite = true;
+    const out = detail(
+      invoice({
+        amount: '250.5',
+        dueAt: '2026-10-25T15:59:59.000Z',
+        lineItems: [
+          { kind: 'charge', description: 'TEST design work', quantity: '3', unitAmount: '100', amount: '300' },
+          { kind: 'credit', description: 'TEST loyalty credit', quantity: '1', unitAmount: '49.5', amount: '-49.5' },
+        ],
+      }),
+    );
+    expect(out).toContain('TEST design work');
+    expect(out).toContain('TEST loyalty credit');
+    expect(out).toContain('Credit');
+    expect(out).toContain('Due');
+    expect(out).toMatch(/49\.50?/);
+    expect(out).toContain('Line items');
+  });
+  it('flags an overdue invoice on its detail', () => {
+    allowWrite = true;
+    const out = detail(invoice({ status: 'sent', dueAt: '2020-01-01T00:00:00.000Z', paymentLinkId: '1b000002-0000-4000-8000-000000000002' }));
+    expect(out).toContain('Overdue');
+    expect(out).toContain('past its due date');
   });
 });

@@ -26,6 +26,7 @@ import { useServerList } from '../ui/useServerList';
 import { assetsOf } from '../model';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { ExportResults } from './ExportResults';
+import { RefundsIssuedValue } from './RefundsIssued';
 import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
 import { disputeReason } from './dispute-model';
@@ -57,6 +58,7 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
   return (
     <PaymentsView
       portal={portal}
+      merchantId={merchantId}
       filters={filters}
       range={range}
       list={list.state}
@@ -74,6 +76,7 @@ export function Payments({ portal, merchantId }: { portal: PortalApi; merchantId
 
 export function PaymentsView({
   portal,
+  merchantId,
   filters,
   range,
   list,
@@ -83,6 +86,7 @@ export function PaymentsView({
   retry,
 }: {
   portal: PortalApi;
+  merchantId?: string;
   filters: ListFilters;
   range: { from?: string; to?: string };
   list: ListState<Payment>;
@@ -101,7 +105,7 @@ export function PaymentsView({
         <Freshness asOf={snapshot.data.freshness.asOf} lagSeconds={snapshot.data.freshness.lagSeconds ?? 0} />
       ) : null}
       <HaltBanner resource={halts} scopes={['intake']} />
-      <Totals snapshot={snapshot} period={period} matchesList={matchesList} retry={retry} />
+      <Totals snapshot={snapshot} period={period} matchesList={matchesList} retry={retry} portal={portal} {...(merchantId ? { merchantId } : {})} />
       <FilterRow
         label={t('pay_listTitle')}
         filters={filters}
@@ -192,11 +196,15 @@ function Totals({
   period,
   matchesList,
   retry,
+  portal,
+  merchantId,
 }: {
   snapshot: Resource<Snapshot>;
   period: 'today' | '7d' | '30d';
   matchesList: boolean;
   retry: () => void;
+  portal: PortalApi;
+  merchantId?: string;
 }) {
   const { t } = c.useCopy();
   if (snapshot.status === 'loading') return <PortalLoading rows={2} />;
@@ -221,7 +229,18 @@ function Totals({
             value: <MoneyLines items={snap.captured} />,
             note: t('kpiVolumeNote'),
           },
-          { label: t('kpiRefunded'), period: label, href: refundsHref, value: <MoneyLines items={snap.refunded} /> },
+          { label: t('kpiRefunded'), period: label, href: refundsHref, value: <MoneyLines items={snap.refunded} />, note: t('kpiRefundedNote') },
+          ...(merchantId
+            ? [
+                {
+                  label: t('refundsIssuedLabel'),
+                  period: label,
+                  href: refundsHref,
+                  value: <RefundsIssuedValue portal={portal} merchantId={merchantId} when={period} />,
+                  note: t('refundsIssuedNote'),
+                },
+              ]
+            : []),
           {
             label: t('kpiSuccess'),
             period: label,

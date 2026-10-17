@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import { z } from 'zod';
 import { P2P } from './P2P';
 import { BusinessPay } from './BusinessPay';
 import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
@@ -11,7 +12,12 @@ import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
 import { MerchantAccessProvider, useMerchantAccess } from './portal/access/MerchantAccess';
 import { authorityFromAccess } from './portal/access/authority';
 import { useSession } from '../session/session';
+import { useResource } from '../../shared/resource';
 import './pay.css';
+
+const starterFeeRead = z.object({
+  starterFee: z.object({ bps: z.number().int().min(0).max(10_000), source: z.literal('local_test') }).nullable(),
+});
 
 const BusinessContext = createContext<PayBusinessAuthority | null>(null);
 /** A future authoritative company membership source may supply this context.
@@ -48,7 +54,7 @@ function PayRooms({ path }: { path: string }) {
     return <P2P key={path} path={path} />;
   const redirect = portalRedirect(path);
   if (redirect) return <Redirect to={redirect} />;
-  if (parsePortalRoute(path)) return <MerchantPortal key={path} path={path} authority={authority} />;
+  if (parsePortalRoute(path)) return <PortalEntry key={path} path={path} authority={authority} />;
   // The older sandbox tools stay reachable by address only (`?view=tools`).
   if (isLegacyTool(path))
     return (
@@ -57,6 +63,17 @@ function PayRooms({ path }: { path: string }) {
       </MerchantAccessProvider>
     );
   return <PortalNotFound />;
+}
+
+/** The fee INTAFACED has published for new accounts (#4897), read once so onboarding can show it. */
+function PortalEntry({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
+  const { api, userId } = useSession();
+  const fee = useResource(
+    (signal) => api.query('pay', 'merchant.starterFee', undefined, starterFeeRead, { signal }),
+    `pay:starter-fee:${userId ?? 'anon'}`,
+  );
+  const starterFeeBps = fee.resource.status === 'ready' ? (fee.resource.data.starterFee?.bps ?? null) : null;
+  return <MerchantPortal path={path} authority={authority} starterFeeBps={starterFeeBps} />;
 }
 export type { PayBusinessAuthority } from './pay-api';
 

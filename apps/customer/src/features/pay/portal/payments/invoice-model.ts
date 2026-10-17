@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+import { MAX_AMOUNT, SCALE } from '@intafaced/ledger-client/money';
+import { formatAmount, parseAmount } from '../../../../shared/money';
 import { newRequestId } from '../model';
-import type { Invoice, InvoiceStatus } from './schemas';
+import type { Invoice, InvoiceDisplayStatus, InvoiceStatus } from './schemas';
 
 /** Why an amount typed into the invoice form can't be sent, or null when it can. The service rejects the same cases. */
 export type AmountProblem = 'empty' | 'format' | 'places' | 'zero';
@@ -14,19 +16,119 @@ export function amountProblem(raw: string): AmountProblem | null {
 }
 
 const CONTROL = /[\u0000-\u001f\u007f]/;
-export type InvoiceDraft = { assetId: string; amount: string; customerRef: string; description: string };
-export type DraftProblems = Partial<Record<keyof InvoiceDraft, 'empty' | 'format' | 'places' | 'zero' | 'long' | 'control'>>;
+
+/** The most lines the service takes on one invoice. */
+export const MAX_INVOICE_LINES = 40;
+export type LineKind = 'charge' | 'credit';
+export type LineDraft = { kind: LineKind; description: string; quantity: string; unitAmount: string };
+export const blankLine = (): LineDraft => ({ kind: 'charge', description: '', quantity: '1', unitAmount: '' });
+
+export type InvoiceDraft = {
+  assetId: string;
+  amount: string;
+  customerRef: string;
+  customerEmail: string;
+  description: string;
+  /** A calendar day typed in the date box (YYYY-MM-DD), or empty for no due date. */
+  dueDate: string;
+  lineItems: LineDraft[];
+};
+export const blankDraft = (assetId: string): InvoiceDraft => ({
+  assetId,
+  amount: '',
+  customerRef: '',
+  customerEmail: '',
+  description: '',
+  dueDate: '',
+  lineItems: [],
+});
+
+/** Quantity times unit price, exact at the ledger's 18 decimals. Anything that does not land exactly is a problem, never rounded. */
+export type LineProblem = 'description' | 'quantity' | 'unitAmount' | 'places';
+export function lineProblem(line: LineDraft): LineProblem | null {
+  const description = line.description.trim();
+  if (description.length < 1 || description.length > 500 || CONTROL.test(description)) return 'description';
+  const quantity = line.quantity.trim();
+  if (!/^\d+(\.\d{1,18})?$/.test(quantity) || !/[1-9]/.test(quantity)) return 'quantity';
+  const unit = line.unitAmount.trim();
+  if (!/^\d+(\.\d{1,18})?$/.test(unit)) return 'unitAmount';
+  const product = parseAmount(quantity) * parseAmount(unit);
+  if (product % SCALE !== 0n) return 'places';
+  if (product / SCALE > MAX_AMOUNT) return 'unitAmount';
+  // a free credit takes nothing off the total, so the service refuses it
+  if (line.kind === 'credit' && !/[1-9]/.test(unit)) return 'unitAmount';
+  return null;
+}
+
+/** The signed amount of one good line as an exact decimal string: a credit is negative. Null while the line has a problem. */
+export function lineAmount(line: LineDraft): string | null {
+  if (lineProblem(line)) return null;
+  const magnitude = (parseAmount(line.quantity.trim()) * parseAmount(line.unitAmount.trim())) / SCALE;
+  return formatAmount(line.kind === 'credit' ? -magnitude : magnitude);
+}
+
+/** The exact total of every line, or null while any line has a problem or there are none. */
+export function linesTotal(lines: readonly LineDraft[]): string | null {
+  if (lines.length === 0) return null;
+  let total = 0n;
+  for (const line of lines) {
+    const each = lineAmount(line);
+    if (each === null) return null;
+    total += parseAmount(each);
+  }
+  return formatAmount(total);
+}
+
+/** The amount the invoice will carry: the lines' total when there are lines, else the typed amount. */
+export const draftAmount = (draft: InvoiceDraft): string => (draft.lineItems.length > 0 ? (linesTotal(draft.lineItems) ?? '') : draft.amount.trim());
+
+export type DraftField = 'assetId' | 'amount' | 'customerRef' | 'customerEmail' | 'description' | 'dueDate' | 'lineItems';
+export type DraftProblems = Partial<
+  Record<DraftField, 'empty' | 'format' | 'places' | 'zero' | 'long' | 'control' | 'email' | 'past' | 'lines' | 'total' | 'tooManyLines'>
+>;
 /** Every problem with a draft, keyed by field. An empty object means it can be reviewed. */
-export function draftProblems(draft: InvoiceDraft): DraftProblems {
+export function draftProblems(draft: InvoiceDraft, today: string = localDay(new Date())): DraftProblems {
   const out: DraftProblems = {};
   if (!/^[A-Za-z0-9._-]{1,16}$/.test(draft.assetId.trim())) out.assetId = draft.assetId.trim() === '' ? 'empty' : 'format';
-  const amount = amountProblem(draft.amount);
-  if (amount) out.amount = amount;
+  if (draft.lineItems.length > 0) {
+    if (draft.lineItems.length > MAX_INVOICE_LINES) out.lineItems = 'tooManyLines';
+    else if (draft.lineItems.some((line) => lineProblem(line))) out.lineItems = 'lines';
+    else if (parseAmount(linesTotal(draft.lineItems) ?? '0') <= 0n) out.lineItems = 'total';
+  } else {
+    const amount = amountProblem(draft.amount);
+    if (amount) out.amount = amount;
+  }
   if (draft.customerRef.trim().length > 200) out.customerRef = 'long';
   else if (CONTROL.test(draft.customerRef)) out.customerRef = 'control';
+  const email = draft.customerEmail.trim();
+  if (email && (email.length > 254 || CONTROL.test(email) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) out.customerEmail = 'email';
   if (draft.description.trim().length > 2000) out.description = 'long';
   else if (CONTROL.test(draft.description.replace(/\n/g, ' '))) out.description = 'control';
+  if (draft.dueDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate) || Number.isNaN(Date.parse(`${draft.dueDate}T00:00:00Z`))) out.dueDate = 'format';
+    else if (draft.dueDate < today) out.dueDate = 'past';
+  }
   return out;
+}
+
+/** Today as the person's own calendar day (YYYY-MM-DD), the day the due-date box counts from. */
+export function localDay(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/** The moment a typed due day ends, in the person's own time zone, as the timestamp the service takes. */
+export function dueAtOf(day: string): string {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return new Date(y, m - 1, d, 23, 59, 59, 0).toISOString();
+}
+
+/** Sent and past its due date: the one status the service does not store. */
+export function isOverdue(invoice: Pick<Invoice, 'status' | 'dueAt'>, now: number = Date.now()): boolean {
+  return invoice.status === 'sent' && invoice.dueAt !== null && Date.parse(invoice.dueAt) < now;
+}
+export function displayStatus(invoice: Pick<Invoice, 'status' | 'dueAt'>, now: number = Date.now()): InvoiceDisplayStatus {
+  return isOverdue(invoice, now) ? 'overdue' : invoice.status;
 }
 
 /** What an invoice is called in a list: who it is for, else what it is for, else a short reference. Never a bare id as the name. */

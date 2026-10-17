@@ -5,6 +5,8 @@ import { cycleSchema } from './billing-schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 
+const REFUND_PAGES = 5;
+
 export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query(
@@ -126,6 +128,33 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
     ),
   paymentRefundRows: (paymentId: string, merchantId: string, signal?: AbortSignal) =>
     list('payment.refunds.list', pay.paymentRefundRowSchema, { merchantId, paymentId, limit: 200 }, signal),
+  /**
+   * Refunds issued inside a window, worked out from the refunds list itself (the day the refund was made), not from the
+   * day the payment was taken. Reads at most `REFUND_PAGES` pages and says when it stopped early.
+   */
+  refundsIssued: async (merchantId: string, window: { from?: string; to?: string }, signal?: AbortSignal) => {
+    const rows: pay.PaymentRefundRow[] = [];
+    let cursor: string | undefined;
+    for (let pages = 0; pages < REFUND_PAGES; pages += 1) {
+      const next = await query(
+        'payment.refunds.list',
+        {
+          merchantId,
+          limit: 200,
+          ...(window.from ? { from: window.from } : {}),
+          ...(window.to ? { to: window.to } : {}),
+          ...(cursor ? { cursor } : {}),
+        },
+        p.page(pay.paymentRefundRowSchema),
+        signal,
+      );
+      if (!next.ok) return next;
+      rows.push(...next.data.items);
+      if (!next.data.nextCursor) return { ok: true as const, data: { rows, complete: true } };
+      cursor = next.data.nextCursor;
+    }
+    return { ok: true as const, data: { rows, complete: false } };
+  },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
     list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
   checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
@@ -143,8 +172,16 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   invoice: (invoiceId: string, signal?: AbortSignal) => query('merchantOps.invoices.get', { invoiceId }, pay.invoiceSchema, signal),
-  createInvoice: (input: { requestId: string; assetId: string; amount: string; customerRef?: string; description?: string }) =>
-    mutate('merchantOps.invoices.create', input, pay.invoiceSchema),
+  createInvoice: (input: {
+    requestId: string;
+    assetId: string;
+    amount: string;
+    customerRef?: string;
+    customerEmail?: string;
+    description?: string;
+    dueAt?: string;
+    lineItems?: Array<{ kind: 'charge' | 'credit'; description: string; quantity: string; unitAmount: string }>;
+  }) => mutate('merchantOps.invoices.create', input, pay.invoiceSchema),
   sendInvoice: (input: { requestId: string; invoiceId: string }) => mutate('merchantOps.invoices.send', input, pay.invoiceSentSchema),
   reissueInvoiceLink: (input: { requestId: string; invoiceId: string }) =>
     mutate('merchantOps.invoices.reissueLink', input, pay.invoiceSentSchema),

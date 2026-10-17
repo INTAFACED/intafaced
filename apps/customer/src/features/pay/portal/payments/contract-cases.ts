@@ -21,6 +21,7 @@ export const paymentsContract: ContractPart = {
     { method: 'ownTier', run: (p) => p.ownTier(merchant) },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { assetId: 'USDT' }, undefined) },
     { method: 'paymentRefundRows', run: (p) => p.paymentRefundRows('aa000004-0000-4000-8000-000000000004', merchant) },
+    { method: 'refundsIssued', run: (p) => p.refundsIssued(merchant, { from: '2026-09-18T00:00:00.000Z', to: '2026-10-18T00:00:00.000Z' }) },
     { method: 'paymentActivity', run: (p) => p.paymentActivity('aa000003-0000-4000-8000-000000000003') },
     { method: 'invoices', run: (p) => p.invoices({ status: 'sent' }, undefined) },
     { method: 'invoice', run: (p) => p.invoice('1a000002-0000-4000-8000-000000000002') },
@@ -32,6 +33,21 @@ export const paymentsContract: ContractPart = {
           assetId: 'USDT',
           amount: '12.345678',
           customerRef: 'TEST-cust-001',
+        }),
+    },
+    {
+      method: 'createInvoice',
+      run: (p) =>
+        p.createInvoice({
+          requestId: '5e000004-0000-4000-8000-000000000004',
+          assetId: 'USDT',
+          amount: '250.5',
+          customerEmail: 'buyer@example.test',
+          dueAt: '2026-11-01T15:59:59.000Z',
+          lineItems: [
+            { kind: 'charge', description: 'TEST work', quantity: '3', unitAmount: '100' },
+            { kind: 'credit', description: 'TEST credit', quantity: '1', unitAmount: '49.5' },
+          ],
         }),
     },
     {

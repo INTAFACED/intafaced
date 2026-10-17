@@ -55,6 +55,8 @@ const en = {
   tipInvoice_draft: 'Not sent yet. You can still change it.',
   chipInvoice_sent: 'Sent',
   tipInvoice_sent: 'Your customer has the payment link.',
+  chipInvoice_overdue: 'Overdue',
+  tipInvoice_overdue: 'Sent, and the due date has passed without a payment.',
   chipInvoice_paid: 'Paid',
   tipInvoice_paid: 'The customer paid this invoice.',
   chipInvoice_void: 'Void',

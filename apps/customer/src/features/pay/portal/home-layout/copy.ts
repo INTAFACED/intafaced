@@ -45,7 +45,6 @@ const en = {
   month: '30 days',
   period: 'Reporting period',
   captured: 'Captured',
-  refunded: 'Refunded',
   count: 'Payments',
   net: 'Net received',
   volume: 'Payment volume',

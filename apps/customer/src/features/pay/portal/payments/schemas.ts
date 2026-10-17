@@ -9,15 +9,35 @@ const timestamp = z.string().datetime({ offset: true });
 
 export const invoiceStatuses = ['draft', 'sent', 'paid', 'void'] as const;
 export type InvoiceStatus = (typeof invoiceStatuses)[number];
+/** What a list and a filter can say. Overdue is not stored: it is a sent invoice whose due date has passed. */
+export const invoiceDisplayStatuses = ['draft', 'sent', 'overdue', 'paid', 'void'] as const;
+export type InvoiceDisplayStatus = (typeof invoiceDisplayStatuses)[number];
 
-/** `merchantOps.invoices.*` on main (services/svc-pay/src/merchant-ops/invoices.ts, #4828). One amount and a description: no line items, no due date. */
+const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+/** One line of an invoice. A credit is stored with a negative `amount`; quantity and unit price are positive. */
+export const invoiceLineSchema = z.object({
+  kind: z.enum(['charge', 'credit']),
+  description: z.string(),
+  quantity: amount,
+  unitAmount: amount,
+  amount: signedDecimal,
+});
+export type InvoiceLine = z.infer<typeof invoiceLineSchema>;
+
+/**
+ * `merchantOps.invoices.*` on main (services/svc-pay/src/merchant-ops/invoices.ts, #4828; due date, customer email and
+ * line items #4919). The customer email arrives masked unless the signed-in person is the owner.
+ */
 export const invoiceSchema = z.object({
   id,
   status: z.enum(invoiceStatuses),
   assetId: asset,
   amount,
   customerRef: z.string().nullable(),
+  customerEmail: z.string().nullable(),
   description: z.string().nullable(),
+  dueAt: timestamp.nullable(),
+  lineItems: z.array(invoiceLineSchema),
   paymentLinkId: z.string().nullable(),
   paymentId: z.string().nullable(),
   sentAt: timestamp.nullable(),

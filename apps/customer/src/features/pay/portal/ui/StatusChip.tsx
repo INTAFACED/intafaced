@@ -31,6 +31,7 @@ const fresh: Record<string, Record<string, readonly [UiKey, UiKey, Tone]>> = {
   invoice: {
     draft: ['chipInvoice_draft', 'tipInvoice_draft', 'neutral'],
     sent: ['chipInvoice_sent', 'tipInvoice_sent', 'attention'],
+    overdue: ['chipInvoice_overdue', 'tipInvoice_overdue', 'bad'],
     paid: ['chipInvoice_paid', 'tipInvoice_paid', 'good'],
     void: ['chipInvoice_void', 'tipInvoice_void', 'neutral'],
   },

@@ -1,5 +1,5 @@
 import { parseAmount, formatAmount } from '../../../../shared/money';
-import type { Payment, PaymentEvent, Series, Snapshot } from '../schemas';
+import type { AssetAmount, Payment, PaymentEvent, Series, Snapshot } from '../schemas';
 import {
   DAY_MS,
   utcDay,
@@ -135,4 +135,20 @@ export function seriesTotals(
   return [...by.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([assetCode, v]) => ({ assetCode, count: v.count, volume: formatAmount(v.volume) }));
+}
+
+/**
+ * What was refunded inside a window, one line per asset, summed exactly. A refund the network turned back is not money
+ * given back, so it is left out. Two assets are never added together.
+ */
+export function refundsIssuedTotals(rows: ReadonlyArray<{ amount: string; assetId: string; status: string }>): AssetAmount[] {
+  const by = new Map<string, bigint>();
+  for (const row of rows) {
+    if (row.status === 'reversed') continue;
+    by.set(row.assetId, (by.get(row.assetId) ?? 0n) + parseAmount(row.amount));
+  }
+  return [...by.entries()]
+    .filter(([, total]) => total > 0n)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([assetCode, total]) => ({ assetCode, amount: formatAmount(total) }));
 }

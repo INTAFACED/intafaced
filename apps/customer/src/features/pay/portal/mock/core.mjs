@@ -201,6 +201,9 @@ export function createCoreMock(ctx) {
                 ]
               : [],
           });
+        case 'merchant.starterFee':
+          // No fee has been published for new accounts, so none is invented.
+          return ok(route, { starterFee: null });
         case 'merchant.me':
           // Only the owner has a record of their own; a team member's read is empty.
           return ok(route, ctx.role === 'owner' ? state.merchant : null);

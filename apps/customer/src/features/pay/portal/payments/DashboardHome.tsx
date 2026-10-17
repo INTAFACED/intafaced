@@ -13,6 +13,7 @@ import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapsho
 import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { TierUsage } from './TierUsage';
+import { RefundsIssuedValue } from './RefundsIssued';
 import { dateRange } from '../ui/FilterRow';
 import { DateTime, useDayText } from '../ui/DateTime';
 
@@ -45,6 +46,7 @@ export function LayoutDashboard({
         todayDay={todayDay}
         activity={role === 'owner' ? <RecentPayments portal={portal} merchantId={merchantId} /> : null}
         tier={<TierUsage portal={portal} merchantId={merchantId} />}
+        issued={(when) => <RefundsIssuedValue portal={portal} merchantId={merchantId} when={WHEN[when]} />}
       />
     </>
   );
@@ -57,6 +59,7 @@ export function LayoutDashboardView({
   todayDay,
   activity,
   tier,
+  issued,
 }: {
   merchant: MerchantRecord | null;
   role: MemberRole | null;
@@ -65,6 +68,8 @@ export function LayoutDashboardView({
   todayDay: string;
   activity?: ReactNode;
   tier?: ReactNode;
+  /** Refunds made in the period, worked out from the refunds list. Left out when no list is wired (tests, quiet accounts). */
+  issued?: (when: MetricPreset) => ReactNode;
 }) {
   const { t } = c.useCopy();
   const [pickedAsset, setAsset] = useState('');
@@ -187,7 +192,7 @@ export function LayoutDashboardView({
       <Gate resource={data[period]} retry={retry} rows={1}>
         {(snap) => (
           <>
-            <MetricStrip snap={snap} period={labels[period]} key={period} when={period} />
+            <MetricStrip snap={snap} period={labels[period]} key={period} when={period} {...(issued ? { issued: issued(period) } : {})} />
             <AsOf freshness={snap.freshness} />
           </>
         )}
@@ -209,7 +214,7 @@ export function LayoutDashboardView({
           <AccordionItem value="insights">
             <AccordionTrigger>{t('insights')}</AccordionTrigger>
             <AccordionPanel>
-              <DashboardInsights data={data} retry={retry} />
+              <DashboardInsights data={data} retry={retry} {...(issued ? { issued } : {})} />
             </AccordionPanel>
           </AccordionItem>
         </Accordion>
@@ -224,7 +229,17 @@ export function LayoutDashboardView({
 
 const WHEN = { today: 'today', rolling_7d: '7d', rolling_30d: '30d' } as const;
 /** Each tile names its period and opens the list with that same period and filter in the address. */
-export function MetricStrip({ snap, period, when }: { snap: Snapshot; period: string; when: MetricPreset }) {
+export function MetricStrip({
+  snap,
+  period,
+  when,
+  issued,
+}: {
+  snap: Snapshot;
+  period: string;
+  when: MetricPreset;
+  issued?: ReactNode;
+}) {
   const { t } = c.useCopy();
   const key = WHEN[when];
   const range = dateRange(key, Date.now());
@@ -235,10 +250,11 @@ export function MetricStrip({ snap, period, when }: { snap: Snapshot; period: st
       {[
         [t('captured'), <MoneyLines items={snap.captured} />, payments()],
         [t('count'), snap.paymentCount, payments()],
-        [t('refunded'), <MoneyLines items={snap.refunded} />, refunds],
+        [t('kpiRefunded'), <MoneyLines items={snap.refunded} />, refunds, t('kpiRefundedNote')],
+        ...(issued ? [[t('refundsIssuedLabel'), issued, refunds, t('refundsIssuedNote')]] : []),
         [t('net'), <MoneyLines items={snap.net} />, '/pay/money'],
-      ].map(([label, value, href], index) => (
-        <a key={index} href={href as string}>
+      ].map(([label, value, href, note], index) => (
+        <a key={index} href={href as string} {...(note ? { title: note as string } : {})}>
           <span>
             {label} · {period}
           </span>

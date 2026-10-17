@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { ArrowUpRight } from 'lucide-react';
 import { EmptyState, Field } from '../../ui-kit';
@@ -57,11 +57,14 @@ export function HomePanels({
   merchantId,
   merchant,
   role,
+  feeRate,
 }: {
   portal: PortalApi;
   merchantId: string;
   merchant: MerchantRecord | null;
   role: MemberRole | null;
+  /** Slot for the effective fee rate (money package's `YourEffectiveFee`), shown instead of the price rule when given. */
+  feeRate?: ReactNode;
 }) {
   const rails = useResource((s) => portal.rails(s), `portal:home-rails:${merchantId}`);
   const settings = useResource((s) => portal.checkoutSettings(merchantId, s), `portal:home-checkout:${merchantId}`);
@@ -75,6 +78,7 @@ export function HomePanels({
       settings={settings.resource}
       retryRails={rails.reload}
       retrySettings={settings.reload}
+      {...(feeRate ? { feeRate } : {})}
     />
   );
 }
@@ -87,7 +91,10 @@ export function HomePanelsView({
   settings,
   retryRails,
   retrySettings,
+  feeRate,
 }: {
+  /** The effective fee rate read (a component from the money package), shown in place of the price rule when given. */
+  feeRate?: ReactNode;
   merchant: MerchantRecord | null;
   role: MemberRole | null;
   pricing?: Resource<ControlProfile>;
@@ -107,7 +114,18 @@ export function HomePanelsView({
                   [c.t('hp_status'), <Chip kind="merchant" value={merchant.status} />],
                   [c.t('hp_verification'), <Chip kind="kyb" value={merchant.kybStatus} />],
                   [c.t('hp_mode'), t(merchant.mode === 'gateway' ? 'modeGateway' : merchant.mode === 'psp' ? 'modePsp' : 'modePayfac')],
-                  [c.t('hp_fee'), <FeeText pricing={pricing} />],
+                  [
+                    c.t('hp_fee'),
+                    <>
+                      {feeRate ?? <FeeText pricing={pricing} />}
+                      {merchant.starterFee?.source === 'local_test' && merchant.feeBps === merchant.starterFee.bps && (
+                        <>
+                          <br />
+                          <span className="muted">{t('testFeeNotPricing', { bps: merchant.starterFee.bps })}</span>
+                        </>
+                      )}
+                    </>,
+                  ],
                 ] as const)
               : []),
             ...(role ? ([[c.t('hp_role'), t(`role_${role}` as 'role_owner')]] as const) : []),
