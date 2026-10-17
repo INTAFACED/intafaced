@@ -24,6 +24,7 @@ import {
   type ActionApprovalConsumer,
 } from './ledger/action-approval-consume.js';
 import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import type { LedgerService } from './service.js';
@@ -64,6 +65,12 @@ function toTrpcError(err: unknown): TRPCError {
   // Caller-actionable, and retrying the same body never will succeed. Same
   // status as `s2s-http.httpError`: a history window that cannot be answered,
   // and an assembled body that is not a recipe. Copy stays on the error.
+  if (err instanceof LedgerError && err.code === 'ledger.caller_unbound') {
+    return new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+  }
+  if (err instanceof LedgerError && err.code === 'ledger.caller_forbidden') {
+    return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+  }
   if (
     err instanceof LedgerError &&
     (err.code === 'ledger.history_range_invalid' ||
@@ -111,6 +118,7 @@ export function createLedgerRouter(
   ledger: LedgerService,
   indexer?: LedgerIndexerCompose,
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  binding?: CallerBindingOptions,
 ) {
   return router({
     // Reads the freeze row rather than a cached field: a replica that reports
@@ -157,11 +165,17 @@ export function createLedgerRouter(
           ),
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         try {
-          // Same gate as the mounted s2s door. An assembled body is not a
-          // recipe, and this mutation is the same post — refuse it before
-          // value moves.
+          // Same allowlist as the mounted HTTP door. That door is what proves
+          // the key. Here the name is verified only when the context says the
+          // HMAC matched that service's own secret. A name from the shared
+          // secret, or a name with no proof, is a claim, and enforce refuses it.
+          const caller: PostCaller =
+            ctx.service && ctx.serviceAuth === 'dedicated'
+              ? { kind: 'bound', service: ctx.service }
+              : { kind: 'legacy', claimed: ctx.service };
+          applyCallerBinding(caller, input, binding);
           assertKnownRecipePost(input);
           const entries: EntryInput[] = input.entries.map((e) => ({
             account: e.account,

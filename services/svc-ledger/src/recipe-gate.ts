@@ -38,6 +38,7 @@ type RepeatRule = {
 };
 
 type CatalogRow = {
+  name: RecipeName;
   minLegs: number;
   signatures: ReadonlySet<string>;
   repeats: readonly RepeatRule[];
@@ -988,7 +989,7 @@ function matchesRepeat(rules: readonly RepeatRule[], sigs: readonly string[]): b
 }
 
 function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySet<RecipeName> } {
-  const grouped = new Map<string, { minLegs: number; signatures: Set<string>; legs: string[][] }>();
+  const grouped = new Map<string, { name: RecipeName; minLegs: number; signatures: Set<string>; legs: string[][] }>();
   const sampled = new Set<RecipeName>();
 
   for (const { name, post } of samplePosts()) {
@@ -998,8 +999,11 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
     const legs = post.entries.map((entry) => legSignature(entry));
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
+      grouped.set(key, { name, minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
       continue;
+    }
+    if (existing.name !== name) {
+      throw new Error(`recipe catalog key ${key} is shared by ${existing.name} and ${name}`);
     }
     existing.minLegs = Math.min(existing.minLegs, post.entries.length);
     existing.signatures.add(legs.join(';'));
@@ -1009,6 +1013,7 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
   const catalog = new Map<string, CatalogRow>();
   for (const [key, row] of grouped) {
     catalog.set(key, {
+      name: row.name,
       minLegs: row.minLegs,
       signatures: row.signatures,
       repeats: deriveRepeatRules(row.legs),
@@ -1024,17 +1029,27 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
   return (Object.keys(recipes) as RecipeName[]).filter((name) => !SAMPLED_RECIPES.has(name)).sort();
 }
 
-export function assertKnownRecipePost(input: WirePost): void {
-  if (matchesFeeCharge(input) || matchesRewardPay(input) || matchesFeeSweep(input)) return;
+/**
+ * Which registry recipe this body is, or null when the legs are not one.
+ * Fee, reward, and sweep matchers run first, same order as the gate: their
+ * module or reason is caller-chosen, so they are not a single catalog key.
+ */
+export function identifyRecipePost(input: WirePost): RecipeName | null {
+  if (matchesFeeCharge(input)) return 'feeCharge';
+  if (matchesRewardPay(input)) return 'rewardPay';
+  if (matchesFeeSweep(input)) return 'sweepFeesToRewards';
 
-  const key = `${input.module}::${input.reason}`;
-  const spec = RECIPE_CATALOG.get(key);
-  if (!spec) throw recipeError(input.module, input.reason);
-
-  if (input.entries.length < spec.minLegs) throw recipeError(input.module, input.reason);
+  const spec = RECIPE_CATALOG.get(`${input.module}::${input.reason}`);
+  if (!spec) return null;
+  if (input.entries.length < spec.minLegs) return null;
 
   const sigs = input.entries.map((entry) => legSignature(entry));
-  if (spec.signatures.has(sigs.join(';'))) return;
-  if (matchesRepeat(spec.repeats, sigs)) return;
+  if (spec.signatures.has(sigs.join(';'))) return spec.name;
+  if (matchesRepeat(spec.repeats, sigs)) return spec.name;
+  return null;
+}
+
+export function assertKnownRecipePost(input: WirePost): void {
+  if (identifyRecipePost(input)) return;
   throw recipeError(input.module, input.reason);
 }

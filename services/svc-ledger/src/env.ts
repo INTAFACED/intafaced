@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { CALLER_SECRET_ENV_NAMES } from './caller-allowlist.js';
+
+function blankToUndefined(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+const callerSecretFields = Object.fromEntries(
+  CALLER_SECRET_ENV_NAMES.map((name) => [name, z.preprocess(blankToUndefined, z.string().min(32).optional())]),
+);
 
 // svc-ledger SERVES the internal money plane, so it must be able to
 // authenticate the services calling it. No default: a ledger that cannot tell
@@ -27,6 +38,22 @@ const schema = serviceEnvSchema
        * A stricter-direction default is not available yet: refusing today would stop liquidations after a crash.
        */
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: z.enum(['detect', 'refuse']).default('detect'),
+
+      /**
+       * OPS-0001. `report` (default) still accepts the shared internal secret and
+       * still posts a mismatched caller, after logging it. `enforce` refuses
+       * that post. Blank is report, so a local stack that never set this keeps
+       * posting after a pull.
+       */
+      LEDGER_CALLER_BINDING: z.preprocess(blankToUndefined, z.enum(['report', 'enforce']).default('report')),
+
+      /**
+       * One HMAC secret per calling service. The env name is the key id
+       * (`LEDGER_CALLER_SECRET_SVC_PAY` verifies `x-intafaced-service: svc-pay`).
+       * Blank or unset means that caller has no dedicated secret yet. Do not
+       * invent one here.
+       */
+      ...callerSecretFields,
 
       /**
        * Reconciliation cadence in minutes. §4.2 specifies hourly snapshots.
