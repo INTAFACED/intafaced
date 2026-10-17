@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { BybitSpotTrade } from './bybit-spot-trade.js';
+import { BybitSpotTrade, mapBybitSpotOrder } from './bybit-spot-trade.js';
 import { mapOkxSpotOrder, OkxSpotTrade } from './okx-spot-trade.js';
 import type { HttpPort, HttpRequestInit, HttpResponse } from '../transport.js';
 
@@ -19,6 +19,21 @@ const okxRow = (overrides: Record<string, unknown> = {}) => ({
   state: 'partially_filled',
   tgtCcy: 'base_ccy',
   cTime: String(CLOCK()),
+  ...overrides,
+});
+
+const bybitRow = (overrides: Record<string, unknown> = {}) => ({
+  orderId: 'fixture-order',
+  orderLinkId: 'fixture-client',
+  side: 'Buy',
+  orderType: 'Market',
+  qty: '0.25',
+  cumExecQty: '0.1',
+  avgPrice: '30000',
+  price: '0',
+  orderStatus: 'PartiallyFilled',
+  marketUnit: 'baseCoin',
+  createdTime: String(CLOCK()),
   ...overrides,
 });
 
@@ -156,6 +171,37 @@ describe('OKX observations never subtract base fills from quote quantity', () =>
   });
   it.each(['limit', 'post_only'])('preserves base-sized %s quantities without tgtCcy', (ordType) => {
     const order = mapOkxSpotOrder(okxRow({ ordType, px: '30000', tgtCcy: '' }), 'BTC/USDT', new Date(CLOCK()));
+    expect(order.remaining).toBe(parseAmount('0.15'));
+  });
+});
+
+describe('Bybit observations never subtract base fills from quote quantity', () => {
+  const map = (row: Record<string, unknown>) => mapBybitSpotOrder(row, 'BTC/USDT', new Date(CLOCK()));
+  for (const side of ['Buy', 'Sell'] as const) {
+    it.each(['quoteCoin', 'unknown'])(`refuses ${side} market qty with marketUnit=%s`, (marketUnit) => {
+      expect(() => map(bybitRow({ side, marketUnit, qty: '100' }))).toThrow(/quantity unit/);
+    });
+    it(`preserves exact base-sized ${side} market quantities`, () => {
+      const order = map(bybitRow({ side }));
+      expect(order.amount).toBe(AMOUNT);
+      expect(order.filled).toBe(parseAmount('0.1'));
+      expect(order.remaining).toBe(parseAmount('0.15'));
+    });
+  }
+  it.each([undefined, null, ''])('refuses missing/empty buy market quantity unit (%s)', (marketUnit) => {
+    expect(() => map(bybitRow({ marketUnit, qty: '100' }))).toThrow(/quantity unit/);
+  });
+  it.each([undefined, null, ''])('uses documented base default for sells (%s)', (marketUnit) => {
+    const order = map(bybitRow({ side: 'Sell', marketUnit }));
+    expect(order.remaining).toBe(parseAmount('0.15'));
+  });
+  it('marks the refusal as sent when the order was already placed', () => {
+    expect(() => mapBybitSpotOrder(bybitRow({ marketUnit: 'quoteCoin', qty: '100' }), 'BTC/USDT', new Date(CLOCK()), true)).toThrow(
+      expect.objectContaining({ sent: true }),
+    );
+  });
+  it.each(['quoteCoin', '', 'unknown'])('leaves limit orders unaffected by marketUnit=%s', (marketUnit) => {
+    const order = map(bybitRow({ orderType: 'Limit', price: '30000', marketUnit }));
     expect(order.remaining).toBe(parseAmount('0.15'));
   });
 });

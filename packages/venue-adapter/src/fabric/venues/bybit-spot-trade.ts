@@ -171,6 +171,12 @@ export function mapBybitSpotOrder(row: Record<string, unknown>, unified: string,
   if (sideRaw !== 'buy' && sideRaw !== 'sell') {
     unavailable('malformed', `side ${sideRaw || '(empty)'} is not a known Bybit side`, sent);
   }
+  // cumExecQty is always base. Market qty may be quote value (Bybit's market-buy default), so
+  // never derive remaining from it unless the unit is base; sells default to base when absent.
+  const quantityUnit = row.marketUnit ?? '';
+  if (typeRaw === 'market' && quantityUnit !== 'baseCoin' && !(sideRaw === 'sell' && quantityUnit === '')) {
+    fail('spot market quantity unit must be baseCoin');
+  }
   const venueOrderId = String(row.orderId ?? '').trim();
   const clientOrderId = String(row.orderLinkId ?? '').trim();
   if (!venueOrderId) fail('orderId is missing');
