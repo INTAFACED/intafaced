@@ -821,12 +821,17 @@ export const merchantPayoutDestinations = pay.table(
     ref: text('ref').notNull(),
     /** Page key for the inventory cursor. Not a second destination. */
     id: uuid('id').notNull().defaultRandom(),
+    /** True only after the owner marks this row. Existing rows stay false. */
+    isDefault: boolean('is_default').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
     uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+    uniqueIndex('merchant_payout_destinations_one_default_idx')
+      .on(t.merchantId)
+      .where(sql`${t.isDefault}`),
   ],
 );
 
@@ -902,7 +907,9 @@ export const merchantInvoices = pay.table(
     assetId: text('asset_id').notNull(),
     amount: amount('amount').notNull(),
     customerRef: text('customer_ref'),
+    customerEmail: text('customer_email'),
     description: text('description'),
+    dueAt: tstz('due_at'),
     paymentLinkId: uuid('payment_link_id'),
     paymentId: uuid('payment_id'),
     sentAt: tstz('sent_at'),
@@ -913,6 +920,20 @@ export const merchantInvoices = pay.table(
     updatedAt: updatedAt(),
   },
   (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
+);
+
+/** Invoice lines. line_amount is quantity times unit amount. Not a ledger post. */
+export const merchantInvoiceLines = pay.table(
+  'merchant_invoice_lines',
+  {
+    invoiceId: uuid('invoice_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    description: text('description').notNull(),
+    quantity: amount('quantity').notNull(),
+    unitAmount: amount('unit_amount').notNull(),
+    lineAmount: amount('line_amount').notNull(),
+  },
+  (t) => [primaryKey({ name: 'merchant_invoice_lines_pkey', columns: [t.invoiceId, t.lineNo] })],
 );
 
 /**
@@ -984,6 +1005,7 @@ export const schema = {
   disputeCaseRailEvents,
   merchantDisputeEvidenceContent,
   merchantInvoices,
+  merchantInvoiceLines,
   merchantInvoiceActions,
   screeningCases,
 };
