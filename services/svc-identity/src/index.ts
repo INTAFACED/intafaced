@@ -60,6 +60,7 @@ import { createActionApprovalRouter } from './action-approval-router.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
+import { registerBusinessDirectoryRoutes, sqlBusinessDirectory } from './business-directory.js';
 import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
 import { createNavigatorSessionStore } from './agents/navigator-session-store.js';
 import { registerNavigatorSessionRoutes } from './agents/navigator-session-routes.js';
@@ -356,6 +357,12 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+});
+
+registerBusinessDirectoryRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  store: sqlBusinessDirectory(sql),
+  installRawBody: false,
 });
 
 registerAffiliateProducerPayout(app, {

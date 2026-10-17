@@ -20,6 +20,8 @@ import { createActivityRouter } from './activity/activity.router.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import {
   addMemberBinding,
+  removeMemberBinding,
+  setMemberRoleBinding,
   approveBinding,
   createTransferBinding,
   issueCardBinding,
@@ -276,6 +278,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.schedule_conflict':
       case 'bank.business_payroll_conflict':
       case 'bank.business_request_conflict':
+      case 'bank.business_change_pending':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -324,6 +327,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.auto_invest_list_limit_unset':
       case 'bank.business_list_limit_unset':
       case 'bank.business_pending_list_limit_unset':
+      case 'bank.business_approvals_list_limit_unset':
+      case 'bank.business_cursor_invalid':
+      case 'bank.business_recipient_query':
       case 'bank.onramps_list_limit_unset':
       case 'bank.offramps_list_limit_unset':
       case 'bank.convert_markets_limit_unset':
@@ -351,6 +357,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.earn_rate_unset':
       case 'bank.auto_invest_rate_unset':
       case 'bank.business_payroll_rate_unset':
+      case 'bank.business_directory_unset':
+      case 'bank.business_directory_incomplete':
+      case 'bank.business_last_admin':
+      case 'bank.business_close_blocked':
       // The client must run its step-up sheet (passkey or TOTP) and retry with `stepUpApprovalId`.
       case 'bank.step_up_required':
       case 'bank.step_up_mismatch':
@@ -375,7 +385,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.recipient_check_unavailable':
       // Identity could not confirm the step-up approval; nothing was posted.
       case 'bank.step_up_unavailable':
+      case 'bank.business_directory_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
+      case 'bank.business_directory_rate_limited':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
 
       // svc-trade's prices could not be read. A retry later may work; the
       // caller sent nothing wrong.
@@ -3175,6 +3189,280 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             ledgerTxId: a.ledgerTxId,
             createdAt: a.createdAt.toISOString(),
           }));
+        }),
+      ),
+
+    members: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid() }))
+      .output(
+        z.object({
+          members: z.array(
+            z.object({
+              accountId: z.string(),
+              userId: z.string(),
+              role: z.enum(['admin', 'maker', 'checker']),
+              handle: z.string(),
+            }),
+          ),
+          pendingControls: z.array(
+            z.object({
+              requestId: z.string(),
+              kind: z.enum(['set_threshold', 'close']),
+              spendThreshold: amountString.nullable(),
+              proposedByHandle: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const team = await bank.business.team(input.accountId, ctx.principal.userId);
+          return {
+            members: team.members,
+            pendingControls: team.pendingControls.map((row) => ({
+              requestId: row.requestId,
+              kind: row.kind,
+              spendThreshold: row.spendThreshold === null ? null : formatAmount(row.spendThreshold),
+              proposedByHandle: row.proposedByHandle,
+              createdAt: row.createdAt.toISOString(),
+            })),
+          };
+        }),
+      ),
+
+    removeMember: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          userId: z.string().min(1),
+          requestId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              removeMemberBinding({
+                actor: ctx.principal.userId,
+                accountId: input.accountId,
+                userId: input.userId,
+                requestId: input.requestId,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.removeMember({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            userId: input.userId,
+            requestId: input.requestId,
+          });
+        }),
+      ),
+
+    setMemberRole: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          userId: z.string().min(1),
+          role: z.enum(['admin', 'maker', 'checker']),
+          requestId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              setMemberRoleBinding({
+                actor: ctx.principal.userId,
+                accountId: input.accountId,
+                userId: input.userId,
+                role: input.role,
+                requestId: input.requestId,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.setMemberRole({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            userId: input.userId,
+            role: input.role,
+            requestId: input.requestId,
+          });
+        }),
+      ),
+
+    resolveRecipientSpace: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          assetId: z.string().min(1).max(16),
+          handle: z.string().max(64).optional(),
+          email: z.string().max(320).optional(),
+        }),
+      )
+      .output(
+        z.discriminatedUnion('found', [
+          z.object({ found: z.literal(false) }),
+          z.object({
+            found: z.literal(true),
+            handle: z.string(),
+            assetId: z.string(),
+            spaceId: z.string().uuid().nullable(),
+          }),
+        ]),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.business.resolveRecipientSpace({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            assetId: input.assetId,
+            handle: input.handle,
+            email: input.email,
+          }),
+        ),
+      ),
+
+    approvals: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
+          /**
+           * Page size. Optional so omit reaches `bank.business_approvals_list_limit_unset`
+           * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
+           */
+          limit: z.number().int().min(1).max(200).optional(),
+          cursor: z.string().min(1).max(512).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          items: z.array(
+            z.object({
+              id: z.string(),
+              accountId: z.string(),
+              makerHandle: z.string(),
+              checkerHandle: z.string().nullable(),
+              fromSpaceId: z.string(),
+              toSpaceId: z.string(),
+              assetId: z.string(),
+              amount: amountString,
+              status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
+              transferId: z.string().nullable(),
+              holdLedgerTxId: z.string().nullable(),
+              ledgerTxId: z.string().nullable(),
+              createdAt: z.string(),
+              decidedAt: z.string().nullable(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const page = await bank.business.listApprovals(input.accountId, ctx.principal.userId, {
+            status: input.status,
+            limit: input.limit,
+            cursor: input.cursor,
+          });
+          return {
+            nextCursor: page.nextCursor,
+            items: page.items.map((a) => ({
+              id: a.id,
+              accountId: a.accountId,
+              makerHandle: a.makerHandle,
+              checkerHandle: a.checkerHandle,
+              fromSpaceId: a.fromSpaceId,
+              toSpaceId: a.toSpaceId,
+              assetId: a.assetId,
+              amount: formatAmount(a.amount),
+              status: a.status,
+              transferId: a.transferId,
+              holdLedgerTxId: a.holdLedgerTxId,
+              ledgerTxId: a.ledgerTxId,
+              createdAt: a.createdAt.toISOString(),
+              decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null,
+            })),
+          };
+        }),
+      ),
+
+    setThreshold: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          spendThreshold: amountString,
+          requestId: z.string().uuid(),
+        }),
+      )
+      .output(
+        z.object({
+          status: z.enum(['pending', 'applied']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.setThreshold({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            spendThreshold: parseAmount(input.spendThreshold),
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
+        }),
+      ),
+
+    close: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .output(
+        z.object({
+          status: z.enum(['pending', 'applied']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.closeAccount({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
         }),
       ),
 
