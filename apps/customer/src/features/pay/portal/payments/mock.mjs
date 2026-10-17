@@ -273,6 +273,12 @@ export function createPaymentsMock(ctx) {
           const p = payments.find((x) => x.id === input.paymentId);
           return p ? ok(route, historyOf(p)) : refuse(route, 404, 'pay.payment_not_found');
         }
+        case 'merchantControl.tiers.list':
+          return ok(route, {
+            status: 'configured',
+            ownTierId: 'standard',
+            tiers: [{ id: 'standard', name: 'Standard (TEST)', archetype: 'standard', caps: [], reserve: null, version: 'v1' }],
+          });
         case 'merchantOps.invoices.list': {
           const inRange = (i) => (!input.from || i.createdAt >= input.from) && (!input.to || i.createdAt < input.to);
           const rows = state.invoices.filter(

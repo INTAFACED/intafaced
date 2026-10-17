@@ -163,9 +163,15 @@ export function LinksView({
                     ]}
                   />
                 </PaySection>
-                <NotLive reason={reason('reasonHistory')}>{t('linkHistoryGap')}</NotLive>
-                {noWrite && <NotLive reason={reason('reasonOwner')}>{t('linkAuthorityGap')}</NotLive>}
-                <div title={noWrite ? t('linkAuthorityGap') : !selected.active ? t('inactiveTip') : undefined}>
+                <NotLive reason={reason('reasonLists')} title={t('linkPaymentsTitle')}>
+                  {t('linkPaymentsBlocked')}
+                </NotLive>
+                {noWrite && (
+                  <p className="muted pp-note" role="note">
+                    {t('linkOwnerOnly')}
+                  </p>
+                )}
+                <div title={noWrite ? t('linkOwnerOnly') : !selected.active ? t('inactiveTip') : undefined}>
                   <PortalReview
                     title={t('deactivateLink')}
                     description={t('deactivateBody')}
@@ -198,7 +204,6 @@ export function LinksView({
               </>
             ) : (
               <>
-                <NotLive reason={reason('reasonLists')}>{t('linksGap')}</NotLive>
                 <KpiGrid label={t('linksTitle')}>
                   <Kpi label={t('loadedLinks')} period={t('linksPeriod')} value={links.length} href={`?limit=${limit}`} />
                   {(['active', 'expired', 'inactive'] as const).map((state) => (
@@ -355,8 +360,11 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
   );
   return (
     <PaySection title={t('linkNew')}>
-      <NotLive reason={reason('reasonActions')}>{t('linkFormGap')}</NotLive>
-      {noWrite && <NotLive reason={reason('reasonOwner')}>{t('linkAuthorityGap')}</NotLive>}
+      {noWrite && (
+        <p className="muted pp-note" role="note">
+          {t('linkOwnerOnly')}
+        </p>
+      )}
       <div className="form-stack pp-form">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>
@@ -374,7 +382,7 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
           {field('maxUses', t('maxUses'), t('maxUsesHint'))}
         </fieldset>
         {!parsed.success && <p className="muted">{t('invalidForm')}</p>}
-        <div title={noWrite ? t('linkAuthorityGap') : !parsed.success ? t('invalidForm') : undefined}>
+        <div title={noWrite ? t('linkOwnerOnly') : !parsed.success ? t('invalidForm') : undefined}>
           <PortalReview
             title={t('reviewLink')}
             description={t('reviewLinkBody')}
