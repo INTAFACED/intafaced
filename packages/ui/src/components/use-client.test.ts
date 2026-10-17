@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
  */
 const dir = import.meta.dirname;
 const CLIENT_FEATURES =
-  /\buse(State|Effect|Context|Ref|Reducer|Callback|Memo|Id|LayoutEffect|Transition|SyncExternalStore|FreshnessClock)\b|createContext|\bon[A-Z][A-Za-z]*=|forwardRef|from ['"]@base-ui/;
+  /\buse(State|Effect|Context|Ref|Reducer|Callback|Memo|Id|LayoutEffect|Transition|SyncExternalStore|FreshnessClock)\b|\buse[A-Z][A-Za-z0-9]*\s*\(|createContext|\bon[A-Z][A-Za-z]*=|forwardRef|from ['"]@base-ui/;
 
 const sources = readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && f !== 'index.ts');
 
