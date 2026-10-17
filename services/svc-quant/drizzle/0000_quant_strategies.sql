@@ -4,13 +4,21 @@
 -- Paper only. These tables are not a money book: no balance, no hold, no
 -- ledger post. Cash and risk figures are decimal strings.
 --
--- The "quant" schema is created here. svc-quant is not in the database
--- bootstrap service list, so this migration cannot assume the schema exists.
+-- postgres-init creates schema quant, owned by svc_quant, with no database
+-- CREATE grant. CREATE SCHEMA IF NOT EXISTS still checks that privilege and
+-- fails with 42501 even when the schema already exists. Create it only when
+-- it is missing (a database owner running this file outside the fleet).
 --
 -- Every save inserts a new strategy_versions row. Older rows are immutable.
 -- strategies.deleted_at hides a row from lists and does not remove versions.
 
-CREATE SCHEMA IF NOT EXISTS "quant";
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'quant') THEN
+    CREATE SCHEMA "quant";
+  END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS "quant"."strategies" (
   "id"                  text PRIMARY KEY,

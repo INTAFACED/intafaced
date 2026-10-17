@@ -46,7 +46,9 @@ describe('paper strategies survive a new connection to the same database', () =>
   let repo: StrategyRepository;
 
   beforeAll(async () => {
-    const migration = readFileSync(join(SERVICE, 'drizzle/0000_quant_strategies.sql'), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`);
+    const migration = readFileSync(join(SERVICE, 'drizzle/0000_quant_strategies.sql'), 'utf8')
+      .replaceAll('"quant"', `"${SCHEMA}"`)
+      .replaceAll("'quant'", `'${SCHEMA}'`);
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
     await sql.unsafe(migration);
     repo = createPostgresStrategyRepository(sql, SCHEMA);

@@ -21,7 +21,11 @@ if (!url) {
 const sql = postgres(url, { max: 1, onnotice: () => undefined });
 
 async function main() {
-  await sql`CREATE SCHEMA IF NOT EXISTS quant`;
+  // postgres-init creates schema quant owned by svc_quant. That role has no
+  // database CREATE, and CREATE SCHEMA IF NOT EXISTS still checks it (42501)
+  // even when the schema already exists. Create only when it is missing.
+  const existing = await sql`SELECT 1 FROM pg_namespace WHERE nspname = 'quant'`;
+  if (existing.length === 0) await sql`CREATE SCHEMA quant`;
   await sql`
     CREATE TABLE IF NOT EXISTS quant.__migrations (
       name       text PRIMARY KEY,
