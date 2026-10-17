@@ -4,13 +4,15 @@ Per-jurisdiction lot export over ledger reads. **Not** a second money book, **no
 
 Blank owner `TAX_JURISDICTION_MAP_JSON` refuses `tax.jurisdiction_unmapped`. Caller selects `FIFO|LIFO|HIFO` — no silent country default. Empty books return an empty pack, never a fabricated `$0` PnL. Missing lot/cost-basis is named unknown (`tax.cost_basis_unavailable` / `tax.lot_underflow`) — never an invented pairing or a `0` basis. Amounts are decimal strings. Completeness is OWNER map: packs stamp `complete: false` and residual `tax.export_incomplete`; `complete: true` is refused. Never invent jurisdictions.
 
+A year pack lists each sub-account's fills and converts with `fee` and `makerRebate` in separate columns. Realised gain on a line is proceeds minus that line's cost basis, and only when both are present. A null basis stays null on that sub-account, stays in `tax.cost_basis_unavailable`, and is not copied onto another sub-account. Rows outside the owner-published `TAX_HISTORY_YEARS` window are left out. The ledger history wire has no sub-account parent index, fee, maker rebate, or cost basis, so boot leaves `subAccountBooks: "unwired"` and invents no rows until both readers are attached.
+
 ## API
 
 | Procedure       | Scope      | Input           | Output                                            |
 | --------------- | ---------- | --------------- | ------------------------------------------------- |
 | `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim |
 | `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                       |
-| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`)                          |
+| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts` |
 
 ## Events
 
