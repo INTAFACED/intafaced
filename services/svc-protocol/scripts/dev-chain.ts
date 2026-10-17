@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, pbkdf2Sync } from 'node:crypto';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
-import { mnemonicToAccount } from 'viem/accounts';
+import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { loadArtifact } from '../src/chain/artifacts.js';
 
@@ -47,6 +47,27 @@ export const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test tes
 /** Anvil account #0's address — the deployer `chain:deploy` uses. */
 export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
+let publicMaster: ReturnType<typeof HDKey.fromMasterSeed> | undefined;
+const publicAccounts = new Map<string, HDAccount>();
+
+/**
+ * One BIP-39 stretch for the public anvil mnemonic, then one child account per index.
+ * `mnemonicToAccount` repeated the stretch and the curve multiply. The isolation
+ * scan does that for every suite and timed out at 5s under CI load.
+ */
+function accountFromPublicMnemonic(accountIndex: number, addressIndex: number): HDAccount {
+  const key = `${accountIndex}:${addressIndex}`;
+  const cached = publicAccounts.get(key);
+  if (cached) return cached;
+  if (publicMaster === undefined) {
+    const seed = pbkdf2Sync(PUBLIC_ANVIL_DEV_MNEMONIC.normalize('NFKD'), 'mnemonic', 2048, 64, 'sha512');
+    publicMaster = HDKey.fromMasterSeed(seed);
+  }
+  const account = hdKeyToAccount(publicMaster, { accountIndex, addressIndex });
+  publicAccounts.set(key, account);
+  return account;
+}
+
 /**
  * One of anvil's ten pre-funded accounts (`m/44'/60'/0'/0/{index}`).
  *
@@ -58,7 +79,7 @@ export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4
  * see the banner there for why a hand-picked index is the wrong tool.
  */
 export function devAccount(index = 0): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: index });
+  return accountFromPublicMnemonic(0, index);
 }
 
 export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
@@ -215,10 +236,7 @@ export function suiteSenderIndex(suiteFileUrl: string): number {
 
 /** The account a given suite sends from. Never one of anvil's ten. */
 export function suiteAccount(suiteFileUrl: string): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, {
-    accountIndex: SUITE_BRANCH_ACCOUNT_INDEX,
-    addressIndex: suiteSenderIndex(suiteFileUrl),
-  });
+  return accountFromPublicMnemonic(SUITE_BRANCH_ACCOUNT_INDEX, suiteSenderIndex(suiteFileUrl));
 }
 
 /**

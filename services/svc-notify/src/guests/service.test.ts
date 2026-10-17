@@ -278,46 +278,40 @@ describe('Guest notification durable boundary (isolated PostgreSQL)', () => {
     expect(wire.messages).toHaveLength(1);
   });
   it('gateway acceptance followed by a SQL-write failure expires to unresolved after restart, with no second send', async () => {
-    const wire = await gateway((res) => {
-      res.writeHead(202);
-      res.end('{"id":"accepted-before-crash"}');
-    });
+    const seen: Array<Record<string, unknown>> = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      const body = typeof init?.body === 'string' ? init.body : '';
+      seen.push(JSON.parse(body) as Record<string, unknown>);
+      return new Response('{"id":"accepted-before-crash"}', { status: 202, headers: { 'content-type': 'application/json' } });
+    };
+    const email = new EmailChannel(
+      { url: 'http://127.0.0.1:9/send', token: 'fixture-gateway-token-at-least-16', timeoutMs: 2000 },
+      fetchImpl,
+    );
     await db.sql.unsafe(`CREATE FUNCTION notify.inject_guest_crash() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN IF NEW.status = 'accepted' THEN RAISE EXCEPTION 'injected acceptance write crash'; END IF; RETURN NEW; END $$;
       CREATE TRIGGER inject_guest_crash BEFORE UPDATE ON notify.guest_notifications FOR EACH ROW EXECUTE FUNCTION notify.inject_guest_crash();`);
     try {
       const input = request();
-      // Delivery deadline stays 100ms. The old lease was only 20ms longer, so a
-      // claim that has already committed and then returns after that slack
-      // stores acceptance_unknown and never reaches the gateway. Hold that
-      // return for 50ms and give the lease room the hold cannot consume.
-      // Lease expiry is moved in SQL; the test does not sleep the lease out.
+      // Deadline stays 100ms. The old 120ms lease left 20ms after the claim, so a
+      // slow commit stored acceptance_unknown and never called the gateway. The
+      // lease is longer than a claim. The gateway answers in this turn, so the
+      // deadline is not a race against a socket. Lease expiry is moved in SQL.
       const options = { timeoutMs: 100, leaseMs: 30_000 };
-      const slowSql = new Proxy(db.sql, {
-        get(target, property, receiver) {
-          if (property !== 'begin') return Reflect.get(target, property, receiver);
-          const begin = Reflect.get(target, property, receiver) as (...args: unknown[]) => Promise<unknown>;
-          return async (...args: unknown[]) => {
-            const result = await begin.apply(target, args);
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            return result;
-          };
-        },
-      });
-      await expect(new GuestNotificationService(slowSql as typeof db.sql, wire.email, options).send(input)).rejects.toMatchObject({
+      await expect(new GuestNotificationService(db.sql, email, options).send(input)).rejects.toMatchObject({
         code: 'guest.storage_unavailable',
       });
-      expect(wire.messages).toHaveLength(1);
-      const [held] =
-        await db.sql`SELECT status, code FROM notify.guest_notifications WHERE business_key = ${input.businessKey}`;
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({ to: input.recipientEmail, channel: 'email' });
+      const [held] = await db.sql`SELECT status, code FROM notify.guest_notifications WHERE business_key = ${input.businessKey}`;
       expect(held).toMatchObject({ status: 'attempting', code: null });
-      expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({ status: 'attempting' });
+      expect(await new GuestNotificationService(db.sql, email, options).send(input)).toMatchObject({ status: 'attempting' });
       await db.sql`UPDATE notify.guest_notifications SET lease_until = clock_timestamp() - interval '1 millisecond' WHERE business_key = ${input.businessKey}`;
-      expect(await new GuestNotificationService(db.sql, wire.email, options).send(input)).toMatchObject({
+      expect(await new GuestNotificationService(db.sql, email, options).send(input)).toMatchObject({
         status: 'unresolved',
         code: 'guest.acceptance_unknown',
       });
-      expect(wire.messages).toHaveLength(1);
+      expect(seen).toHaveLength(1);
     } finally {
       await db.sql.unsafe('DROP TRIGGER inject_guest_crash ON notify.guest_notifications; DROP FUNCTION notify.inject_guest_crash()');
     }

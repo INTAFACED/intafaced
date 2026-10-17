@@ -277,6 +277,10 @@ describe('native P2P original terms and decisions', () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
+      let posted!: () => void;
+      const committed = new Promise<void>((resolve) => {
+        posted = resolve;
+      });
       const keys: string[] = [];
       const server = createServer(async (request, response) => {
         try {
@@ -296,6 +300,7 @@ describe('native P2P original terms and decisions', () => {
               response.writeHead(held === 'error_body' ? 500 : 200, { 'content-type': 'application/json' });
               response.write(ack.slice(0, 1));
             }
+            posted();
             await gate;
             response.end(held !== 'headers' ? ack.slice(1) : ack);
           } else response.end(ack);
@@ -311,6 +316,29 @@ describe('native P2P original terms and decisions', () => {
       if (!address || typeof address === 'string') throw new Error('owned fixture HTTP port unavailable');
       const bus = new MemoryEventBus('svc-p2p');
       const publish = vi.spyOn(bus, 'publish');
+      // The 100ms budget used to start when fetch started, so a slow CI loop aborted before the fixture
+      // posted. Abort the first signal only after that post, while the response is still held.
+      let abortHeld: (() => void) | undefined;
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        const controller = new AbortController();
+        if (abortHeld) {
+          const timer = setTimeout(() => controller.abort(), ms);
+          timer.unref();
+          return controller.signal;
+        }
+        abortHeld = () => controller.abort();
+        return controller.signal;
+      });
+      const realFetch = globalThis.fetch.bind(globalThis);
+      let headersSeen: (() => void) | undefined;
+      const sawHeaders = new Promise<void>((resolve) => {
+        headersSeen = resolve;
+      });
+      vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const response = await realFetch(input, init);
+        if (held === 'error_body') headersSeen?.();
+        return response;
+      });
       const service = new P2pService(
         db.sql,
         createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
@@ -328,7 +356,13 @@ describe('native P2P original terms and decisions', () => {
         },
       );
       try {
-        const failed = await service.cancelTrade(TRADE, SELLER).catch((error) => error as Error);
+        const pending = service.cancelTrade(TRADE, SELLER);
+        await committed;
+        if (held === 'error_body') await sawHeaders;
+        if (!abortHeld) throw new Error('ledger post committed before the client armed its abort');
+        abortHeld();
+        const failed = await pending.catch((error) => error as Error);
+        timeoutSpy.mockRestore();
         if (held === 'error_body') {
           // The 500's own body never finishes, so the shared transport cannot read a reason: the refusal is the plain
           // "failed (500)" error (not a funds refusal, so nothing is voided), where the old client surfaced the abort itself.
@@ -361,6 +395,8 @@ describe('native P2P original terms and decisions', () => {
         expect(ledger.reconcile()).toEqual({ ok: true });
         expect(ledger.verifyChain()).toEqual({ ok: true });
       } finally {
+        timeoutSpy.mockRestore();
+        vi.unstubAllGlobals();
         release();
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => {
