@@ -1,4 +1,6 @@
-import { parseAmount } from '../../../../shared/money';
+import { formatAmount, parseAmount } from '../../../../shared/money';
+import { dec, roundScaled, toFixedString } from '../../../../data/decimal';
+import type { StatementLine, StatementPage } from './schemas';
 import type {
   Approval,
   AssetAmount,
@@ -209,4 +211,189 @@ export const isCalcAmount = (value: string) => /^\d+(\.\d{1,18})?$/.test(value.t
 
 export function pricingAssets(rules: readonly PricingRule[] | null): string[] {
   return rules ? [...new Set(rules.map((r) => r.assetCode))].sort() : [];
+}
+
+// ---- shared by the money pages ----------------------------------------------------------------------
+
+/** A decimal string rounded to `places` for a headline figure (half up, by integer arithmetic). Never a JS number. */
+export function roundedDecimal(value: string, places: number): string {
+  const scaled = dec(value);
+  return scaled === null ? '0' : toFixedString(roundScaled(scaled, places), places);
+}
+
+/** True when the exact amount has digits beyond `places`, so a compact figure would hide something. */
+export const hasHiddenDigits = (value: string, places: number): boolean => /[1-9]/.test((value.split('.')[1] ?? '').slice(places));
+
+/** Exact subtraction, floored at zero: how much of a captured payment can still be refunded. */
+export function refundableAmount(captured: string, refunded: string): string {
+  const left = parseAmount(captured) - parseAmount(refunded);
+  return formatAmount(left > 0n ? left : 0n);
+}
+
+/** Per-asset sums by integer arithmetic. Two assets are never added together. */
+export function sumByAsset(rows: ReadonlyArray<{ assetCode: string; amount: string }>): AssetAmount[] {
+  const by = new Map<string, bigint>();
+  for (const r of rows) by.set(r.assetCode, (by.get(r.assetCode) ?? 0n) + parseAmount(r.amount));
+  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([assetCode, v]) => ({ assetCode, amount: formatAmount(v) }));
+}
+
+// ---- where a payout goes ----------------------------------------------------------------------------
+
+export type RailWords = 'crypto' | 'bank' | 'other';
+/** The kind of destination a rail takes. The service holds the same map; this only picks the words and the form. */
+export function destinationKindOfRail(railId: string): 'crypto' | 'bank' {
+  return railId === 'crypto-native' ? 'crypto' : 'bank';
+}
+export const kindWords = (kind: string): RailWords => (kind === 'crypto' ? 'crypto' : kind === 'bank' ? 'bank' : 'other');
+
+/** The one Settlement-like and Payout-like row the lists share. */
+export type PayoutLike = { id: string; status: 'pending' | 'posted' | 'paid_out' | 'failed' };
+
+/** The newest approval per settlement, so a list can say "waiting for approval" without a second read per row. */
+export function approvalsBySettlement(approvals: readonly Approval[]): Map<string, Approval> {
+  const by = new Map<string, Approval>();
+  for (const a of [...approvals].sort((x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt))) by.set(a.settlementId, a);
+  return by;
+}
+
+export function payoutRowState(item: PayoutLike, approvals: ReadonlyMap<string, Approval> | null): PayoutState {
+  return payoutState({ status: item.status }, approvals?.get(item.id) ?? null, approvals !== null);
+}
+
+// ---- approvals ---------------------------------------------------------------------------------------
+
+export const ageOf = (a: Pick<Approval, 'createdAt'>, now: number) => Math.max(0, now - Date.parse(a.createdAt));
+/** Pending and ending within a day of `now`. */
+export const expiresToday = (a: Pick<Approval, 'status' | 'expiresAt'>, now: number) => {
+  const left = Date.parse(a.expiresAt) - now;
+  return a.status === 'pending' && left > 0 && left <= 86_400_000;
+};
+/** "Waiting for approval from Finance": who can decide it. */
+export const waitingFrom = (a: Pick<Approval, 'status' | 'checkerUserId'>): 'team' | 'intafaced' | null =>
+  a.status !== 'pending' ? null : a.checkerUserId !== null ? 'intafaced' : 'team';
+
+// ---- the statement -----------------------------------------------------------------------------------
+
+export type RunningView = { shown: true } | { shown: false; reason: 'no_opening' | 'order_ambiguous' | 'none' };
+/**
+ * A running balance is drawn only when every line in view followed ledger order. One ambiguous or opening-less line
+ * hides the column for the whole range, and the reason is said in words.
+ */
+export function runningView(
+  lines: readonly Pick<StatementLine, 'runningOrder' | 'runningReason' | 'runningClearing' | 'runningProceeds'>[],
+): RunningView {
+  if (lines.length === 0) return { shown: false, reason: 'none' };
+  const bad = lines.find((l) => l.runningOrder !== 'clear' || l.runningReason);
+  if (bad) return { shown: false, reason: bad.runningReason === 'no_opening' ? 'no_opening' : 'order_ambiguous' };
+  return lines.every((l) => l.runningClearing != null || l.runningProceeds != null)
+    ? { shown: true }
+    : { shown: false, reason: 'no_opening' };
+}
+
+/**
+ * +1 when a line adds to the account it names, -1 when it takes away. In this ledger a debit raises these balances and
+ * a credit lowers them (the service applies them the same way when it builds the running balance). Other accounts
+ * have no sign shown.
+ */
+export const lineSign = (l: Pick<StatementLine, 'direction' | 'account'>): 1 | -1 | 0 =>
+  l.account !== 'clearing' && l.account !== 'proceeds' ? 0 : l.direction === 'debit' ? 1 : -1;
+
+export type TieView = 'matches' | 'differs' | 'unknown';
+/** Does the statement agree with the balances? Any account that differs wins; any unknown makes the answer unknown. */
+export function tieView(tie: StatementPage['tieOut'] | undefined, assetId: string): TieView {
+  const rows = tie?.accounts.filter((a) => !assetId || a.assetId === assetId) ?? [];
+  if (rows.length === 0) return 'unknown';
+  const flags = rows.flatMap((a) => [a.clearing.matches, a.proceeds.matches]);
+  if (flags.includes(false)) return 'differs';
+  return flags.every((f) => f === true) ? 'matches' : 'unknown';
+}
+
+/** The default statement window: the last 30 whole days, ending tomorrow's midnight UTC. Both bounds are required by the service. */
+export function defaultStatementRange(now: number): { from: string; to: string } {
+  const day = 86_400_000;
+  const start = Math.floor(now / day) * day;
+  return { from: new Date(start - 29 * day).toISOString(), to: new Date(start + day).toISOString() };
+}
+export const STATEMENT_MAX_DAYS = 92;
+export const statementRangeTooWide = (r: { from?: string; to?: string }) =>
+  r.from && r.to ? Date.parse(r.to) - Date.parse(r.from) > STATEMENT_MAX_DAYS * 86_400_000 : false;
+
+// ---- refunds -----------------------------------------------------------------------------------------
+
+/** A refund amount a merchant typed, checked against what is left to refund. `null` means fine. */
+export function refundAmountProblem(typed: string, refundable: string): 'empty' | 'format' | 'zero' | 'over' | null {
+  const text = typed.trim();
+  if (!text) return 'empty';
+  if (!/^\d+(\.\d{1,18})?$/.test(text)) return 'format';
+  const v = parseAmount(text);
+  if (v <= 0n) return 'zero';
+  return v > parseAmount(refundable) ? 'over' : null;
+}
+
+/** Refund rate as a percentage with two places, refunded over captured, by integer arithmetic. Null when nothing was captured. */
+export function refundRate(refunded: string, captured: string): string | null {
+  const cap = parseAmount(captured);
+  if (cap <= 0n) return null;
+  const hundredths = (parseAmount(refunded) * 10_000n + cap / 2n) / cap;
+  return `${hundredths / 100n}.${String(hundredths % 100n).padStart(2, '0')}%`;
+}
+
+// ---- payout form -------------------------------------------------------------------------------------
+
+export type PayoutBlock = 'nothing' | 'paused' | 'kyb' | 'noDestination' | 'overCap' | null;
+/**
+ * Why a payout cannot be started now, in the order a merchant would fix it. The service checks every one again, so
+ * this only decides what to explain before the button, never what is allowed.
+ */
+export function payoutBlock(input: {
+  settlement: { net: string; assetId: string } | null;
+  paused: boolean;
+  kybApproved: boolean | null;
+  destinationCount: number | null;
+  remaining: string | null;
+}): PayoutBlock {
+  if (!input.settlement) return 'nothing';
+  if (input.paused) return 'paused';
+  if (input.kybApproved === false) return 'kyb';
+  if (input.destinationCount === 0) return 'noDestination';
+  if (input.remaining !== null && parseAmount(input.settlement.net) > parseAmount(input.remaining)) return 'overCap';
+  return null;
+}
+
+/** What is left today of the daily payout limit for one asset, or null when none is set or no usage was read. */
+export function payoutHeadroom(usage: Pick<Usage, 'rows'> | null, assetId: string): { limit: string; remaining: string | null } | null {
+  const row = usage?.rows.find((r) => r.kind === 'daily_payout' && r.assetCode === assetId);
+  return row ? { limit: row.limit, remaining: row.remaining } : null;
+}
+
+// ---- payout timeline ---------------------------------------------------------------------------------
+
+export type TrailEvent = {
+  key: string;
+  at: string | null;
+  kind: string;
+  who?: string;
+  destination?: string | null;
+  failure?: string | null;
+  terminal?: boolean;
+};
+
+/**
+ * One chronological trail, oldest first, with the final state last. Events whose time was not recorded keep the order
+ * the service gave them and sit after the timed ones they follow. A payout that was rejected once and later paid ends
+ * on "Paid out", never on "Rejected".
+ */
+export function orderTrail(events: readonly TrailEvent[], finalState: 'paid_out' | 'failed' | 'other'): TrailEvent[] {
+  const indexed = events.map((e, i) => ({ e, i }));
+  indexed.sort((a, b) => {
+    const ta = a.e.at ? Date.parse(a.e.at) : null;
+    const tb = b.e.at ? Date.parse(b.e.at) : null;
+    if (ta !== null && tb !== null && ta !== tb) return ta - tb;
+    return a.i - b.i;
+  });
+  const out = indexed.map((x) => x.e);
+  if (finalState === 'other') return out;
+  const finals = out.filter((e) => e.terminal);
+  const rest = out.filter((e) => !e.terminal);
+  return [...rest, ...finals];
 }

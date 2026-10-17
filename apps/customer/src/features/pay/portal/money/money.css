@@ -1,1 +1,18 @@
 /* Styles only the money pages use. Shared portal styles stay in ../portal.css. */
+.mn-balance {
+  display: grid;
+  gap: 16px;
+  padding: 20px 4px 8px;
+}
+.mn-hero {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.mn-hero-label {
+  color: var(--if-fg-2);
+  font-size: 14px;
+}
+.mn-hero .pp-money {
+  overflow-wrap: normal;
+}

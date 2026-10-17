@@ -1,47 +1,72 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../../../shared/api';
-import { reason } from '../chrome/copy';
 import { portalAmount } from '../presentation';
-import { useResource, type Resource } from '../../../../shared/resource';
+import { useResource } from '../../../../shared/resource';
 import { Button, DataTable, Field } from '@intafaced/ui';
-import { PayTime, PaySection } from '../../components';
-import { NotLive, Facts, Gate, Money, NotConfigured, PortalFailure, ReadAt, SelectField } from '../components';
-import { portalCopy } from './copy';
+import { PaySection } from '../../components';
+import { useMerchantAccess } from '../access/MerchantAccess';
+import { Facts, Gate, Money, NotConfigured, PortalFailure, PortalLoading, SelectField } from '../components';
+import { mc as portalCopy } from './copy';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
+import { isNotLive } from '../refusal';
+import { DateTime } from '../ui/DateTime';
+import { Freshness } from '../ui/Freshness';
+import { KpiStrip } from '../ui/Kpi';
+import { NamedBlocker, TestBanner } from './common';
 import { bpsPercent, isCalcAmount, pricingAssets } from './model';
 import type { PortalApi } from '../api';
 import type { ControlProfile, PricingRule, Quote } from '../schemas';
+import type { PricingHistory as History } from './schemas';
 
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
 export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
-  const control = useResource((s) => portal.control(merchantId, s), `portal:control:${merchantId}`);
-  const readAt = useReadAt(control.resource.status === 'ready', control.resource);
-  return <PricingView portal={portal} merchantId={merchantId} control={control.resource} readAt={readAt} retry={control.reload} />;
-}
-
-export function PricingView({
-  portal,
-  merchantId,
-  control,
-  readAt,
-  retry,
-}: {
-  portal: PortalApi;
-  merchantId: string;
-  control: Resource<ControlProfile>;
-  readAt: string | null;
-  retry: () => void;
-}) {
   const { t } = portalCopy.useCopy();
+  const { access } = useMerchantAccess();
+  const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
+  const tiers = useResource((s) => portal.tiersList(merchantId, s), `money:tiers:${merchantId}`);
+  const history = useResource((s) => portal.pricingHistory(merchantId, s), `money:pricing-history:${merchantId}`);
+  const readAt = useReadAt(control.resource.status === 'ready', control.resource);
+  // Viewers and developers see the fee that was charged and nothing about the spread or which rule produced it.
+  const feeOnly = access.status === 'ready' && access.pricingVisibility === 'fee_only';
+  const tierData = tiers.resource.status === 'ready' ? tiers.resource.data : null;
+  const tierName = tierData?.status === 'configured' ? (tierData.tiers.find((x) => x.id === tierData.ownTierId)?.name ?? null) : null;
   return (
     <div className="stack">
-      <Gate resource={control} retry={retry} rows={4}>
+      <TestBanner />
+      <Gate resource={control.resource} retry={control.reload} rows={4}>
         {(profile) => {
           const rules = profile.pricing ?? [];
           const assets = pricingAssets(profile.pricing);
+          const first = rules[0]?.bands[0] ?? null;
           return (
             <>
+              <Freshness asOf={readAt} />
+              <KpiStrip
+                label={t('priceTiles')}
+                tiles={[
+                  {
+                    label: t('colTier'),
+                    period: t('mnPeriodNow'),
+                    href: '/pay/limits',
+                    value: tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>,
+                  },
+                  {
+                    label: t('priceRate'),
+                    period: t('mnPeriodNow'),
+                    href: '/pay/pricing',
+                    value: first ? bpsPercent(first.feeBps) : <NotConfigured />,
+                    note: first && rules.length > 1 ? t('priceRateNote') : undefined,
+                  },
+                  { label: t('priceAssets'), period: t('mnPeriodNow'), href: '/pay/pricing', value: String(assets.length) },
+                  {
+                    label: t('priceSince'),
+                    period: t('mnPeriodNow'),
+                    href: '/pay/pricing',
+                    value: profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
+                  },
+                ]}
+              />
               <PaySection
                 title={t('pricingNowTitle')}
                 description={t('pricingNowBody')}
@@ -53,7 +78,15 @@ export function PricingView({
                         downloadText(
                           'pricing-schedule.csv',
                           buildCsv(
-                            ['asset', 'applies_from', 'from_amount', 'fee_bps', 'flat_fee', 'conversion_spread_bps', 'rounding_goes_to'],
+                            [
+                              'asset',
+                              'applies_from',
+                              'from_amount',
+                              'fee_bps',
+                              'flat_fee',
+                              ...(feeOnly ? [] : ['conversion_spread_bps']),
+                              'rounding_goes_to',
+                            ],
                             rules.flatMap((r) =>
                               r.bands.map((b) => [
                                 r.assetCode,
@@ -61,7 +94,7 @@ export function PricingView({
                                 b.fromAmount,
                                 b.feeBps,
                                 b.flatFee ?? '',
-                                r.spreadBps ?? '',
+                                ...(feeOnly ? [] : [r.spreadBps ?? '']),
                                 r.roundingBeneficiary,
                               ]),
                             ),
@@ -75,22 +108,13 @@ export function PricingView({
                   ) : undefined
                 }
               >
-                <ReadAt at={readAt} />
                 <Facts
                   items={[
-                    [
-                      t('colTier'),
-                      profile.tierId ? (
-                        <span className="pp-mono">{profile.tierId}</span>
-                      ) : (
-                        <NotConfigured>{t('tierNotAssigned')}</NotConfigured>
-                      ),
-                    ],
+                    [t('colTier'), tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>],
                     [
                       t('effectiveSince'),
-                      profile.updatedAt ? <PayTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
+                      profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
                     ],
-                    [t('versionLabel'), <span className="pp-mono">{profile.version}</span>],
                     [t('reserveTitle'), <ReserveText reserve={profile.reserve} />],
                   ]}
                 />
@@ -102,19 +126,51 @@ export function PricingView({
               </PaySection>
 
               {rules.map((rule) => (
-                <RuleTable key={`${rule.layer}:${rule.scopeId ?? ''}:${rule.assetCode}`} rule={rule} />
+                <RuleTable key={`${rule.layer}:${rule.scopeId ?? ''}:${rule.assetCode}`} rule={rule} feeOnly={feeOnly} />
               ))}
 
-              <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} />
+              <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} feeOnly={feeOnly} />
 
-              <NotLive reason={reason('reasonFees')} title={t('pricingHistorySoonTitle')}>
-                {t('pricingHistorySoonBody')}
-              </NotLive>
+              <PaySection title={t('priceHistoryTitle')} description={t('historyBody')}>
+                <HistoryTable history={history.resource} retry={history.reload} />
+              </PaySection>
             </>
           );
         }}
       </Gate>
     </div>
+  );
+}
+
+function HistoryTable({ history, retry }: { history: ReturnType<typeof useResource<History>>['resource']; retry: () => void }) {
+  const { t } = portalCopy.useCopy();
+  if (history.status === 'loading') return <PortalLoading rows={2} />;
+  if (history.status === 'failed')
+    return isNotLive(history.failure) ? (
+      <NamedBlocker title={t('priceHistoryTitle')} why="reasonHistory" needs="merchantControl.pricing.history">
+        {t('historyBlocked')}
+      </NamedBlocker>
+    ) : (
+      <PortalFailure result={history.failure} retry={retry} />
+    );
+  if (history.data.status === 'not_configured') return <p className="muted">{t('historyNone')}</p>;
+  return (
+    <DataTable
+      label={t('priceHistoryTitle')}
+      headers={[t('colAsset'), t('historyApplies'), t('historyRate'), t('historyFrom'), t('historyUntil')]}
+    >
+      {history.data.events.map((e) => (
+        <tr key={e.ruleId}>
+          <th scope="row">{e.assetCode}</th>
+          <td>{t(`layer_${e.layer}` as 'layer_global')}</td>
+          <td className="numeric">{e.bands.map((b) => bpsPercent(b.feeBps)).join(' · ')}</td>
+          <td>
+            <DateTime value={e.createdAt} />
+          </td>
+          <td>{e.supersededAt ? <DateTime value={e.supersededAt} /> : <span className="muted">{t('historyCurrent')}</span>}</td>
+        </tr>
+      ))}
+    </DataTable>
   );
 }
 
@@ -129,7 +185,7 @@ function ReserveText({ reserve }: { reserve: ControlProfile['reserve'] }) {
   );
 }
 
-function RuleTable({ rule }: { rule: PricingRule }) {
+function RuleTable({ rule, feeOnly }: { rule: PricingRule; feeOnly: boolean }) {
   const { t } = portalCopy.useCopy();
   return (
     <PaySection title={t('ruleTitle', { asset: rule.assetCode })} description={t(`layer_${rule.layer}` as 'layer_global')}>
@@ -148,25 +204,37 @@ function RuleTable({ rule }: { rule: PricingRule }) {
           </tr>
         ))}
       </DataTable>
-      <Facts
-        items={[
-          [
-            t('spreadLabel'),
-            rule.spreadBps === null ? (
-              <NotConfigured>{t('spreadNone')}</NotConfigured>
-            ) : (
-              `${bpsPercent(rule.spreadBps)} (${rule.spreadBps} bps)`
-            ),
-          ],
-          [t('roundingLabel'), t(rule.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant')],
-        ]}
-      />
+      {!feeOnly && (
+        <Facts
+          items={[
+            [
+              t('spreadLabel'),
+              rule.spreadBps === null ? (
+                <NotConfigured>{t('spreadNone')}</NotConfigured>
+              ) : (
+                `${bpsPercent(rule.spreadBps)} (${rule.spreadBps} bps)`
+              ),
+            ],
+            [t('roundingLabel'), t(rule.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant')],
+          ]}
+        />
+      )}
       <p className="muted pp-note">{t('bandsNote')}</p>
     </PaySection>
   );
 }
 
-export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalApi; merchantId: string; assets: string[] }) {
+export function FeeCalculator({
+  portal,
+  merchantId,
+  assets,
+  feeOnly = false,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  assets: string[];
+  feeOnly?: boolean;
+}) {
   const { t } = portalCopy.useCopy();
   const [asset, setAsset] = useState(assets[0] ?? '');
   const [amount, setAmount] = useState('');
@@ -253,14 +321,21 @@ export function FeeCalculator({ portal, merchantId, assets }: { portal: PortalAp
             <Facts
               items={[
                 [t('calcFee'), <Money value={outcome.result.data.fee} asset={outcome.asset} />],
-                ...(outcome.result.data.spread !== null
+                ...(!feeOnly && outcome.result.data.spread !== null
                   ? ([[t('spreadLabel'), <Money value={outcome.result.data.spread} asset={outcome.asset} />]] as const)
                   : []),
                 [t('calcNet'), <Money value={outcome.result.data.net} asset={outcome.asset} />],
-                [t('calcApplied'), t(`layer_${outcome.result.data.appliedLayer}` as 'layer_global')],
-                [t('calcBand'), <Money value={outcome.result.data.bandFrom} asset={outcome.asset} />],
-                [t('calcMonthSoFar'), <Money value={outcome.result.data.monthlyVolumeBefore} asset={outcome.asset} />],
-                [t('roundingLabel'), t(outcome.result.data.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant')],
+                ...(feeOnly
+                  ? []
+                  : ([
+                      [t('calcApplied'), t(`layer_${outcome.result.data.appliedLayer}` as 'layer_global')],
+                      [t('calcBand'), <Money value={outcome.result.data.bandFrom} asset={outcome.asset} />],
+                      [t('calcMonthSoFar'), <Money value={outcome.result.data.monthlyVolumeBefore} asset={outcome.asset} />],
+                      [
+                        t('roundingLabel'),
+                        t(outcome.result.data.roundingBeneficiary === 'platform' ? 'roundingPlatform' : 'roundingMerchant'),
+                      ],
+                    ] as const)),
               ]}
             />
             <p className="muted pp-note">{t('calcNote')}</p>
