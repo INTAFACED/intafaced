@@ -89,9 +89,10 @@ describe('the stand-in answers every procedure a page calls', () => {
       expect([...procedures.keys()], known).toContain(known);
     expect(procedures.size).toBeGreaterThan(80);
   });
+  // Starts the stand-in once per procedure, which takes longer than the default on a shared CI runner.
   it('has an answer for each one', async () => {
     const missing: string[] = [];
     for (const [procedure, files] of procedures) if (!(await answered(procedure))) missing.push(`${procedure} (called from ${files[0]})`);
     expect(missing).toEqual([]);
-  });
+  }, 60_000);
 });
