@@ -17,6 +17,7 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
+import { QuantLibrary } from './QuantLibrary';
 import { analysisCopy } from './quant-analysis-copy';
 import './quant-analysis.css';
 const stamp = z.object({
@@ -659,34 +660,17 @@ function Saved({
   onPick: (s: z.infer<typeof strategy>) => void;
 }) {
   return (
-    <Panel title={copyText('quant.deployment.strategy.catalogue')}>
-      <p className="muted">
-        <Text k="quant.this.service.stores.a.shared.in.process" />
-      </p>
-      <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
-        {(data) => (
-          <>
-            <div className="more-grid">
-              {data.strategies.map((s) => (
-                <article key={s.id}>
-                  <h3 lang="und">{s.name}</h3>
-                  <small>
-                    <span lang="und">{s.claimLabel}</span> · <span lang="zxx">{s.id}</span>
-                  </small>
-                  <pre className="more-body" lang="und">
-                    {s.source}
-                  </pre>
-                  <Button variant="secondary" onClick={() => onPick(s)}>
-                    <Text k="quant.use" />
-                    <span lang="und">{s.name}</span>
-                  </Button>
-                </article>
-              ))}
-            </div>
-            <Limit count={data.strategies.length} limit={limit} cap={50} onChange={setLimit} />
-          </>
-        )}
-      </Read>
-    </Panel>
+    <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
+      {(data) => (
+        <QuantLibrary
+          strategies={data.strategies}
+          onPick={(picked) => {
+            const full = data.strategies.find((row) => row.id === picked.id);
+            if (full) onPick(full);
+          }}
+          footer={<Limit count={data.strategies.length} limit={limit} cap={50} onChange={setLimit} />}
+        />
+      )}
+    </Read>
   );
 }

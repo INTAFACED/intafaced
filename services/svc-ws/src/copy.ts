@@ -26,6 +26,11 @@ export const WS_COPY = {
   privateMaxConnectionsPerUserUnset: 'ws.close.private_max_connections_per_user_unset',
   shuttingDown: 'ws.close.shutting_down',
   tokenExpired: 'ws.close.token_expired',
+  muxMaxSubscriptionsUnset: 'ws.close.mux_max_subscriptions_unset',
+  muxMaxOpsUnset: 'ws.close.mux_max_ops_per_second_unset',
+  muxRateLimited: 'ws.close.mux_rate_limited',
+  muxBacklog: 'ws.close.mux_backlog',
+  muxSlowConsumer: 'ws.close.mux_slow_consumer',
 } as const;
 
 export function resolveWsCopy(key: string, params: Readonly<Record<string, ParamValue>> = {}): string {

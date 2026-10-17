@@ -65,8 +65,8 @@ class AttributedPublicDoorLedger {
     return this.freezeSwitch.freeze(reason, actor);
   }
 
-  async unfreeze(actor: string) {
-    return this.freezeSwitch.unfreeze(actor);
+  async unfreeze(actor: string, confirmOperatorId?: string | null) {
+    return this.freezeSwitch.unfreeze(actor, confirmOperatorId ?? null);
   }
 
   async freezeState() {
