@@ -126,16 +126,14 @@ describe('market controls', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
   it('a consumed approval is refused by svc-edge as reused and shown as-is', async () => {
-    fetchMock
-      .mockResolvedValueOnce(reply(200, { result: { data: { json: approval({}) } } }))
-      .mockResolvedValueOnce(
-        reply(409, {
-          outcome: 'refused',
-          code: 'action_approval.reused',
-          key: 'approvalId',
-          error: 'This approval was already used for a matching control.',
-        }),
-      );
+    fetchMock.mockResolvedValueOnce(reply(200, { result: { data: { json: approval({}) } } })).mockResolvedValueOnce(
+      reply(409, {
+        outcome: 'refused',
+        code: 'action_approval.reused',
+        key: 'approvalId',
+        error: 'This approval was already used for a matching control.',
+      }),
+    );
     expect(await runMatchingControl(ctx, matchingActionSpec('halt')!, 'm-1', 'approval-12345')).toMatchObject({
       kind: 'refused',
       code: 'action_approval.reused',

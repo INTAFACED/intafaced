@@ -110,19 +110,17 @@ describe('trade desk kill switch route', () => {
   });
 
   it("shows svc-edge's typed refusal as-is (matching_unconfigured naming the key)", async () => {
-    fetchMock
-      .mockResolvedValueOnce(Response.json({ result: { data: { json: approval('APPROVED') } } }))
-      .mockResolvedValueOnce(
-        Response.json(
-          {
-            outcome: 'refused',
-            error: 'MATCHING_URL is unpublished. This edge does not call matching and does not invent a book.',
-            code: 'matching_unconfigured',
-            key: 'MATCHING_URL',
-          },
-          { status: 503 },
-        ),
-      );
+    fetchMock.mockResolvedValueOnce(Response.json({ result: { data: { json: approval('APPROVED') } } })).mockResolvedValueOnce(
+      Response.json(
+        {
+          outcome: 'refused',
+          error: 'MATCHING_URL is unpublished. This edge does not call matching and does not invent a book.',
+          code: 'matching_unconfigured',
+          key: 'MATCHING_URL',
+        },
+        { status: 503 },
+      ),
+    );
     const res = await post({ action: 'halt_all', step: 'run', approvalId: 'approval-12345' });
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({
