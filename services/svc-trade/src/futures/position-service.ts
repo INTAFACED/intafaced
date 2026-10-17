@@ -56,6 +56,7 @@ import { PROFIT_SOURCE_UNCONFIGURED, checkProfitBound, type ProfitSource } from 
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-mark.js';
 import { TradeError } from '../spot/types.js';
+import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
 
 /**
@@ -906,6 +907,25 @@ export class PositionService {
     });
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+    // Owner pre-trade limits (#4725), before the margin lock. A retry of an
+    // already-admitted open returned above and is never newly refused.
+    const limitRefusal = await checkOpenAdmission({
+      sql: this.sql,
+      userId: input.userId,
+      marketId: m.id,
+      quoteAsset: m.quote_asset,
+      side: input.side,
+      size: input.size,
+      entryPrice,
+      positionMode: (input as { positionMode?: unknown }).positionMode,
+      markFor: async (marketId, symbol) => (await this.markFor(marketId, symbol, at, null)).price,
+    });
+    if (limitRefusal)
+      throw new FuturesError(
+        limitRefusal.message,
+        limitRefusal.code,
+        limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
+      );
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },
