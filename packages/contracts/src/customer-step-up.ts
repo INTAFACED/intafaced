@@ -274,6 +274,36 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: ['amount'],
     fixed: {},
   },
+  {
+    scope: 'identity.step_up.email_change',
+    purpose: 'account.email.change',
+    clientFields: ['newEmail'],
+    targetField: 'newEmail',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'identity.step_up.phone_change',
+    purpose: 'account.phone.change',
+    clientFields: ['newPhone'],
+    targetField: 'newPhone',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'identity.step_up.phone_remove',
+    purpose: 'account.phone.remove',
+    clientFields: ['phone'],
+    targetField: 'phone',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {
