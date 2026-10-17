@@ -297,7 +297,7 @@ describe('D26-P1-T7 public doors — complete refuse-closed forex product', () =
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('BadRequest');
     expect(res.json().intafacedCode).toBe(FOREX_SETTLEMENT_REFUSE_CODE);
-    expect(String(res.json().message)).toContain(FOREX_SETTLEMENT_SOCKET);
+    expect(String(res.json().message)).toContain('settlement asset');
     expect(placeOrder).toHaveBeenCalled();
     expect(fundHold).not.toHaveBeenCalled();
     await app.close();

@@ -455,7 +455,7 @@ describe('venue hours', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(TradeError);
       expect((e as TradeError).code).toBe('trade.unsettled_asset_class_listing');
-      expect((e as TradeError).message).toContain('socket.forex-settlement');
+      expect((e as TradeError).message).toContain('settlement asset');
     }
     expect(() => assertSettlementRails({ ...EURUSD, paper: true })).not.toThrow();
     expect(() => assertSettlementRails(BTCUSDT)).not.toThrow();
