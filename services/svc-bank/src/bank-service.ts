@@ -21,6 +21,9 @@ import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
+import { BillPayService } from './personal-pay/bills.js';
+import { GlobalSendService } from './personal-pay/global.js';
+import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
  * svc-bank — MULTI-CURRENCY ACCOUNTS OVER THE LEDGER (§8.1).
@@ -52,6 +55,8 @@ export interface BankServices {
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
+  readonly bills: BillPayService;
+  readonly globalSend: GlobalSendService;
 }
 
 export interface BankServiceOptions {
@@ -129,6 +134,16 @@ export interface BankServiceOptions {
   directory?: BusinessDirectoryPort;
   /** Recipient-lookup budget. Default is 30 per minute per caller. */
   directoryLookups?: BusinessLookupLimiter;
+  /**
+   * Bill-pay ports. Unset refuses search, lookup, pay and recurring create.
+   * Nothing here invents a biller, an amount due or a PSP.
+   */
+  bills?: BillPorts;
+  /**
+   * Global-send ports. Unset refuses corridors, quotes and sends.
+   * Travel-rule `decision()` null means Nitro/Phantom have not decided.
+   */
+  global?: GlobalPorts;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -174,6 +189,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.directoryLookups,
   );
 
+  const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
+  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts());
+
   return {
     spaces,
     transfers,
@@ -190,6 +208,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     deposits,
     autoInvest,
     business,
+    bills,
+    globalSend,
   };
 }
 

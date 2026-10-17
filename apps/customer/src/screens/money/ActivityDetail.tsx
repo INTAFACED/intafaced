@@ -6,6 +6,9 @@ import { stamp } from './time';
 import { titleOf } from './activity-view';
 import { DETAIL_MAX_PAGES, findGroup, idFromPath } from './activity-detail';
 import { usePreferences } from '../../shared/preferences';
+import { useSession } from '../../features/session/session';
+import { readSent } from '../../features/pay/personal/personal-model';
+import { withDeviceHandle } from '../../data';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -47,6 +50,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
   const { hideBalances, timeZone } = usePreferences();
+  const { userId } = useSession();
   const id = idFromPath(rawId);
   const activity = useActivity({ pageSize: 100 });
   const pages = useRef(0);
@@ -106,7 +110,8 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
       </div>
     );
   } else {
-    const item = group.main;
+    // The bank does not always name the other person; a payment this device sent is named from the confirmation it kept.
+    const item = withDeviceHandle(group.main, userId ? readSent(userId) : []);
     const up = item.direction === 'in';
     const cancelled = group.kind === 'cancelled';
     const holding = group.kind === 'open' || item.kind === 'order_hold';

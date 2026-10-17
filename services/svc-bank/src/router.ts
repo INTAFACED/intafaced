@@ -19,6 +19,7 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
+import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
@@ -4319,6 +4320,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     portfolio,
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
+    bills: createBillsRouter(bank, stepUp),
+    global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),
     ops,
   });

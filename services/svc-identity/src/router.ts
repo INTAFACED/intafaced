@@ -1268,15 +1268,12 @@ export function createIdentityRouter(
        * second-factor check.
        *
        * WHY `requireMfa` IS HERE AND NOT IMPLIED BY THE SCOPE.
-       * `INTERACTIVE_ONLY_SCOPES` is what forces 2FA on a scope, and
-       * `admin:compliance` is NOT in that list — its stated membership test is
-       * "does this move value OFF the platform", and approving a record moves
-       * nothing. But it is a privilege-escalation primitive: a leaked operator
-       * key that can self-approve an account to `institutional` unlocks every
-       * custodial module in the OS. So the second factor is enforced here,
-       * locally, and the question of whether the shared list should grow is
-       * argued in the PR rather than settled by editing a shared package inside
-       * a service PR (§15.2). Dual-control reuses four-eyes
+       * `admin:compliance` is in `INTERACTIVE_ONLY_SCOPES`, so an API key that
+       * carries it is refused at `requireScope` (`scope.interactive_only`).
+       * That list does not force 2FA: `SESSION_MFA_SCOPES` is the value-off-
+       * platform subset, and approving a record moves nothing. It is still a
+       * privilege-escalation primitive, so the second factor is enforced here,
+       * locally. Dual-control reuses four-eyes
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */

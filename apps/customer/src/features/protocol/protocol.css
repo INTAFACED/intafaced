@@ -41,3 +41,14 @@
 .protocol-room .page > * + * {
   margin-top: 16px;
 }
+
+.protocol-room .page-heading .eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.protocol-room .protocol-pill {
+  text-transform: none;
+  letter-spacing: 0;
+}

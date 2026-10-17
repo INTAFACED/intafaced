@@ -142,7 +142,7 @@ test('customer tasks lead optional public status and actual Support and More des
       await page.screenshot({ path: join(out, 'overview.png'), fullPage: true });
       await openStatus(page, width);
       await expect(room(page).getByText('Responding', { exact: true })).toBeVisible();
-      await expect(room(page).getByText('Configured · not checked', { exact: true })).toHaveCount(2);
+      await expect(room(page).getByText('Set up · not tested', { exact: true })).toHaveCount(2);
       await expect(room(page)).toContainText('do not establish a successful run or payment');
       await fit(page, room(page).getByRole('button', { name: 'Refresh service status', exact: true }), width);
       await page.screenshot({ path: join(out, 'expanded.png'), fullPage: true });
@@ -193,9 +193,9 @@ test('refresh discards previous facts during loading, current refusal and malfor
     await expect(room(page).locator('.failure')).toContainText('reach');
     state.plan.push({ json: health(false) });
     await room(page).locator('.failure button').click();
-    await expect(room(page).getByText('Not configured', { exact: true })).toHaveCount(2);
+    await expect(room(page).getByText('Not set up', { exact: true })).toHaveCount(2);
     await expect(room(page).getByText('No jobs registered', { exact: true })).toBeVisible();
-    await expect(room(page).getByText('mining.ledger_unavailable', { exact: true })).toBeVisible();
+    await expect(room(page).getByText('mining.ledger_unavailable', { exact: true })).toHaveCount(0);
     await expect(room(page).getByText('mining.epoch_payout', { exact: true })).toHaveCount(0);
     await fit(page, room(page).getByRole('button', { name: 'Refresh service status', exact: true }), 320);
     await page.screenshot({ path: join(out, 'recovered.png'), fullPage: true });
@@ -279,7 +279,7 @@ test('guest return and unreadable original storage do not confer customer submis
     await openStatus(page, 320);
     await expect(room(page).getByText('Responding', { exact: true })).toBeVisible();
     await expect(room(page).getByRole('form')).toHaveCount(0);
-    await expect(room(page)).toContainText('must be connected before an instruction');
+    await expect(room(page)).toContainText('The pool offers no customer access, so nothing can be submitted here');
     expect(state.healthReads).toBe(1);
   });
 });
