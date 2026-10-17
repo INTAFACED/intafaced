@@ -196,9 +196,7 @@ describe('POST /api/v1/orders/preview', () => {
   });
 
   it('given a taker fee of 100 bps and a rank discount of 5000, a limit buy preview fee bps is 50', async () => {
-    const schedule = parseFeeScheduleJson(
-      JSON.stringify({ published: true, version: 'rank-50', makerBps: '100', takerBps: '100' }),
-    );
+    const schedule = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'rank-50', makerBps: '100', takerBps: '100' }));
     const { app, ledgerPost } = appWith({ feeSchedule: schedule, feeDiscountBps: async () => 5000 });
     const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
     expect(response.statusCode, response.body).toBe(200);

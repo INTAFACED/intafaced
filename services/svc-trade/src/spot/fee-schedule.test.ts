@@ -105,9 +105,7 @@ describe('previewFeeBps', () => {
   });
 
   it('a rank discount of 5000 on a 100 bps taker fee previews 50, and zero discount posts the published rate', () => {
-    const schedule = parseFeeScheduleJson(
-      JSON.stringify({ published: true, version: 'rank-50', makerBps: '80', takerBps: '100' }),
-    );
+    const schedule = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'rank-50', makerBps: '80', takerBps: '100' }));
     expect(previewFeeBps(schedule, 'taker', 5000)).toBe(50);
     expect(previewFeeBps(schedule, 'taker', 0)).toBe(100);
     expect(previewFeeBps(schedule, 'maker', 0)).toBe(80);
@@ -168,9 +166,7 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
 });
 
 describe('product rates and the fee screen (TRD-0466, TRD-0526)', () => {
-  const spotOnly = parseFeeScheduleJson(
-    JSON.stringify({ published: true, version: 'spot-only', makerBps: '10', takerBps: '20' }),
-  );
+  const spotOnly = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'spot-only', makerBps: '10', takerBps: '20' }));
 
   it('a perpetual fill is refused when only the spot rate is published', () => {
     expect(publishedProductBps(spotOnly, 'spot')).toEqual({ makerBps: 10, takerBps: 20 });

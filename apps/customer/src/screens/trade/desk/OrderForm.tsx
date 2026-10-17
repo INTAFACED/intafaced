@@ -539,12 +539,7 @@ function SideForm({
       />
       <div className="dk-percents" role="group" aria-label={t('Time in force choice')}>
         {(['GTC', 'IOC', 'FOK', 'PO'] as const).map((choice) => (
-          <button
-            key={choice}
-            type="button"
-            aria-pressed={instruction === choice}
-            onClick={() => setInstruction(choice)}
-          >
+          <button key={choice} type="button" aria-pressed={instruction === choice} onClick={() => setInstruction(choice)}>
             {choice === 'GTC'
               ? t('Good till cancel')
               : choice === 'IOC'

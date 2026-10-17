@@ -122,11 +122,7 @@ export function installPreTradeCreditOpen(ctor: typeof PositionService): void {
     const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
     if (!check.ok) refuseOpen(check);
     if (futuresSizeOverPublishedMax(input.size, check.maxOrder)) {
-      throw new FuturesError(
-        `futures size is above the published TRADE_MAX_ORDER of ${check.maxOrder}`,
-        'trade.max_order_exceeded',
-        400,
-      );
+      throw new FuturesError(`futures size is above the published TRADE_MAX_ORDER of ${check.maxOrder}`, 'trade.max_order_exceeded', 400);
     }
     return origOpen.call(this, input, principal);
   };

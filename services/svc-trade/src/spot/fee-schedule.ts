@@ -12,10 +12,7 @@ export const TRADE_FEE_SCHEDULE_ENV = 'TRADE_FEE_SCHEDULE' as const;
 
 export const FEE_SCHEDULE_RESIDUAL = 'PTX-M21 fee/rebate schedule is owner-only — refuse-closed (never invent bps)';
 
-export type FeeScheduleErrorCode =
-  | 'trade.fee_schedule_blank'
-  | 'trade.fee_schedule_invalid'
-  | 'trade.fee_product_unpublished';
+export type FeeScheduleErrorCode = 'trade.fee_schedule_blank' | 'trade.fee_schedule_invalid' | 'trade.fee_product_unpublished';
 
 export class FeeScheduleError extends Error {
   constructor(
@@ -153,10 +150,7 @@ export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker
 export type FeeProduct = 'spot' | 'perpetual';
 
 /** Spot uses the top-level rates. Perpetual uses its own block, or refuses. */
-export function publishedProductBps(
-  schedule: OwnerFeeSchedule,
-  product: FeeProduct,
-): { makerBps: number; takerBps: number } | null {
+export function publishedProductBps(schedule: OwnerFeeSchedule, product: FeeProduct): { makerBps: number; takerBps: number } | null {
   if (schedule.published !== true) return null;
   if (product === 'spot') return { makerBps: schedule.makerBps, takerBps: schedule.takerBps };
   return schedule.perpetual;
@@ -166,10 +160,7 @@ export function publishedProductBps(
  * Trading rates and a withdrawal network fee stay on different lines.
  * A blank trade schedule does not rewrite the network fee.
  */
-export function feeScreenLines(input: {
-  readonly schedule: OwnerFeeSchedule;
-  readonly withdrawalNetworkFee: string;
-}): {
+export function feeScreenLines(input: { readonly schedule: OwnerFeeSchedule; readonly withdrawalNetworkFee: string }): {
   readonly trading: { readonly makerBps: number; readonly takerBps: number } | null;
   readonly withdrawalNetworkFee: string;
 } {
