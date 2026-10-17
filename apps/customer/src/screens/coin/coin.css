@@ -194,6 +194,19 @@
     position: absolute;
     inset: 0;
   }
+  .coin-chart-loading {
+    position: relative;
+    height: 100%;
+  }
+  .coin-chart-loading__label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
   .coin-chart-empty {
     display: flex;
     align-items: center;

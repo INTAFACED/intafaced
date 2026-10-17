@@ -23,6 +23,7 @@ export {
 } from '@intafaced/ui';
 
 export {
+  classifyRefusal,
   direction,
   fmtAmount,
   fmtChangeLine,

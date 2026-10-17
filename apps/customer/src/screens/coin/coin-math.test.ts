@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { heroPrice, highLow, moveSince, startsLate } from './coin-math';
-import type { Candle } from './deps';
+import { heroPrice, highLow, isUnpricedMarket, moveSince, startsLate, tickerMove } from './coin-math';
+import type { Candle, Loadable, TickerRow } from './deps';
 
 const candle = (t: number, o: string, c: string): Candle => ({ t, o, h: c, l: o, c, v: '1', filled: false });
 
@@ -70,5 +70,53 @@ describe('startsLate: less history than the range asks for', () => {
   });
   it('is false with no candles', () => {
     expect(startsLate([], HOUR, 168 * HOUR, now)).toBe(false);
+  });
+});
+
+const ticker = (patch: Partial<TickerRow>): TickerRow => ({
+  symbol: 'BTC/USDT',
+  last: '64772.05',
+  bid: null,
+  ask: null,
+  open24h: '65120.39',
+  high24h: null,
+  low24h: null,
+  change24h: '-348.34',
+  changePct24h: '-0.005349',
+  baseVolume24h: null,
+  quoteVolume24h: null,
+  windowStart: null,
+  source: 'server',
+  ...patch,
+});
+
+describe('tickerMove: the past day as the ticker states it, for the 1D line while its candles are out', () => {
+  it('measures from the 24 h open to the last price, exactly', () => {
+    const move = tickerMove(ticker({}))!;
+    expect(move.base).toBe('65120.39');
+    expect(move.change).toBe('-348.34');
+    expect(move.direction).toBe('down');
+    expect(move.changeRatio).toBe('-0.005349169438327995');
+  });
+  it('does not guess without an open, a last price or a ticker', () => {
+    expect(tickerMove(ticker({ open24h: null }))).toBeNull();
+    expect(tickerMove(ticker({ last: null }))).toBeNull();
+    expect(tickerMove(null)).toBeNull();
+  });
+});
+
+describe('isUnpricedMarket: a listed market with no open book says "no market", it is not a fault', () => {
+  const refused = (code: string): Loadable<TickerRow> => ({ status: 'refused', code });
+  it('is true when the exchange answers that no book is open or the market is missing', () => {
+    expect(isUnpricedMarket(refused('trade.no_book'))).toBe(true);
+    expect(isUnpricedMarket(refused('trade.matching_market_missing'))).toBe(true);
+    expect(isUnpricedMarket(refused('trade.market_not_found'))).toBe(true);
+  });
+  it('is false for any other refusal, a failed read, a loading ticker or a priced one', () => {
+    expect(isUnpricedMarket(refused('ExchangeError'))).toBe(false);
+    expect(isUnpricedMarket(refused('scope.denied'))).toBe(false);
+    expect(isUnpricedMarket({ status: 'loading' })).toBe(false);
+    expect(isUnpricedMarket({ status: 'error', retry: () => undefined })).toBe(false);
+    expect(isUnpricedMarket({ status: 'ready', data: ticker({}), asOf: 0 })).toBe(false);
   });
 });

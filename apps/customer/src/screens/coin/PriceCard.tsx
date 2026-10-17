@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CoinChart } from './CoinChart';
 import { coinCopy } from './copy';
-import { heroPrice, moveSince, startsLate, type Move } from './coin-math';
+import { heroPrice, moveSince, startsLate, tickerMove, type Move } from './coin-math';
 import {
   ChangeText,
   fmtChangeLine,
@@ -87,7 +87,13 @@ export function PriceCard({
   const live = ticker.status === 'ready' ? ticker.data.last : null;
   const price = scrub ? scrub.c : live;
   // The line keeps the colour of the live move while the crosshair moves; only the header follows the crosshair.
-  const liveMove: Move | null = useMemo(() => (list ? moveSince(list, live) : null), [list, live]);
+  // The past day's change comes from the candles when there are some. While they load, or if they cannot be read, the 1D
+  // line states the change the ticker already carries instead of an empty dash; longer ranges have no such figure.
+  const tickerRow = ticker.status === 'ready' ? ticker.data : null;
+  const liveMove: Move | null = useMemo(
+    () => (list ? moveSince(list, live) : range.id === '1D' ? tickerMove(tickerRow) : null),
+    [list, live, range.id, tickerRow],
+  );
   const move: Move | null = useMemo(() => (scrub && list ? moveSince(list, scrub.c) : liveMove), [list, scrub, liveMove]);
   const hero = heroPrice(price, tickSize);
 
@@ -216,7 +222,13 @@ function ChartBody({
   onScrub: (candle: Candle | null) => void;
 }) {
   const { t } = coinCopy.useCopy();
-  if (candles.status === 'loading') return <Skeleton height={360} className="bg-field" aria-busy="true" />;
+  if (candles.status === 'loading')
+    return (
+      <div className="coin-chart-loading" aria-busy="true" role="status">
+        <Skeleton height={360} className="bg-field" />
+        <span className="coin-chart-loading__label">{t('Loading the chart')}</span>
+      </div>
+    );
   if (candles.status === 'error')
     return <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
   if (candles.status === 'refused') {

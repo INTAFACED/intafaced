@@ -31,8 +31,9 @@ const messages = {
   'Try again': 'Try again',
   'Dollar price': '$1.00',
   'Counted at 1 USD': '(counted at 1 USD)',
-  'No market title': 'No market is open for {asset} right now',
-  'No market body': 'Its price and chart will show here when one opens.',
+  'Loading the chart': 'Loading the chart…',
+  'No market title': 'No market for {asset} on this exchange yet',
+  'No market body': 'Its price and chart will show here once trading opens.',
   'Go to Markets': 'Go to Markets',
   // Key stats
   'Key stats': 'Key stats',
@@ -69,7 +70,19 @@ const messages = {
   'USD Coin': 'USD Coin',
 } as const;
 
-export const coinCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.coin', messages);
+// Spanish and French exist for the sentences below; every other sentence on this page still reads in English.
+const es = {
+  'Loading the chart': 'Cargando el gráfico…',
+  'No market title': 'Aún no hay mercado de {asset} en este exchange',
+  'No market body': 'Su precio y su gráfico aparecerán aquí cuando se abra la negociación.',
+} as const;
+const fr = {
+  'Loading the chart': 'Chargement du graphique…',
+  'No market title': 'Pas encore de marché pour {asset} sur cet exchange',
+  'No market body': 'Son prix et son graphique s’afficheront ici dès l’ouverture des échanges.',
+} as const;
+
+export const coinCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.coin', messages, { es, fr });
 
 const nameKey = { BTC: 'Bitcoin', ETH: 'Ethereum', USDT: 'Tether', USDC: 'USD Coin' } as const satisfies Record<
   string,
