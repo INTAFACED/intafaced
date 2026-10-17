@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { MemoryEventBus } from '@intafaced/events';
 import type { AccountControlInput, Context } from '@intafaced/contracts';
@@ -443,6 +444,35 @@ if (!available) {
       const changedPair = new FounderControls(db.sql, parseFounderPair(first.principal!.userId, ordinary.principal!.userId));
       expect(await changedPair.bootstrap()).toBe(false);
       expect(await changedPair.change(first, command())).toMatchObject({ code: 'operator.denied' });
+    });
+
+    it('isLiveFounder: the pair with an enabled entitlement and an active account, nobody else, fresh on every call', async () => {
+      const firstId = first.principal!.userId;
+      const secondId = second.principal!.userId;
+      expect(await controls.isLiveFounder(firstId)).toBe(true);
+      expect(await controls.isLiveFounder(secondId.toUpperCase())).toBe(true);
+      expect(await controls.isLiveFounder(ordinary.principal!.userId)).toBe(false);
+      expect(await controls.isLiveFounder('not-a-uuid')).toBe(false);
+      expect(await controls.isLiveFounder(randomUUID())).toBe(false);
+      // revoking the entitlement takes effect on the next call
+      await controls.changeEntitlement(first, {
+        requestId: randomUUID(),
+        userId: secondId,
+        action: 'revoke',
+        expectedVersion: '1',
+        reason: 'Lost operator device',
+      });
+      expect(await controls.isLiveFounder(secondId)).toBe(false);
+      expect(await controls.isLiveFounder(firstId)).toBe(true);
+      // a frozen account is not a live founder either
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${firstId}`;
+      expect(await controls.isLiveFounder(firstId)).toBe(false);
+      // unconfigured controls (no pair) answer false for everyone
+      const unconfigured = new FounderControls(db.sql, null);
+      expect(await unconfigured.isLiveFounder(firstId)).toBe(false);
+      // a pair that was never bootstrapped is not configured
+      const neverBooted = new FounderControls(db.sql, parseFounderPair(firstId, secondId));
+      expect(await neverBooted.isLiveFounder(secondId)).toBe(false);
     });
 
     it('delegated and own-status reads require actual session MFA and matching signed principal', async () => {

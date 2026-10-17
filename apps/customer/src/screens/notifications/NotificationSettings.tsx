@@ -1,123 +1,67 @@
-import { useCallback, useEffect, useState } from 'react';
 import './notifications.css';
-import { useSession } from '../../features/session/session';
-import { StateBlock, Switch, navigate } from './deps';
-import { notifyCopy } from './copy';
-import {
-  availableChannels,
-  channelStatus,
-  mutePrefs,
-  setMute,
-  targets,
-  type MutePref,
-  type OutOfAppChannel,
-  type TargetRow,
-} from './notify-api';
-
-type Load =
-  { status: 'loading' } | { status: 'failed' } | { status: 'ready'; channels: OutOfAppChannel[]; prefs: MutePref[]; targets: TargetRow[] };
-
-const LABEL = { email: 'Email', push: 'Phone notifications', sms: 'Text message' } as const;
+import { Button, StateBlock, Switch } from './deps';
+import { centreCopy } from './centre-copy';
+import { ChannelCard } from './ChannelCard';
+import { NotifyNav } from './NotifyNav';
+import { TopicTable } from './TopicTable';
+import { OUT_OF_APP } from './prefs';
+import { useCentre } from './use-centre';
 
 /**
- * Notification settings (`/notifications?view=settings`): for each way we can really reach the person outside the app, one switch.
- * A way that isn't set up on the service isn't listed at all; when none is, the page sends the person back to their inbox (and the inbox
- * hides the link to this page). Adding or confirming an address is not rebuilt here: the old component lists every way, set up or not,
- * so it waits for the first live channel.
+ * Notification preferences (`/notifications?view=settings`). Always reachable: every way of reaching the person is listed, with
+ * its real state, a pause switch, and the steps to add, confirm or remove an address. What the platform cannot send yet is shown
+ * as such, with the reason, instead of being hidden.
  */
 export default function NotificationSettings() {
-  const copy = notifyCopy.useCopy();
-  const { api, userId } = useSession();
-  const [load, setLoad] = useState<Load>({ status: 'loading' });
-  const [revision, setRevision] = useState(0);
-  const [busy, setBusy] = useState<OutOfAppChannel | null>(null);
-  const [saved, setSaved] = useState<OutOfAppChannel | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!userId) return;
-    const controller = new AbortController();
-    void Promise.all([channelStatus(api, controller.signal), mutePrefs(api, controller.signal), targets(api, controller.signal)]).then(
-      ([channels, prefs, rows]) => {
-        if (controller.signal.aborted) return;
-        if (!channels.ok || !prefs.ok || !rows.ok) return setLoad({ status: 'failed' });
-        setLoad({ status: 'ready', channels: availableChannels(channels.data), prefs: prefs.data, targets: rows.data });
-      },
-    );
-    return () => controller.abort();
-  }, [api, userId, revision]);
-
-  // Nothing is set up, so there is nothing to change here.
-  useEffect(() => {
-    if (load.status === 'ready' && load.channels.length === 0) navigate('/notifications', true);
-  }, [load]);
-
-  const change = useCallback(
-    async (channel: OutOfAppChannel, muted: boolean) => {
-      setBusy(channel);
-      setFailed(false);
-      setSaved(null);
-      const result = await setMute(api, channel, muted);
-      setBusy(null);
-      if (!result.ok) return setFailed(true);
-      setSaved(channel);
-      setLoad((current) => (current.status === 'ready' ? { ...current, prefs: result.data } : current));
-    },
-    [api],
-  );
-
+  const copy = centreCopy.useCopy();
+  const { load, reload, mute } = useCentre();
   return (
-    <div className="if-notify if-notify--narrow">
-      <a className="nf-back" href="/notifications">
-        {copy.t('Back')}
-      </a>
-      <h1 className="nf-h1">{copy.t('Notification settings')}</h1>
-      <p className="nf-intro">{copy.t('Settings intro')}</p>
+    <div className="if-notify">
+      <div className="nf-head">
+        <h1 className="nf-h1">{copy.t('prefsTitle')}</h1>
+      </div>
+      <NotifyNav current="settings" />
+      <p className="nf-intro">{copy.t('prefsIntro')}</p>
       {load.status === 'loading' ? (
-        <StateBlock kind="loading" rows={2} rowHeight={72} label={copy.t('Where we reach you')} />
+        <StateBlock kind="loading" rows={3} rowHeight={72} label={copy.t('waysTitle')} />
       ) : load.status === 'failed' ? (
-        <StateBlock
-          kind="error"
-          title={copy.t('Couldn’t load your settings.')}
-          onRetry={() => setRevision((value) => value + 1)}
-          retryLabel={copy.t('Try again')}
-        />
-      ) : load.channels.length === 0 ? null : (
+        <StateBlock kind="error" title={copy.t('loadFailed')} onRetry={reload} retryLabel={copy.t('tryAgain')} />
+      ) : (
         <>
-          <h2 className="nf-h2">{copy.t('Where we reach you')}</h2>
+          <h2 className="nf-h2">{copy.t('waysTitle')}</h2>
           <ul className="nf-card nf-channels">
-            {load.channels.map((channel) => {
-              const pref = load.prefs.find((row) => row.channel === channel);
-              const target = load.targets.find((row) => row.channel === channel);
-              const detail = !target
-                ? copy.t('Nothing on file')
-                : channel === 'push'
-                  ? copy.t('Device registered')
-                  : `${target.address} · ${target.verifiedAt ? copy.t('Confirmed') : copy.t('Not confirmed yet')}`;
-              return (
-                <li key={channel} className="nf-channel">
-                  <span className="nf-text">
-                    <span className="nf-title">{copy.t(LABEL[channel])}</span>
-                    <span className="nf-body">{detail}</span>
-                  </span>
-                  <span className="nf-channel__state" aria-live="polite">
-                    {saved === channel ? copy.t('Saved') : ''}
-                  </span>
-                  <Switch
-                    aria-label={`${copy.t('Send me these')}: ${copy.t(LABEL[channel])}`}
-                    checked={pref ? !pref.muted : false}
-                    disabled={!pref || busy !== null}
-                    onCheckedChange={(on) => void change(channel, !on)}
-                  />
-                </li>
-              );
-            })}
+            <li className="nf-channelcard">
+              <div className="nf-channelcard__head">
+                <span className="nf-text">
+                  <span className="nf-title">{copy.t('channelInbox')}</span>
+                  <span className="nf-body nf-body--wrap">{copy.t('inboxState')}</span>
+                </span>
+                <span />
+                <Switch aria-label={copy.t('channelInbox')} checked disabled />
+              </div>
+            </li>
+            {OUT_OF_APP.map((channel) => (
+              <ChannelCard key={channel} channel={channel} view={load.channels[channel]} onMute={mute} onChanged={reload} />
+            ))}
           </ul>
-          {failed ? (
-            <p className="nf-note" role="alert">
-              {copy.t('Couldn’t save that change.')}
-            </p>
-          ) : null}
+          <p className="nf-note">{copy.t('urgentNote')}</p>
+          <TopicTable channels={load.channels} />
+          <section aria-labelledby="nf-quiet">
+            <h2 className="nf-h2" id="nf-quiet">
+              {copy.t('quietTitle')}
+            </h2>
+            <div className="nf-offrow">
+              <span className="nf-text">
+                <span className="nf-title">{copy.t('quietLabel')}</span>
+                <span className="nf-body nf-body--wrap" id="nf-quiet-why">
+                  {copy.t('quietReason')}
+                </span>
+              </span>
+              <Button variant="secondary" size={32} disabled aria-describedby="nf-quiet-why">
+                {copy.t('quietValue')}
+              </Button>
+            </div>
+          </section>
         </>
       )}
     </div>

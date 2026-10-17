@@ -15,6 +15,7 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -95,11 +96,18 @@ export class AuthError extends Error {
       | 'auth.delegate_cannot_grant'
       | 'auth.password_unchanged'
       | 'auth.password_policy'
+      | 'auth.reset_proof_invalid'
+      | 'auth.reset_unwired'
       | 'auth.too_many_attempts'
       | 'auth.invite_invalid'
       | 'auth.invite_used'
       | 'auth.invite_expired'
-      | 'auth.founder_enrolment_closed',
+      | 'auth.founder_enrolment_closed'
+      | 'auth.request_unsigned'
+      | 'auth.request_stale'
+      | 'auth.request_tampered'
+      | 'auth.request_replay'
+      | 'auth.ip_allowlist_required',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -324,6 +332,10 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
+  private passwordResetTtlSeconds: number | undefined;
+  private passwordResetMail: PasswordResetMail | undefined;
+  private passwordResetNow: () => Date = () => new Date();
 
   constructor(
     private readonly sql: Sql,
@@ -351,6 +363,31 @@ export class AuthService {
 
   useLogger(log: { warn(obj: Record<string, unknown>, msg: string): void }): void {
     this.log = log;
+  }
+
+  /** Install the mail handoff. Unset refuses every reset request the same way. */
+  usePasswordResetMail(mail: PasswordResetMail | undefined): void {
+    this.passwordResetMail = mail;
+  }
+
+  /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
+  usePasswordResetTtl(seconds: number | undefined): void {
+    this.passwordResetTtlSeconds = publishedPasswordResetTtlSeconds(seconds);
+  }
+
+  /** Test clock. Production uses the real clock. */
+  usePasswordResetClock(now: () => Date): void {
+    this.passwordResetNow = now;
+  }
+
+  private resetDeps() {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      ttlSeconds: this.passwordResetTtlSeconds,
+      now: this.passwordResetNow,
+      log: this.log,
+    };
   }
 
   /** Count a sign-in attempt (see attempt-lockout.ts); log once when this attempt is the one that sets a lock. */
@@ -772,6 +809,24 @@ export class AuthService {
     this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }
 
+  /**
+   * Signed-out reset, step 1. Same answer for every address. No session, no hash change.
+   * The one-time code goes to the mail port only.
+   */
+  async requestPasswordReset(input: { email: string }): Promise<{ accepted: true }> {
+    return requestPasswordReset(this.resetDeps(), input);
+  }
+
+  /**
+   * Signed-out reset, step 2. A correct proof replaces the hash and ends every
+   * session. This call does not sign the person in.
+   */
+  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
+    const result = await completePasswordReset(this.resetDeps(), input);
+    if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
+  }
+
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
     const rows = await this.sql<
       Array<{ id: string; user_id: string; revoked: boolean }>
@@ -1122,7 +1177,17 @@ export class AuthService {
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
-  ): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    userId: string;
+    keyId: string;
+    scopes: string[];
+    mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
+  }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {

@@ -1,94 +1,35 @@
 /**
- * THE ONE OPERATOR COMMAND THAT IS STILL A STUB — ledger reconcile.
+ * THE ONE OPERATOR COMMAND WITH NO WIRE: ledger reconcile.
  *
  * ── What used to be here, and why it is gone ────────────────────────────────
  *
- * `freezeLedger` and `unfreezeLedger` lived in this file and returned
- * `{ postingEnabled: false }` and `{ postingEnabled: true }` without calling
- * anything. `/ledger` rendered those results, so pressing "Freeze ledger" turned
- * the posting status panel to HALTED and wrote a line into an "operator intent
- * log" — a screen that looks exactly like a platform-wide halt and is a React
- * state update.
+ * `freezeLedger` and `unfreezeLedger` returned `{ postingEnabled: false }` and `{ postingEnabled: true }` without
+ * calling anything, and `/ledger` rendered those results, so pressing "Freeze ledger" turned the posting panel to
+ * HALTED while the platform kept posting. They were deleted; `/ledger` now runs a two-founder request through the
+ * real route.
  *
- * They are deleted rather than deprecated. `src/app/api/ledger-freeze/route.ts`
- * had been a working money-plane freeze BFF with zero callers the whole time, so
- * the console had two freeze paths — one real and unreachable, one reachable and
- * fake. Keeping both with a comment on the fake one is how the fake one gets
- * called again. `/ledger` now posts to the route.
+ * `reconcileLedger` followed them. It returned zeros labelled "simulated". A labelled zero is still a number on a
+ * money screen, and the label is the first thing a rushed reader drops, so the function and its numbers are gone.
  *
- * ── Why reconcile could not go the same way ─────────────────────────────────
+ * ── Why reconcile still cannot be wired ─────────────────────────────────────
  *
- * There is no route to call. `svc-ledger` exposes `ledger.reconcile` under
- * `admin:treasury` on its tRPC router, but `svc-edge` mounts only
- * `/admin/kill-switches`, `/admin/status`, `/admin/ledger/freeze` and
- * `/admin/ledger/unfreeze` (`services/svc-edge/src/control-plane.ts`). Nothing
- * in the console's reach terminates at reconcile, and adding that route is a
- * change to `services/svc-edge`, which is a separate service and a separate PR
- * (§1 of the agent protocol).
+ * `svc-ledger` exposes `POST /operator/reconcile` and a `ledger.reconcile` procedure, both behind `admin:treasury`
+ * and a founder-audience approval. `svc-edge` mounts neither (`services/svc-edge/src/control-plane.ts` has only
+ * `/admin/ledger/freeze` and `/admin/ledger/:action` for freeze and unfreeze). Nothing this console can reach
+ * terminates at reconcile, and there is no read of the last result either, so there is nothing true to show.
+ * Adding the route is a change to `services/svc-edge`, filed in admin-BACKEND-NEEDS.md.
  *
- * So it stays a stub, and the rule for a stub is the rule this whole file got
- * wrong: it must be impossible to mistake its output for a result. Every field
- * below is zero, `simulated` is on the type, and `LedgerOpsView` refuses to
- * render a reconcile report without the marker beside it.
+ * Until then the console says so and shows NO figure: not zero, not "0 accounts", not a placeholder.
  */
 
-export interface CommandIntent {
-  readonly id: string;
-  readonly at: string;
-  readonly detail: string;
-  /**
-   * Always false, and typed as the literal so it cannot quietly become true
-   * without a compile error somewhere that a reader will see.
-   */
-  readonly delivered: false;
+export interface ReconcileAvailability {
+  readonly available: false;
+  /** Why, in one sentence an operator can repeat to engineering. */
+  readonly reason: string;
 }
 
-export interface ReconcileReport {
-  readonly ok: boolean;
-  readonly accountsChecked: number;
-  readonly chainLength: number;
-  readonly unbalancedAssets: readonly string[];
-}
-
-export interface SimulatedResult<T> {
-  readonly intent: CommandIntent;
-  /**
-   * Named `simulated`, not `result`. Every consumer has to type the word to read
-   * the value, which is a small, permanent tax on rendering it as though it came
-   * from the book.
-   */
-  readonly simulated: T;
-  readonly simulatedNotice: string;
-}
-
-/** The sentence that must appear beside any rendering of a simulated result. */
-export const SIMULATED_NOTICE =
-  'Simulated — svc-edge exposes no reconcile route, so nothing was asked and these are not the book’s numbers.';
-
-let sequence = 0;
-
-/**
- * Read-only on the ledger's side when it is real: snapshot + replay, then
- * compare. §4.2 says a mismatch freezes writes rather than letting an
- * unverifiable book keep accepting them — so a non-ok report is a freeze
- * decision, not a warning.
- *
- * Until the route exists, the counts are zero because nothing was counted. They
- * are svc-ledger's real output shape, so the swap is body-only, and the console
- * shows no invented number on a money screen.
- */
-export function reconcileLedger(): SimulatedResult<ReconcileReport> {
-  sequence += 1;
-  const intent: CommandIntent = {
-    id: `reconcile-${sequence}`,
-    at: new Date().toISOString(),
-    detail: 'snapshot + replay requested',
-    delivered: false,
-  };
-  console.warn('[operator-intent] NOT DELIVERED — svc-edge exposes no reconcile route', intent);
-  return {
-    intent,
-    simulated: { ok: false, accountsChecked: 0, chainLength: 0, unbalancedAssets: [] },
-    simulatedNotice: SIMULATED_NOTICE,
-  };
-}
+export const RECONCILE_AVAILABILITY: ReconcileAvailability = {
+  available: false,
+  reason:
+    'svc-edge exposes no reconcile route and no read of the last reconciliation, so this console can neither start one nor show a result.',
+};

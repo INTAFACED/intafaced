@@ -25,6 +25,12 @@ type PlainKey =
   | 'Share your details to get paid'
   | 'Help'
   | 'Answers and support'
+  | 'Merchant'
+  | 'Accept payments and run your business'
+  | 'Academy'
+  | 'Learning paths and certificates'
+  | 'All rooms'
+  | 'Everything INTAFACED offers'
   | 'Settings'
   | 'Display, language and notifications'
   | 'Account'
@@ -51,7 +57,7 @@ function pathOf(href: string): string {
 
 /**
  * The five top-bar tabs and the dropdown rows under them (UI-SPEC 3.1). A row whose route
- * belongs to a hidden feature is dropped, so a menu only ever lists things that work; a tab
+ * belongs to a hidden feature would be dropped (none is today); a tab
  * left with no rows is a plain link. More and Settings need a session, so a signed-out visitor's More tab opens the public Help centre
  * (`/help`) and lists only that; a signed-in person gets `/more` and `/support`.
  */
@@ -85,6 +91,13 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
       items: [
         { id: 'send', href: '/pay/send', icon: 'send', title: 'Send', description: 'Send money to someone on INTAFACED' },
         { id: 'receive', href: '/pay/receive', icon: 'receive', title: 'Receive', description: 'Share your details to get paid' },
+        {
+          id: 'merchant',
+          href: '/pay/merchant',
+          icon: 'merchant',
+          title: 'Merchant',
+          description: 'Accept payments and run your business',
+        },
       ],
     },
     {
@@ -93,6 +106,8 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
       icon: 'grid',
       items: signedIn
         ? [
+            { id: 'academy', href: '/academy', icon: 'academy', title: 'Academy', description: 'Learning paths and certificates' },
+            { id: 'rooms', href: '/more', icon: 'grid', title: 'All rooms', description: 'Everything INTAFACED offers' },
             { id: 'help', href: '/support', icon: 'help', title: 'Help', description: 'Answers and support' },
             { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
           ]

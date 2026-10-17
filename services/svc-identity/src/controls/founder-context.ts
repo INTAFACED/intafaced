@@ -84,6 +84,19 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       const rawBody = inboundRawBodyOf(req);
       return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
     }
+    const signedExchange = new Set(['apiKeys.exchange', 'exchangeApiKeyForProduct', 'exchangeApiKeyForAccount', 'attribution.exchange']);
+    if (procedures.some((name) => signedExchange.has(name))) {
+      // The signed `request` field is the edge's observation of the merchant call.
+      // Only svc-edge, with the dedicated authority key, may present it. A mixed
+      // batch or any other caller leaves service null so the field is refused.
+      if (!procedures.every((name) => signedExchange.has(name)) || reader !== 'svc-edge') {
+        return { ...context, service: null };
+      }
+      const secret = identityAuthorityReadSecret(options, 'svc-edge');
+      const rawBody = inboundRawBodyOf(req);
+      const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
+      return { ...context, service };
+    }
     if (procedures.includes('operationAdmission.decide')) {
       // Owner keys authorize only this procedure, never a mixed service batch.
       if (procedures.some((name) => name !== 'operationAdmission.decide')) return { ...context, service: null };

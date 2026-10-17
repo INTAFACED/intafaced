@@ -161,14 +161,17 @@ export function createMerchantRefundApi({
     const history = await api.query('pay', 'payment.history', { paymentId, limit: 200 }, z.array(s.paymentEventSchema).max(200));
     if (!current(isCurrent)) return refusal('context_changed', 'aborted');
     if (!history.ok) return history;
-    const matches = history.data.filter(
-      (event) => ['refunded', 'refund.reversed'].includes(event.event) && event.payload.refundId === original.reference,
-    );
+    const matches = history.data.filter((event) => {
+      if (!['refunded', 'refund.reversed'].includes(event.event) || !('payload' in event)) return false;
+      return event.payload.refundId === original.reference;
+    });
     const event = matches[0];
+    const payload = event && 'payload' in event ? event.payload : null;
     if (
       matches.length !== 1 ||
       !event ||
-      !s.positiveAmount.safeParse(event.payload.amount).success ||
+      !payload ||
+      !s.positiveAmount.safeParse(payload.amount).success ||
       !Number.isFinite(Date.parse(event.ts))
     )
       return { ok: true, data: { receipt: null, count: history.data.length, cleanupPending: false } };

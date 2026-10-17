@@ -1,4 +1,18 @@
-import { bigint, bigserial, boolean, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { desc, sql } from 'drizzle-orm';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  customType,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -108,6 +122,13 @@ export const merchants = pay.table(
      * a sub-merchant out of our own account is acquiring and needs a sponsor.
      */
     settlingParty: text('settling_party').notNull().default('self'),
+    /**
+     * Names a human can read (0071). Both are nullable and written only by the
+     * merchant's own onboarding call; existing rows stay NULL (no backfill). The
+     * database CHECKs trimmed length 1..120 and no control characters.
+     */
+    displayName: text('display_name'),
+    legalName: text('legal_name'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -226,6 +247,7 @@ export const payments = pay.table(
     uniqueIndex('payments_rail_ref_idx').on(t.railAdapter, t.railRef),
     /** The settlement sweep scans a merchant's window in creation order. */
     index('payments_merchant_created_idx').on(t.merchantId, t.createdAt),
+    index('payments_merchant_list_idx').on(t.merchantId, desc(t.createdAt), desc(t.id)),
   ],
 );
 
@@ -270,6 +292,10 @@ export const paymentEvents = pay.table(
     uniqueIndex('payment_events_seq_idx').on(t.seq),
     index('payment_events_payment_idx').on(t.paymentId, t.seq),
     index('payment_events_kind_idx').on(t.paymentId, t.event),
+    /** Settlement line reads look up included events by the settlement id in the payload. */
+    index('payment_events_settlement_included_idx')
+      .on(sql`(payload->>'settlementId')`)
+      .where(sql`${t.event} = 'settlement.included'`),
   ],
 );
 
@@ -310,6 +336,14 @@ export const settlements = pay.table(
      */
     payoutAttempts: integer('payout_attempts').notNull().default(0),
     status: settlementStatusEnum('status').notNull().default('pending'),
+    /** When the payout rail accepted the send. Null until that happens, including rows from before the column existed. */
+    sentAt: tstz('sent_at'),
+    /** When the window was posted to the ledger. Null until then. */
+    settledAt: tstz('settled_at'),
+    /** When the settlement failed. Null until then. */
+    failedAt: tstz('failed_at'),
+    /** Catalog failure code written at the failure. Not a provider payload. */
+    failureCode: text('failure_code'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -317,6 +351,7 @@ export const settlements = pay.table(
     /** A window settles exactly once per asset. The anti-double-pay rule. */
     uniqueIndex('settlements_window_idx').on(t.merchantId, t.window, t.assetId),
     index('settlements_status_idx').on(t.status),
+    index('settlements_merchant_list_idx').on(t.merchantId, desc(t.createdAt), desc(t.id)),
   ],
 );
 
@@ -716,7 +751,31 @@ export const subscriptions = pay.table(
     index('subscriptions_due_idx').on(t.status, t.nextRunAt),
     index('subscriptions_merchant_idx').on(t.merchantId),
     index('subscriptions_mandate_idx').on(t.mandateId),
+    // Open = not cancelled and not completed. Paused still occupies the mandate.
+    uniqueIndex('subscriptions_one_open_per_mandate_uq')
+      .on(t.mandateId)
+      .where(sql`${t.status} in ('active', 'paused')`),
   ],
+);
+
+/**
+ * Idempotency-Key journal for subscription.create. Owner is the merchant.
+ * Same key and same body stores one subscription id. Same key and a different
+ * fingerprint is a conflict. A committed row always has subscription_id; the
+ * column is nullable only while the create transaction is still open.
+ */
+export const subscriptionCreateIdempotency = pay.table(
+  'subscription_create_idempotency',
+  {
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
+    subscriptionId: uuid('subscription_id').references(() => subscriptions.id),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'subscription_create_idempotency_pkey', columns: [t.merchantId, t.idempotencyKey] })],
 );
 
 /**
@@ -760,15 +819,149 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Page key for the inventory cursor. Not a second destination. */
+    id: uuid('id').notNull().defaultRandom(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] })],
+  (t) => [
+    primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
+    uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+  ],
 );
+
+const evidenceBytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/** Rail-provided dispute response deadline. A null due date means the rail sent none. */
+export const disputeResponseDeadlines = pay.table(
+  'dispute_response_deadlines',
+  {
+    merchantId: uuid('merchant_id').notNull(),
+    disputeId: text('dispute_id').notNull(),
+    responseDueAt: tstz('response_due_at'),
+    railEventId: text('rail_event_id').notNull(),
+    recordedAt: tstz('recorded_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'dispute_response_deadlines_pkey', columns: [t.merchantId, t.disputeId] })],
+);
+
+/** Durable dispute case. Amount is a decimal string. Opening ledger fields do not change. */
+export const disputeCases = pay.table(
+  'dispute_cases',
+  {
+    disputeId: text('dispute_id').primaryKey(),
+    paymentId: text('payment_id').notNull(),
+    merchantId: uuid('merchant_id').notNull(),
+    amount: text('amount').notNull(),
+    assetId: text('asset_id').notNull(),
+    reasonCode: text('reason_code'),
+    status: text('status').notNull(),
+    openedAt: tstz('opened_at').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+    contestedAt: tstz('contested_at'),
+    closedAt: tstz('closed_at'),
+    paymentMarkedDisputed: boolean('payment_marked_disputed').notNull(),
+    ledgerWire: text('ledger_wire').notNull(),
+    ledgerTxId: text('ledger_tx_id'),
+    ledgerRefuse: jsonb('ledger_refuse'),
+  },
+  (t) => [index('dispute_cases_merchant_idx').on(t.merchantId, t.openedAt, t.disputeId)],
+);
+
+/** One applied rail resolution per rail event id. */
+export const disputeCaseRailEvents = pay.table(
+  'dispute_case_rail_events',
+  {
+    railEventId: text('rail_event_id').primaryKey(),
+    disputeId: text('dispute_id').notNull(),
+    outcome: text('outcome').notNull(),
+    appliedAt: tstz('applied_at').notNull().defaultNow(),
+  },
+  (t) => [index('dispute_case_rail_events_dispute_idx').on(t.disputeId, t.appliedAt)],
+);
+
+/** Evidence file bytes. Metadata stays on merchant_dispute_evidence. */
+export const merchantDisputeEvidenceContent = pay.table('merchant_dispute_evidence_content', {
+  evidenceId: uuid('evidence_id').primaryKey(),
+  merchantId: uuid('merchant_id').notNull(),
+  content: evidenceBytea('content').notNull(),
+  storedAt: tstz('stored_at').notNull().defaultNow(),
+});
+
+/** Standalone merchant invoices. Payment still goes through the existing payment flow. */
+export const merchantInvoices = pay.table(
+  'merchant_invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id').notNull(),
+    status: text('status').notNull(),
+    assetId: text('asset_id').notNull(),
+    amount: amount('amount').notNull(),
+    customerRef: text('customer_ref'),
+    description: text('description'),
+    paymentLinkId: uuid('payment_link_id'),
+    paymentId: uuid('payment_id'),
+    sentAt: tstz('sent_at'),
+    voidedAt: tstz('voided_at'),
+    paidAt: tstz('paid_at'),
+    createdBy: text('created_by').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
+);
+
+/**
+ * One screening case per custodial send. Status is clear, review, refuse, or
+ * unavailable. Factors are codes only: no name, address, or list contents.
+ */
+export const screeningCases = pay.table(
+  'screening_cases',
+  {
+    subjectKind: text('subject_kind').notNull(),
+    subjectKey: text('subject_key').notNull(),
+    status: text('status').notNull(),
+    factors: jsonb('factors').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ name: 'screening_cases_pkey', columns: [t.subjectKind, t.subjectKey] })],
+);
+
+export const merchantInvoiceActions = pay.table(
+  'merchant_invoice_actions',
+  {
+    merchantId: uuid('merchant_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    invoiceId: uuid('invoice_id').notNull(),
+    action: text('action').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'merchant_invoice_actions_pkey', columns: [t.merchantId, t.requestId] })],
+);
+
+/**
+ * One in-flight merchant statement scan. Not a balance. The scan deletes its
+ * row when it finishes. `expires_at` is only the bound after which a crashed
+ * scan can be replaced.
+ */
+export const merchantStatementLeases = pay.table('merchant_statement_leases', {
+  merchantId: uuid('merchant_id')
+    .primaryKey()
+    .references(() => merchants.id, { onDelete: 'cascade' }),
+  leaseId: uuid('lease_id').notNull(),
+  expiresAt: tstz('expires_at').notNull(),
+});
 
 export const schema = {
   merchants,
   merchantPayoutDestinations,
+  merchantStatementLeases,
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,
@@ -784,5 +977,13 @@ export const schema = {
   merchantWebhookDeliveries,
   subscriptionMandates,
   subscriptions,
+  subscriptionCreateIdempotency,
   subscriptionExecutions,
+  disputeResponseDeadlines,
+  disputeCases,
+  disputeCaseRailEvents,
+  merchantDisputeEvidenceContent,
+  merchantInvoices,
+  merchantInvoiceActions,
+  screeningCases,
 };

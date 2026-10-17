@@ -1,5 +1,11 @@
+import postgres from 'postgres';
 import { describe, expect, it } from 'vitest';
-import { LEDGER_CONNECT_TIMEOUT_S, LEDGER_STATEMENT_TIMEOUT_MS, ledgerPostgresOptions } from './connection-options.js';
+import {
+  LEDGER_CONNECT_TIMEOUT_S,
+  LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+  LEDGER_STATEMENT_TIMEOUT_MS,
+  ledgerPostgresOptions,
+} from './connection-options.js';
 
 /**
  * The limits are the point, so the limits are asserted.
@@ -27,6 +33,17 @@ describe('ledger connection options', () => {
     expect(LEDGER_STATEMENT_TIMEOUT_MS).toBe(15_000);
   });
 
+  it("ends a transaction that goes quiet — 60 s, the shared helper's value", () => {
+    // The statement timeout bounds one statement, not the gap between them. A
+    // stalled caller would otherwise hold the chain_tip lock indefinitely, and
+    // svc-bank's recovery bound (7 minutes after the last attempt) counts on
+    // this ceiling. Pinned: raising it also means raising that bound.
+    expect(ledgerPostgresOptions(ENV).connection).toMatchObject({
+      idle_in_transaction_session_timeout: LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    });
+    expect(LEDGER_IDLE_IN_TRANSACTION_TIMEOUT_MS).toBe(60_000);
+  });
+
   it('bounds how long a connection attempt can block', () => {
     expect(ledgerPostgresOptions(ENV).connect_timeout).toBe(LEDGER_CONNECT_TIMEOUT_S);
   });
@@ -46,5 +63,18 @@ describe('ledger connection options', () => {
       ssl: 'require',
     });
     expect(ledgerPostgresOptions(ENV).ssl).toBe(false);
+  });
+
+  it('a real connection opened with these options runs with the 60 s idle-in-transaction limit', async () => {
+    const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
+    const sql = postgres(url, ledgerPostgresOptions({ ...ENV, DATABASE_POOL_MAX: 1 }));
+    try {
+      const [idle] = await sql<Array<{ idle_in_transaction_session_timeout: string }>>`SHOW idle_in_transaction_session_timeout`;
+      const [stmt] = await sql<Array<{ statement_timeout: string }>>`SHOW statement_timeout`;
+      expect(idle!.idle_in_transaction_session_timeout).toBe('1min');
+      expect(stmt!.statement_timeout).toBe('15s');
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
   });
 });

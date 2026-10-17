@@ -23,6 +23,8 @@ export type ApiKeyOwnershipSnapshot = {
   originAllowlist: string[];
   domainWhitelist: string[];
   ipAllowlist: string[];
+  requireSignature: boolean;
+  requireNonEmptyIpAllowlist: boolean;
   accountId?: string;
   expiresAt?: Date;
 };
@@ -51,9 +53,12 @@ export class PlaceDoor {
         ip_allowlist: string[] | null;
         account_id: string | null;
         product_scopes: string[] | null;
+        require_signature: boolean | null;
+        require_non_empty_ip_allowlist: boolean | null;
       }>
     >`
-      SELECT id, user_id, revoked, expires_at, domain_whitelist, ip_allowlist, account_id, product_scopes
+      SELECT id, user_id, revoked, expires_at, domain_whitelist, ip_allowlist, account_id, product_scopes,
+             require_signature, require_non_empty_ip_allowlist
         FROM api_keys
        WHERE id = ${keyId}
        LIMIT 1
@@ -69,6 +74,8 @@ export class PlaceDoor {
       originAllowlist: origins,
       domainWhitelist: origins,
       ipAllowlist: row.ip_allowlist ?? [],
+      requireSignature: row.require_signature === true,
+      requireNonEmptyIpAllowlist: row.require_non_empty_ip_allowlist === true,
     };
     if (row.account_id) snap.accountId = row.account_id;
     if (row.expires_at) snap.expiresAt = row.expires_at;
