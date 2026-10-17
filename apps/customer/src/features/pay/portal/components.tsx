@@ -1,48 +1,72 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import { displayAmount } from '../../../shared/money';
-import { Button, EmptyState } from '../../../shared/ui';
-import { PayTime } from '../components';
+import { MoneyDisplay } from './presentation';
+import { Button, StateBlock, StatusTag } from '@intafaced/ui';
+import { EmptyState } from '../ui-kit';
+import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
-import { portalCopy, type PlainKey } from './copy';
-import { isComingSoon, refusalText, refusalTitle } from './refusal';
+import { portalCopy } from './copy';
+import { StatusChip } from './ui/StatusChip';
+import { CopyReference } from './ui/CopyReference';
+import { uiCopy } from './ui/copy';
+import type { ChipKind } from './ui/status-vocabulary';
+import { NotLiveCard } from './chrome/NotLiveCard';
+import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
 import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
+/** One page says each refusal once: the first failure to draw a given title and text keeps it, the rest draw nothing. */
+type Once = { claim: (key: string, owner: string) => boolean; release: (key: string, owner: string) => void };
+const RefusalOnce = createContext<Once | null>(null);
+export function RefusalOnceProvider({ children }: { children: ReactNode }) {
+  const owners = useRef(new Map<string, string>());
+  const store = useRef<Once>({
+    claim: (key, owner) => {
+      const held = owners.current.get(key);
+      if (held === undefined) owners.current.set(key, owner);
+      return held === undefined || held === owner;
+    },
+    release: (key, owner) => {
+      if (owners.current.get(key) === owner) owners.current.delete(key);
+    },
+  });
+  return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
-  return (
-    <div className="pp-skeleton" role="status" aria-busy="true">
-      <span className="pp-sr">{label ?? t('loading')}</span>
-      {Array.from({ length: rows }, (_, i) => (
-        <span key={i} className="pp-skeleton-row" aria-hidden="true" />
-      ))}
-    </div>
-  );
+  return <StateBlock kind="loading" rows={rows} label={label ?? t('loading')} />;
 }
 
-/** A procedure that is not built or not mounted yet is not an error: say when it arrives, and show nothing made up. */
-export function ComingSoon({ title, children }: { title?: string; children?: ReactNode }) {
-  const { t } = portalCopy.useCopy();
-  return (
-    <section className="pp-soon" aria-label={title ?? t('comingSoonTitle')}>
-      <span className="pp-soon-tag">{t('comingSoonTag')}</span>
-      <h3>{title ?? t('comingSoonTitle')}</h3>
-      <p>{children ?? t('comingSoonBody')}</p>
-    </section>
-  );
-}
+/** A feature that is not live yet. One calm card; see NotLiveCard. */
+export const NotLive = NotLiveCard;
 
-export function PortalFailure({ result, retry }: { result: Failed; retry?: () => void }) {
+/**
+ * A refusal in plain words. When the service has not switched the feature on, it is a card naming the blocker instead:
+ * pass `notLive` to word it for the page, or the code's own reason (or a general one) is used.
+ */
+export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
-  if (isComingSoon(result)) return <ComingSoon />;
+  const { t: u } = uiCopy.useCopy();
+  const once = useContext(RefusalOnce);
+  const id = useId();
+  const key = `${refusalTitle(result)}|${refusalText(result)}`;
+  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
+  // The same refusal, twice on one page, is said once.
+  if (once && !once.claim(key, id)) return null;
   return (
     <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
+      {result.requestId && (
+        <p className="muted">
+          {u('reference')} <CopyReference value={result.requestId} what={u('reference')} />
+        </p>
+      )}
       {result.reason === 'unauthorized' ? (
         <a
           className="text-link"
@@ -51,8 +75,10 @@ export function PortalFailure({ result, retry }: { result: Failed; retry?: () =>
           {t('signIn')}
         </a>
       ) : (
+        // Asking again never turns a "you may not" into a "yes", so a refusal for permission has no Try again.
         retry &&
-        result.reason !== 'uncertain' && (
+        result.reason !== 'uncertain' &&
+        result.reason !== 'forbidden' && (
           <Button variant="secondary" onClick={retry}>
             {t('tryAgain')}
           </Button>
@@ -162,10 +188,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
     <span className="pp-lines">
       {items.map((item) => (
         <span key={item.assetCode} className="pp-line">
-          {displayAmount(item.amount)}{' '}
-          <span className="pp-unit" lang="zxx">
-            {item.assetCode}
-          </span>
+          <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
         </span>
       ))}
     </span>
@@ -174,10 +197,7 @@ export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[
 export function Money({ value, asset }: { value: string; asset: string }) {
   return (
     <span className="numeric pp-money">
-      {displayAmount(value)}{' '}
-      <span className="pp-unit" lang="zxx">
-        {asset}
-      </span>
+      <MoneyDisplay value={value} asset={asset} unit={asset} />
     </span>
   );
 }
@@ -201,121 +221,18 @@ export function AsOf({ freshness }: { freshness: Freshness }) {
         : t('lagHours', { n: lag.n });
   return (
     <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <PayTime value={freshness.asOf!} /> · {lagText}
+      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
       {state.kind === 'stale' && <> · {t('staleWarning')}</>}
     </p>
   );
 }
 
-const tone = {
-  good: 'pp-chip--good',
-  attention: 'pp-chip--attention',
-  bad: 'pp-chip--bad',
-  neutral: '',
-} as const;
-type Tone = keyof typeof tone;
-const chips = {
-  dispute: {
-    open: ['chipDispute_open', 'tipDispute_open', 'attention'],
-    contested: ['chipDispute_contested', 'tipDispute_contested', 'neutral'],
-    accepted: ['chipDispute_accepted', 'tipDispute_accepted', 'neutral'],
-    won: ['chipDispute_won', 'tipDispute_won', 'good'],
-    lost: ['chipDispute_lost', 'tipDispute_lost', 'bad'],
-  },
-  kyb: {
-    none: ['chipKyb_none', 'tipKyb_none', 'neutral'],
-    pending: ['chipKyb_pending', 'tipKyb_pending', 'attention'],
-    approved: ['chipKyb_approved', 'tipKyb_approved', 'good'],
-    rejected: ['chipKyb_rejected', 'tipKyb_rejected', 'bad'],
-  },
-  export: {
-    queued: ['chipExport_queued', 'tipExport_queued', 'neutral'],
-    running: ['chipExport_running', 'tipExport_running', 'neutral'],
-    ready: ['chipExport_ready', 'tipExport_ready', 'good'],
-    failed: ['chipExport_failed', 'tipExport_failed', 'bad'],
-    expired: ['chipExport_expired', 'tipExport_expired', 'neutral'],
-  },
-  member: {
-    active: ['chipMember_active', 'tipMember_active', 'good'],
-    invited: ['chipMember_invited', 'tipMember_invited', 'attention'],
-    removed: ['chipMember_removed', 'tipMember_removed', 'neutral'],
-  },
-  payment: {
-    created: ['chipPayment_created', 'tipPayment_created', 'neutral'],
-    authorized: ['chipPayment_authorized', 'tipPayment_authorized', 'neutral'],
-    captured: ['chipPayment_captured', 'tipPayment_captured', 'good'],
-    settled: ['chipPayment_settled', 'tipPayment_settled', 'good'],
-    refunded: ['chipPayment_refunded', 'tipPayment_refunded', 'neutral'],
-    disputed: ['chipPayment_disputed', 'tipPayment_disputed', 'attention'],
-    failed: ['chipPayment_failed', 'tipPayment_failed', 'bad'],
-  },
-  merchant: {
-    pending: ['chipMerchant_pending', 'tipMerchant_pending', 'attention'],
-    active: ['chipMerchant_active', 'tipMerchant_active', 'good'],
-    suspended: ['chipMerchant_suspended', 'tipMerchant_suspended', 'bad'],
-    closed: ['chipMerchant_closed', 'tipMerchant_closed', 'neutral'],
-  },
-  settlement: {
-    pending: ['chipSettlement_pending', 'tipSettlement_pending', 'neutral'],
-    posted: ['chipSettlement_posted', 'tipSettlement_posted', 'attention'],
-    paid_out: ['chipSettlement_paid_out', 'tipSettlement_paid_out', 'good'],
-    failed: ['chipSettlement_failed', 'tipSettlement_failed', 'bad'],
-  },
-  payout: {
-    not_ready: ['chipPayout_not_ready', 'tipPayout_not_ready', 'neutral'],
-    unknown: ['chipPayout_unknown', 'tipPayout_unknown', 'attention'],
-    ready: ['chipPayout_ready', 'tipPayout_ready', 'attention'],
-    awaiting_approval: ['chipPayout_awaiting_approval', 'tipPayout_awaiting_approval', 'attention'],
-    approved: ['chipPayout_approved', 'tipPayout_approved', 'good'],
-    rejected: ['chipPayout_rejected', 'tipPayout_rejected', 'bad'],
-    paid_out: ['chipPayout_paid_out', 'tipPayout_paid_out', 'good'],
-    failed: ['chipPayout_failed', 'tipPayout_failed', 'bad'],
-  },
-  approval: {
-    pending: ['chipApproval_pending', 'tipApproval_pending', 'attention'],
-    approved: ['chipApproval_approved', 'tipApproval_approved', 'good'],
-    rejected: ['chipApproval_rejected', 'tipApproval_rejected', 'bad'],
-    voided: ['chipApproval_voided', 'tipApproval_voided', 'bad'],
-    expired: ['chipApproval_expired', 'tipApproval_expired', 'neutral'],
-    consumed: ['chipApproval_consumed', 'tipApproval_consumed', 'good'],
-  },
-} as const satisfies Record<string, Record<string, readonly [PlainKey, PlainKey, Tone]>>;
-export type ChipKind = keyof typeof chips;
-
-/** One shared vocabulary per entity (B4): words plus a dot, never colour alone, with a plain-English explanation. */
+/** One shared vocabulary per entity (B4): the words come from `ui/StatusChip`. Kept under this name for existing pages. */
 export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
-  const { t } = portalCopy.useCopy();
-  const entry = (chips[kind] as Record<string, readonly [PlainKey, PlainKey, Tone]>)[value];
-  if (!entry) return <span className="pp-chip">{value}</span>;
-  const [label, tip, toneName] = entry;
-  return (
-    <span className={`pp-chip ${tone[toneName]}`} title={t(tip)}>
-      <span className="pp-chip-dot" aria-hidden="true" />
-      {t(label)}
-      <span className="pp-sr"> ({t(tip)})</span>
-    </span>
-  );
+  return <StatusChip entity={kind} value={value} />;
 }
 
-export type TimelineItem = { at: string; title: string; detail?: string };
-export function Timeline({ items, label }: { items: readonly TimelineItem[]; label: string }) {
-  return (
-    <ol className="pp-timeline" aria-label={label}>
-      {items.map((item, i) => (
-        <li key={`${item.at}:${i}`}>
-          <span className="pp-timeline-dot" aria-hidden="true" />
-          <div>
-            <strong>{item.title}</strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
-            <small className="muted">
-              <PayTime value={item.at} />
-            </small>
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
+export { Timeline, type TimelineEvent as TimelineItem } from './ui/Timeline';
 
 export function SelectField({
   label,
@@ -394,7 +311,7 @@ export function ReadAt({ at }: { at: string | null }) {
   if (!at) return null;
   return (
     <p className="pp-asof" role="status">
-      {t('readAt')} <PayTime value={at} />
+      {t('readAt')} <DateTime value={at} />
     </p>
   );
 }
@@ -464,7 +381,7 @@ export function HaltBanner({
             <strong>{t(`haltOp_${h.scope}` as 'haltOp_intake')}</strong> {where}{' '}
             {h.changedAt ? (
               <>
-                {t('haltSince')} <PayTime value={h.changedAt} />.{' '}
+                {t('haltSince')} <DateTime value={h.changedAt} />.{' '}
               </>
             ) : null}
             {t('haltEffect')}

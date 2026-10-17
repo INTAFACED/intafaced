@@ -29,6 +29,9 @@ import {
   AutocompleteItem,
   AutocompleteList,
   Button,
+  DataTable,
+  EmptyState,
+  ChoiceGroup,
   ChangeText,
   Checkbox,
   CoinIcon,
@@ -344,6 +347,30 @@ export function Gallery() {
               ) : null}
             </HideBalancesProvider>
 
+            <Section title="Business page, fields and tables (TEST DATA)">
+              <div className="flex flex-col gap-4 rounded-md bg-panel p-6">
+                <Button>New payment</Button>
+                <ChoiceGroup
+                  items={['all', 'captured']}
+                  labels={{ all: 'All', captured: 'Captured' }}
+                  value="all"
+                  onChange={() => undefined}
+                  label="Test payment status"
+                />
+                <DataTable label="Test payments" headers={['Reference', 'Amount', 'Status']}>
+                  <tr>
+                    <td>TEST-001</td>
+                    <td>
+                      <Amount value="10.000001" sensitive={false} /> USDT
+                    </td>
+                    <td>
+                      <StatusTag status="filled" label="Captured" />
+                    </td>
+                  </tr>
+                </DataTable>
+                <EmptyState title="No test refunds" reason="Refunds appear after a payment is refunded." />
+              </div>
+            </Section>
             <Section title="Buttons">
               {(['primary', 'secondary', 'ghost', 'buy', 'sell'] as const).map((v) => (
                 <Row key={v} className="mb-3">

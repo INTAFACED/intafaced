@@ -1,4 +1,5 @@
 import type { ApiResult, RefusalReason } from '../../../shared/api';
+import { reason } from './chrome/copy';
 import { portalCopy, type PlainKey } from './copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -88,20 +89,61 @@ const codeOf = (result: Failed) => {
   return m?.[1] ?? raw;
 };
 
+const registered = new Map<string, () => string>();
+const notLive = new Map<string, (() => string) | undefined>();
+
+/**
+ * A package gives its own service codes their plain words, in its own copy file, without touching the shared table.
+ * Each value is a function so the words follow the reader's language. A code registered twice, or one the shared table
+ * already knows, throws when the module loads: the same code must never read two ways.
+ */
+export function registerRefusals(map: Record<string, () => string>): void {
+  for (const [code, words] of Object.entries(map)) {
+    if (registered.has(code) || code in byCode) throw new Error(`Refusal code registered twice: ${code}`);
+    registered.set(code, words);
+  }
+}
+/**
+ * Codes that mean "this feature is switched off", so the page shows the not-live card instead of a refusal (for
+ * example sandbox conversion). Each code says what it is waiting for, in the reader's language.
+ */
+export function registerNotLive(map: Record<string, () => string>): void {
+  for (const [code, words] of Object.entries(map)) notLive.set(code, words);
+}
+/** What a not-live refusal is waiting for: its own words if it has them, else the general reason. */
+export function notLiveReason(result: Failed): string {
+  return notLive.get(codeOf(result))?.() ?? reason('reasonService');
+}
+/** For tests: the codes that have words, from the shared table and from packages. */
+export function knownRefusalCodes(): string[] {
+  return [...Object.keys(byCode), ...registered.keys()];
+}
+
 /** The procedure exists on the wire but nothing sits behind it yet, or the gateway has not mounted it. */
-export function isComingSoon(result: Failed): boolean {
+export function isNotLive(result: Failed): boolean {
   const code = codeOf(result);
-  if (code === 'pay.not_built') return true;
+  if (code === 'pay.not_built' || notLive.has(code)) return true;
   return result.reason === 'not_mounted' && !code.startsWith('pay.');
 }
 
 export function refusalText(result: Failed): string {
   if (result.code === 'portal.local') return result.message;
-  const key = byCode[codeOf(result)];
+  const code = codeOf(result);
+  const key = byCode[code];
   if (key) return portalCopy.t(key);
+  const own = registered.get(code);
+  if (own) return own();
   // Our own authored gateway messages (offline, timeouts) are already plain English.
   if (result.messageCopy) return result.message;
   return portalCopy.t(byReason[result.reason]);
+}
+/**
+ * A failed result whose message still carries a service code ("pay.subscription_already_open") turned into one that says it
+ * in words. Messages the page or the API layer already wrote in plain English are left alone.
+ */
+export function plainFailure<T>(result: ApiResult<T>): ApiResult<T> {
+  if (result.ok || !/\bpay\.[a-z0-9_]+/i.test(result.message)) return result;
+  return { ...result, message: refusalText({ ...result, messageCopy: undefined }) };
 }
 export function refusalTitle(result: Failed): string {
   return portalCopy.t(titles[result.reason]);

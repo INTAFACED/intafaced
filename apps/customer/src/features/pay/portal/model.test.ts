@@ -1,24 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { STALE_AFTER_SECONDS, bars, lagParts, newRequestId, staleness } from './model';
 import {
-  STALE_AFTER_SECONDS,
-  bars,
   businessDetails,
   merchantNames,
   destinationShapeOk,
   emptyBusiness,
   grantableRoles,
   isDecimalThreshold,
-  lagParts,
   memberActions,
-  mixShares,
-  newRequestId,
-  nextDueSoonest,
   onboardingSteps,
-  seriesWindow,
-  staleness,
   validateBusiness,
-} from './model';
-import { parsePortalRoute } from './routes';
+} from './settings/model';
+import { mixShares, nextDueSoonest, seriesWindow } from './payments/model';
+import { parsePortalRoute, portalRedirect } from './routes';
 import type { Member, MerchantRecord, Series } from './schemas';
 
 const merchant = (patch: Partial<MerchantRecord> = {}): MerchantRecord => ({
@@ -252,12 +246,40 @@ describe('portal routes', () => {
     expect(parsePortalRoute('/pay/disputes')).toEqual({ room: 'disputes' });
     expect(parsePortalRoute('/pay/disputes/abc-1')).toEqual({ room: 'dispute', param: 'abc-1' });
     expect(parsePortalRoute('/pay/customers/cust%2F42')).toEqual({ room: 'customer', param: 'cust/42' });
-    expect(parsePortalRoute('/pay/exports')).toEqual({ room: 'exports' });
+    expect(parsePortalRoute('/pay/exports')).toBeNull();
+    expect(portalRedirect('/pay/exports')).toBe('/pay/reports/exports');
     expect(parsePortalRoute('/pay/notifications')).toEqual({ room: 'notifications' });
   });
-  it('leaves every other room, and the older disputed-payments list, to Business Pay', () => {
-    for (const path of ['/pay/links?view=tools', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
+  it('leaves every other room to Business Pay, and opens the normal Disputes page for the retired disputed-payments view', () => {
+    for (const path of ['/pay/links?view=tools', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
       expect(parsePortalRoute(path), path).toBeNull();
+    expect(parsePortalRoute('/pay/disputes?view=payments')).toEqual({ room: 'disputes' });
+  });
+  it('registers every inventory address, and sends the three duplicates to their one home', () => {
+    const rooms: Array<[string, string, string?]> = [
+      ['/pay/payouts/new', 'payout-new'],
+      ['/pay/payouts/destinations', 'payout-destinations'],
+      ['/pay/network', 'network'],
+      ['/pay/network/child-1', 'network-child', 'child-1'],
+      ['/pay/permissions', 'permissions'],
+      ['/pay/checkout', 'checkout-settings'],
+      ['/pay/developer/sandbox', 'developer-sandbox'],
+      ['/pay/developer/docs', 'developer-docs'],
+      ['/pay/analytics', 'analytics'],
+      ['/pay/analytics/fees', 'analytics-fees'],
+      ['/pay/settings/security', 'settings-security'],
+      ['/pay/activity', 'activity'],
+      ['/pay/invoices/new', 'invoice-new'],
+    ];
+    for (const [path, room, param] of rooms) expect(parsePortalRoute(path), path).toEqual(param ? { room, param } : { room });
+    expect(portalRedirect('/pay/settings/team')).toBe('/pay/team');
+    expect(portalRedirect('/pay/developer')).toBe('/pay/developer/keys');
+    expect(portalRedirect('/pay/exports?x=1')).toBe('/pay/reports/exports?x=1');
+    expect(portalRedirect('/pay/team')).toBeNull();
+    for (const path of ['/pay/settings/team', '/pay/exports', '/pay/developer']) expect(parsePortalRoute(path), path).toBeNull();
+    // The onboarding hub and the go-live step stay two pages.
+    expect(parsePortalRoute('/pay/onboarding')).toEqual({ room: 'onboarding' });
+    expect(parsePortalRoute('/pay/onboarding/go-live')).toEqual({ room: 'onboarding', step: 'go-live' });
   });
   it('maps the W3b pages and keeps their older tools reachable', () => {
     expect(parsePortalRoute('/pay/payments?status=failed')).toEqual({ room: 'payments' });
@@ -277,8 +299,6 @@ describe('portal routes', () => {
       '/pay/payments?view=tools&payment=x',
       '/pay/settlements?view=tools',
       '/pay/payouts?view=tools',
-      '/pay/payouts/new',
-      '/pay/payouts/destinations',
       '/pay/pricing/x',
       '/pay/payments/a/b',
     ])
