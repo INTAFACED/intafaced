@@ -40,6 +40,22 @@ export function alignLookbackVolumes(candles: readonly Candle[], n: number, slic
   return volumes;
 }
 
+/**
+ * A VWAP lookback has no observed volume.
+ *
+ * `describeAlgoPolicy().vwapPovImmatureRefused` is true, and `algo-policy.ts`
+ * names no bucket-count threshold under that flag. Missing slots are already
+ * zeros (`alignLookbackVolumes` does not interpolate). Immature means every
+ * slot is zero, including a null or empty profile. One positive slot is observed.
+ */
+export function vwapLookbackImmature(volumes: readonly Amount[] | null | undefined): boolean {
+  if (volumes == null || volumes.length === 0) return true;
+  for (const volume of volumes) {
+    if (volume > 0n) return false;
+  }
+  return true;
+}
+
 export function planVwapSlices(input: { totalQty: Amount; volumes: readonly Amount[]; lotSize: Amount }): TwapSlicePlan {
   if (input.totalQty <= 0n) {
     throw new TradeError('VWAP total quantity must be strictly positive', 'trade.algo_invalid_qty');
