@@ -158,7 +158,7 @@ describe('rolling reserve fails closed until a ledger recipe exists', () => {
     const settlement = await settled(m.id, 'w-reserved');
     expect(formatAmount(settlement.net)).toBe('10');
     expect(await proceeds(m.id)).toBe('10');
-    await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+    await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.reserve_ledger_unwired',
     });
 
@@ -183,7 +183,8 @@ describe('rolling reserve fails closed until a ledger recipe exists', () => {
     expect(merchantControlProfileSchema.safeParse(profile).success).toBe(true);
 
     const settlement = await settled(m.id, 'w-clear');
-    const paid = await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST });
+    await pay.destinationBook().seedVerified({ merchantId: m.id, railId: 'crypto-native', kind: DEST.kind, ref: DEST.ref });
+    const paid = await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' });
     expect(paid.status).toBe('paid_out');
     expect(formatAmount(paid.net)).toBe(formatAmount(settlement.net));
     expect(formatAmount(paid.net)).toBe('10');
@@ -218,7 +219,8 @@ describe('rolling reserve fails closed until a ledger recipe exists', () => {
       },
     );
     const settlement = await settled(m.id, 'w-admitted-before-reserve');
-    const input = { settlementId: settlement.id, railId: 'crypto-native', destination: DEST };
+    await crashing.destinationBook().seedVerified({ merchantId: m.id, railId: 'crypto-native', kind: DEST.kind, ref: DEST.ref });
+    const input = { settlementId: settlement.id, railId: 'crypto-native' };
     await expect(crashing.payoutSettlement(input)).rejects.toThrow('test.admission_crash');
     expect((await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${settlement.id}`).length).toBe(1);
 

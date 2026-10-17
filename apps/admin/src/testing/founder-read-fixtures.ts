@@ -347,6 +347,152 @@ const profile = {
   nextCursor: null,
 };
 
+/** TEST DATA: payouts waiting for two founders, as `founderAdmin.approvals.list` returns them (masked destination only). */
+export const APPROVAL_ID = U(300);
+export const APPROVAL_FIRST_FOUNDER = U(104);
+export const approvalsFixture = {
+  approvals: [
+    {
+      approvalId: APPROVAL_ID,
+      merchantId: TEST_MERCHANT,
+      settlementId: U(21),
+      amount: BIG,
+      assetCode: 'USDT',
+      payloadHash: `sha256:${'a'.repeat(64)}`,
+      status: 'pending' as const,
+      makerUserId: U(101),
+      checkerUserId: U(102),
+      createdAt: T,
+      decidedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      railId: 'bank-test',
+      destinationKind: 'bank',
+      destinationMasked: '••••4821',
+      founderFirstUserId: null,
+    },
+    {
+      approvalId: U(301),
+      merchantId: TEST_OTHER_MERCHANT,
+      settlementId: U(22),
+      amount: '100.00',
+      assetCode: 'EUR',
+      payloadHash: `sha256:${'b'.repeat(64)}`,
+      status: 'pending' as const,
+      makerUserId: U(101),
+      checkerUserId: U(103),
+      createdAt: T2,
+      decidedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      railId: 'bank-test',
+      destinationKind: 'bank',
+      destinationMasked: '••••9917',
+      founderFirstUserId: APPROVAL_FIRST_FOUNDER,
+    },
+  ],
+  nextCursor: null,
+};
+
+/** TEST DATA: two tiers. The service returns `merchants` per tier, so the page shows a real count. */
+export const tiersFixture = [
+  {
+    id: 'standard_test',
+    name: 'TEST DATA Standard',
+    archetype: 'standard',
+    caps: [
+      { kind: 'per_payment', assetCode: 'USDT', limit: BIG },
+      { kind: 'daily_payout', assetCode: 'USDT', limit: '50000.00' },
+      { kind: 'beneficiaries_per_day', limit: 20 },
+    ],
+    reserve: { rollingReserveBps: 500, holdDays: 7 },
+    approvalThresholds: [{ assetCode: 'USDT', amount: '1000.00' }],
+    founderThresholds: [{ assetCode: 'USDT', amount: '10000.00' }],
+    approvalTtlSeconds: 86_400,
+    merchantVisible: false,
+    version: '3',
+    merchants: 12,
+  },
+  {
+    id: 'broker_test',
+    name: 'TEST DATA Broker',
+    archetype: 'broker',
+    caps: [{ kind: 'monthly_intake', assetCode: 'EUR', limit: '1000000.00' }],
+    reserve: null,
+    approvalThresholds: [{ assetCode: 'EUR', amount: '5000.00' }],
+    founderThresholds: [{ assetCode: 'EUR', amount: '25000.00' }],
+    approvalTtlSeconds: 3600,
+    merchantVisible: true,
+    version: '1',
+    merchants: 0,
+  },
+];
+
+/** TEST DATA: open limit-increase asks. The second has caps the service could no longer read. */
+export const limitRequestsFixture = {
+  requests: [
+    {
+      requestId: U(400),
+      merchantId: TEST_MERCHANT,
+      caps: [
+        { kind: 'daily_payout', assetCode: 'USDT', limit: BIG },
+        { kind: 'beneficiaries_per_day', limit: 40 },
+      ],
+      reason: 'TEST DATA: seasonal volume',
+      status: 'pending' as const,
+      requestedBy: U(110),
+      createdAt: T,
+    },
+    {
+      requestId: U(401),
+      merchantId: TEST_OTHER_MERCHANT,
+      caps: { raw: { legacy: true }, capsReadable: false as const },
+      reason: 'TEST DATA: unreadable caps',
+      status: 'pending' as const,
+      requestedBy: U(111),
+      createdAt: T2,
+    },
+  ],
+  nextCursor: '402',
+};
+
+/** TEST DATA: control audit rows, newest first. The first has a second approver and a money before/after. */
+export const auditFixture = {
+  entries: [
+    {
+      id: U(500),
+      seq: '9007199254740993',
+      scope: 'merchant' as const,
+      scopeId: TEST_MERCHANT,
+      merchantId: TEST_MERCHANT,
+      kind: 'set_caps',
+      outcome: 'changed',
+      actorId: U(101),
+      secondActorId: U(102),
+      requestId: U(600),
+      reason: 'TEST DATA: raise payout cap',
+      before: { caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: '1000.00' }] },
+      after: { caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: BIG }], destinationRef: 'DE00SECRETIBAN' },
+      createdAt: T2,
+    },
+    {
+      id: U(501),
+      seq: '9007199254740992',
+      scope: 'approval' as const,
+      scopeId: APPROVAL_ID,
+      merchantId: null,
+      kind: 'payout.approval_voided',
+      outcome: 'voided',
+      actorId: 'system:payout_guard',
+      secondActorId: null,
+      requestId: null,
+      reason: 'TEST DATA: amount, rail or destination changed after the request',
+      before: null,
+      after: null,
+      createdAt: T,
+    },
+  ],
+  nextCursor: '9007199254740992',
+};
+
 export type SectionFixtureName = keyof typeof rows | 'apiKeys' | 'profile';
 
 /** One section page as the service returns it. `nextCursor` is null unless a test asks for a second page. */
@@ -531,6 +677,14 @@ export function founderReadService(overrides: Record<string, Handler> = {}) {
         return ok(pendingClearsFixture);
       case 'founderAdmin.ops.notes.list':
         return ok(notesFixture);
+      case 'founderAdmin.approvals.list':
+        return ok(approvalsFixture);
+      case 'founderAdmin.control.tiers.list':
+        return ok(tiersFixture);
+      case 'founderAdmin.control.limitRequests.list':
+        return ok(limitRequestsFixture);
+      case 'founderAdmin.control.audit.list':
+        return ok(auditFixture);
       default:
         return Response.json(
           {

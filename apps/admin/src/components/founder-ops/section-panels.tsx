@@ -690,7 +690,7 @@ export function SectionPanel({ section, result, path, query, readAt, testData }:
   if ('catalog' in page) {
     return frame(
       spec.sub,
-      <StateBlock kind="not_built" title="API key catalog not in pay service yet">
+      <StateBlock kind="not_built" title="The pay service holds no API key catalog">
         The pay service does not hold the merchant&apos;s API keys: the key catalog and its signing settings live elsewhere and have no
         founder read. This is not an empty list, and no key, prefix or secret is shown. Webhook endpoints and deliveries below are read from
         the pay service.

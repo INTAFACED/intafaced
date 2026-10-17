@@ -141,7 +141,7 @@ export async function POST(request: Request) {
 
 /** `pay.reserve_ledger_unwired` reaches us as a not-implemented answer; it is the one control change with this honest reason. */
 const RESERVE_NOT_BUILT = {
-  title: 'This change is not built yet',
+  title: 'This change is not switched on',
   body: 'The service behind it is not switched on for this deployment. For a reserve, the ledger side of withholding money is not connected.',
   next: 'Nothing was changed. This control is not connected here.',
 };

@@ -1,4 +1,4 @@
-import type { FounderMerchantSection, PayoutApproval } from '@intafaced/contracts';
+import type { FounderMerchantSection } from '@intafaced/contracts';
 import type { FounderScreen } from '@/lib/founder-ops/screens';
 import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { OpsData, FraudRow } from '@/lib/founder-ops/loaders';
@@ -13,6 +13,7 @@ import { LiveRefresh } from './navigation';
 import { MetricsCharts } from './metrics';
 import { NotesPanel } from './notes-panel';
 import { SectionKpis, SectionPanel } from './section-panels';
+import { ApprovalDetailView, AuditView, LimitRequestsView, TiersView } from './control-screens';
 import { DisputesView, LiveView, PayoutsView, RecentMerchantsView, RiskView } from './wired-screens';
 import { SCREEN_SECTIONS, slugOf, type Query } from '@/lib/founder-ops/read-model';
 import './screens.css';
@@ -53,12 +54,11 @@ export function FounderScreenView({
   const slug = merchantId ? slugOf(screen.route) : '';
   const sectionList = merchantId ? SCREEN_SECTIONS[slug] : undefined;
   /** Pages whose data now comes from the founder reads: they show real lists, not the "not connected" state. */
-  const wired = ['F02', 'F03', 'F05', 'F32', 'F37'].includes(screen.id);
+  const wired = ['F02', 'F03', 'F05', 'F25', 'F32', 'F35', 'F37', 'F54', 'F58', 'F64'].includes(screen.id);
   const drilled = sectionList !== undefined || (merchantId !== undefined && ['F22'].includes(screen.id));
   const handled = wired || drilled;
   const fraud = data.fraud?.kind === 'ok' ? data.fraud.data : null;
   const review = resourceId ? fraud?.find((r) => r.id === resourceId) : undefined;
-  const approval = data.approvals?.kind === 'ok' ? data.approvals.data.approvals.find((a) => a.approvalId === resourceId) : undefined;
   return (
     <div className="mp-page" data-screen={screen.id}>
       <PageHead
@@ -110,6 +110,21 @@ export function FounderScreenView({
       {screen.id === 'F05' ? <RecentMerchantsView data={data} path={path} query={query} /> : null}
       {screen.id === 'F32' ? <DisputesView data={data} path={path} query={query} /> : null}
       {screen.id === 'F37' ? <PayoutsView data={data} path={path} query={query} /> : null}
+      {screen.id === 'F35' ? <PayoutsView data={data} path={path} query={query} variant="settlements" /> : null}
+      {screen.id === 'F25' ? <ApprovalDetailView data={data} path={path} resourceId={resourceId} gap={screen.gap} /> : null}
+      {screen.id === 'F54' ? <TiersView data={data} path={path} /> : null}
+      {screen.id === 'F54' ? (
+        <StateBlock kind="info" title="Tiers are read only here">
+          {screen.gap}
+        </StateBlock>
+      ) : null}
+      {screen.id === 'F58' ? <LimitRequestsView data={data} path={path} query={query} /> : null}
+      {screen.id === 'F58' ? (
+        <StateBlock kind="info" title="Cap usage across merchants is not available">
+          {screen.gap}
+        </StateBlock>
+      ) : null}
+      {screen.id === 'F64' ? <AuditView data={data} path={path} query={query} gap={screen.gap} /> : null}
       {merchantId && sectionList ? (
         <DrilldownSections screen={screen} sections={sectionList} data={data} path={path} query={query} merchantId={merchantId} />
       ) : null}
@@ -118,10 +133,6 @@ export function FounderScreenView({
       {fraud && !resourceId ? (
         <FraudQueue rows={fraud} readAt={data.readAt} merchantFilter={merchantFilter} testData={data.testData ?? false} />
       ) : null}
-      {data.approvals && data.approvals.kind !== 'ok' ? (
-        <FailureState failure={data.approvals} what="Approval context" retryHref={path} />
-      ) : null}
-      {approval ? <ApprovalFacts approval={approval} /> : null}
       {review ? <FraudDetail row={review} /> : null}
       {fraud && resourceId && !review ? (
         <StateBlock kind="empty" title="Review unavailable">
@@ -163,8 +174,8 @@ export function FounderScreenView({
         )
       ) : null}
       {!handled && !noPointer(screen.id) ? <NotConnected reason={screen.gap} /> : null}
-      {screen.id === 'F05' ? <NamedBlocker title="Creating a merchant is not in the pay service yet" reason={screen.gap} /> : null}
-      {screen.id === 'F12' ? <NamedBlocker title="Conversion orders reader not built yet" reason={screen.gap} /> : null}
+      {screen.id === 'F05' ? <NamedBlocker title="The pay service does not create merchants for someone else" reason={screen.gap} /> : null}
+      {screen.id === 'F12' ? <NamedBlocker title="There is no conversion order reader" reason={screen.gap} /> : null}
       {screen.id === 'F13' || screen.id === 'F14' ? <ControlsPointer merchantId={merchantId} what={screen.title} /> : null}
       {screen.id === 'F65' ? (
         <StateBlock kind="info" title="Enabling is configuration only">
@@ -240,7 +251,7 @@ export function FounderScreenView({
                 </thead>
                 <tbody>
                   <tr>
-                    <td colSpan={screen.sections.length}>Records cannot be read yet. This is not an empty queue.</td>
+                    <td colSpan={screen.sections.length}>Records cannot be read. This is not an empty queue.</td>
                   </tr>
                 </tbody>
               </table>
@@ -472,30 +483,6 @@ function FounderAccess({ data, path }: { data: OpsData; path: string }) {
         </p>
       </Card>
     </>
-  );
-}
-
-function ApprovalFacts({ approval: a }: { approval: PayoutApproval }) {
-  return (
-    <Card title="Requested payout" sub="Read from the existing bounded pending approvals queue; no missing context is inferred.">
-      <div className="mp-facts">
-        <MoneyText amount={a.amount} assetCode={a.assetCode} />
-        <span>Status: {a.status}</span>
-        <a href={`/merchants/${a.merchantId}?tab=approvals`}>Open merchant approvals</a>
-      </div>
-      <p>
-        Maker: <code>{a.makerUserId}</code>. Checker: <code>{a.checkerUserId ?? 'Not recorded'}</code>.
-      </p>
-      <p>
-        Created <time dateTime={a.createdAt}>{a.createdAt}</time>. Expires <time dateTime={a.expiresAt}>{a.expiresAt}</time>.
-      </p>
-      <p>
-        Payload hash <code>{a.payloadHash}</code> <CopyButton value={a.payloadHash} label="Copy payload hash" />
-      </p>
-      <a className="mp-btn" href="/merchants/approvals">
-        Open existing decision flow
-      </a>
-    </Card>
   );
 }
 

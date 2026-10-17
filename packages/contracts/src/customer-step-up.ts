@@ -222,6 +222,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'pay.step_up.payoutDestination.set',
+    purpose: 'payoutDestination.set',
+    clientFields: ['merchantId', 'railId', 'kind', 'ref'],
+    targetField: 'ref',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'bank.step_up.bills.pay',
     purpose: 'bills.pay',
     clientFields: ['idempotencyKey', 'billerId', 'reference', 'fromSpaceId', 'assetId', 'amount'],

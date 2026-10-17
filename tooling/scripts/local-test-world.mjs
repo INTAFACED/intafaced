@@ -1399,8 +1399,27 @@ async function populateCardsStep(ctx) {
   );
 }
 
+/** Any two-letter country: LOCALSEED registers the TEST method for every country ('*'). */
+const P2P_TEST_COUNTRY = 'US';
+
 async function populateP2pStep(ctx) {
   const { user, record } = ctx;
+  // A sell offer needs the seller's own payment details for the method (encrypted by the TEST KMS). Fixed id, so
+  // a rerun answers "already exists" instead of adding a second set.
+  const instrument = await call(user, 'm', 'p2p', 'instruments.create', {
+    instrumentId: populateUuid(`p2p-instrument-${user.account.userId}-1`),
+    methodId: 'local_test_bank',
+    country: P2P_TEST_COUNTRY,
+    fiatCurrency: 'USD',
+    label: `${POPULATE_LABEL} bank details`,
+    details: { holder: `${POPULATE_LABEL} holder`, reference: 'TEST-0001' },
+  });
+  record(
+    'p2p',
+    'payment details for the TEST method',
+    instrument.ok ? 'created' : /already have an active/.test(instrument.refusal) ? 'exists' : 'refused',
+    instrument.ok ? `instrument ${instrument.data.id ?? instrument.data.instrumentId}` : instrument.refusal,
+  );
   const offer = await call(user, 'm', 'p2p', 'offers.create', {
     side: 'sell',
     asset: 'USDT',
@@ -1410,8 +1429,11 @@ async function populateP2pStep(ctx) {
     minAmount: '10',
     maxAmount: '100',
     totalAmount: '100',
-    methods: ['bank_transfer'],
+    // The TEST payment method LOCALSEED registers; offers.create needs an offerId or idempotencyKey so a rerun
+    // can't publish a second offer.
+    methods: ['local_test_bank'],
     terms: `${POPULATE_LABEL}: test offer, not real money`,
+    offerId: populateUuid(`p2p-offer-${user.account.userId}-1`),
   });
   record('p2p', 'sell offer (test)', offer.ok ? 'created' : 'refused', offer.ok ? `offer ${offer.data.id}` : offer.refusal);
   record(
@@ -1485,11 +1507,14 @@ async function populateTradeStep(ctx) {
     timeInForce: 'GTC',
     clientOrderId,
   });
+  // The id is fixed so a rerun never adds a second resting order; the venue answers a reused id at a new price
+  // with client_order_id_conflict, meaning an earlier populate order used it (it may since be cancelled or filled).
+  const already = !out.ok && /client_order_id_conflict/.test(out.refusal);
   record(
     'trade',
     `resting buy ${amount} BTC at ${price} (10% under last, will not fill)`,
-    out.ok ? 'created' : 'refused',
-    out.ok ? `order ${out.data?.id ?? clientOrderId}` : out.refusal,
+    out.ok ? 'created' : already ? 'exists' : 'refused',
+    out.ok ? `order ${out.data?.id ?? clientOrderId}` : already ? `an earlier populate order uses ${clientOrderId}` : out.refusal,
   );
 }
 

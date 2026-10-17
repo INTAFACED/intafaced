@@ -133,7 +133,7 @@ describe('same-person approvals', () => {
     expect(parsed.principalUserId).toBe('u');
     expect(isSamePersonActionType('bank.step_up.transfers.toUser')).toBe(true);
     expect(isSamePersonActionType('matching.open')).toBe(false);
-    expect(SAME_PERSON_ACTION_TYPES.every((t) => t.startsWith('bank.step_up.'))).toBe(true);
+    expect(SAME_PERSON_ACTION_TYPES.every((t) => t.startsWith('bank.step_up.') || t.startsWith('pay.step_up.'))).toBe(true);
   });
 });
 

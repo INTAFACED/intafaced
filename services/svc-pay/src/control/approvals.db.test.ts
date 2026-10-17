@@ -113,7 +113,7 @@ describe('payout maker-checker', () => {
         merchantId: id,
         change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } },
       });
-      await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${id}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref})`;
+      await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref, verified, verified_at) VALUES (${id}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref}, true, now())`;
     }
     approvals = new ApprovalService(sql, { access: team(() => merchantId), now: () => clock });
   }, 30_000);
@@ -147,8 +147,7 @@ describe('payout maker-checker', () => {
       to: new Date(Date.now() + 86_400_000),
     });
   }
-  const payout = (settlementId: string, destination = DEST_A) =>
-    pay.payoutSettlement({ settlementId, railId: 'crypto-native', destination });
+  const payout = (settlementId: string) => pay.payoutSettlement({ settlementId, railId: 'crypto-native' });
   const maker = () => principal(MAKER);
   const finance = () => principal(FINANCE);
   const decideInput = (a: { approvalId: string; payloadHash: string }, decision: 'approve' | 'reject' = 'approve') => ({
@@ -248,19 +247,22 @@ describe('payout maker-checker', () => {
     const decided = await approvals.decide(finance(), decideInput(req));
     expect(decided.status).toBe('voided');
     expect(await auditKinds(req.approvalId)).toContain('payout.approval_voided');
-    await expect(payout(s.id, DEST_B)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
   });
 
-  it('a payout whose destination differs from the approved one voids that approval, even after it was approved', async () => {
+  it('naming a destination on payout is refused and does not void the approval of the stored destination', async () => {
     const s = await settled(merchantId, ['60'], 'w-void2');
     const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
     expect((await approvals.decide(finance(), decideInput(req))).status).toBe('approved');
-    // The payout is attempted to a different destination than the one approved.
-    await expect(payout(s.id, DEST_B)).rejects.toMatchObject({ code: 'pay.approval_required' });
-    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('voided');
-    // Going back to the original destination does not resurrect it.
-    await expect(payout(s.id, DEST_A)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    await expect(pay.payoutSettlement({ settlementId: s.id, railId: 'crypto-native', destination: DEST_B })).rejects.toMatchObject({
+      code: 'pay.payout_destination_not_allowed',
+    });
+    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('approved');
+    expect(
+      (await sql`SELECT ref FROM pay.merchant_payout_destinations WHERE merchant_id = ${merchantId} AND rail_id = 'crypto-native'`)[0]!.ref,
+    ).toBe(DEST_A.ref);
     expect((await sql`SELECT 1 FROM pay.payout_admissions`).length).toBe(0);
+    expect((await payout(s.id)).status).toBe('paid_out');
   });
 
   it('rejected, cancelled and expired approvals do not let a payout through', async () => {
@@ -289,7 +291,7 @@ describe('payout maker-checker', () => {
       checkoutSessionTtlSeconds: 900,
       maxOpenSessionsPerLink: 25,
     });
-    await expect(late.payoutSettlement({ settlementId: s.id, railId: 'crypto-native', destination: DEST_A })).rejects.toMatchObject({
+    await expect(late.payoutSettlement({ settlementId: s.id, railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.approval_required',
     });
     expect((await approvals.list(maker(), { merchantId, limit: 10, status: 'expired' })).items.map((a) => a.approvalId)).toContain(

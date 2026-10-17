@@ -5,13 +5,14 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
+import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
 import { RailRegistry } from '../rails/registry.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';
@@ -86,7 +87,13 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
     probe = postgres(db.url, { max: 2, onnotice: () => undefined });
   }, 120_000);
 
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
   beforeEach(async () => {
+    restorePayoutShim = installPayoutDestinationShim(sql);
     await truncatePayForTest(
       sql,
       'pay',
