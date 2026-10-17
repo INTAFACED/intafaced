@@ -49,12 +49,20 @@ export function spacesFor(accounts: Loadable<NamedAccount[]>, source: 'server' |
 
 /** One coin's Available, In orders and In spaces next to its Amount. */
 export function heldFor(asset: string, amount: Decimal, balance: BalanceEntry | undefined, spaces: Spaces): Held {
-  const inSpaces: Scaled | null =
-    spaces.state === 'known' ? (spaces.byAsset.get(asset) ?? 0n) : spaces.state === 'not-in-amount' ? 0n : null;
+  // Worked out on this device the Amount leaves spaces out, so no spaces figure applies: shown as a dash, never as 0.
+  const inSpaces: Scaled | null = spaces.state === 'known' ? (spaces.byAsset.get(asset) ?? 0n) : null;
   const free = dec(balance?.free);
   const used = dec(balance?.used);
   const total = dec(amount);
-  const adds = free === null || used === null || inSpaces === null || total === null ? null : add(add(free, used), inSpaces) === total;
+  const held = free === null || used === null ? null : add(free, used);
+  const adds =
+    held === null || total === null
+      ? null
+      : spaces.state === 'not-in-amount'
+        ? held === total
+        : inSpaces === null
+          ? null
+          : add(held, inSpaces) === total;
   return {
     available: balance?.free ?? null,
     inOrders: balance?.used ?? null,

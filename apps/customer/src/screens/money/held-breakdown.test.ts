@@ -60,9 +60,10 @@ describe('Pro Money columns add up to Amount', () => {
     expect(allAdd([held])).toBeNull();
   });
 
-  it('an Amount worked out on this device leaves spaces out, so In spaces is 0 there', () => {
+  it('an Amount worked out on this device leaves spaces out: no spaces figure, and Available + In orders = Amount', () => {
     const spaces = spacesFor(ready([space('a', 'USDT', '470')]), 'derived');
     expect(spaces.state).toBe('not-in-amount');
-    expect(heldFor('USDT', '554.62', balance, spaces)).toMatchObject({ inSpaces: '0', adds: true });
+    expect(heldFor('USDT', '554.62', balance, spaces)).toMatchObject({ inSpaces: null, adds: true });
+    expect(heldFor('USDT', '1024.62', balance, spaces)).toMatchObject({ inSpaces: null, adds: false });
   });
 });

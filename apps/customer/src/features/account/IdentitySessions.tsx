@@ -29,14 +29,15 @@ export function IdentitySessions() {
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(50);
+  const thisDevice = sessionIdFromToken(session?.accessToken);
   const { resource, reload } = useResource(
     (signal) =>
       userId
         ? api.query('identity', 'listSessions', { userId, limit }, sessionsFor(userId, limit), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
-    `identity-seats:${userId}:${limit}`,
+    // A new session id (the sign-in renews about every 15 minutes) reloads the list, so "This device" never goes stale.
+    `identity-seats:${userId}:${limit}:${thisDevice ?? ''}`,
   );
-  const thisDevice = sessionIdFromToken(session?.accessToken);
   const [showOlder, setShowOlder] = useState(false);
   const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
   // "Older than 24 hours" is measured when the list arrives, so a row never jumps sections while it is being read.
@@ -181,18 +182,13 @@ export function IdentitySessions() {
       if (mounted.current) setBusy(false);
     }
   }
-  function references(owner: string, seatId: string) {
+  /** The one place a raw id earns its place: what Support asks for when a sign-out result is unknown. */
+  function supportReference(seatId: string) {
     return (
       <dl className="identity-sessions__context">
         <div>
           <dt>
-            <Copy k="owner" />
-          </dt>
-          <dd lang="zxx">{owner}</dd>
-        </div>
-        <div>
-          <dt>
-            <Copy k="original" />
+            <Copy k="supportReference" />
           </dt>
           <dd lang="zxx">{seatId}</dd>
         </div>
@@ -218,7 +214,7 @@ export function IdentitySessions() {
           <p>
             <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
           </p>
-          {references(journal.marker.owner, journal.marker.seat.id)}
+          {supportReference(journal.marker.seat.id)}
           <p className="muted">
             <Copy k="lookup" />
           </p>
@@ -313,7 +309,9 @@ export function IdentitySessions() {
             <p role="status">
               <Copy k={result.answer.data.revoked ? 'revoked' : 'unchanged'} />
             </p>
-            {references(result.original.owner, result.original.seat.id)}
+            <p>
+              <Copy k="startedAt" params={{ time: stamp(result.original.seat.createdAt, timeZone) }} />
+            </p>
             {!result.answer.data.revoked && (
               <p>
                 <Copy k="falseBoundary" />

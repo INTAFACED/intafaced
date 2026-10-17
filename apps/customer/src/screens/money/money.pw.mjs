@@ -222,7 +222,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await page.locator('.money-small__trigger').click();
 
   // Named accounts, each with its balance (the main account is not one of them).
-  await expect(page.locator('#accounts h2')).toHaveText('Your accounts');
+  await expect(page.locator('#accounts h2')).toHaveText('Your spaces');
   expect(await texts(page.locator('.money-accounts__row'))).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
 
   // Order on the page: value -> actions (right) -> allocation -> Cash -> Crypto -> accounts.
@@ -550,6 +550,22 @@ test('Pro Money: Available + In orders + In spaces add up to Amount (USDT 3,795 
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
   expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0.04']);
   await expect(page.getByTestId('held-note')).toHaveCount(0);
+});
+
+test('Pro Money with the bank summary missing: In spaces is a dash, never 0, and the note points to Your spaces', async ({ page }) => {
+  await mock(page, {
+    bank: { 'portfolio.summary': missing },
+    rest: {
+      balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  await expect(page.locator('.if-money')).toHaveAttribute('data-source', 'derived');
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['—']);
+  await expect(page.getByTestId('held-note')).toHaveCount(1);
+  await expect(page.getByTestId('held-note')).toContainText('It is listed under Your spaces below.');
 });
 
 test('Simple Money has no Available and In orders columns', async ({ page }) => {

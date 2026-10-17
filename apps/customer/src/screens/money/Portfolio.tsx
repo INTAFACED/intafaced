@@ -342,8 +342,8 @@ function HoldingsCard({
   copy,
   collapseSmall,
   layout,
-  balances,
-  spaces,
+  helds,
+  note,
 }: {
   id: 'cash' | 'crypto';
   title: string;
@@ -354,21 +354,11 @@ function HoldingsCard({
   copy: Copy;
   collapseSmall?: boolean;
   layout: Mode;
-  balances: Balances;
-  spaces: Spaces;
+  helds: ReadonlyMap<string, Held>;
+  /** The one line about the Pro columns; only the first card carries it. */
+  note: string | null;
 }) {
   const { t } = copy;
-  const helds = useMemo(
-    () =>
-      new Map(
-        rows.map((row) => [
-          row.asset,
-          heldFor(row.asset, row.amount, balances.status === 'ready' ? balances.data[row.asset] : undefined, spaces),
-        ]),
-      ),
-    [rows, balances, spaces],
-  );
-  const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
   // Small balances fold away only when there is something bigger to show above them.
   const small = collapseSmall ? rows.filter(isSmall) : [];
   const main = small.length > 0 && small.length < rows.length ? rows.filter((row) => !isSmall(row)) : rows;
@@ -476,6 +466,25 @@ export default function Portfolio() {
   }, [view !== null]);
 
   const spaces = useMemo(() => spacesFor(accounts, view?.source ?? 'server'), [accounts, view?.source]);
+  // Available / In orders / In spaces next to Amount, for every row; one note for the whole table pair.
+  const helds = useMemo(
+    () =>
+      new Map(
+        (view?.rows ?? []).map((row) => [
+          row.asset,
+          heldFor(
+            row.asset,
+            row.amount,
+            // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
+            balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
+            spaces,
+          ),
+        ]),
+      ),
+    [view, balances, spaces],
+  );
+  const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
+  const noteFirst = cashRows.length > 0 ? 'cash' : 'crypto';
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
   const buyTarget = buyHref(null, null, false, layout);
 
@@ -534,8 +543,8 @@ export default function Portfolio() {
             markets={markets}
             copy={copy}
             layout={layout}
-            balances={balances}
-            spaces={spaces}
+            helds={helds}
+            note={noteFirst === 'cash' ? note : null}
           />
         ) : null}
         {cryptoRows.length > 0 ? (
@@ -549,8 +558,8 @@ export default function Portfolio() {
             copy={copy}
             collapseSmall
             layout={layout}
-            balances={balances}
-            spaces={spaces}
+            helds={helds}
+            note={noteFirst === 'crypto' ? note : null}
           />
         ) : null}
         {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (

@@ -112,7 +112,7 @@ const region = (page, name = 'Where you’re signed in') => page.getByRole('regi
 const seatButton = (page, id = one) =>
   region(page)
     .locator('[data-session-id="' + id + '"]')
-    .getByRole('button', { name: /^Sign out the session started / });
+    .getByRole('button', { name: /^Sign out the session last active / });
 const unknown = (page) => region(page).getByRole('region', { name: 'Original revoke is not confirmed', exact: true });
 const receipt = (page) => region(page).getByRole('region', { name: 'Sign-out result', exact: true });
 async function send(page) {
@@ -146,12 +146,14 @@ test('native owner inspection to original reviewed session and matching true rec
   await expect(seatButton(page)).toBeVisible();
   await expect(region(page)).toContainText(stamp.slice(0, 4));
   await seatButton(page).click();
-  await expect(page.getByRole('dialog')).toContainText('Started ');
+  await expect(page.getByRole('dialog')).toContainText('Last active ');
   await expect(page.getByRole('dialog')).not.toContainText(one);
   expect(state.writes).toEqual([]);
   await send(page);
   await expect(receipt(page)).toContainText('The service revoked the selected session.');
-  await expect(receipt(page)).toContainText(one);
+  await expect(receipt(page)).toContainText('Last active ');
+  await expect(receipt(page)).not.toContainText(one);
+  await expect(receipt(page)).not.toContainText(owner);
   await expect(seatButton(page)).toHaveCount(0);
   await expect(seatButton(page, two)).toBeEnabled();
   expect(state.writes).toEqual([{ procedure: 'revokeSession', input: { userId: owner, sessionId: one } }]);
@@ -171,7 +173,9 @@ test('native matching false is no live change and not recovery of an earlier req
   await seatButton(page).click();
   await send(page);
   await expect(receipt(page)).toContainText('This result changed no session');
-  await expect(receipt(page)).toContainText(one);
+  await expect(receipt(page)).toContainText('Last active ');
+  await expect(receipt(page)).not.toContainText(one);
+  await expect(receipt(page)).not.toContainText(owner);
   expect(await marker(page)).toBeNull();
   expect(state.writes).toHaveLength(1);
 });
@@ -202,7 +206,7 @@ for (const malformed of ['owner', 'duplicate', 'date', 'impossibleDate', 'overLi
     await login(page);
     await expect(region(page).getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
     await expect(region(page).locator('time')).toHaveCount(0);
-    await expect(region(page).getByRole('button', { name: /^Sign out the session started / })).toHaveCount(0);
+    await expect(region(page).getByRole('button', { name: /^Sign out the session last active / })).toHaveCount(0);
     await expect(region(page)).not.toContainText('Invalid Date');
     expect(state.writes).toEqual([]);
   });
@@ -305,7 +309,8 @@ test('native lost revoke preserves original journal through Support and history 
   expect(await marker(page)).toBe(original);
   await page.goBack();
   await expect(unknown(page)).toContainText(one);
-  await expect(unknown(page)).toContainText(owner);
+  await expect(unknown(page)).toContainText('Reference for Support');
+  await expect(unknown(page)).not.toContainText(owner);
   await expect(seatButton(page, two)).toBeDisabled();
   expect(await marker(page)).toBe(original);
   expect(state.writes).toHaveLength(1);
@@ -483,7 +488,7 @@ for (const width of [320, 390, 768])
     await expect(button).toBeFocused();
     expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog')).toContainText('Started ');
+    await expect(page.getByRole('dialog')).toContainText('Last active ');
     await page.keyboard.press('Escape');
     await expect(button).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -613,7 +618,7 @@ test('native known response with failed journal removal stays honest and blocks 
   expect(state.writes).toHaveLength(1);
 });
 
-test('native sessions older than 24 hours fold behind Show N more and the list shows no session ids', async ({ page, context }) => {
+test('native sessions not active in 24 hours fold behind Show N more and the list shows no session ids', async ({ page, context }) => {
   const stale = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   const state = await network(context);
   state.rows.push({ id: stale, user_id: owner, created_at: new Date(Date.now() - 30 * 3_600_000), revoked: false });
@@ -622,7 +627,7 @@ test('native sessions older than 24 hours fold behind Show N more and the list s
   await expect(seatButton(page, stale)).toHaveCount(0);
   await expect(region(page)).not.toContainText(one);
   await expect(region(page)).not.toContainText(stale);
-  await region(page).getByRole('button', { name: 'Show 1 more (older than 24 hours)', exact: true }).click();
+  await region(page).getByRole('button', { name: 'Show 1 more (not active in the last 24 hours)', exact: true }).click();
   await expect(seatButton(page, stale)).toBeVisible();
   await expect(region(page)).not.toContainText(stale);
   expect(state.writes).toEqual([]);
