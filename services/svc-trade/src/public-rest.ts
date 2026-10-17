@@ -12,6 +12,7 @@ import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-c
 import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
+import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
@@ -409,7 +410,7 @@ export function presentCcxtMarket(
     nextSessionChange: session.nextSessionChange,
     hours: session.hours,
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
-    lifecycle: flags.lifecycle ?? null,
+    lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),

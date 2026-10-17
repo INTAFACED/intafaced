@@ -30,6 +30,8 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
+import { convertHistoryProcedures } from './convert/convert-history-router.js';
+import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 
@@ -261,6 +263,8 @@ function presentFill(fill: FillRecord) {
  * order may not have been placed at all.
  */
 function toTrpcError(err: unknown): TRPCError {
+  const historyError = convertHistoryTrpcError(err);
+  if (historyError) return historyError;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -604,6 +608,8 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
             }),
           ),
         ),
+
+      ...convertHistoryProcedures(trade),
     }),
 
     /**

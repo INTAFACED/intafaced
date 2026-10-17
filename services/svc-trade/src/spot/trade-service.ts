@@ -94,6 +94,14 @@ import { checkMaxOrder, checkMaxOrderNotional, resolveAdmissionLimits } from '..
 import { convertSettleIdsFor } from '../convert/ids.js';
 import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
+import {
+  bindConvertClientId,
+  exportConvertHistory,
+  listConvertHistory,
+  markConvertRefusal,
+  readConvertStatus,
+  type ConvertListQuery,
+} from '../convert/convert-history.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
 import { HOUSE_MM_USER_UUID } from './ids.js';
@@ -1098,6 +1106,7 @@ export class TradeService {
         if (stored.quote.userId !== principal.userId) {
           throw new TradeError('convert quote belongs to another user', 'trade.convert_not_owner');
         }
+        await bindConvertClientId(this.sql, principal.userId, stored.quote.quoteId, input.clientConvertId);
 
         const ids = convertSettleIdsFor(stored.quote.quoteId);
         if (stored.lifecycle === 'settled') {
@@ -1190,6 +1199,7 @@ export class TradeService {
             (err instanceof TradeError && err.code === 'trade.convert_liquidity_unavailable')
           ) {
             await this.convertStore.saveOpen(stored.quote);
+            await markConvertRefusal(this.sql, stored.quote.quoteId, err.code);
           }
           throw err;
         }
@@ -1213,6 +1223,18 @@ export class TradeService {
         return presentBoundConvertFill(bound, { ...ids, settledAt: settledAt.toISOString() });
       },
     );
+  }
+
+  convertList(principal: Principal, input: ConvertListQuery) {
+    return listConvertHistory(this.sql, principal, input, this.now());
+  }
+
+  convertStatus(principal: Principal, clientConvertId: string) {
+    return readConvertStatus(this.sql, this.ledger, principal, clientConvertId, this.now());
+  }
+
+  convertExport(principal: Principal, query: { from?: string; to?: string }) {
+    return exportConvertHistory(this.sql, principal, query, this.now());
   }
 
   private async buildConvertQuote(userId: string, input: ConvertQuoteRequest) {

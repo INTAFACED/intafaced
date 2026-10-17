@@ -811,6 +811,7 @@ registerPrivateRest(app, {
     presentAdlDisclosureWire(await adlDisclosureAcks.recordAck(principal.userId, ADL_DISCLOSURE_VERSION, new Date())),
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
+  convertExport: (principal, query) => trade.convertExport(principal, query),
 });
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
