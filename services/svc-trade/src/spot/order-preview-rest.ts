@@ -23,7 +23,7 @@ export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 
 export interface SpotOrderPreviewRefusal {
   code: string;
-  field: 'symbol' | 'type' | 'side' | 'amount' | 'price' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region';
+  field: 'symbol' | 'type' | 'side' | 'amount' | 'price' | 'timeInForce' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region';
   message: string;
 }
 
@@ -216,6 +216,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     }
 
     const refusals: SpotOrderPreviewRefusal[] = [];
+    if (tif === 'MOC') {
+      refusals.push({
+        code: 'trade.invalid_tif',
+        field: 'timeInForce',
+        message: 'maker-or-cancel is not yet accepted by the trade service',
+      });
+    }
     let orderType: OrderType | null = null;
     try {
       orderType = requireSupportedType(typeWire);
@@ -313,10 +320,12 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
 
     let protectionPrice: Amount | null = null;
     let fundingPrice: Amount | null = limitPrice;
+    const needsBestAsk =
+      (orderType === 'market' && side === 'buy') || (orderType === 'limit' && side === 'buy' && tif === 'GTC' && limitPrice !== null);
+    const bestAsk = needsBestAsk && deps.bestAsk ? await deps.bestAsk(market.id) : null;
     if (orderType === 'market' && side === 'buy') {
-      const ask = deps.bestAsk ? await deps.bestAsk(market.id) : null;
       try {
-        protectionPrice = protectionPriceFor(market, ask ?? null, deps.slippageCapBps);
+        protectionPrice = protectionPriceFor(market, bestAsk, deps.slippageCapBps);
         assertNotional(market, protectionPrice, qty);
         fundingPrice = protectionPrice;
       } catch (error) {
@@ -353,7 +362,14 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
-    const takes = tif === 'IOC' || tif === 'FOK';
+    const takes =
+      orderType !== null &&
+      !(
+        orderType === 'limit' &&
+        (tif === 'PO' ||
+          tif === 'MOC' ||
+          (tif === 'GTC' && side === 'buy' && limitPrice !== null && bestAsk !== null && limitPrice < bestAsk))
+      );
     const rests = orderType === 'limit' && !takes;
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     const makerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'maker', discountBps) : null;

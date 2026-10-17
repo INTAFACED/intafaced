@@ -1337,6 +1337,9 @@ export class TradeService {
     }
     const orderType: OrderType = requireSupportedType(input.type);
     let tif: TimeInForce = input.seeded === true ? 'PO' : (input.tif ?? 'GTC');
+    if (tif === 'MOC') {
+      throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
+    }
     const expectedSeeded = market.paper ? false : seeded;
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);

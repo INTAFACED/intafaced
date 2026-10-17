@@ -180,10 +180,10 @@ describe('POST /api/v1/orders/preview', () => {
       holdAsset: 'fixture-quote',
       holdAmount: '200',
       protectionPrice: null,
-      estimatedFee: '0.0002',
+      estimatedFee: '0.0004',
       feeAsset: 'fixture-base',
-      feeBps: 1,
-      feeRole: 'maker',
+      feeBps: 2,
+      feeRole: 'taker',
       feeScheduleVersion: 'preview-test',
       makerFeeBps: 1,
       takerFeeBps: 2,
@@ -191,6 +191,49 @@ describe('POST /api/v1/orders/preview', () => {
       refusals: [],
     });
     expect(submit).not.toHaveBeenCalled();
+    expect(ledgerPost).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('quotes maker when a GTC limit buy is strictly below a known best ask', async () => {
+    const { app } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, price: '99' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ feeRole: 'maker', feeBps: 1, orderable: true });
+    await app.close();
+  });
+
+  it('quotes taker for a limit sell', async () => {
+    const { app } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, side: 'sell' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ feeRole: 'taker', side: 'sell' });
+    await app.close();
+  });
+
+  it('refuses maker-or-cancel and does not call the ledger', async () => {
+    const { app, ledgerPost } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, price: '99', timeInForce: 'MOC' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().orderable).toBe(false);
+    expect(response.json().refusals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'timeInForce' })]),
+    );
     expect(ledgerPost).not.toHaveBeenCalled();
     await app.close();
   });
