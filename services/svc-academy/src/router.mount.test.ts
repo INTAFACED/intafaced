@@ -243,6 +243,8 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'videoProgress.set',
         'myUpcomingSessions',
         'sessionCalendar',
+        'admin.completionsByItem',
+        'admin.enrolments',
         'admin.grantAudit',
         'admin.opsMetrics',
         'health',
