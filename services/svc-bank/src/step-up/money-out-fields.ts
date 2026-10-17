@@ -171,6 +171,28 @@ export function approveBinding(i: { actor: string; approvalId: string }): DoorBi
   };
 }
 
+export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.business.removeMember',
+    operationKey: i.requestId,
+    fields: { actor: i.actor, accountId: i.accountId, userId: i.userId, requestId: i.requestId },
+  };
+}
+
+export function setMemberRoleBinding(i: {
+  actor: string;
+  accountId: string;
+  userId: string;
+  role: string;
+  requestId: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.business.setMemberRole',
+    operationKey: i.requestId,
+    fields: { actor: i.actor, accountId: i.accountId, userId: i.userId, role: i.role, requestId: i.requestId },
+  };
+}
+
 export function addMemberBinding(i: { actor: string; accountId: string; userId: string; role: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.addMember',

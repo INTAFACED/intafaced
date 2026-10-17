@@ -47,10 +47,8 @@ describe('resolveOptionsListing — refuse until P0-05 + fixing + complete terms
     } catch (err) {
       expect(err).toBeInstanceOf(TradeError);
       expect((err as TradeError).code).toBe(OPTIONS_SETTLEMENT_LAW_UNSET);
-      expect((err as Error).message).toContain('TRADE_OPTIONS_SETTLEMENT_ASSET_LAW');
-      expect((err as Error).message).toContain('socket.options-settlement-asset-law');
-      expect((err as Error).message).toContain('D26-P0-05');
-      expect((err as Error).message).toContain('TRADE_OPTIONS_SETTLEMENT_FIXING alone does not unlock');
+      expect((err as Error).message).toContain('settlement asset is not set');
+      expect((err as Error).message).toContain('fixing source alone does not turn listing on');
     }
   });
 

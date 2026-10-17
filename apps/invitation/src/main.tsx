@@ -14,8 +14,8 @@ import { SearchPicker, SearchPickerMulti, type PickerGroup, type PickerOption } 
 import { BlurFade } from './components/blur-fade';
 import { LivingBackdrop } from './components/living-backdrop';
 import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount } from './lib/amount';
-import heroPhone from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/outreach/graphite-fins-phone.webp';
-import logo from '../../../vendor/upstream-exchange/05_Web_Front/src/assets/images/logo.svg';
+import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
+import logo from './vendored/assets/images/logo.svg';
 import './outreach.css';
 
 /** Our own wording for what the browser would otherwise say in its own language. */

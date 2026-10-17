@@ -10,6 +10,7 @@ import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
+import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
@@ -102,6 +103,13 @@ export interface BankServiceOptions {
   recipients?: RecipientStatePort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
+  /**
+   * Public handles and exact recipient lookup. Unset refuses team, approval
+   * history and recipient-space reads. It does not invent a handle.
+   */
+  directory?: BusinessDirectoryPort;
+  /** Recipient-lookup budget. Default is 30 per minute per caller. */
+  directoryLookups?: BusinessLookupLimiter;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -127,7 +135,14 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
-  const business = new BusinessService(sql, ledger, spaces, transfers);
+  const business = new BusinessService(
+    sql,
+    ledger,
+    spaces,
+    transfers,
+    options.directory ?? unconfiguredBusinessDirectory(),
+    options.directoryLookups,
+  );
 
   return { spaces, transfers, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
 }

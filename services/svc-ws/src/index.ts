@@ -25,6 +25,7 @@ import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { createWebSocketGateway } from './ws/gateway.js';
+import { customerOriginsFromEnv } from './customer-origin.js';
 import { CandleHub } from './mux/candle-hub.js';
 import { createMuxGateway } from './mux/gateway.js';
 import { MuxPoller } from './mux/poller.js';
@@ -465,6 +466,8 @@ const gateway = createWebSocketGateway({
   enabled: isEnabled,
 });
 
+const customerOrigins = customerOriginsFromEnv(env);
+
 const privateGateway = createPrivateWebSocketGateway({
   server: app.server,
   hub: privateOrderHub,
@@ -477,6 +480,7 @@ const privateGateway = createPrivateWebSocketGateway({
   codRange: leaseRangeFromEnv(env.WS_COD_MIN_LEASE_MS, env.WS_COD_MAX_LEASE_MS),
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
+  customerOrigins,
 });
 
 const dropCopyGateway = createDropCopyWebSocketGateway({
@@ -487,6 +491,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   enabled: isEnabled,
   tokens: privateTokens,
   authority,
+  customerOrigins,
 });
 
 poller.start();

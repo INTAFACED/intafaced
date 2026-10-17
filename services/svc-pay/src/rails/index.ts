@@ -18,5 +18,6 @@ export * from './durable-broadcast.js';
 export * from './evm-assets.js';
 export * from './evm-chain.js';
 export * from './chain-watcher.js';
+export * from './deposit-reorg.js';
 export { signPayload, verifySignature, type SignatureCheck } from './webhook-signature.js';
 export { runRailAdapterConformance, type RailHarness } from './conformance.js';

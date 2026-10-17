@@ -6,9 +6,9 @@ import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
 import { runScheduledReconciliation } from './ledger/reconcile.js';
-import { runScheduledReconciliationTick } from './ledger/scheduled-reconcile-tick.js';
+import { createReconcileTickState, runScheduledReconciliationTick } from './ledger/scheduled-reconcile-tick.js';
 import { registerS2sHttp } from './s2s-http.js';
-import { registerMetrics } from './metrics.js';
+import { reconcileGauges, registerMetrics } from './metrics.js';
 import { registerOperatorHttp } from './operator-http.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './ledger/action-approval-consume.js';
 import { registerLedgerStatusHttp } from './status-http.js';
@@ -51,6 +51,7 @@ const bus = await JetStreamEventBus.connect({
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
   idempotencyConflict: env.LEDGER_IDEMPOTENCY_CONFLICT_MODE,
+  reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
 });
 
 // Before the first request, never after: a frozen database stays frozen, and
@@ -77,7 +78,7 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
  * `observability-wiring.test.ts` asserts that host, port and path against the
  * real compose file. `metrics.boot.e2e.test.ts` fails if this call is deleted.
  */
-registerMetrics(app, { service: env.SERVICE_NAME });
+registerMetrics(app, { service: env.SERVICE_NAME, gauges: async () => reconcileGauges(await ledger.lastVerified()) });
 
 registerLedgerStatusHttp(app, ledger, env.SERVICE_NAME);
 
@@ -115,9 +116,20 @@ try {
   app.log.error({ err }, 'ledger outbox recover at boot failed');
 }
 
+// One state object for the life of the timer: backoff after an incomplete run spans ticks.
+const reconcileTickState = createReconcileTickState();
 const reconcileTimer = setInterval(() => {
-  void runScheduledReconciliationTick(() => runScheduledReconciliation(sql, ledger), ledger, app.log).catch((err) => {
-    app.log.fatal({ err }, 'LEDGER RECONCILIATION FAILED — freeze did not land');
+  void runScheduledReconciliationTick(
+    () => runScheduledReconciliation(sql, ledger, { statementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS }),
+    ledger,
+    app.log,
+    {
+      maxStaleHours: env.LEDGER_RECONCILE_MAX_STALE_HOURS,
+      maxConsecutiveIncomplete: env.RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
+      state: reconcileTickState,
+    },
+  ).catch((err) => {
+    app.log.fatal({ err }, 'LEDGER RECONCILIATION TICK FAILED — a freeze that was due did not land');
   });
 }, env.RECONCILE_CRON_MINUTES * 60_000);
 reconcileTimer.unref();

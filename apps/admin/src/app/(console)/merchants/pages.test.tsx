@@ -38,6 +38,7 @@ import RegistryEntry from './registries/[kind]/[key]/page';
 import Treasury from './treasury/page';
 import Approvals from './approvals/page';
 import MerchantsLayout from './layout';
+import { notesFixture, pendingClearsFixture } from '@/testing/founder-read-fixtures';
 
 const ORIGINAL_ENV = { ...process.env };
 const ORIGIN = 'https://admin.example';
@@ -592,12 +593,24 @@ describe('merchant drill-down', () => {
 
   it('notes, controls, approvals and halts show an honest not-built state until the procedures exist', async () => {
     services(base);
-    expect(html(await page({ tab: 'notes' }))).toContain('Notes are not built yet');
+    const notes = html(await page({ tab: 'notes' }));
+    expect(notes).toContain('founderAdmin.ops.notes.list');
+    expect(notes).toContain('Not built yet');
+    expect(notes).not.toContain('Notes are not built yet');
     const controls = html(await page({ tab: 'controls' }));
     expect(controls).toContain('founderAdmin.control.merchant.get');
     expect(controls).toContain('Not built yet');
     expect(html(await page({ tab: 'approvals' }))).toContain('founderAdmin.approvals.list');
     expect(html(await page({ tab: 'halts' }))).toContain('payHalts.operatorStatus');
+  });
+
+  it('the Notes tab lists the operator notes from founderAdmin.ops.notes.list, filters included', async () => {
+    const seen = services({ ...base, 'founderAdmin.ops.notes.list': notesFixture });
+    const out = html(await MerchantDetail({ params: Promise.resolve({ id: MID }), searchParams: sp({ tab: 'notes', flagged: '1' }) }));
+    expect(out).toContain('Asked for a higher cap; hold until KYB refresh (TEST DATA)');
+    expect(out).toContain('Add note');
+    expect(out).toContain('Retract');
+    expect(seen.some((u) => u.includes('ops.notes.list') && decodeURIComponent(u).includes('"flaggedOnly":true'))).toBe(true);
   });
 
   it('an unknown merchant and a malformed id are the same not-found (no existence leak)', async () => {
@@ -1068,6 +1081,7 @@ describe('merchant drill-down: Halts tab', () => {
     const out = html(await page());
     expect(out).toContain('payHalts.operatorStatus');
     expect(out).toContain('payHalts.history');
+    expect(out).toContain('payHalts.pendingClears');
   });
 });
 
@@ -1258,12 +1272,11 @@ describe('treasury and halts', () => {
   it('shows the not-built state for both reads while the procedures are stubs', async () => {
     services({});
     const out = html(await Treasury());
-    expect(out.match(/Not built yet/g)?.length).toBe(4);
+    expect(out.match(/Not built yet/g)?.length).toBe(5);
     expect(out).toContain('founderAdmin.treasury.exposure');
     expect(out).toContain('payHalts.history');
     expect(out).toContain('payHalts.operatorStatus');
-    // The honest gap stays visible even when every read is a stub.
-    expect(out).toContain('Pending halt clears are not available yet');
+    expect(out).not.toContain('Pending halt clears are not available yet');
   });
 
   it('renders exposure and halts when the procedures answer, never reading a missing limit as unlimited', async () => {
@@ -1376,12 +1389,32 @@ describe('treasury and halts', () => {
     expect(bad).toContain('counts as halted');
   });
 
-  it('says pending dual-founder clears are not available yet, because the contract has no read for them', async () => {
-    services({ 'founderAdmin.treasury.exposure': exposure, 'payHalts.history': [], 'payHalts.operatorStatus': operatorStatus() });
+  it('lists the clears waiting for a second founder from payHalts.pendingClears and says the halt is still on', async () => {
+    const seen = services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus(),
+      'payHalts.pendingClears': pendingClearsFixture,
+    });
     const out = html(await Treasury());
     expect(out).toContain('Halt clears waiting for a second founder');
-    expect(out).toContain('Pending halt clears are not available yet');
-    expect(out).toContain('no read for it');
+    expect(out).toContain('Rail repaired, retesting (TEST DATA)');
+    expect(out).toContain('The halt is still on for every row above');
+    expect(out).not.toContain('not available yet');
+    expect(out).not.toContain('no read for it');
+    expect(seen.some((u) => u.includes('payHalts.pendingClears'))).toBe(true);
+  });
+
+  it('a failed pending-clears read is a named error with Try again, not an empty list', async () => {
+    services({
+      'founderAdmin.treasury.exposure': exposure,
+      'payHalts.history': [],
+      'payHalts.operatorStatus': operatorStatus(),
+      'payHalts.pendingClears': () => Response.json({ error: { message: 'down' } }, { status: 503 }),
+    });
+    const out = html(await Treasury());
+    expect(out).toContain('Clears waiting for a second founder could not be loaded');
+    expect(out).toContain('Try again');
   });
 
   it('history names the second founder on a clear, says "(you)" for the signed-in founder and flags a clear with no second founder', async () => {
@@ -1448,7 +1481,7 @@ describe('treasury and halts', () => {
       'payHalts.operatorStatus': operatorStatus(),
     });
     await Treasury();
-    expect(seen.every((u) => /treasury\.exposure|payHalts\.(history|operatorStatus)/.test(u))).toBe(true);
+    expect(seen.every((u) => /treasury\.exposure|payHalts\.(history|operatorStatus|pendingClears)/.test(u))).toBe(true);
   });
 });
 

@@ -12,7 +12,7 @@
  *   pnpm wt feat/svc-identity-rank    create + install + report the path
  *   pnpm wt docs/research-topic --skip-install
  *   pnpm wt:list                      what exists, and how stale
- *   pnpm wt:rm feat/svc-identity-rank remove worktree and local branch
+ *   git worktree remove <path>       remove your own checkout; the branch stays (never --force)
  *
  *   node tooling/scripts/worktree.mjs --self-test   start-point fixtures (no git, no I/O)
  */
@@ -471,7 +471,7 @@ function list() {
 }
 
 function remove(branch) {
-  if (!branch) fail('Usage: pnpm wt:rm <branch-name>');
+  if (!branch) fail('Usage: node tooling/scripts/worktree.mjs remove <branch-name>');
 
   const path = join(WORKTREE_ROOT, dirNameFor(branch));
   if (!existsSync(path)) fail(`No worktree at ${path}`);
@@ -714,7 +714,7 @@ Worktree manager — CONTRIBUTING.md §2
   pnpm wt <branch> --skip-install  create without dependencies (same space floor)
   pnpm wt:base           what a new worktree would be cut from, and how stale this checkout is
   pnpm wt:list           list worktrees and how stale they are
-  pnpm wt:rm <branch>    remove a worktree (refuses if work is uncommitted)
+  git worktree remove <path>   remove your own checkout; the branch stays (never --force)
 
 Worktrees live in ${WORKTREE_ROOT}
 `);

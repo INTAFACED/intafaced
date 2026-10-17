@@ -56,11 +56,12 @@ An **inverted** window (`to` before `from`) refuses too — `ledger.history_rang
 
 **Publishes**
 
-| Subject                                  | When                          | Payload                                             |
-| ---------------------------------------- | ----------------------------- | --------------------------------------------------- |
-| `intafaced.ledger.tx.posted`             | after every commit            | tx id, module, reason, hash chain link, all entries |
-| `intafaced.ledger.reconciliation.failed` | drift or chain break detected | account, cached vs replayed balance, difference     |
-| `intafaced.ledger.freeze.updated`        | posting frozen or thawed      | `frozen`, `reason`, `actor`, `changedAt`            |
+| Subject                                      | When                     | Payload                                             |
+| -------------------------------------------- | ------------------------ | --------------------------------------------------- |
+| `intafaced.ledger.tx.posted`                 | after every commit       | tx id, module, reason, hash chain link, all entries |
+| `intafaced.ledger.reconciliation.failed`     | balance drift detected   | account, cached vs replayed balance, difference     |
+| `intafaced.ledger.reconciliation_run.failed` | every incomplete run     | error code, phase, consecutive count, run id        |
+| `intafaced.ledger.freeze.updated`            | posting frozen or thawed | `frozen`, `reason`, `actor`, `changedAt`            |
 
 `freeze.updated` carries both directions on one subject. Its stored idempotency key is `ledger.freeze:seq:<switch_seq>`. The sequence is allocated only while holding the actual `posting_freeze` row lock, so an earlier transaction start cannot reorder a later switch. `changedAt` is database observation time; replay order uses the sequence, not timestamps or UUIDs.
 
@@ -139,7 +140,21 @@ Runs on the owner-published `RECONCILE_CRON_MINUTES` cadence (blank / unset refu
 2. **`verifyChain`** — every hash recomputed from its predecessor. Catches tampering, _including by someone with database access_.
 3. **`totalsByAsset`** — every asset must net to exactly zero across all accounts. Catches value created or destroyed by any means.
 
-On failure the service **freezes itself** and emits `reconciliation.failed`. That is §4.2's requirement: a book we cannot verify must not accept more writes while someone decides what to do about it.
+**How it runs.** The proof reads **one consistent snapshot** (a `REPEATABLE READ` transaction on its own connection) and takes **no `chain_tip` lock**, so posts are not blocked while it runs and a live post can never make it report a false `ok: false`. Balances staged inside the proof snapshot retain its tip (`through_seq`, hash, last entry id); a short READ COMMITTED transaction then writes those `balance_snapshots` and the `ok` run together. A completed mismatch instead commits its run, durable freeze and freeze outbox atomically. The proof has its own `statement_timeout` (`LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`, default 10 minutes, set with `SET LOCAL`; posts keep the pool-wide 15 s). Only one run goes at a time per book (a session advisory lock held across both proof and snapshot-write transactions): a tick that finds another run in progress skips quietly, and `POST /operator/reconcile` answers 409 `ledger.reconcile_in_progress`.
+
+**Three outcomes, only one freezes.**
+
+| Outcome      | Meaning                                                                                                                                                                                    | Posting                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`         | The proof finished and the book is consistent through `through_seq`.                                                                                                                       | Unchanged.                                                                                                                                                                                                                                                           |
+| `mismatch`   | The proof **finished** and found drift, a broken hash chain, an unbalanced asset, a corrupt stored amount, or a non-text `chain_tip`. A snapshot write after `ok: true` is not a mismatch. | **Frozen** (`reconciliation mismatch`) and `reconciliation.failed` emitted for a balance drift.                                                                                                                                                                      |
+| `incomplete` | Any error that did not prove the book wrong, including Postgres, TLS, a code-less error, and a snapshot write after a green proof.                                                         | **Not frozen** until `RECONCILE_MAX_CONSECUTIVE_INCOMPLETE` in a row (default 3), the larger of this process and `reconcile_runs`. Each run emits `reconciliation_run.failed`. The Nth freezes as `reconcile_unproven`. An operator thaw does not reset that streak. |
+
+A mismatch is frozen when the proof **finishes**, not while it reads: posts continue on a broken book for the duration of one proof. That cost is accepted and written down in [`docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md`](../../docs/adr/2026-10-14-ledger-reconcile-snapshot-no-freeze-on-incomplete.md).
+
+**Staleness reporting.** If no `ok` proof is newer than `LEDGER_RECONCILE_MAX_STALE_HOURS` (default 24), each tick emits a fatal stale log. Staleness alone never freezes posting. Repeated incomplete runs do: after the configured consecutive limit the tick freezes as `reconcile_unproven`. `GET /health` reports `lastVerifiedAt` and `lastVerifiedSeq` (the highest proved prefix; null before the first), and `/metrics` carries `ledger_reconcile_last_verified_timestamp_seconds` and `ledger_reconcile_last_verified_seq`. The incomplete-run event has no subscriber wired here.
+
+See the runbook for what to do on `incomplete` and `stale`: [`docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md`](../../docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md) §"Reconcile incomplete or stale".
 
 ### The one denormalisation
 
@@ -185,13 +200,13 @@ ALTER TABLE ledger.ledger_entries ENABLE TRIGGER ledger_entries_immutable;
 
 **Effect when off:** every `post()` throws `ledger.frozen`; reads continue to work. This halts all value movement across the entire platform — trading, payments, escrow, staking, rewards. It is the most consequential switch in the OS and exists because §4.2 demands it.
 
-`ledger.reconciliation` disables the scheduled job only. It does not disable the freeze-on-failure behaviour.
+`ledger.reconciliation` disables the scheduled job only. It does not disable the freeze-on-mismatch behaviour.
 
 ### The switch is durable
 
 It lives in `ledger.posting_freeze` — one row, like `chain_tip`, holding `frozen`, `reason`, `actor` and `changed_at`. It is not a field on a service object, because a freeze is a fact about **the ledger**, not about a server. In memory it lost three ways: a restart resumed posting on a book reconciliation had halted, a second replica never heard about the freeze at all, and the operator's reason was written nowhere.
 
-`post()` first locks `chain_tip`, then reads `posting_freeze` in a fresh statement under that lock. A joined read in the statement waiting on the tip can retain a pre-wait freeze snapshot. Scheduled mismatch freezes commit the switch and durable intent before releasing that same posting lock, so queued new posts see the committed halt. Posts do not lock the freeze row; the standalone operator freeze policy remains unchanged.
+`post()` first locks `chain_tip`, then reads `posting_freeze` in a fresh statement under that lock. A joined read in the statement waiting on the tip can retain a pre-wait freeze snapshot. Scheduled mismatch freezes commit the switch, durable intent and mismatch record in a short transaction after the snapshot proof. New posts that read the switch after that commit refuse; a post already past its freeze read may still complete. Posts do not lock the freeze row; the standalone operator freeze policy remains unchanged.
 
 A retry of a transaction that **already committed** still returns the original while frozen. The value moved; telling the caller otherwise would have it retry a movement that already happened.
 
@@ -242,7 +257,7 @@ Forward migrations `0014`–`0020` widen purpose trim checks, record nullable hi
 
 Run the complete upgrade while posting processes are stopped before starting this version. Each forward file and its tracking row commit together under the migration lock. Claims copy the actual stored journal key/hash/metadata; that upgrade baseline cannot prove whether an earlier administrator changed them. Historical digests remain unchanged. Receipt reads and idempotent retries refuse a journal row that contradicts its append-only claim.
 
-Scheduled reconciliation runs proof and snapshot insertion on the already-held transaction, including with a one-connection pool. SQL proof/snapshot errors roll back to a savepoint, then commit the halt and durable intent before the posting lock is released; bus publication runs after commit. New anchors record the locked sequence/hash and use the database statement timestamp. Old snapshots retain NULL anchors. A thrown proof freezes posting; a chain-only failure logs the actual failure without inventing a balance drift account.
+Scheduled and operator reconciliation read one REPEATABLE READ snapshot on a dedicated connection, including when the posting pool has one connection. A short READ COMMITTED transaction writes the staged, tip-pinned anchors and ok record, or commits a completed mismatch with its freeze and durable intent. Bus publication follows commit. An error that has not proved the book wrong, including a code-less error and a snapshot write after a green proof, is incomplete and does not freeze on that run; an established mismatch survives a sibling check failing. A stored amount that cannot be parsed, a chain row that cannot be hashed, and a non-text `chain_tip` are proven corruption and freeze. After N consecutive incomplete runs, counted in `reconcile_runs` as well as in this process, the tick freezes as `reconcile_unproven`. An operator thaw does not reset that streak. Old snapshots retain NULL anchors. A chain-only failure reports the actual failure without inventing a balance drift account.
 
 Freeze/thaw intents commit with the switch, receive monotonic sequence identity under its row lock, and drain by that order after commit through the existing bus. Failed sends remain pending, and same-attribution retries drain them without changing the switch again. The full down runner reverses only applied files in one transaction, refuses any posted book, and rolls back tracking deletion with DDL. Direct downs also refuse known snapshot/claim/freeze-event history before removing it.
 

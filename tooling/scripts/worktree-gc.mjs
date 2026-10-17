@@ -453,8 +453,8 @@ if (checkOnly) {
 
 if (dry) {
   console.log(
-    `\n${safe.length} idle checkout(s). To remove them:  pnpm wt:gc:apply -- --yes\n` +
-      'Branches are never deleted — only the checkouts. `pnpm wt <branch>` restores one.',
+    `\n${safe.length} idle checkout(s). This dry run removes nothing.\n` +
+      'Remove one checkout you own with `git worktree remove <path>` (never --force) and keep the branch. `pnpm wt <branch>` restores a checkout.',
   );
   process.exit(0);
 }

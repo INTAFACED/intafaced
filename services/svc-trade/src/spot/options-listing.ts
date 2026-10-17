@@ -1,4 +1,5 @@
 import type { Amount } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { TradeError, type MarketKind } from './types.js';
 import {
   OPTIONS_FIXING_UNCONFIGURED,
@@ -49,8 +50,9 @@ export {
 export function assertOptionsSettlementAssetLawStamped(settlementAssetLawConfigured: string): string {
   const assetLaw = settlementAssetLawConfigured.trim();
   if (assetLaw.length === 0) {
+    logRefusalSpec('trade.options_settlement_law_unset');
     throw new TradeError(
-      'options cannot be listed until D26-P0-05 settlement asset law is published (TRADE_OPTIONS_SETTLEMENT_ASSET_LAW empty) — SOCKET §13 socket.options-settlement-asset-law; empty means refuse, never invent live set / settlement asset / refuse matrix; TRADE_OPTIONS_SETTLEMENT_FIXING alone does not unlock',
+      'Options cannot be listed yet: the settlement asset is not set. A fixing source alone does not turn listing on.',
       OPTIONS_SETTLEMENT_LAW_UNSET,
     );
   }
@@ -127,8 +129,9 @@ export function resolveOptionsListing(input: ResolveOptionsListingInput): Option
 
   const fixing = paper ? input.settlementFixingConfigured.trim() || OPTIONS_PAPER_FIXING_STAMP : input.settlementFixingConfigured.trim();
   if (fixing.length === 0) {
+    logRefusalSpec('trade.options_fixing_unconfigured');
     throw new TradeError(
-      'options cannot be listed until settlement fixing is configured (TRADE_OPTIONS_SETTLEMENT_FIXING empty) — D7 is owner law; empty means refuse',
+      'Options cannot be listed yet: the settlement fixing source is not set (TRADE_OPTIONS_SETTLEMENT_FIXING is empty).',
       OPTIONS_FIXING_UNCONFIGURED,
     );
   }

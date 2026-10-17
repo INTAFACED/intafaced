@@ -1136,6 +1136,40 @@ export const businessPayrollRuns = bank.table(
   (t) => [index('business_payroll_runs_account_idx').on(t.accountId, t.createdAt)],
 );
 
+export const businessMemberCommands = bank.table(
+  'business_member_commands',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => businessAccounts.id),
+    actorUserId: text('actor_user_id').notNull(),
+    targetUserId: text('target_user_id').notNull(),
+    action: text('action').notNull(),
+    role: businessMemberRoleEnum('role'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('business_member_commands_account_idx').on(t.accountId, t.createdAt)],
+);
+
+export const businessControlRequests = bank.table(
+  'business_control_requests',
+  {
+    id: uuid('id').primaryKey(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => businessAccounts.id),
+    kind: text('kind').notNull(),
+    spendThreshold: amount('spend_threshold'),
+    proposedBy: text('proposed_by').notNull(),
+    confirmedBy: text('confirmed_by'),
+    status: text('status').notNull(),
+    createdAt: createdAt(),
+    decidedAt: tstz('decided_at'),
+  },
+  (t) => [index('business_control_account_idx').on(t.accountId, t.createdAt)],
+);
+
 export const businessPayrollLines = bank.table(
   'business_payroll_lines',
   {
@@ -1176,6 +1210,8 @@ export const schema = {
   businessAccounts,
   businessMembers,
   businessApprovals,
+  businessMemberCommands,
+  businessControlRequests,
   businessPayrollRuns,
   businessPayrollLines,
 };

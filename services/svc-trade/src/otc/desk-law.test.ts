@@ -117,7 +117,7 @@ describe('requirePublishedOtcDeskLaw', () => {
       expect(err).toBeInstanceOf(OtcError);
       expect((err as OtcError).code).toBe('trade.otc_desk_law_blank');
       expect((err as OtcError).residual).toBe(OTC_DESK_LAW_RESIDUAL);
-      expect(OTC_DESK_LAW_RESIDUAL).toContain('DIRECTION §8');
+      expect(OTC_DESK_LAW_RESIDUAL).toContain('not available yet');
     }
   });
 
