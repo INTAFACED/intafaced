@@ -49,6 +49,12 @@ const POLL_MS = 5000;
 export const WELCOME_AMOUNTS = { USDT: '10000', BTC: '0.25', ETH: '2' };
 
 /** The counterparty. Handles allow letters, digits and underscore only (identity router.ts register regex). */
+/**
+ * The separate LOCAL TEST account that owns the sandbox merchant. Not the main test customer, not a person.
+ * Its credentials and TOTP secret live in `stackPaths().merchantOwner` (merchant-owner.json, mode 600).
+ */
+export const MERCHANT_OWNER = { handle: 'test_merchant_owner', email: 'test-merchant-owner@local-test.invalid' };
+
 export const FRIEND = { handle: 'test_friend', email: 'test-friend@local.test' };
 
 /** What the friend sends the newest real user on `seed`. Labels live in the log only (no memo field in Bank). */
@@ -82,7 +88,7 @@ export function stackPaths(home = os.homedir(), env = process.env) {
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
     secrets: path.join(stateDir, 'secrets.json'),
     accounts: path.join(stateDir, 'world-accounts.json'),
-    ownerFactor: path.join(stateDir, 'world-owner-factor.json'),
+    merchantOwner: path.join(stateDir, 'merchant-owner.json'),
     state: path.join(stateDir, 'run', 'world-state.json'),
     pidFile: path.join(stateDir, 'run', 'world.json'),
     log: path.join(stateDir, 'logs', 'world.log'),
@@ -358,11 +364,20 @@ export class OwnerFactor {
   get pendingSecret() {
     return typeof this.data.pendingSecret === 'string' && this.data.pendingSecret ? this.data.pendingSecret : null;
   }
+  /** { handle, email, password, userId } of the LOCAL TEST merchant owner, or null before it is first written. */
+  get account() {
+    const a = this.data.account;
+    return a && typeof a === 'object' && typeof a.password === 'string' && a.password ? a : null;
+  }
+  setAccount(account) {
+    this.data.account = { handle: account.handle, email: account.email, password: account.password, userId: account.userId ?? null };
+    this.save();
+  }
   save() {
     writePrivateAtomic(this.file, {
-      kind: 'intafaced-local-test-owner-factor',
+      kind: 'intafaced-local-test-merchant-owner',
       label: LABEL,
-      note: 'LOCAL TEST account second factor (TOTP). Not a person. Never valid outside this stack. Secrets: do not print.',
+      note: 'LOCAL TEST merchant-owner account and its second factor (TOTP). Not a person. Never valid outside this stack. Secrets: do not print.',
       ...this.data,
     });
   }
@@ -407,6 +422,26 @@ export class OwnerFactor {
     this.data.enrolledAt = new Date().toISOString();
     this.save();
   }
+}
+
+/**
+ * For proof scripts: the merchant owner's sign-in material, or null when populate has not made it yet.
+ * File shape (merchant-owner.json, mode 600): { kind, label, account: { handle, email, password, userId },
+ * secret (base32 TOTP), recoveryCodes, lastStep (last 30 s step used), enrolledAt }. Sign in with
+ * auth.login { identifier: email, password, totpCode } and use a TOTP step after `lastStep`.
+ */
+export function readMerchantOwner(file) {
+  const d = readJson(file, null);
+  const a = d?.account;
+  if (!a?.email || !a?.password) return null;
+  return {
+    handle: a.handle,
+    email: a.email,
+    password: a.password,
+    userId: a.userId ?? null,
+    totpSecret: typeof d.secret === 'string' ? d.secret : null,
+    lastStep: Number(d.lastStep ?? 0),
+  };
 }
 
 class EdgeClient {
@@ -2013,7 +2048,7 @@ async function ensureOwnerSecondFactor(ctx) {
         'merchant',
         item,
         'refused',
-        'populate holds a TOTP secret but this session has no second factor (stack reset?). Move world-owner-factor.json aside and rerun; populate never deletes it',
+        'populate holds a TOTP secret but this session has no second factor (stack reset?). Move merchant-owner.json aside and rerun; populate never deletes it',
       );
       return { ok: false, changed: false };
     }
@@ -2055,16 +2090,130 @@ async function ensureOwnerSecondFactor(ctx) {
   return { ok: true, changed: true };
 }
 
-async function populateMerchantStep(ctx) {
+/** The owner's second-factor store: LOCAL TEST file, mode 600. The TOTP generator loads lazily from the built identity service. */
+function makeOwnerFactor(file, log) {
+  let totpFn = null;
+  return new OwnerFactor({
+    file,
+    log,
+    totp: async (secret, t) => {
+      if (!totpFn) {
+        const gates = await gatesApi();
+        totpFn = (await gates.makeContext({ log })).totp.totp;
+      }
+      return totpFn(secret, { at: new Date(t) });
+    },
+  });
+}
+
+/**
+ * The merchant is owned by a separate LOCAL TEST account (test_merchant_owner), never the main test
+ * customer. Registered through auth.register like the friend, with credentials written to the state
+ * file before the register call. Returns { client, factor } signed in, or null after recording why.
+ */
+async function ensureMerchantOwner(ctx) {
+  const { p, record, log } = ctx;
+  const item = 'merchant owner account (TEST)';
+  const factor = makeOwnerFactor(p.merchantOwner, log);
+  let account = factor.account;
+  if (!account) {
+    account = { ...MERCHANT_OWNER, password: crypto.randomBytes(18).toString('base64url'), userId: null };
+    factor.setAccount(account);
+  }
+  const client = new EdgeClient(account, factor);
+  let how;
+  try {
+    if (factor.secret || factor.pendingSecret) {
+      await client.login();
+      how = 'existing';
+    } else {
+      how = await client.ensureAccount();
+    }
+  } catch (err) {
+    record(
+      'merchant',
+      item,
+      'refused',
+      `${oneLine(err instanceof Error ? err.message : String(err), 200)}. If this stack was reset or the factor is not held, move merchant-owner.json aside and rerun; populate never deletes or resets anything`,
+    );
+    return null;
+  }
+  factor.setAccount(account);
+  record(
+    'merchant',
+    item,
+    how === 'created' ? 'created' : 'exists',
+    `${account.handle} (${account.userId}), LOCAL TEST, credentials in merchant-owner.json (mode 600)`,
+  );
+  return { client, factor };
+}
+
+/**
+ * pay needs verification tier "full" for the owner. Same path as the friend: the owner submits its own
+ * kyc.submit (LOCAL TEST data, the gates' test jurisdiction), then the two LOCAL TEST operators approve it
+ * (local-test-gates). Only the owner's own request is ever approved; any other pending request stops this.
+ * Returns { ok, changed }.
+ */
+async function ensureOwnerKycFull(ctx) {
   const { user, record, secrets, log } = ctx;
+  const item = 'verification tier full (TEST, local operators)';
+  const gates = await gatesApi();
+  const userId = user.account.userId;
+  const tiers = () => gates.listAccountsAndTiers(secrets);
+  const has = (t) => {
+    const set = t.approved.get(userId);
+    return Boolean(set && (set.has('full') || set.has('institutional')));
+  };
+  let now = tiers();
+  if (has(now)) {
+    record('merchant', item, 'exists', 'owner already holds tier full');
+    return { ok: true, changed: false };
+  }
+  if (!now.pending.some((r) => r.userId === userId && r.tier === 'full')) {
+    const sub = await call(user, 'm', 'identity', 'kyc.submit', { tier: 'full', jurisdiction: gates.MARKERS.kycJurisdiction });
+    if (!sub.ok) {
+      record('merchant', item, 'refused', `kyc.submit refused: ${sub.refusal}`);
+      return { ok: false, changed: false };
+    }
+    now = tiers();
+  }
+  const others = now.pending.filter((r) => r.userId !== userId);
+  if (others.length > 0) {
+    record(
+      'merchant',
+      item,
+      'refused',
+      `${others.length} other pending verification request(s) exist; populate approves only the owner's, so it stopped`,
+    );
+    return { ok: false, changed: false };
+  }
+  const gctx = await gates.makeContext({ log });
+  const rows = await gates.approvePending(gctx);
+  const failed = rows.find((r) => !r.ok);
+  if (failed || !has(tiers())) {
+    record('merchant', item, 'refused', failed ? `approval refused: ${oneLine(failed.why, 200)}` : 'approval did not produce tier full');
+    return { ok: false, changed: false };
+  }
+  record('merchant', item, 'created', 'owner submitted its own request; two LOCAL TEST operators approved tier full');
+  return { ok: true, changed: true };
+}
+
+async function populateMerchantStep(baseCtx) {
+  const { record, secrets, log } = baseCtx;
+  const owner = await ensureMerchantOwner(baseCtx);
+  if (!owner) return;
+  const ctx = { ...baseCtx, user: owner.client, factor: owner.factor };
+  const { user } = ctx;
   const emailState = await confirmSeededOwnerEmail(user, record);
   const factorState = await ensureOwnerSecondFactor(ctx);
   if (!factorState.ok) return;
-  if (emailState === 'confirmed' || factorState.changed) {
+  const kycState = await ensureOwnerKycFull(ctx);
+  if (!kycState.ok) return;
+  if (emailState === 'confirmed' || factorState.changed || kycState.changed) {
     const signed = await resignInForMerchantScopes(user, record, 'sign-in after email confirmation and second factor');
     if (!signed) return;
   }
-  const me = await call(user, 'q', 'pay', 'merchant.me');
+  let me = await call(user, 'q', 'pay', 'merchant.me');
   if (!me.ok && isPayScopeRefusal(me.refusal)) {
     record(
       'merchant',
@@ -2075,6 +2224,38 @@ async function populateMerchantStep(ctx) {
     return;
   }
   if (!me.ok) return record('merchant', 'merchant.me', 'refused', me.refusal);
+
+  // Onboarding first: rail health and the catalogue need pay:read, which a session only gets once the
+  // owner's merchant is KYB-approved. So create, submit KYB, approve, sign in again, then read.
+  if (me.data?.kybStatus !== 'approved') {
+    const onboard = planMerchantPopulate({
+      userId: user.account.userId,
+      merchant: me.data,
+      publishedFeeBps: publishedStarterFeeBps(),
+    });
+    if (onboard.stop === 'starter-fee-unconfigured') {
+      record(
+        'merchant',
+        'TEST DATA merchant account',
+        'refused',
+        'starter fee is not configured (MerchantPortal starterFeeBps is null; PAY_MERCHANT_STARTER_FEE_BPS is unset). populate does not invent a fee',
+      );
+      return;
+    }
+    let onboardingId = me.data?.id ?? null;
+    for (const action of onboard.actions.filter((x) => ['create-merchant', 'submit-kyb', 'decide-kyb'].includes(x.kind))) {
+      if (!onboardingId && action.kind !== 'create-merchant') {
+        record('merchant', action.kind, 'skipped', 'merchant was not created');
+        continue;
+      }
+      const out = await runMerchantAction(ctx, action, () => onboardingId);
+      if (out.merchantId) onboardingId = out.merchantId;
+      if (out.moneyClosed) return;
+    }
+    me = await call(user, 'q', 'pay', 'merchant.me');
+    if (!me.ok) return record('merchant', 'merchant.me', 'refused', me.refusal);
+    if (!me.data) return; // the refusal that stopped create is already recorded
+  }
 
   const userId = user.account.userId;
   const friend = listUsers(secrets).find((u) => u.handle === FRIEND.handle);
@@ -2644,32 +2825,16 @@ async function cmdPopulate(argv) {
   }
   if (!login) die(`no Email / Password lines in ${opts.loginFile} (the test account note). Nothing was changed.`);
   const account = { handle: 'local_test_account', email: login.email, password: login.password, userId: null };
-  let totpFn = null;
-  const factor = new OwnerFactor({
-    file: p.ownerFactor,
-    log,
-    totp: async (secret, t) => {
-      if (!totpFn) {
-        const gates = await gatesApi();
-        totpFn = (await gates.makeContext({ log })).totp.totp;
-      }
-      return totpFn(secret, { at: new Date(t) });
-    },
-  });
-  const user = new EdgeClient(account, factor);
+  const user = new EdgeClient(account);
   try {
     await user.login();
   } catch (err) {
-    if (/mfa_required|Two-factor code required/i.test(String(err?.message)))
-      die(
-        `the test account has a second factor and populate holds no secret for it (looked in ${p.ownerFactor}). Nothing was reset or changed.`,
-      );
     die(`the test account could not sign in: ${oneLine(err.message, 200)}`);
   }
   log(`populate started for ${account.email} (${account.userId}). ${LABEL}. Steps: ${steps.join(', ')}`);
 
   const results = [];
-  const ctx = { user, factor, p, secrets, log, spaces: null, friend: null, record: null };
+  const ctx = { user, p, secrets, log, spaces: null, friend: null, record: null };
   let room = 'run';
   ctx.record = (r, item, status, detail = '') => {
     const row = { room: r, item, status, detail };

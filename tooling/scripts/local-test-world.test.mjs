@@ -23,6 +23,7 @@ import {
   doneKey,
   fromScaled,
   isSkippedAccount,
+  isTestAccount,
   parseLoginFile,
   parsePopulateArgs,
   pendingWelcomes,
@@ -64,7 +65,9 @@ import {
   toScaled,
   welcomeRef,
   localEmailOutboxPath,
+  MERCHANT_OWNER,
   OwnerFactor,
+  readMerchantOwner,
   accessTokenMfa,
   freshTotpCode,
   loginRequestBody,
@@ -654,7 +657,7 @@ try {
     assert.equal(noWait.step, totpStepAt(clock));
   }
   {
-    assert.equal(stackPaths(home).ownerFactor.startsWith(stackPaths(home).stateDir), true);
+    assert.equal(stackPaths(home).merchantOwner.startsWith(stackPaths(home).stateDir), true);
     const factorDir = mkdtempSync(join(tmpdir(), 'owner-factor-'));
     try {
       const file = join(factorDir, 'sub', 'owner-factor.json');
@@ -748,7 +751,62 @@ try {
   assert.equal(/console\.log|log\(/.test(factorFn.replace(/record\(/g, '')), false, 'the factor step never prints or logs');
   assert.equal(/secret\}|\$\{.*[sS]ecret/.test(factorFn), false, 'no secret goes into a message');
   assert.equal(factorFn.includes('UPDATE'), false);
-  assert.ok(worldSrc.indexOf('new EdgeClient(account, factor)') > 0);
+  // Separate merchant owner: the main test customer is never given a factor or an enrolment.
+  assert.ok(worldSrc.includes('new EdgeClient(account, factor)'));
+  assert.equal(stackPaths(home).merchantOwner.endsWith('merchant-owner.json'), true);
+  assert.equal(MERCHANT_OWNER.handle, 'test_merchant_owner');
+  assert.match(MERCHANT_OWNER.email, /@local-test\.invalid$/);
+  assert.equal(isTestAccount({ handle: MERCHANT_OWNER.handle, email: MERCHANT_OWNER.email }), true);
+  const ownerFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureMerchantOwner'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(ownerFn, /ensureAccount/);
+  assert.ok(ownerFn.indexOf('setAccount(account)') < ownerFn.indexOf('ensureAccount'), 'credentials are written before the register call');
+  const cmdFn = worldSrc.slice(worldSrc.indexOf('async function cmdPopulate'), worldSrc.indexOf('async function main'));
+  assert.equal(/OwnerFactor|totp|factor/i.test(cmdFn), false, 'the main test account signs in with a password only');
+  assert.equal(worldSrc.includes('world-owner-factor'), false);
+  const kycFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureOwnerKycFull'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(kycFn, /kyc\.submit/);
+  assert.match(kycFn, /approvePending/);
+  assert.match(kycFn, /other pending verification request/, "only the owner's own request is ever approved");
+  assert.ok(kycFn.indexOf('others.length') < kycFn.indexOf('approvePending'));
+  const stepFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(stepFn.indexOf('ensureOwnerKycFull') < stepFn.indexOf('resignInForMerchantScopes'));
+  assert.ok(
+    stepFn.indexOf("'create-merchant', 'submit-kyb', 'decide-kyb'") < stepFn.indexOf("'railHealth'"),
+    'onboarding runs before the pay:read reads',
+  );
+  {
+    const d = mkdtempSync(join(tmpdir(), 'merchant-owner-'));
+    try {
+      const file = join(d, 'merchant-owner.json');
+      assert.equal(readMerchantOwner(file), null);
+      const f = new OwnerFactor({ file, totp: () => '000000' });
+      f.setAccount({ handle: 'test_merchant_owner', email: 'o@local-test.invalid', password: 'pw-test', userId: 'u-1' });
+      f.savePending('SECRETSECRETSECRET', ['rc']);
+      f.adoptPending(7);
+      assert.deepEqual(readMerchantOwner(file), {
+        handle: 'test_merchant_owner',
+        email: 'o@local-test.invalid',
+        password: 'pw-test',
+        userId: 'u-1',
+        totpSecret: 'SECRETSECRETSECRET',
+        lastStep: 7,
+      });
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).kind, 'intafaced-local-test-merchant-owner');
+      assert.equal(new OwnerFactor({ file, totp: () => '0' }).account.userId, 'u-1');
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  }
 
   console.log('local-test-world: all checks passed');
 } finally {
