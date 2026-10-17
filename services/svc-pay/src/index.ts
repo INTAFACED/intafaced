@@ -6,6 +6,8 @@ import { createFounderAuthority } from './founder-authority.js';
 import { ControlService, teamAccessPorts } from './control/index.js';
 import { teamReadFromSql } from './merchant-team-read.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
+import { disputeEvidenceScanEnabled, disputeEvidenceUploadEnabled } from './merchant-ops/dispute-evidence-policy.js';
+import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { createPayNamespaces } from './namespaces/index.js';
 import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
 import { retryAdoptConfig } from './halts/adopt-boot.js';
@@ -14,7 +16,8 @@ import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
 import { createConversionInventory } from './conversion/inventory.js';
-import { ConversionService, CONVERSION_LATE_FILL_RECHECK_MS } from './conversion/service.js';
+import { ConversionService } from './conversion/service.js';
+import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
@@ -141,6 +144,9 @@ const cryptoRail = new CryptoNativeAdapter({
   minConfirmations: env.PAY_MIN_CONFIRMATIONS,
   toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
 });
+/** Filled once Fastify exists. A malformed rail due date is logged and ignored. */
+const evidenceDueByLog: { warn: (eventId: string) => void } = { warn: () => undefined };
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
@@ -152,6 +158,7 @@ const rails = new RailRegistry([
         new CardSandboxAdapter({
           secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
           toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
+          noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
         }),
       ]
     : []),
@@ -219,7 +226,9 @@ const conversion = new ConversionService({
   slippageBps: conversionConfig.slippageBps,
   placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
 });
+const disputeCases = new PostgresDisputeCaseStore(sql);
 const pay = new PayService(sql, ledger, rails, {
+  disputeCases,
   guards: payGuards,
   haltStore,
   identityOperationAdmission: identityAdmission,
@@ -394,7 +403,7 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql)),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -419,6 +428,12 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    disputes: disputeCases,
+    evidence: {
+      uploadEnabled: disputeEvidenceUploadEnabled(process.env),
+      scanEnabled: disputeEvidenceScanEnabled(process.env),
+    },
+    invoiceLinks: pay,
     payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
     treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
     // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
@@ -434,6 +449,9 @@ export type { SubscriptionRouter } from './subscription-router.js';
 export type { PayNamespacesRouter } from './namespaces/index.js';
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+evidenceDueByLog.warn = (eventId) => {
+  app.log.warn({ eventId }, 'pay.evidence_due_by_ignored');
+};
 // Callers get a uniform not-found; operators get the real reason (log only).
 setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
 setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
@@ -590,6 +608,7 @@ webhookDrain.unref?.();
 /**
  * Late-fill detection stays off the quote and execute path. A venue or rate
  * error is logged and retried next tick; only a found fill blocks new conversions.
+ * The sweep does not book. Booking is the two-founder procedure.
  */
 const lateFillSweep = setInterval(() => {
   void conversion
@@ -602,8 +621,19 @@ const lateFillSweep = setInterval(() => {
     .catch((err) => {
       app.log.warn({ err }, 'conversion late-fill sweep failed');
     });
-}, CONVERSION_LATE_FILL_RECHECK_MS);
+}, CONVERSION_LATE_FILL_TICK_MS);
 lateFillSweep.unref?.();
+
+/**
+ * Orphan holds: a failed or missing conversion row whose clearing hold is still
+ * up. The founder trigger stays. A second replica finds the lock busy and skips.
+ */
+const holdSweep = setInterval(() => {
+  void conversion.sweepOrphanHolds('hold-sweep').catch((err) => {
+    app.log.warn({ err }, 'conversion hold sweep failed');
+  });
+}, CONVERSION_HOLD_SWEEP_MS);
+holdSweep.unref?.();
 
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
@@ -756,6 +786,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       watcher?.stop();
       clearInterval(lateFillSweep);
+      clearInterval(holdSweep);
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the

@@ -81,6 +81,7 @@ export const RECIPE_MATRIX = {
   fxConversionHold: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
   fxConversionRelease: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
   fxConversionReverse: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
+  fxConversionLateFill: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
   chargebackOpen: {
     kind: 'socket',
     socket: '§13',

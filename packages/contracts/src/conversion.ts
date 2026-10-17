@@ -159,10 +159,50 @@ export const conversionLateFillConfirmResultSchema = z
   })
   .strict();
 
+/** First founder. Names the late-fill audit. No amount, no venue numbers. */
+export const conversionLateFillBookProposeInputSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    auditId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const conversionLateFillBookProposeResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum(['pending', 'missing', 'conflict', 'already_booked', 'absent', 'below_minimum', 'not_bookable']),
+    changeHash: conversionChangeHashSchema.nullable(),
+  })
+  .strict();
+
+/** Second founder. Same body as a resolve confirm. `funding` is which pot paid the USD. */
+export const conversionLateFillBookConfirmResultSchema = z
+  .object({
+    requestId: payRequestIdSchema,
+    status: z.enum([
+      'confirmed',
+      'rejected',
+      'missing',
+      'hash_mismatch',
+      'same_founder',
+      'not_pending',
+      'evidence_changed',
+      'below_minimum',
+      'already_booked',
+    ]),
+    changeHash: conversionChangeHashSchema.nullable(),
+    funding: z.enum(['merchant', 'inventory']).nullable(),
+    order: conversionOrderSchema.nullable(),
+  })
+  .strict();
+
 export const conversionLateFillSweepResultSchema = z
   .object({
     checked: z.number().int().nonnegative(),
     found: z.number().int().nonnegative(),
+    finalized: z.number().int().nonnegative(),
+    busy: z.boolean(),
     errors: z
       .array(
         z
@@ -179,6 +219,7 @@ export const conversionLateFillSweepResultSchema = z
 export const conversionHoldSweepResultSchema = z
   .object({
     released: z.number().int().nonnegative(),
+    busy: z.boolean(),
     failures: z
       .array(
         z
