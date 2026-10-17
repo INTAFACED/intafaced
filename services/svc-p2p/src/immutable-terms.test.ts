@@ -311,22 +311,29 @@ describe('native P2P original terms and decisions', () => {
       if (!address || typeof address === 'string') throw new Error('owned fixture HTTP port unavailable');
       const bus = new MemoryEventBus('svc-p2p');
       const publish = vi.spyOn(bus, 'publish');
-      const service = new P2pService(
-        db.sql,
-        createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
-        bus,
-        {
-          instruments: new InstrumentService(db.sql),
-          feeBps: 100,
-          deadlines: {
-            escrowSeconds: 120,
-            paymentSeconds: 900,
-            releaseSeconds: 1800,
-            disputeSeconds: 604800,
-            escalationRecheckSeconds: 3600,
+      const serviceWith = (timeoutMs: number) =>
+        new P2pService(
+          db.sql,
+          createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs }),
+          bus,
+          {
+            instruments: new InstrumentService(db.sql),
+            feeBps: 100,
+            deadlines: {
+              escrowSeconds: 120,
+              paymentSeconds: 900,
+              releaseSeconds: 1800,
+              disputeSeconds: 604800,
+              escalationRecheckSeconds: 3600,
+            },
           },
-        },
-      );
+        );
+      // The point of the test is that the client aborts while the response is held back. 2 s is far shorter than the
+      // held response (it waits on the gate) yet long enough for the fixture server to reach ledger.post first on a
+      // loaded runner; at 100 ms the abort could fire before the post and flake the escrow check.
+      const service = serviceWith(2_000);
+      // After release the replay is not under test for speed, so it gets a budget a loaded runner can meet.
+      const patient = serviceWith(10_000);
       try {
         const failed = await service.cancelTrade(TRADE, SELLER).catch((error) => error as Error);
         if (held === 'error_body') {
@@ -349,10 +356,12 @@ describe('native P2P original terms and decisions', () => {
         await db.sql.begin(async (tx) => {
           await tx`SELECT id FROM p2p.p2p_trades WHERE id = ${TRADE} FOR UPDATE NOWAIT`;
         });
+        // Immediate, not waited for: the lock must already have committed at the ledger while the response was still held
+        // (the gate is not released yet), which is what proves the abort came after the post, not before it.
         expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('100');
         release();
         await db.sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${TRADE}`;
-        expect((await service.sweepDeadlines(undefined, 100)).failed).toBe(0);
+        expect((await patient.sweepDeadlines(undefined, 100)).failed).toBe(0);
         expect((await service.getTrade(TRADE)).resolution).toBe('refunded');
         expect(keys).toEqual([`p2p.escrow.lock:${TRADE}`, `p2p.escrow.lock:${TRADE}`, `p2p.escrow.refund:${TRADE}`]);
         expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${TRADE}`)).toHaveLength(1);
@@ -368,6 +377,7 @@ describe('native P2P original terms and decisions', () => {
         });
       }
     },
+    60_000,
   );
 
   it.each([
@@ -818,11 +828,13 @@ describe('native P2P original terms and decisions', () => {
     });
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    // The first call must time out because the handler is held at the gate; any budget shorter than the gate does that.
+    // 100 ms also made the LATER calls (balance, refund) flake on a loaded runner, so it is 2 s: the meaning is unchanged.
     const bus = new MemoryEventBus('svc-p2p');
     const publish = vi.spyOn(bus, 'publish');
     const service = new P2pService(
       db.sql,
-      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 2_000 }),
       bus,
       {
         instruments: new InstrumentService(db.sql),
@@ -883,7 +895,7 @@ describe('native P2P original terms and decisions', () => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     }
-  });
+  }, 60_000);
 
   it('persists a committed claim even when its SQL acknowledgement is lost, before any remote effect', async () => {
     await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;

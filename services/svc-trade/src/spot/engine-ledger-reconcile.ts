@@ -38,7 +38,7 @@ import type { OrderStatus } from './types.js';
 /** Wire state for matching — three values, not trade's six-status enum. */
 export function mapOrderStatusToCounterpartState(status: OrderStatus): CounterpartOrder['state'] {
   if (status === 'pending') return 'pending';
-  if (status === 'open' || status === 'recovery_required') return 'open';
+  if (status === 'open' || status === 'recovery_required' || status === 'hold_unknown') return 'open';
   return 'terminal';
 }
 

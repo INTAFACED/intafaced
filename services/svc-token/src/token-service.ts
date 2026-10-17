@@ -355,6 +355,9 @@ function feeScheduleBlank(raw: unknown): boolean {
   return false;
 }
 
+/** A non-fresh pending buyback claim is released only after this long (DB clock): longer than the ledger client's 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has landed or died. */
+const BUYBACK_QUIET_SECONDS = 120;
+
 export class TokenService {
   private readonly assetId: string;
   private readonly feeScheduleTtlMs: number;
@@ -1517,24 +1520,33 @@ export class TokenService {
    * Pending claim, no market-buy on the book.
    *
    * A fresh insert from this call posted nothing — release so the window is
-   * not held hostage. A retry of an older pending row may sit on top of a
-   * landed `token.burn:` from the pre-refuse path; deleting that claim would
-   * hide the burn. Live HTTP `getTxByKey` throws (S2S has no such door) — that
-   * must stay `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
+   * not held hostage. A retry of an older pending row is released only when
+   * `getTxByKey` says the burn key is absent AND the row is older than
+   * BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone is not
+   * "never": the burn from the earlier attempt can still be queued behind the
+   * ledger's chain-tip lock after the client gave up (25 s deadline; the
+   * ledger's own statement timeout is 15 s), and deleting the claim then frees
+   * the revenue window while a late burn lands — a later run could burn the
+   * same window again. `getTxByKey` answers null only for a key the ledger says
+   * it has not booked (the read-only `txByKey` door); when it cannot answer
+   * (ledger down, malformed, inconsistent) it throws — that must stay
+   * `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
    */
   private async refuseUnbookedBuyback(claimedId: string, runId: string, tokensBought: Amount, opts: { fresh: boolean }): Promise<never> {
-    let burnKnownAbsent = opts.fresh;
-    if (!burnKnownAbsent) {
+    let release = opts.fresh;
+    if (!release) {
       try {
         const burnTx = await this.ledger.getTxByKey(`token.burn:${this.assetId}:${runId}`);
-        burnKnownAbsent = burnTx === null;
+        release = burnTx === null;
       } catch {
-        burnKnownAbsent = false;
+        release = false;
       }
     }
-    if (burnKnownAbsent) {
+    if (release) {
       await this.sql`
-        DELETE FROM token.buyback_runs WHERE id = ${claimedId} AND status = 'pending'
+        DELETE FROM token.buyback_runs
+        WHERE id = ${claimedId} AND status = 'pending'
+          AND (${opts.fresh} OR created_at < now() - make_interval(secs => ${BUYBACK_QUIET_SECONDS}))
       `;
     }
     throw new TokenError(
@@ -1715,7 +1727,7 @@ export class TokenService {
    * svc-token is the ONLY minter. svc-mining-pool (Phase 5) requests an epoch
    * allocation from here; it never mints. The epoch row is the dedupe: a closed
    * epoch cannot be minted twice, and the ledger's idempotency key on
-   * `token.emission:<epoch>` is the backstop if this check is ever bypassed.
+   * `token.emission:<assetId>:<epoch>` is the backstop if this check is ever bypassed.
    */
   async mintEpoch(epoch: number, destination = rewardsEngine(this.assetId)): Promise<{ epoch: number; minted: Amount }> {
     return withMoneySpan('token.mintEpoch', { operation: 'emission', epoch }, async () => this.mintEpochInner(epoch, destination));

@@ -61,7 +61,7 @@ export default function CoinScreen({ params }: ScreenProps) {
         </section>
       </Frame>
     );
-  if (markets.status !== 'ready')
+  if (!settled || (markets.status === 'empty' && portfolio.status === 'loading'))
     return (
       <Frame>
         <PageSkeleton />
@@ -69,7 +69,7 @@ export default function CoinScreen({ params }: ScreenProps) {
     );
   return (
     <Frame>
-      <CoinPage key={asset} asset={asset} markets={markets.data} portfolio={portfolio} />
+      <CoinPage key={asset} asset={asset} markets={markets.status === 'ready' ? markets.data : []} portfolio={portfolio} />
     </Frame>
   );
 }

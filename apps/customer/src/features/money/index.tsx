@@ -8,22 +8,20 @@ import { MutationDialog, Section, type ActionSpec, type BankActionContext } from
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { Withdrawal } from './Withdrawal';
+import { Deposit } from './Deposit';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
 
-function CustodyUnavailable({ kind }: { kind: 'Deposit' | 'Withdraw' | 'Withdrawal addresses' }) {
+function CustodyUnavailable({ kind }: { kind: 'Withdraw' | 'Withdrawal addresses' }) {
   const labelKeys = {
-    Deposit: 'custody.deposit',
     Withdraw: 'custody.withdraw',
     'Withdrawal addresses': 'custody.addresses',
   } as const;
   const labelKey = labelKeys[kind];
   const text =
-    kind === 'Deposit'
-      ? copyText('index.a.live.deposit.address.or.bank.funding')
-      : kind === 'Withdraw'
-        ? copyText('index.live.custody.withdrawal.and.delivery.confirmation.are')
-        : copyText('index.live.custody.address.listing.and.address.verification');
+    kind === 'Withdraw'
+      ? copyText('index.live.custody.withdrawal.and.delivery.confirmation.are')
+      : copyText('index.live.custody.address.listing.and.address.verification');
   return (
     <Page eyebrow={copyText('index.money')} title={<Text k={labelKey} />}>
       <Section title={copyText('index.is.unavailable', { value1: copyText(labelKey) })}>
@@ -145,7 +143,7 @@ function MoneyRooms({ path }: { path: string }) {
   const pathname = path.split('?')[0]!.replace(/\/$/, '') || '/';
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
-  if (pathname === '/uc/recharge') content = <CustodyUnavailable kind="Deposit" />;
+  if (pathname === '/uc/recharge') content = <Deposit />;
   else if (pathname === '/uc/withdraw/address') content = <CustodyUnavailable kind="Withdrawal addresses" />;
   else if (pathname === '/uc/withdraw')
     content = (

@@ -281,15 +281,20 @@ describe('Stage C3 listing subscriptions', () => {
       const active = new CommerceService(sql, vendors, http, { commissionBps: 500, now: () => clock });
       await expect(active.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toThrow('ACK lost');
       expect(committed?.idempotencyKey).toBe(`market.purchase:${purchaseId}`);
+      // The shared client retries a lost response (a network error) twice before it gives up: three identical posts of
+      // the one key, which the ledger answers with the one booking.
+      expect(requests).toHaveLength(3);
       const closed = new CommerceService(sql, vendors, http, { commissionBps: null, now: () => clock });
       await expect(closed.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toMatchObject({
         code: 'market.commission_not_configured',
       });
-      expect(requests).toHaveLength(1);
+      expect(requests).toHaveLength(3);
       mode = 'funds';
       await expect(active.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toMatchObject({
         code: 'market.insufficient_funds',
       });
+      // A ledger refusal is an answer, not a flake: sent once.
+      expect(requests).toHaveLength(4);
       const [pending] =
         await sql`SELECT status, ledger_tx_id, rejection_code, access_until, price::text, commission_bps, period_seconds FROM market.purchases WHERE id = ${purchaseId}`;
       expect(pending).toMatchObject({
@@ -305,11 +310,10 @@ describe('Stage C3 listing subscriptions', () => {
       const settled = await active.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId });
       expect(settled.ledgerTxId).toBe(committed!.id);
       expect(settled.accessUntil).toBe(new Date(clock.getTime() + PERIOD * 1000).toISOString());
-      expect(requests).toHaveLength(3);
-      expect(requests[1]).toEqual(requests[0]);
-      expect(requests[2]).toEqual(requests[0]);
+      expect(requests).toHaveLength(5);
+      for (const request of requests) expect(request).toEqual(requests[0]);
       expect((await closed.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).ledgerTxId).toBe(settled.ledgerTxId);
-      expect(requests).toHaveLength(3);
+      expect(requests).toHaveLength(5);
       expect(formatAmount((await ledger.balance(userAvailable(BUYER, 'USDT'))).amount)).toBe('900');
       expect(formatAmount((await ledger.balance(userAvailable(VENDOR_USER, 'USDT'))).amount)).toBe('95');
     } finally {
