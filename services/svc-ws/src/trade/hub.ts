@@ -48,6 +48,8 @@ export interface TradeHubOptions {
   /** Owner-published lag ticks. Unset = unpublished; attach refuses. Never invent 20. */
   readonly maxLagTicks: number | undefined;
   readonly maxConnections: number | undefined;
+  /** Seat pool for multiplexed subscriptions, separate from `maxConnections`. Unset refuses a multiplexed attach. */
+  readonly muxMaxConnections?: number | undefined;
   /** Owner-published replay window. Unset = unpublished; attach refuses. */
   readonly recentLimit: number | undefined;
   /**
@@ -86,6 +88,8 @@ export function isLiveZeroTapeFrame(frame: string): boolean {
 interface Subscription {
   readonly marketId: string;
   readonly sink: TradeSink;
+  /** Holds a multiplexed seat (counted against `muxMaxConnections`). */
+  readonly mux: boolean;
   /** True until the recent-buffer replay has been written. */
   pending: boolean;
   lagTicks: number;
@@ -117,6 +121,21 @@ export class TradeHub {
 
   get connections(): number {
     return this.#subscriptions.size;
+  }
+
+  /** Seats held by multiplexed subscriptions (a separate pool from `maxConnections`). */
+  get muxConnections(): number {
+    return this.#seats(true);
+  }
+
+  get muxMaxConnections(): number | undefined {
+    return this.#options.muxMaxConnections;
+  }
+
+  #seats(mux: boolean): number {
+    let n = 0;
+    for (const sub of this.#subscriptions) if (sub.mux === mux) n += 1;
+    return n;
   }
 
   /** Per-hub seat ceiling (same bound attach enforces). Not process-wide. Unset = unpublished. */
@@ -152,7 +171,8 @@ export class TradeHub {
    * Register a sink. Returns detach, or `null` when at capacity (sink already
    * closed with 1013). Real sockets must terminate on null — no half-open seat.
    */
-  attach(marketId: string, sink: TradeSink): (() => void) | null {
+  attach(marketId: string, sink: TradeSink, options: { readonly mux?: boolean } = {}): (() => void) | null {
+    const mux = options.mux === true;
     if (!isPublishedTradeRecentLimit(this.#options.recentLimit)) {
       sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.tradeRecentLimitUnset));
       return null;
@@ -165,17 +185,17 @@ export class TradeHub {
       sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.maxLagTicksUnset));
       return null;
     }
-    const max = this.#options.maxConnections;
+    const max = mux ? this.#options.muxMaxConnections : this.#options.maxConnections;
     if (!isPublishedConnectionCeiling(max)) {
-      sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.maxConnectionsUnset));
+      sink.close(CLOSE_POLICY, resolveWsCopy(mux ? WS_COPY.muxMaxSeatsUnset : WS_COPY.maxConnectionsUnset));
       return null;
     }
-    if (this.#subscriptions.size >= max) {
+    if (this.#seats(mux) >= max) {
       sink.close(CLOSE_TRY_LATER, resolveWsCopy(WS_COPY.atCapacity));
       return null;
     }
 
-    const sub: Subscription = { marketId, sink, pending: true, lagTicks: 0, closed: false };
+    const sub: Subscription = { marketId, sink, mux, pending: true, lagTicks: 0, closed: false };
     this.#subscriptions.add(sub);
     void this.#open(sub);
 

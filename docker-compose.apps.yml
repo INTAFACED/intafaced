@@ -797,6 +797,13 @@ services:
       # refuse-closed (ws.max_connections_unset). Host may set 5000 explicitly.
       # Never invent 5000.
       WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-}
+      # Multiplexed subscription seats, separate from the ?market= pool.
+      # Blank refuses the attach (ws.close.mux_max_seats_unset). Never invent a size.
+      WS_MUX_MAX_SEATS: ${WS_MUX_MAX_SEATS:-}
+      # Idle multiplexed sockets that hold no subscription. Blank does not
+      # invent a timeout: this service has no connection idle setting, so the
+      # multiplexed door stays unmounted. Never invent a duration.
+      WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
