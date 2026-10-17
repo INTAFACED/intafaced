@@ -222,6 +222,11 @@ type WithdrawalViewOut = z.infer<typeof withdrawalView>;
  * (merchant-ownership.ts `merchantNotFound` / `refuseAsMissing`). The real
  * reason is operator-only (isolation-log.ts). Do not reintroduce FORBIDDEN here.
  */
+/** Present only for a sandbox API key. Sessions and live keys omit it. */
+function sandboxKeyEnv(principal: { key_env?: string } | null | undefined): { keyEnv: 'sandbox' } | Record<string, never> {
+  return principal?.key_env === 'sandbox' ? { keyEnv: 'sandbox' } : {};
+}
+
 export function createPayRouter(
   pay: PayService,
   rails: RailRegistry,
@@ -882,6 +887,7 @@ export function createPayRouter(
                 profileId: input.profileId ?? null,
                 amount: parseAmount(input.amount),
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
               'owner',
               true,
@@ -915,6 +921,7 @@ export function createPayRouter(
               await pay.capture(input.paymentId, {
                 ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
               'owner',
               true,
@@ -943,7 +950,14 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
-            return paymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }), 'owner', true);
+            return paymentOut(
+              await pay.refund(input.paymentId, parseAmount(input.amount), {
+                refundId: input.refundId,
+                ...sandboxKeyEnv(ctx.principal),
+              }),
+              'owner',
+              true,
+            );
           }),
         ),
 
@@ -1074,7 +1088,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.settlement.run');
-            return toSettlementOut(await pay.settleWindow(input));
+            return toSettlementOut(await pay.settleWindow({ ...input, ...sandboxKeyEnv(ctx.principal) }));
           }),
         ),
 
@@ -1096,6 +1110,7 @@ export function createPayRouter(
               await pay.payoutSettlement({
                 ...input,
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
             );
           }),
@@ -1594,6 +1609,7 @@ export function createPayRouter(
                   merchantId: input.merchantId,
                   amount: input.amount,
                   assetId: input.assetId,
+                  ...sandboxKeyEnv(ctx.principal),
                 });
               } catch (e) {
                 // The ledger refused for funds (money moved since the plan). A named error, NOT a recorded case: the case
@@ -1840,6 +1856,7 @@ export function createPayRouter(
                   // Taken from the token, never from the body. An operator cannot
                   // credit a balance and name somebody else as having done it.
                   creditedBy: ctx.principal.userId,
+                  ...sandboxKeyEnv(ctx.principal),
                 }),
               ),
               confirmOperatorId,
@@ -1909,6 +1926,7 @@ export function createPayRouter(
                 rail: input.railId,
                 destination: input.destination,
                 clientRef: input.clientRef,
+                ...sandboxKeyEnv(ctx.principal),
               }),
             ),
           ),

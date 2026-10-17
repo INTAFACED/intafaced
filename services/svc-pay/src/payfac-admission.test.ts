@@ -236,15 +236,22 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       });
       expect(created.statusCode, created.body).toBe(200);
       const id = created.json().id;
-      for (const action of ['authorize', 'capture']) {
+      for (const action of ['authorize', 'capture'] as const) {
         const result = await app.inject({
           method: 'POST',
           url: `/v1/payments/${id}/${action}`,
           headers: { ...headers, 'idempotency-key': `delegated-${action}` },
           payload: {},
         });
-        expect(result.statusCode, result.body).toBe(200);
-        expect(result.json().status).toBe(action === 'authorize' ? 'authorized' : 'captured');
+        if (action === 'capture') {
+          // The delegated key is sandbox, so capture is admitted and then refused
+          // before the ledger. The credential still reaches the capture grant.
+          expect(result.statusCode, result.body).toBe(403);
+          expect(result.json().error.code).toBe('pay.sandbox_live_account_refused');
+        } else {
+          expect(result.statusCode, result.body).toBe(200);
+          expect(result.json().status).toBe('authorized');
+        }
       }
       expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture']);
       expect(ledger.reconcile()).toEqual({ ok: true });
