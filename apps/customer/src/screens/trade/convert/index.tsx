@@ -381,7 +381,10 @@ function ConvertCard({
         return;
       case 'refused': {
         const action = outcome.copy.action;
-        setDialogMessage({ text: `${outcome.copy.title}. ${outcome.copy.body}`, action });
+        setDialogMessage({
+          text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
+          action,
+        });
         setAttempt(null);
         // The balance may be why: read it again now rather than in half a minute.
         if (userId) defaultPoller().refresh(`balance:${userId}`);
@@ -609,7 +612,7 @@ function ConvertCard({
           className="buy-state"
           title={state.copy.title}
           body={state.copy.body}
-          code={state.copy.reference}
+          code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
           action={state.copy.action}
         />
       ) : null}

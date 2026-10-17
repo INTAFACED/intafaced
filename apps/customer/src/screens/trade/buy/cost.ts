@@ -31,11 +31,26 @@ export function afterQuoteFee(value: string | null, fee: string | null, feeAsset
  * The worst price the customer can get, times the amount, in whole cents.
  * Buy: the MOST they can pay, rounded UP. Sell: the LEAST they get, rounded DOWN. Null without a protection price.
  */
-export function protectedTotal(side: 'buy' | 'sell', amount: string, protectionPrice: string | null): string | null {
+export function protectedTotal(
+  side: 'buy' | 'sell',
+  amount: string,
+  protectionPrice: string | null,
+  /** A fee charged in the paying money is part of the worst case; a fee in the coin is not. */
+  fee?: { amount: string | null; asset: string | null; quote: string },
+): string | null {
   const size = dec(amount);
   const limit = dec(protectionPrice);
   if (size === null || limit === null || limit <= 0n) return null;
-  return side === 'buy' ? str(ceilPlaces(mulUp(size, limit), 2)) : toPlaces(mulDown(size, limit), 2);
+  let charged = 0n;
+  if (fee) {
+    const taken = dec(fee.amount);
+    // An unknown fee, or one in an unknown asset, leaves the worst case unknown.
+    if (taken === null || (fee.asset === null && taken > 0n)) return null;
+    if (fee.asset === fee.quote) charged = taken;
+  }
+  if (side === 'buy') return str(ceilPlaces(mulUp(size, limit) + charged, 2));
+  const net = mulDown(size, limit) - charged;
+  return toPlaces(net > 0n ? net : 0n, 2);
 }
 
 export interface CostInput {
@@ -80,5 +95,12 @@ export function costRows(input: CostInput): CostRows {
         get = { kind: 'money', amount: estimated };
     }
   }
-  return { estimated, fee, get, limit: preview ? protectedTotal(side, base, preview.protectionPrice) : null };
+  return {
+    estimated,
+    fee,
+    get,
+    limit: preview
+      ? protectedTotal(side, base, preview.protectionPrice, { amount: feeAmount, asset: preview.feeAsset, quote: quoteAsset })
+      : null,
+  };
 }

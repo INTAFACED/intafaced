@@ -50,7 +50,8 @@ describe('costRows', () => {
     expect(rows.estimated).toBe('65');
     expect(rows.fee).toEqual({ amount: '0.065', asset: 'USDT' });
     expect(rows.get).toEqual({ kind: 'coin', amount: '0.001', afterFee: false });
-    expect(rows.limit).toBe('65.33');
+    // 0.001 * 65325.001 = 65.325001, plus the 0.065 USDT fee = 65.390001 -> 65.40
+    expect(rows.limit).toBe('65.4');
   });
   it('buy with the fee in the coin: shows the amount after the fee', () => {
     const rows = costRows({ ...base, side: 'buy', preview: { estimatedFee: '0.000001', feeAsset: 'BTC', protectionPrice: '65000' } });
@@ -58,8 +59,25 @@ describe('costRows', () => {
   });
   it('sell: least you get rounds down and the get line is money after a USDT fee', () => {
     const rows = costRows({ ...base, side: 'sell', preview: { estimatedFee: '0.065', feeAsset: 'USDT', protectionPrice: '64674.999' } });
-    expect(rows.limit).toBe('64.67');
+    // 64.674999 - 0.065 = 64.609999 -> 64.6
+    expect(rows.limit).toBe('64.6');
     expect(rows.get).toEqual({ kind: 'money', amount: '64.935' });
+  });
+  it('a fee in the coin leaves the money limit as before', () => {
+    const buy = costRows({ ...base, side: 'buy', preview: { estimatedFee: '0.000001', feeAsset: 'BTC', protectionPrice: '65325.001' } });
+    expect(buy.limit).toBe('65.33');
+    const sell = costRows({ ...base, side: 'sell', preview: { estimatedFee: '0.000001', feeAsset: 'BTC', protectionPrice: '64674.999' } });
+    expect(sell.limit).toBe('64.67');
+  });
+  it('sell never goes below zero when the fee is larger than the proceeds', () => {
+    const rows = costRows({ ...base, side: 'sell', preview: { estimatedFee: '100', feeAsset: 'USDT', protectionPrice: '1000' } });
+    expect(rows.limit).toBe('0');
+  });
+  it('an unknown fee leaves the limit unknown', () => {
+    expect(costRows({ ...base, side: 'buy', preview: { estimatedFee: null, feeAsset: null, protectionPrice: '65000' } }).limit).toBeNull();
+    expect(
+      costRows({ ...base, side: 'sell', preview: { estimatedFee: '0.1', feeAsset: null, protectionPrice: '65000' } }).limit,
+    ).toBeNull();
   });
   it('shows nothing for parts it cannot know', () => {
     const rows = costRows({ ...base, side: 'buy', price: null, preview: null });

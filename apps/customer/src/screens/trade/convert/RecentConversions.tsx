@@ -64,14 +64,7 @@ export function RecentConversions() {
           status={tableStatus}
           loadingRows={3}
           onRetry={activity.status === 'error' ? activity.retry : undefined}
-          emptyState={
-            <EmptyState
-              size="inline"
-              title={t('No conversions yet')}
-              reason={t('No conversions body')}
-              action={{ label: t('View activity'), href: ACTIVITY_HREF, variant: 'ghost' }}
-            />
-          }
+          emptyState={<EmptyState size="inline" title={t('No conversions yet')} reason={t('No conversions body')} />}
           errorState={
             <EmptyState
               size="inline"

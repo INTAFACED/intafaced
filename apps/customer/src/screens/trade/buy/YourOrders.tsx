@@ -29,6 +29,8 @@ import {
 } from './deps';
 import { baseOf, canCancel, pickRows, statusWord, type OrderStatusWord } from './orders-view';
 import { plainRefusal } from './quote-flow';
+import { recheckCancel } from './cancel-recheck';
+import { usePendingNote } from './order-flow';
 import { clearPending, runGuarded, type Pending } from './write-lock';
 
 /** The orders read is polled every 10 s; older than this it reads Stale. */
@@ -56,6 +58,9 @@ function OrdersPanel() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const sending = useRef(false);
+  const note = usePendingNote(userId);
+  const lostCancel = note.state === 'pending' && note.pending.kind === 'cancel' ? note.pending : null;
+  const [lostText, setLostText] = useState<string | null>(null);
 
   const reads = [open, closed];
   const refused = reads.find((read) => read.status === 'refused');
@@ -144,8 +149,26 @@ function OrdersPanel() {
     }
   }
 
+  async function checkLostCancel(pending: Pending) {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setLostText(null);
+    try {
+      // A read, never a second cancel.
+      const result = await recheckCancel(tradeApi, userId, pending);
+      if (result.kind === 'unknown') setLostText(t('Cancel not confirmed'));
+      else if (result.kind === 'checking') setLostText(t('Still being checked'));
+      else setNotice(result.kind === 'open' ? { text: t('Still open'), tone: 'warn' } : { text: t('Order cancelled'), tone: 'ok' });
+    } finally {
+      sending.current = false;
+      setBusy(false);
+      refreshReads();
+    }
+  }
+
   const timeFormat = useMemo(
-    () => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    () => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
     [],
   );
   const words: Record<OrderStatusWord, string> = {
@@ -215,7 +238,7 @@ function OrdersPanel() {
           >
             {t('Cancel')}
           </Button>
-        ) : null,
+        ) : undefined,
     },
   ];
 
@@ -248,6 +271,14 @@ function OrdersPanel() {
           {t('Open in Activity')}
         </Button>
       </header>
+      {lostCancel && !notice?.recheck ? (
+        <div className="buy-orders__notice" role="status" data-tone="warn" data-testid="orders-lost-cancel">
+          <span>{lostText ?? t('Cancel not confirmed')}</span>
+          <Button variant="secondary" size={28} loading={busy} onClick={() => checkLostCancel(lostCancel)}>
+            {t('Check again')}
+          </Button>
+        </div>
+      ) : null}
       {notice ? (
         <div className="buy-orders__notice" role="status" data-tone={notice.tone} data-testid="orders-notice">
           <span>{notice.text}</span>

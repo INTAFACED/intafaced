@@ -39,7 +39,7 @@ export {
 } from '@intafaced/ui';
 export type { KeyValueItem, TableColumn } from '@intafaced/ui';
 // The desk's own order reads (open and closed), so this screen and the desk share one poll and one set of rows.
-export { useClosedOrders, useOpenOrders } from '../desk/data';
+export { useClosedOrders, useOpenOrders, useRefreshPrivate } from '../desk/data';
 
 export {
   classifyRefusal,

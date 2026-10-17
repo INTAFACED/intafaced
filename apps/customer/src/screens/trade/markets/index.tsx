@@ -23,6 +23,7 @@ import {
   type SortState,
   type TickerRow,
 } from './deps';
+import { isSeparateFromSpot, useListingStatus } from './listing-status';
 import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
 import { TopCards, TopCardsSkeleton } from './TopCards';
@@ -59,6 +60,8 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
   // Paused markets are the ones the service lists as not orderable, so the list asks for them too and filters here.
   const markets = useMarkets({ includeClosed: true });
   const tickers = useTickers();
+  // Which listed markets are their own group (FX) and which are shut for the session; null if that read fails.
+  const statuses = useListingStatus();
 
   const storageKey = viewKey(userId);
   const [view, setView] = useState<ViewState>(() => applyAddress(readView(browserStorage(), storageKey), search));
@@ -88,8 +91,15 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
 
   const tickerMap = tickers.status === 'ready' ? tickers.data : undefined;
   const everyEntry = useMemo(
-    () => (markets.status === 'ready' ? entriesFor(markets.data, tickerMap, { includePaused: true }) : []),
-    [markets, tickerMap],
+    () =>
+      markets.status === 'ready'
+        ? entriesFor(
+            markets.data.filter((market) => !isSeparateFromSpot(statuses, market.symbol)),
+            tickerMap,
+            { includePaused: true },
+          )
+        : [],
+    [markets, tickerMap, statuses],
   );
   const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
@@ -280,6 +290,13 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
             {t('Try again')}
           </Button>
         </div>
+      ) : tickers.status === 'refused' ? (
+        <div className="mkt-notice" role="status">
+          <span>
+            {t('Couldn’t load prices')} {refusalCopy(tickers.code).title}. {refusalCopy(tickers.code).body}{' '}
+            <span className="mkt-muted">{tickers.code}</span>
+          </span>
+        </div>
       ) : null}
 
       <MarketsList
@@ -291,6 +308,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         onSortChange={changeSort}
         favorite={favorite}
         signedIn={signedIn}
+        statuses={statuses}
         loading={marketsLoading}
         empty={empty}
       />

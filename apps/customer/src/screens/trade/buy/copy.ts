@@ -34,6 +34,7 @@ const messages = {
   'All-in cost': 'What this will cost',
   'Not known yet': 'not known yet',
   'Price not available': 'No price yet.',
+  'Price stale hint': 'The price is out of date. Wait for a fresh one to review.',
   'Price refused': 'The price could not be read.',
   'Review buy': 'Review buy',
   'Review sell': 'Review sell',

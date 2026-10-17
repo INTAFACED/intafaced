@@ -305,6 +305,15 @@
     flex-direction: column;
     align-items: flex-end;
   }
+  .mkt-stack[data-start] {
+    align-items: flex-start;
+  }
+  .mkt-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+  }
   /* The row is one big link: the anchor around the name stretches over the whole row, buttons sit above it. */
   .mkt-link {
     display: flex;

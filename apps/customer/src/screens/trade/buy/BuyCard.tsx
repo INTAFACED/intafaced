@@ -3,6 +3,7 @@ import { ChevronRight, ArrowDownUp } from 'lucide-react';
 import './buy.css';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
+import { recheckCancel } from './cancel-recheck';
 import { CostBlock } from './CostBlock';
 import { costRows } from './cost';
 import { buyCopy, coinName } from './copy';
@@ -34,6 +35,7 @@ import {
   type TradeApi,
   useHideBalances,
   HIDDEN_MASK,
+  useRefreshPrivate,
 } from './deps';
 import {
   buildDraft,
@@ -285,6 +287,12 @@ function BuyForm({
   const available = useAvailable(spendAsset);
   const hideBalances = useHideBalances();
   const note = usePendingNote(userId);
+  const refreshPrivate = useRefreshPrivate();
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 5_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const price = useMemo(() => {
     if (ticker.status !== 'ready') return null;
@@ -428,6 +436,7 @@ function BuyForm({
         setReview(null);
         // Balances are read again now, not in half a minute, so the new balance is what the customer sees next.
         if (userId) defaultPoller().refresh(`balance:${userId}`);
+        refreshPrivate();
         onReceipt(receiptFrom(outcome.order, fills));
         return;
       }
@@ -456,6 +465,22 @@ function BuyForm({
         : reason === 'pending'
           ? t('Earlier order body')
           : t('No safe storage');
+
+  async function onCheckCancel() {
+    if (note.state !== 'pending' || busy) return;
+    setBusy('check');
+    setChecked(null);
+    // A read of the order, never a second cancel.
+    const outcome = await recheckCancel(tradeApi, userId, note.pending);
+    if (!mounted.current) return;
+    setBusy(null);
+    if (outcome.kind === 'unknown') setChecked(t('Cancel not confirmed'));
+    else if (outcome.kind === 'checking') setChecked(t('Still being checked'));
+    else {
+      refreshPrivate();
+      setChecked(outcome.kind === 'open' ? t('Still open') : t('Order cancelled'));
+    }
+  }
 
   async function onCheck() {
     if (note.state !== 'pending' || busy) return;
@@ -486,8 +511,10 @@ function BuyForm({
 
   const signedOut = !session;
   const waitingForPrice = plan.ok === false && plan.problem.kind === 'noPrice';
+  const priceStale = ticker.status === 'ready' && clock - ticker.asOf > PRICE_STALE_AFTER_MS;
   const ready =
     plan.ok &&
+    !priceStale &&
     !insufficient &&
     !signedOut &&
     note.state === 'none' &&
@@ -689,6 +716,11 @@ function BuyForm({
           </p>
           {checked ? <p className="buy-pending__body">{checked}</p> : null}
           <div className="buy-pending__actions">
+            {note.pending.kind === 'cancel' ? (
+              <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheckCancel}>
+                {busy === 'check' ? t('Checking order') : t('Check again')}
+              </Button>
+            ) : null}
             {note.pending.kind === 'place' ? (
               <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheck}>
                 {busy === 'check' ? t('Checking order') : t('Check order')}
@@ -730,6 +762,11 @@ function BuyForm({
                   : t('Review sell')}
         </Button>
       )}
+      {priceStale && !signedOut ? (
+        <p className="buy-pending__body" data-testid="stale-hint">
+          {t('Price stale hint')}
+        </p>
+      ) : null}
 
       <BuyReview
         review={review}
