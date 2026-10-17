@@ -9,6 +9,7 @@ import {
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { pspEnableModeFields, pspSetPricingFields } from './approval-bindings.js';
 import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb-decision-binding.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
@@ -293,11 +294,12 @@ export function createKybPspRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.psp_set_pricing', {
-              merchantId: input.merchantId,
-              feeBps: String(input.feeBps),
-              reason: input.reason,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.psp_set_pricing',
+              pspSetPricingFields({ merchantId: input.merchantId, feeBps: input.feeBps, reason: input.reason }),
+            );
             const result = await psp.setPricing({
               merchantId: input.merchantId,
               feeBps: input.feeBps,
@@ -357,10 +359,12 @@ export function createKybPspRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.psp_enable_mode', {
-              merchantId: input.merchantId,
-              reason: input.reason,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.psp_enable_mode',
+              pspEnableModeFields({ merchantId: input.merchantId, reason: input.reason }),
+            );
             const result = await psp.enablePspMode({
               merchantId: input.merchantId,
               reason: input.reason,
