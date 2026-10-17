@@ -226,4 +226,33 @@
   .cb-byid > :first-child {
     flex: 1;
   }
+
+  /*
+   * Phone width. The kit's KeyValue lays its rows on a two-column grid (label | value). In the cost boxes the labels are long
+   * and the values are sentences, so at 390 px the value column shrank to a few letters and was clipped. Stack label over value.
+   * The kit sets its grid with utility classes, which sit in a later layer than this file, so these overrides need !important.
+   */
+  @media (max-width: 640px) {
+    .cb-cost [data-slot='key-value'] {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+    .cb-cost [data-slot='key-value-row'] {
+      grid-column: 1 / -1 !important;
+      padding-block: 8px;
+    }
+    .cb-cost [data-slot='key-value-row'] dd {
+      text-align: left !important;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  /*
+   * The bot catalogue gives its first four columns fixed widths (1080 px) and leaves the Action column to share the rest, but the
+   * kit's minWidth for it is 1000 px. Below about 1220 px of room the Action column got 0 px and its buttons (Set up, Not built,
+   * See strategies) sat outside the scroll area where nobody could reach them. Keep 140 px for that column so the table scrolls
+   * sideways with the button inside it. minWidth is an inline style, so this needs !important.
+   */
+  .cb-page [data-slot='table-scroll'] > table:has(> colgroup > col:nth-child(5):last-child:not([style])) {
+    min-width: 1220px !important;
+  }
 }
