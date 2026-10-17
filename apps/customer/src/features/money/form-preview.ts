@@ -1,4 +1,4 @@
-import { estimateDays, estimateInterest } from './interest-estimate';
+import { displayPlaces, estimateDays, estimateInterest } from './interest-estimate';
 import { formPreviewCopy } from './form-preview-copy';
 import type { Holding } from './client';
 
@@ -17,7 +17,7 @@ export function availableRow(asset: string, holdings: readonly Holding[] | null,
   return [t('available'), found ? fmt(found.available, asset) : t('availableNone', { asset })];
 }
 
-export type EarnPool = { name: string; assetId: string; aprBps: number; termDays: number | null };
+export type EarnPool = { name: string; assetId: string; kind: 'flexible' | 'fixed'; aprBps: number; termDays: number | null };
 
 /** The date a fixed-term deposit made today would mature, about: today + the pool's term. UTC date, never invented for flexible pools. */
 export function maturityDate(termDays: number, now: Date): string {
@@ -36,15 +36,26 @@ function estimateRows(
 ): Row[] {
   const { t } = formPreviewCopy;
   const days = estimateDays(termDays);
-  const estimate = estimateInterest({ amount: values[field] ?? '', aprBps, days });
+  const estimate = estimateInterest({
+    amount: values[field] ?? '',
+    aprBps,
+    days,
+    compounding: basis === 'loan' ? 'daily' : 'simple',
+    places: displayPlaces(asset),
+  });
   const how =
     basis === 'loan'
       ? t('estimateBasisLoan')
       : termDays !== null && termDays > 0
         ? t('estimateBasisTerm', { days })
         : t('estimateBasisYear');
+  const value = !estimate
+    ? t('estimateEmpty')
+    : estimate.belowDisplay
+      ? t('estimateTiny', { amount: fmt(estimate.smallest, asset) })
+      : t('estimateValue', { amount: fmt(estimate.interest, asset) });
   return [
-    [t('estimate'), estimate ? t('estimateValue', { amount: fmt(estimate.interest, asset) }) : t('estimateEmpty')],
+    [t('estimate'), value],
     [t('estimateHow'), how],
   ];
 }
@@ -55,7 +66,10 @@ export function earnFormFacts(pool: EarnPool, available: Row, now: Date, bps: (v
   const rows: Row[] = [
     [t('pool'), pool.name],
     [t('apr'), bps(pool.aprBps)],
-    [t('term'), pool.termDays === null ? t('termFlexible') : t('termFixed', { days: pool.termDays })],
+    [
+      t('term'),
+      pool.termDays !== null ? t('termFixed', { days: pool.termDays }) : pool.kind === 'fixed' ? t('termNotStated') : t('termFlexible'),
+    ],
   ];
   if (pool.termDays !== null && pool.termDays > 0)
     rows.push([t('maturity'), t('maturityIfToday', { date: maturityDate(pool.termDays, now) })]);
@@ -64,6 +78,8 @@ export function earnFormFacts(pool: EarnPool, available: Row, now: Date, bps: (v
 }
 
 export function earnLiveRows(pool: EarnPool, values: Record<string, string>, fmt: Format): Row[] {
+  // A fixed pool that does not say how long it runs has no honest day count to estimate over.
+  if (pool.kind === 'fixed' && pool.termDays === null) return [[formPreviewCopy.t('estimate'), formPreviewCopy.t('estimateNoTerm')]];
   return estimateRows(values, 'amount', pool.assetId, pool.aprBps, pool.termDays, fmt, 'pool');
 }
 
@@ -89,8 +105,8 @@ export function loanFormFacts(product: LoanProduct, availableCollateral: Row, bp
     [t('apr'), bps(product.aprBps)],
     availableCollateral,
     [t('loanMaxLtv'), t('ltvOf', { percent: bps(product.maxLtvBps) })],
-    [t('loanMarginCall'), t('ltvOf', { percent: bps(product.marginCallLtvBps) })],
-    [t('loanLiquidation'), t('ltvOf', { percent: bps(product.liquidationLtvBps) })],
+    [t('loanMarginCall'), t('ltvReaches', { percent: bps(product.marginCallLtvBps) })],
+    [t('loanLiquidation'), t('ltvReaches', { percent: bps(product.liquidationLtvBps) })],
     [t('loanPriceRows'), t('loanNoPrice')],
   ];
 }

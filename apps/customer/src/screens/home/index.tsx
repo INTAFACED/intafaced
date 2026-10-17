@@ -21,6 +21,7 @@ import {
   useMarkets,
   useMovers,
   useHomePortfolio,
+  DerivedTotalNote,
   useSparklines,
   useTickers,
   type Loadable,
@@ -204,6 +205,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
           {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
         </p>
       ) : null}
+      <DerivedTotalNote source={data.source} className="home-note" />
       {unpriced > 0 ? (
         <p className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}

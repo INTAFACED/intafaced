@@ -20,6 +20,7 @@ export {
 export type { Decimal, Loadable, MarketRow, TickerRow } from '../../data';
 // One total: Home reads the same source as the Money screen (the bank's valuation, which counts named accounts).
 export { useHomePortfolio } from '../money/portfolio-source';
+export { DerivedTotalNote } from '../money/total-note';
 export type { HomeHolding, HomePortfolio } from '../money/portfolio-source';
 export { compareDecimal, dec, decOrNull, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
 

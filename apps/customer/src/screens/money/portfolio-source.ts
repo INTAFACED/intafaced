@@ -245,7 +245,7 @@ export function toHomePortfolio(view: MoneyView): HomePortfolio {
 /**
  * Home's portfolio: the same source as the Money screen (the bank's own valuation, which counts named accounts), so the
  * two screens show one total. Only when the bank cannot give it does this use the data layer's derivation, and then
- * `source` is 'derived' so the screen says "from price moves".
+ * `source` is "derived" and the screens say so under the total (named spaces are not in that total).
  */
 export function useHomePortfolio(): Loadable<HomePortfolio> {
   const money = useMoneyPortfolio();

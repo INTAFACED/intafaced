@@ -29,6 +29,7 @@ import {
   useFavorites,
   useMarkets,
   useHomePortfolio,
+  DerivedTotalNote,
   useSparklines,
   useTickers,
   type HomeHolding,
@@ -309,6 +310,7 @@ function Summary({
             </span>
           ) : null}
         </div>
+        <DerivedTotalNote source={data.source} className="hp-total__note" />
       </div>
       <div className="hp-stats">
         <Stat label={t('Cash')}>
