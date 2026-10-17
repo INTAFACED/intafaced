@@ -45,7 +45,17 @@ function Answer<T>({ value, source, t, children }: { value: Resource<T>; source:
     return (
       <div className="protocol-refuse" data-source={source}>
         <p className="protocol-refuse__title">{t('unreachableTitle', { source })}</p>
-        <Failure result={resource.failure} retry={reload} />
+        {resource.failure.status === 502 || resource.failure.status === 503 || resource.failure.status === 504 ? (
+          // 502/503/504 through the gateway means the Protocol service itself is down, not a generic network fault.
+          <div className="failure" role="status">
+            <p>{t('serviceNotRunning')}</p>
+            <Button variant="secondary" onClick={reload}>
+              {t('retry')}
+            </Button>
+          </div>
+        ) : (
+          <Failure result={resource.failure} retry={reload} />
+        )}
       </div>
     );
   return <>{children(resource.data)}</>;

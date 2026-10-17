@@ -29,6 +29,7 @@ const en = {
   retry: 'Retry',
   refreshAll: 'Refresh',
   unreachableTitle: 'Could not read {source}',
+  serviceNotRunning: 'The Protocol service is not running in this environment, so there is nothing to show here yet.',
   yes: 'Yes',
   no: 'No',
   notReturned: 'Not returned',
@@ -61,7 +62,7 @@ const en = {
   blocksNote: 'Heights come from the indexer. A height of "Not returned" means the indexer could not ask, never zero.',
   // Validators
   validatorsTitle: 'Validator set',
-  validatorsEmpty: 'No validator set exists. There is no chain service and no consensus binary; INTACHAIN P1 is parked.',
+  validatorsEmpty: 'No validator set exists yet. The INTACHAIN network has not been launched.',
   hdr_validator: 'Validator',
   hdr_stake: 'Stake',
   hdr_status: 'Status',
@@ -130,7 +131,8 @@ const en = {
   railBase: 'Base Sepolia contracts (P0)',
   railBaseState: 'Deployed on testnet. Not INTACHAIN.',
   railIntachain: 'INTACHAIN (P1)',
-  railIntachainState: 'Parked. Waiting on the recorded P1 GO.',
+  // Source: INTACHAIN P1 stays parked until a written GO is recorded (see INTACHAIN_P1_GO in blockers.ts). Customers read the plain version.
+  railIntachainState: 'Not activated: the INTACHAIN network launch has not been approved yet.',
   railBridge: 'Bridge',
   railBridgeState: 'No bridge service exists.',
   // Actions
@@ -149,8 +151,9 @@ const en = {
   act_stake: 'Stake',
   act_unstake: 'Unstake',
   // Blockers
-  blk_p1_go: 'Waiting on Nitro’s recorded P1 GO. INTACHAIN is not live and nothing here runs on it.',
-  blk_no_chain_service: 'There is no INTACHAIN chain service or validator set yet. It is not built until the P1 GO.',
+  blk_p1_go: 'Not activated: the INTACHAIN network launch has not been approved yet. Nothing here runs on it.',
+  blk_no_chain_service:
+    'There is no INTACHAIN chain service or validator set yet. It will not be built until the INTACHAIN launch is approved.',
   blk_no_bridge_service: 'No bridge service exists, so a bridge request would be refused rather than shown as locked or minted.',
   blk_source_down: 'Cannot confirm: {source} did not answer ({reason}).',
   blk_chain_unreachable: 'The chain is unreachable: {reason}.',

@@ -163,7 +163,8 @@ describe('Network label and copy honesty', () => {
         const text = en.t(found.key, found.params);
         expect(text, found.code).not.toMatch(/audited:\s*true|mainnet (is )?live|INTACHAIN (is )?live/i);
       }
-    expect(en.t('blk_p1_go')).toContain('P1 GO');
+    expect(en.t('blk_p1_go')).toContain('launch has not been approved');
+    expect(en.t('blk_p1_go')).not.toMatch(/Nitro|P1 GO/);
     expect(en.t('blk_not_audited')).toContain('audited:false');
   });
 });
