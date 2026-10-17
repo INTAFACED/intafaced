@@ -39,6 +39,7 @@ import {
   assertTradable,
   holdFor,
   protectionPriceFor,
+  sellProtectionPriceFor,
   requireSupportedType,
 } from './risk.js';
 import { resolveOptionsListing } from './options-listing.js';
@@ -385,6 +386,14 @@ export interface AmendOrderInput {
   readonly tif?: TimeInForce;
   readonly marketId?: string;
   readonly symbol?: string;
+  /**
+   * Remaining the caller reviewed. Compared with the engine's live remaining.
+   * A mismatch is `trade.amend_stale`: a fill between the dialog and the click
+   * must not turn a decrease into a raise.
+   */
+  readonly expectedRemaining?: Amount;
+  /** Engine instruction version the caller reviewed. Mismatch is `trade.amend_stale`. */
+  readonly expectedVersion?: number;
 }
 
 const REPLACEMENT_CLIENT_PREFIX = 'replace:';
@@ -1468,9 +1477,10 @@ export class TradeService {
      *   · market buy — a protection price derived from the best ask, and the
      *                  order is submitted as a marketable IOC limit there, so
      *                  the engine cannot fill above what was held.
-     *   · market sell— hold is base quantity (no funding price). Optional
-     *                  `minProtectionPrice` still becomes an engine floor so
-     *                  convert (M-03) cannot fill worse than the accepted avg.
+     *   · market sell— hold is base quantity (no funding price). The engine
+     *                  floor is the owner slippage cap under the best bid.
+     *                  A caller `minProtectionPrice` may only tighten that floor.
+     *                  No published floor is `trade.protection_unset`.
      */
     let fundingPrice: Amount | null = null;
     let protectionPrice: Amount | null = null;
@@ -1490,14 +1500,19 @@ export class TradeService {
       }
       assertNotional(market, protectionPrice, input.qty);
       fundingPrice = protectionPrice;
-    } else if (input.minProtectionPrice != null) {
-      // Market sell with an execution floor (convert M-03). Hold stays base qty
-      // — fundingPrice remains null — but the engine path uses this floor.
-      if (input.minProtectionPrice <= 0n) {
-        throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
+    } else {
+      // Market sell. Hold stays base qty — fundingPrice remains null — but the
+      // engine path is an IOC limit at the owner floor so a sell cannot print
+      // through an unpublished or missing bid.
+      let floor = sellProtectionPriceFor(market, await this.bestBid(market.id), this.slippageCapBps);
+      if (input.minProtectionPrice != null) {
+        if (input.minProtectionPrice <= 0n) {
+          throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
+        }
+        assertPrice(market, input.minProtectionPrice);
+        if (input.minProtectionPrice > floor) floor = input.minProtectionPrice;
       }
-      assertPrice(market, input.minProtectionPrice);
-      protectionPrice = input.minProtectionPrice;
+      protectionPrice = floor;
     }
 
     // Owner pre-trade max-order limit (#4725): this is the one door every
@@ -2006,6 +2021,12 @@ export class TradeService {
 
       const engineRemaining = parseAmount(live.remaining);
       const expectedVersion = live.version ?? order.engineVersion;
+      if (input.expectedRemaining != null && input.expectedRemaining !== engineRemaining) {
+        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
+      }
+      if (input.expectedVersion != null && input.expectedVersion !== expectedVersion) {
+        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
+      }
       if (engineRemaining === input.qty) {
         await this.applyNativeAmendHold(order, market, input.qty, expectedVersion, live.sequence);
         const settled = (await this.findOrder(order.id)) ?? order;
@@ -2270,6 +2291,18 @@ export class TradeService {
           }
         }
 
+        // A market sell with no floor must refuse before the original is cancelled.
+        if (orderType === 'market' && input.side === 'sell') {
+          try {
+            sellProtectionPriceFor(market, await this.bestBid(market.id), this.slippageCapBps);
+          } catch (err) {
+            if (err instanceof TradeError && (err.code === 'trade.protection_unset' || err.code === 'trade.no_reference_price')) {
+              return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', err.code, false, requestAlreadyExists);
+            }
+            throw err;
+          }
+        }
+
         // Authority is required before cancel, so an unavailable PX-S01 source
         // cannot strand the caller by cancelling an order it cannot replace.
         try {
@@ -2362,13 +2395,15 @@ export class TradeService {
             }
             return this.replaceOutcome(cancelled, persistedReplacement, 'IDEMPOTENT_RETRY', null, false, true);
           }
-          // No row means no replacement hold was posted. The original is still
-          // honestly cancelled; callers may correct the request or retry the
-          // same replacement key without any hidden second risk.
-          if (err instanceof TradeError) {
-            return this.replaceOutcome(cancelled, null, 'REPLACEMENT_NOT_SUBMITTED', err.code);
+          // The original is already cancelled. Any failure that did not persist
+          // a replacement — a refused hold, a frozen ledger, a typed trade
+          // refusal — must name REPLACEMENT_NOT_SUBMITTED and the original's
+          // final state. A bare 400 here is how a customer loses the order silently.
+          const finalOriginal = (await this.findOrder(original.id)) ?? cancelled;
+          if (err instanceof TradeError || err instanceof LedgerError) {
+            return this.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', err.code);
           }
-          throw err;
+          return this.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', 'REPLACEMENT_NOT_SUBMITTED');
         }
       },
     );
@@ -2549,7 +2584,7 @@ export class TradeService {
     // self-trade prevention. §5.1 unifies them because this service does the
     // same thing with all three: the order is done, release what is left.
     for (const cancellation of cancellations) {
-      await this.finalize(cancellation.orderId, 'cancelled');
+      await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
       touched.delete(cancellation.orderId);
     }
 
@@ -3301,7 +3336,11 @@ export class TradeService {
    * remainder is `hold - Σ fills`, so the filled part is never released and the
    * unfilled part is never released twice.
    */
-  private async finalize(orderId: string, status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>): Promise<void> {
+  private async finalize(
+    orderId: string,
+    status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
+    reason?: string | null,
+  ): Promise<void> {
     const outcome = await transaction(
       this.sql,
       async (tx): Promise<{ order: OrderRecord; status: OrderStatus } | null> => {
@@ -3330,7 +3369,14 @@ export class TradeService {
         }
 
         const finalStatus: OrderStatus = order.filledQty > 0n && order.filledQty >= order.qty ? 'filled' : status;
-        await tx`UPDATE trade.orders SET status = ${finalStatus}, updated_at = now() WHERE id = ${orderId}`;
+        const reasonCode = reason && reason.length > 0 ? reason : null;
+        await tx`
+          UPDATE trade.orders
+             SET status = ${finalStatus},
+                 reject_code = COALESCE(${reasonCode}, reject_code),
+                 updated_at = now()
+           WHERE id = ${orderId}
+        `;
 
         return { order, status: finalStatus };
       },
@@ -4671,6 +4717,12 @@ export class TradeService {
   private async bestAsk(marketId: string): Promise<Amount | null> {
     const depth = await this.matching.depth(marketId, 1);
     const best = depth.asks[0];
+    return best ? parseAmount(best[0]) : null;
+  }
+
+  private async bestBid(marketId: string): Promise<Amount | null> {
+    const depth = await this.matching.depth(marketId, 1);
+    const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   }
 
