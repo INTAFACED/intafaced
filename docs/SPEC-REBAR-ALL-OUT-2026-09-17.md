@@ -59,7 +59,7 @@ You are the Rebar mill owner in **this chat only**. Files are memory.
 
 ## 2 · Methodology (unchanged wins)
 
-Origin `AGENTS.md` graphify **400**. `pnpm verify` optional. CI informational. Doors not shell clicks. Thrift void. Door AGENTS 1500 is stale.
+Origin `AGENTS.md` graphify **400**. Merge per AGENTS.md. Doors not shell clicks. Thrift void. Door AGENTS 1500 is stale.
 
 Wave 0 this turn (gh): `#3771 #3772 #3779` **MERGED**. `#3777 #3708 #3746 #3707` **CLOSED unmerged** — not “on tip.” Intake/honesty for protocol = falsify **code on origin/main**, never “PR closed.”
 
@@ -154,7 +154,7 @@ Watchdog must **not** restart Stage 1, must **not** spawn if this chat already h
 GOAL: critic-passed OPEN row <ID> only.
 SUCCESS: fail-first door test + one-service PR merged, OR you prove the door live and mark LIVE-DOOR without a PR.
 HARD: ledger-client only; no number money; pnpm wt; graphify --budget 400; one service;
-      never 05_Web_Front; never svc-chain; never wait CI; blank env refuse; no ccxt;
+      never 05_Web_Front; never svc-chain; merge per AGENTS.md; blank env refuse; no ccxt;
       hitch FIX/SBE/Greeks; never global INTERNAL_SERVICE_BODY_BIND=require;
       never GET-client chase; never unset-refuse occupancy; never Number(limit);
       never pending skip rows; never graphify-out as the PR; IN-stamp ≠ door.
@@ -314,7 +314,7 @@ export GH_TOKEN="$(tr -d '\n\r ' < /Users/Nitro/.grok/agent-auth/github_token)"
 gh pr merge <N> --squash   # branch is kept (AGENTS.md)
 ```
 
-If GraphQL “checks expected”: REST `PUT /repos/Phantom-X-007/intafaced/pulls/<N>/merge` with `merge_method=squash`. Then delete the remote head if still present.
+Merge only through the AGENTS.md merge rule (merge check first); never delete the branch.
 
 Never: ask Nitro to merge · merge `#dependabot` · merge a partner PR · `git push origin main` · `git branch -D`.
 
