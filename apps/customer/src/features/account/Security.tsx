@@ -7,6 +7,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading, Page } from '../../shared/ui';
 import { IdentitySessions } from './IdentitySessions';
 import { ApiKeyRecords } from './ApiKeyRecords';
+import { ChangePassword } from './ChangePassword';
 import { securityCopy as copy } from './security-copy';
 import {
   credentialId,
@@ -683,6 +684,7 @@ export function Security() {
               <Copy k="memory" />
             </p>
           </section>
+          <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <section className="security__sessions security__card">
             {sessionBlocked && (
               <p className="muted">

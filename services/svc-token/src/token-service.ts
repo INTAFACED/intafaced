@@ -124,6 +124,11 @@ export class TokenError extends Error {
       | 'token.buyback_book_empty'
       | 'token.params_missing'
       | 'token.params_invalid'
+      /**
+       * A token_params column the action needs is null or blank. The name of
+       * that column is `config`. Never filled in from a compiled default.
+       */
+      | 'token.params_unset'
       | 'token.proposal_not_found'
       | 'token.proposal_not_open'
       | 'token.proposal_window'
@@ -157,6 +162,8 @@ export class TokenError extends Error {
       | 'token.governance_execute_unwired',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
+    /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
+    readonly config?: string,
   ) {
     super(message);
     this.name = 'TokenError';
@@ -353,6 +360,11 @@ function feeScheduleBlank(raw: unknown): boolean {
   if (typeof raw === 'string') return raw.trim() === '';
   if (typeof raw === 'object' && !Array.isArray(raw)) return Object.keys(raw).length === 0;
   return false;
+}
+
+/** Blank operator config. `config` is the column name; no value is invented. */
+function throwParamsUnset(config: string): never {
+  throw new TokenError(`${config} is unset`, 'token.params_unset', undefined, config);
 }
 
 /** A non-fresh pending buyback claim is released only after this long (DB clock): longer than the ledger client's 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has landed or died. */
@@ -864,7 +876,8 @@ export class TokenService {
    * The published fee-decay schedule (§4.3), read from `token_params`.
    *
    * The row is the authority, not `DEFAULT_FEE_DISCOUNT_SCHEDULE`. A blank
-   * schedule refuses with `token.params_invalid`. There is no fallback fee.
+   * schedule refuses with `token.params_unset` and names
+   * `token_params.fee_discount_schedule`. There is no fallback fee.
    */
   async feeDiscountSchedule(now: number = Date.now()): Promise<FeeDiscountSchedule> {
     const cached = this.feeScheduleCache;
@@ -878,10 +891,16 @@ export class TokenService {
     }
     const raw = rows[0]!.fee_discount_schedule;
     if (feeScheduleBlank(raw)) {
-      throw new TokenError('token_params.fee_discount_schedule is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.fee_discount_schedule');
     }
 
-    const schedule = parseFeeDiscountSchedule(raw);
+    let schedule: FeeDiscountSchedule;
+    try {
+      schedule = parseFeeDiscountSchedule(raw);
+    } catch (err) {
+      if (err instanceof TokenError) throw err;
+      throw new TokenError('token_params.fee_discount_schedule is not a valid schedule', 'token.params_invalid');
+    }
     this.feeScheduleCache = { schedule, loadedAt: now };
     return schedule;
   }
@@ -902,10 +921,10 @@ export class TokenService {
     const buybackRaw = rows[0]!.buyback_bps;
     const burnRaw = rows[0]!.burn_split_bps;
     if (buybackRaw == null || buybackRaw.trim() === '') {
-      throw new TokenError('token_params.buyback_bps is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.buyback_bps');
     }
     if (burnRaw == null || burnRaw.trim() === '') {
-      throw new TokenError('token_params.burn_split_bps is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.burn_split_bps');
     }
     const params: BuybackParams = {
       buybackBps: Number(buybackRaw),
@@ -936,14 +955,17 @@ export class TokenService {
     if (rows.length === 0) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
     const row = rows[0]!;
     if (row.total_supply == null || row.total_supply.trim() === '') {
-      throw new TokenError('token_params.total_supply is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.total_supply');
     }
     if (row.halving_interval == null) {
-      throw new TokenError('token_params.halving_interval is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.halving_interval');
     }
     const curve = row.emission_curve;
-    if (curve === null || typeof curve !== 'object' || Array.isArray(curve)) {
-      throw new TokenError('token_params.emission_curve is missing or not an object', 'token.params_invalid');
+    if (feeScheduleBlank(curve)) {
+      throwParamsUnset('token_params.emission_curve');
+    }
+    if (typeof curve !== 'object' || Array.isArray(curve)) {
+      throw new TokenError('token_params.emission_curve is not an object', 'token.params_invalid');
     }
     const curveObj = curve as Record<string, unknown>;
     const initialRaw = curveObj.initialEpochReward;
@@ -954,7 +976,7 @@ export class TokenService {
       );
     }
     if (typeof initialRaw !== 'string' || initialRaw.trim() === '') {
-      throw new TokenError('token_params.emission_curve.initialEpochReward is required', 'token.params_invalid');
+      throwParamsUnset('token_params.emission_curve.initialEpochReward');
     }
     const params: EmissionParams = {
       initialEpochReward: parseAmount(initialRaw),

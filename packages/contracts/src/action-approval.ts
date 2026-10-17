@@ -39,8 +39,14 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.business.proposeTransfer',
   'bank.step_up.business.approve',
   'bank.step_up.business.addMember',
+  'bank.step_up.business.removeMember',
+  'bank.step_up.business.setMemberRole',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
+  // Withdrawals. Identity mints and consumes these. svc-bank ramps still gate on the
+  // trade:withdraw bearer until a bank change reads the approval (one service per PR).
+  'bank.step_up.ramps.offramp',
+  'bank.step_up.ramps.setWithdrawDestination',
 ] as const;
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 

@@ -715,7 +715,10 @@ describe('svc-token money PG-hard', () => {
       await fund(USER_A, '10000');
       await token.stake({ userId: USER_A, amount: amt('10000'), tier: 'flex', stakeId: crypto.randomUUID() });
 
-      await expect(token.accessOf(USER_A)).rejects.toMatchObject({ code: 'token.params_invalid' });
+      await expect(token.accessOf(USER_A)).rejects.toMatchObject({
+        code: 'token.params_unset',
+        config: 'token_params.fee_discount_schedule',
+      });
     });
 
     it('follows a governance edit to the row without a redeploy (§4.3 fee_param)', async () => {
@@ -751,7 +754,7 @@ describe('svc-token money PG-hard', () => {
       try {
         await sql`UPDATE token.token_params SET fee_discount_schedule = '{"basis":"balance","tiers":[]}'::jsonb WHERE id = true`;
         const fresh = new TokenService(sql, ledger, bus, { ...options, feeScheduleTtlMs: 0 });
-        await expect(fresh.accessOf(USER_A)).rejects.toThrow(RangeError);
+        await expect(fresh.accessOf(USER_A)).rejects.toMatchObject({ code: 'token.params_invalid' });
       } finally {
         await restoreFeeSchedule(original);
       }
@@ -1895,21 +1898,42 @@ describe('svc-token money PG-hard', () => {
       // (token_params_buyback_bps_ck, token_params_halving_positive_ck) — the
       // UPDATE itself fails before the service can read. emission_curve is jsonb
       // with no shape CHECK, so the service-layer params_invalid is reachable.
-      await sql`UPDATE token.token_params SET emission_curve = ${sql.json([] as never)} WHERE id = true`;
+      await sql`
+        UPDATE token.token_params SET
+          total_supply = 1000,
+          halving_interval = 1,
+          emission_curve = ${sql.json([] as never)}
+        WHERE id = true
+      `;
       await expect(dbToken().mintEpoch(0)).rejects.toMatchObject({ code: 'token.params_invalid' });
       const rows = await sql`SELECT epoch FROM token.emission_epochs`;
       expect(rows).toHaveLength(0);
     });
 
     it('refuses an emission_curve missing initialEpochReward before minting', async () => {
-      await sql`UPDATE token.token_params SET emission_curve = ${sql.json({ kind: 'halving' } as never)} WHERE id = true`;
-      await expect(dbToken().mintEpoch(0)).rejects.toMatchObject({ code: 'token.params_invalid' });
+      await sql`
+        UPDATE token.token_params SET
+          total_supply = 1000,
+          halving_interval = 1,
+          emission_curve = ${sql.json({ kind: 'halving' } as never)}
+        WHERE id = true
+      `;
+      await expect(dbToken().mintEpoch(0)).rejects.toMatchObject({
+        code: 'token.params_unset',
+        config: 'token_params.emission_curve.initialEpochReward',
+      });
       const rows = await sql`SELECT epoch FROM token.emission_epochs`;
       expect(rows).toHaveLength(0);
     });
 
     it('refuses a JSON-number initialEpochReward before minting', async () => {
-      await sql`UPDATE token.token_params SET emission_curve = ${sql.json({ initialEpochReward: 2500 } as never)} WHERE id = true`;
+      await sql`
+        UPDATE token.token_params SET
+          total_supply = 1000,
+          halving_interval = 1,
+          emission_curve = ${sql.json({ initialEpochReward: 2500 } as never)}
+        WHERE id = true
+      `;
       await expect(dbToken().mintEpoch(0)).rejects.toMatchObject({ code: 'token.params_invalid' });
       const rows = await sql`SELECT epoch FROM token.emission_epochs`;
       expect(rows).toHaveLength(0);

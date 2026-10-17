@@ -15,9 +15,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 
 /** `a.b.c` into an object. `found` is false when any step is missing, so a missing key is never read as null. */
-function pick(source: Record<string, unknown>, path: string): { found: boolean; value: unknown } {
+function pick(source: Record<string, unknown>, path: string, nullThrough = false): { found: boolean; value: unknown } {
   let current: unknown = source;
   for (const part of path.split('.')) {
+    // A column that says its parent object may be null reads as null there; any other missing step is "not found".
+    if (current === null && nullThrough) return { found: true, value: null };
     if (!isRecord(current) || !Object.hasOwn(current, part)) return { found: false, value: undefined };
     current = current[part];
   }
@@ -25,7 +27,7 @@ function pick(source: Record<string, unknown>, path: string): { found: boolean; 
 }
 
 function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
-  const { found, value } = pick(source, column.key);
+  const { found, value } = pick(source, column.key, column.parentNullable === true && column.nullable === true);
   if (!found) return null;
   const make = (v: CellValue): Cell => ({
     key: column.key,
@@ -35,6 +37,7 @@ function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
     value: v,
   });
   if (value === null) return column.nullable ? make(null) : null;
+  if (column.mustBe !== undefined && value !== column.mustBe) return null;
   switch (column.kind) {
     case 'text':
     case 'amount':

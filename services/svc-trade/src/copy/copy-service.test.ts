@@ -80,11 +80,10 @@ describe('CopyService', () => {
     const s = svc.deskStatus();
     expect(s.feeSharePublished).toBe(false);
     expect(s.jurisdictionPublished).toBe(false);
-    expect(s.residual).toContain('DIRECTION §8');
-    expect(s.residual).toContain('D26-P0-02');
-    expect(s.residual).toContain('D26-P0-15');
-    expect(s.residuals.rates).toContain('D26-P0-02');
-    expect(s.residuals.jurisdiction).toContain('D26-P0-15');
+    expect(s.residual).toContain('leader fee share');
+    expect(s.residual).toContain('served regions');
+    expect(s.residuals.rates).toContain('leader fee share');
+    expect(s.residuals.jurisdiction).toContain('served regions');
     expect(s.sovereign).toEqual({
       shape: 'sovereign',
       custody: false,

@@ -24,6 +24,7 @@ const SECRET = 's'.repeat(32);
 const BASE_ENV = {
   INTERNAL_SERVICE_SECRET: SECRET,
   MATCHING_SNAPSHOT_EVERY: '500',
+  MATCHING_OPERATOR_IDS: 'op-a,op-b',
 };
 
 /**

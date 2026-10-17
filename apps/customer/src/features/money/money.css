@@ -1023,6 +1023,44 @@
 .money-holding:hover strong {
   color: var(--color-accent);
 }
+/* Bank overview holding row: asset mark, name, then quantity with available / held. */
+.money-asset-mark {
+  display: grid;
+  flex: 0 0 40px;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+.money-holding-name {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.money-quantity-restrictions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 20px;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+.money-quantity-restrictions div {
+  display: flex;
+  gap: 6px;
+}
+.money-quantity-restrictions dd {
+  margin: 0;
+  color: var(--color-text);
+}
 .money-holding-values {
   display: flex;
   flex: 0 1 55%;

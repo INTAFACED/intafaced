@@ -48,7 +48,7 @@ export type QuoteState =
   | { status: 'loading' }
   | { status: 'ready'; quote: Quote; heldUntil: number }
   /** A typed refusal: words and a way forward from the data layer's copy. */
-  | { status: 'refused'; copy: RefusalCopy; kind: ReturnType<typeof classifyRefusal> }
+  | { status: 'refused'; copy: RefusalCopy; kind: ReturnType<typeof classifyRefusal>; code: string | null }
   /** The book cannot fill that much right now. */
   | { status: 'depth' }
   /** Even the smallest whole lot, with our price on top, costs more than the budget. */
@@ -169,6 +169,7 @@ function toState(result: ApiResult<Quote>, request: QuoteRequest, receivedAt: nu
     status: 'refused',
     copy: convertRefusal(result, { pair: request.pair.replace('/', '-') }),
     kind: classifyRefusal(result.code ?? ''),
+    code: result.code ?? null,
   };
 }
 

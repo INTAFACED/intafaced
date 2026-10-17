@@ -951,6 +951,12 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       drift: '0.01',
       module: 'ledger',
     },
+    ledgerReconciliationRunFailed: {
+      errorCode: '57014',
+      phase: 'proof',
+      consecutiveIncomplete: 1,
+      runId: null,
+    },
     ledgerFreezeUpdated: {
       frozen: true,
       reason: 'reconciliation drift',

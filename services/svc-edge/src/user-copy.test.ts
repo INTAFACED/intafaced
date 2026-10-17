@@ -18,6 +18,7 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('edge.s2s_not_proxied')).toBe('We could not find that.');
     expect(userCopy('edge.unresolvable_path')).toBe('We could not find that.');
     expect(userCopy('edge.origin_not_allowed')).toBe('You do not have access to this.');
+    expect(userCopy('auth.csrf_origin_required')).toBe('You do not have access to this.');
     expect(userCopy('error.forbidden')).toBe('You do not have access to this.');
     expect(userCopy('edge.rate_limited')).toBe('Too many requests. Wait a moment.');
     expect(userCopy('error.rateLimited')).toBe('Too many requests. Wait a moment.');

@@ -106,10 +106,11 @@ describe('compose SANDBOX_MAX_OPS / SANDBOX_MAX_SOURCE for svc-quant', () => {
 });
 
 describe('svc-quant SANDBOX_MAX_OPS refuse-closed', () => {
+  // First resetModules import of env.ts is cold; the 5s default trips when the suite runs in parallel.
   it('unset SANDBOX_MAX_OPS is unpublished (no invent 50000)', async () => {
     const parsed = await loadWith({ SANDBOX_MAX_OPS: undefined });
     expect(parsed.SANDBOX_MAX_OPS).toBeUndefined();
-  });
+  }, 20_000);
 
   it('blank SANDBOX_MAX_OPS is unpublished', async () => {
     const parsed = await loadWith({ SANDBOX_MAX_OPS: '' });

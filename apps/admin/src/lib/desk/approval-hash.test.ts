@@ -39,6 +39,21 @@ describe('payload hash equals the owning service’s own function', () => {
       academyActionPayloadHash('academy.ambassador.unfreeze', { userId }),
     );
   });
+  it('academy appoint and residency decision', () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const id = '5a3b9c10-1111-4222-8333-444455556666';
+    expect(payloadHashFor({ kind: 'academy.ambassador.appoint', userId })).toBe(
+      academyActionPayloadHash('academy.ambassador.appoint', { userId }),
+    );
+    for (const decision of ['accepted', 'rejected'] as const) {
+      expect(payloadHashFor({ kind: 'academy.residency.decide', id, decision })).toBe(
+        academyActionPayloadHash('academy.residency.decide', { id, decision }),
+      );
+    }
+    expect(payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'accepted' })).not.toBe(
+      payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'rejected' }),
+    );
+  });
   it('the decision is part of the vendor hash: approve and reject never share one', () => {
     const base = {
       kind: 'market.vendor.vet',
@@ -79,6 +94,22 @@ describe('the identity approval is proposed against the target the service consu
     expect(proposeInputFor({ kind: 'academy.ambassador.unfreeze', userId })).toMatchObject({
       targetService: 'svc-academy',
       targetId: 'academy.ambassador.unfreeze',
+    });
+  });
+  it('academy appoint and residency decision target their own verb at version 1, the ids the service consumes against', () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    expect(proposeInputFor({ kind: 'academy.ambassador.appoint', userId })).toMatchObject({
+      actionType: 'academy.ambassador.appoint',
+      targetService: 'svc-academy',
+      targetId: 'academy.ambassador.appoint',
+      expectedVersion: '1',
+      policyVersion: 'v1',
+    });
+    expect(proposeInputFor({ kind: 'academy.residency.decide', id: userId, decision: 'rejected' })).toMatchObject({
+      actionType: 'academy.residency.decide',
+      targetService: 'svc-academy',
+      targetId: 'academy.residency.decide',
+      expectedVersion: '1',
     });
   });
   it('edge kill targets svc-edge kill:<module> at version 1', () => {

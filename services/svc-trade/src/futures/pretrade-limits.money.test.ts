@@ -1,4 +1,7 @@
-import { PositionService, TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, readyTestAdmission } from '../controls/test-admission.js';
+import { toCcxtError } from '../ccxt-errors.js';
+import { PositionService as ProductionPositionService } from './position-service.js';
+import { TradeService as ProductionTradeService } from '../spot/trade-service.js';
 /**
  * Owner pre-trade limits (#4725) — PG-hard money proof.
  *
@@ -191,6 +194,31 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
   });
 
   describe('TRADE_MAX_ORDER on spot placeOrder', () => {
+    it('boot wrappers: a spot limit above TRADE_MAX_ORDER is trade.limit_max_order (422) with no hold, and the exact cap is allowed', async () => {
+      const place = ProductionTradeService.prototype.placeOrder;
+      const open = ProductionPositionService.prototype.open;
+      await import('../ledger-client.js');
+      try {
+        onlyOrder('3');
+        const holdsBefore = holdPosts().length;
+        let caught: unknown;
+        try {
+          await limitBuy('2', '2', 'boot-over');
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toMatchObject({ name: 'TradeError', code: LIMIT_MAX_ORDER });
+        expect(toCcxtError(caught)?.status).toBe(422);
+        expect(holdPosts()).toHaveLength(holdsBefore);
+        const exact = await limitBuy('1', '3', 'boot-exact');
+        expect(exact.clientOrderId).toBe('boot-exact');
+        expect(holdPosts().length).toBeGreaterThan(holdsBefore);
+      } finally {
+        ProductionTradeService.prototype.placeOrder = place;
+        ProductionPositionService.prototype.open = open;
+      }
+    });
+
     it('limit order: limit-1 tick and exactly the limit pass, limit+1 tick refuses before any hold', async () => {
       onlyOrder('200'); // qty 2, tick 0.01 => notional moves in 0.02 steps
       await limitBuy('99.99', '2', 'o-under'); // 199.98

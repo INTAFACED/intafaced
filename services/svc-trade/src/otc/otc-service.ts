@@ -12,6 +12,7 @@ import { parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-c
 import type { Principal } from '@intafaced/auth';
 import { otcSettleIdsFor } from '../spot/ids.js';
 import { otcDeskLawStatusLine, requirePublishedOtcDeskLaw, type OtcDeskLaw, UNPUBLISHED_OTC_DESK_LAW } from './desk-law.js';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError, RFQ_ALLOCATION_RESIDUAL, RFQ_GIVE_UP_RESIDUAL } from './errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './maker-routing.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL, type OtcMidFeedWiringStatus } from './mid-feed.js';
@@ -331,6 +332,7 @@ export class OtcDeskService {
   }
 
   rfqAllocate(_principal: Principal, _input: { quoteId: string }): never {
+    logRefusalSpec('trade.rfq_allocation_refused');
     throw new OtcError(
       'Professional RFQ allocation is refuse-closed until owner law names sub-accounts, average price and breaks — never invent a split',
       'trade.rfq_allocation_refused',
@@ -339,6 +341,7 @@ export class OtcDeskService {
   }
 
   rfqGiveUp(_principal: Principal, _input: { quoteId: string }): never {
+    logRefusalSpec('trade.rfq_give_up_refused');
     throw new OtcError(
       'Professional RFQ give-up is refuse-closed until owner law names carrying account, affirmation and settlement instruction — never invent a clearing map',
       'trade.rfq_give_up_refused',

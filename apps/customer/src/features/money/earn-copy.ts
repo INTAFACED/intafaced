@@ -2,7 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 const messages = {
   description: 'Your principal, maturity and configured pools. Accrued interest and complete position history are unavailable.',
   locked: 'Fixed-term principal cannot be withdrawn before maturity.',
-  maturityMissing: 'Maturity is unavailable. Withdrawal remains unavailable until a valid maturity is returned.',
+  maturityMissing: 'Maturity date unavailable. Withdrawal stays unavailable until a valid date is shown.',
   noFixed: 'No fixed maturity supplied',
   position: 'Position reference',
   readFailed: 'Current {subject} could not be checked. No request was sent. Close this review and refresh before trying again.',
@@ -15,7 +15,7 @@ const messages = {
   withdrawalOutcome:
     'A confirmed response is required. An unknown withdrawal remains guarded; refreshing positions cannot establish its outcome.',
   automationDisabled: 'Automated deposits are disabled by current Bank configuration. Existing instructions remain available below.',
-  unavailableHistory: 'This bounded list contains active positions only. Pending/closed history and earned interest are unavailable.',
+  unavailableHistory: 'This list shows active positions only. Pending and closed positions and earned interest aren’t available here.',
   refresh: 'Refresh',
 } as const;
 
@@ -23,7 +23,7 @@ const es = {
   description:
     'Tu capital, vencimiento y fondos configurados. Los intereses devengados y el historial completo de posiciones no están disponibles.',
   locked: 'El capital a plazo fijo no puede retirarse antes del vencimiento.',
-  maturityMissing: 'El vencimiento no está disponible. El retiro seguirá sin estar disponible hasta que se devuelva un vencimiento válido.',
+  maturityMissing: 'Fecha de vencimiento no disponible. El retiro sigue sin estar disponible hasta que se muestre una fecha válida.',
   noFixed: 'No se ha proporcionado vencimiento fijo',
   position: 'Referencia de la posición',
   readFailed:
@@ -40,14 +40,14 @@ const es = {
   automationDisabled:
     'La configuración bancaria actual desactiva los depósitos automáticos. Las instrucciones existentes siguen disponibles abajo.',
   unavailableHistory:
-    'Esta lista limitada solo contiene posiciones activas. El historial de posiciones pendientes o cerradas y los intereses obtenidos no están disponibles.',
+    'Esta lista solo muestra posiciones activas. Las posiciones pendientes y cerradas y los intereses ganados no están disponibles aquí.',
   refresh: 'Actualizar',
 } as const;
 const fr = {
   description:
     'Ton capital, l’échéance et les fonds configurés. Les intérêts courus et l’historique complet des positions sont indisponibles.',
   locked: 'Le capital à durée fixe ne peut pas être retiré avant l’échéance.',
-  maturityMissing: 'L’échéance est indisponible. Le retrait reste indisponible jusqu’à ce qu’une échéance valide soit renvoyée.',
+  maturityMissing: 'Date d’échéance indisponible. Le retrait reste indisponible tant qu’une date valide n’est pas affichée.',
   noFixed: 'Aucune échéance fixe fournie',
   position: 'Référence de la position',
   readFailed:
@@ -64,7 +64,7 @@ const fr = {
   automationDisabled:
     'La configuration bancaire actuelle désactive les dépôts automatiques. Les instructions existantes restent disponibles ci-dessous.',
   unavailableHistory:
-    'Cette liste limitée contient uniquement des positions actives. L’historique des positions en attente ou clôturées et les intérêts gagnés sont indisponibles.',
+    'Cette liste ne montre que les positions actives. Les positions en attente ou clôturées et les intérêts gagnés ne sont pas disponibles ici.',
   refresh: 'Actualiser',
 } as const;
 export const earnCopy = defineCopy('customer.money.earn', messages, { es, fr });

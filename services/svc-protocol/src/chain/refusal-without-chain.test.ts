@@ -76,6 +76,7 @@ function routerFor(chain: ProtocolChain, factory: Address, implementation: Addre
     relay: new SessionRelay(chain),
     relayEnabled: () => true,
     ammFactoryAddress: () => ZERO,
+    swapSlippageBps: () => null,
   }).createCaller(anonymous());
 }
 

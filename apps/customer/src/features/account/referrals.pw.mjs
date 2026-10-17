@@ -129,7 +129,7 @@ test('bounded newest reads expand only through500 and retain selected original a
     await expect(details(page)).toHaveCount(0);
   }
   await expect(page.getByRole('button', { name: /^Read newest / })).toHaveCount(0);
-  await expect(accruals(page)).toContainText('500 returned · newest window up to 500');
+  await expect(accruals(page)).toContainText('500 shown · latest 500');
   await page.getByRole('button', { name: 'Return to newest 50' }).click();
   await expect(details(page)).toContainText('0.07%');
   expect(
@@ -166,7 +166,7 @@ test('selected event survives loading, failed, empty and restored reads while st
   await expect(details(page)).toContainText('0.07%');
   for (state of ['failed', 'empty']) {
     await page.getByRole('button', { name: 'Refresh records' }).click();
-    await expect(accruals(page)).toContainText(state === 'failed' ? 'Referral source unavailable' : 'No accrual records returned');
+    await expect(accruals(page)).toContainText(state === 'failed' ? 'Referral source unavailable' : 'No commission records yet');
     await expect(selected(page)).toContainText('fee.example.original/001');
     await expect(details(page)).toHaveCount(0);
   }
@@ -212,12 +212,12 @@ test('empty projections and independent failure recovery never imply a complete 
     'affiliates.myAccruals': (route) => (failed ? refuse(route) : reply(route, { rows: [] })),
   });
   await signIn(page);
-  await expect(page.getByText('No referrer returned', { exact: true })).toBeVisible();
-  await expect(page.getByText('No ancestors returned', { exact: true })).toBeVisible();
+  await expect(page.getByText('No referrer on record', { exact: true })).toBeVisible();
+  await expect(page.getByText('No one above your referrer', { exact: true })).toBeVisible();
   await expect(accruals(page)).toContainText('Referral source unavailable');
   failed = false;
   await accruals(page).getByRole('button', { name: 'Try again' }).click();
-  await expect(accruals(page)).toContainText('No accrual records returned');
+  await expect(accruals(page)).toContainText('No commission records yet');
   await expect(accruals(page)).toContainText('does not establish a complete history');
   await expect(page.getByRole('button', { name: /^Read newest / })).toHaveCount(0);
 });

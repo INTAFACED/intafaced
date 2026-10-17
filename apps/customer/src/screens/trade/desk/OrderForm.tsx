@@ -59,8 +59,9 @@ import {
   type Pending,
 } from './pending';
 import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
-import { CONFLICT_CODE, resendOrder } from './resend';
+import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
+import { scaleLockStays } from './ticket/scale-flow';
 import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
@@ -843,10 +844,10 @@ export const OrderPanel = memo(function OrderPanel({
       setSettled(t('Resent ok', { status: t(`Order status ${result.order.status}` as 'Order status open') }));
       refresh();
       onPlaced();
-    } else if (result.reason === 'unsure') {
+    } else if (scaleLockStays(resendOutcome(result))) {
       setResendNote(t('Resent unsure'));
       requestCheck();
-    } else if (result.code === CONFLICT_CODE) {
+    } else if (result.reason === 'refused' && result.code === CONFLICT_CODE) {
       setResendNote(t('Resent unsure'));
     } else {
       // The service said no, so nothing was placed. The marker can go.
