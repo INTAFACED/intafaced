@@ -22,6 +22,7 @@ import {
   type Query,
 } from '@/lib/founder-ops/read-model';
 import { DISPUTE_STATUSES, PAYOUT_STATUSES } from '@/lib/founder-ops/reads';
+import { ReadFailure } from './control-screens';
 import { ListFilters, Pager, RowsTable } from './section-panels';
 
 /**
@@ -168,7 +169,7 @@ export function LiveView({ data, path }: { data: OpsData; path: string }) {
           </div>
         </dl>
       </Card>
-      <StateBlock kind="not_built" title="Event stream and pipeline counters not in the live summary yet">
+      <StateBlock kind="not_built" title="Event stream and pipeline counters are not in the live summary">
         The live summary counts payments, payouts and refunds by state. It does not carry the event stream, duplicate markers, ledger-posted
         counts, conversions or webhook deliveries, so none of those are shown and none are estimated.
       </StateBlock>
@@ -305,7 +306,7 @@ export function RiskView({ data, path }: { data: OpsData; path: string }) {
           />
         </div>
       </Card>
-      <StateBlock kind="not_built" title="Risk thresholds and liquidity pressure not in the risk summary yet">
+      <StateBlock kind="not_built" title="Risk thresholds and liquidity pressure are not in the risk summary">
         No risk threshold has been agreed or stored, so no indicator says &quot;over the limit&quot;. Venue health and execution failures
         need the conversion readers, which are not built. Reserve and exposure per asset are in the treasury section below.
       </StateBlock>
@@ -545,7 +546,25 @@ export function DisputesView({ data, path, query }: { data: OpsData; path: strin
   );
 }
 
-export function PayoutsView({ data, path, query }: { data: OpsData; path: string; query: Query | undefined }) {
+/**
+ * F37 payouts and F35 settlements read the same list: each row is one settlement window and the payout made for it. The
+ * settlements page names the money columns (gross, fees, net) and leads with failed windows through its status filter.
+ */
+export function PayoutsView({
+  data,
+  path,
+  query,
+  variant = 'payouts',
+}: {
+  data: OpsData;
+  path: string;
+  query: Query | undefined;
+  variant?: 'payouts' | 'settlements';
+}) {
+  const settlements = variant === 'settlements';
+  const noun = settlements ? 'settlement' : 'payout';
+  const nouns = settlements ? 'settlements' : 'payouts';
+  const Noun = settlements ? 'Settlement' : 'Payout';
   const payouts = data.payouts;
   if (!payouts) return null;
   const retry = hrefWith(path, query, {});
@@ -554,14 +573,14 @@ export function PayoutsView({ data, path, query }: { data: OpsData; path: string
     return (
       <>
         <Filters path={path} query={query} statuses={PAYOUT_STATUSES} />
-        <FailureState failure={payouts} what="The payout list" retryHref={retry} />
+        <ReadFailure failure={payouts} what={`The ${noun} list`} retryHref={retry} />
       </>
     );
   const rows = payouts.data.items;
   const net = sumByAsset(rows.map((p) => ({ assetCode: p.assetId, amount: p.net })));
   type Row = (typeof rows)[number];
   const cols = [
-    { label: 'Payout', text: (p: Row) => p.id, cell: (p: Row) => <code title={p.id}>{shortId(p.id)}</code> },
+    { label: Noun, text: (p: Row) => p.id, cell: (p: Row) => <code title={p.id}>{shortId(p.id)}</code> },
     { label: 'Merchant', text: (p: Row) => p.merchantId, cell: (p: Row) => merchantLink(p.merchantId) },
     { label: 'Window', text: (p: Row) => p.window },
     {
@@ -596,14 +615,14 @@ export function PayoutsView({ data, path, query }: { data: OpsData; path: string
     rows: rows.map((p) => cols.map((c) => c.text(p))),
     generatedAt: data.readAt,
     asOf: data.readAt,
-    note: `${data.testData ? 'TEST DATA. ' : ''}Payouts across merchants: this page only, up to ${PAGE_LIMIT} rows${filtered ? ', filtered' : ''}.`,
+    note: `${data.testData ? 'TEST DATA. ' : ''}${Noun === 'Payout' ? 'Payouts' : 'Settlements'} across merchants: this page only, up to ${PAGE_LIMIT} rows${filtered ? ', filtered' : ''}.`,
   });
   return (
     <>
-      <AsOf freshness={{ asOf: data.readAt, lagSeconds: 0 }} label="Payout list" />
-      <div className="mp-kpis" role="group" aria-label="Payouts on this page">
+      <AsOf freshness={{ asOf: data.readAt, lagSeconds: 0 }} label={`${Noun} list`} />
+      <div className="mp-kpis" role="group" aria-label={`${Noun}s on this page`}>
         <KpiTile
-          label="Payouts on this page"
+          label={`${Noun}s on this page`}
           value={<span className="mp-num">{rows.length}</span>}
           period={payouts.data.nextCursor ? 'More on the next page' : 'End of list'}
           href="#records"
@@ -618,33 +637,43 @@ export function PayoutsView({ data, path, query }: { data: OpsData; path: string
           label="Failed"
           value={<span className="mp-num">{rows.filter((p) => p.status === 'failed').length}</span>}
           period="On this page"
-          href="/payouts?status=failed"
+          href={`${path}?status=failed`}
         />
         <KpiTile label="Net amount" value={<Amounts rows={net.totals} empty="None" />} period="Every state, on this page" href="#records" />
       </div>
       <Filters path={path} query={query} statuses={PAYOUT_STATUSES} />
       <Card
         id="records"
-        title="Payouts across merchants"
+        title={`${Noun}s across merchants`}
         sub="Server paged, newest first."
-        actions={<CsvButton csv={csv} filename="payouts.csv" count={rows.length} />}
+        actions={<CsvButton csv={csv} filename={`${nouns}.csv`} count={rows.length} />}
       >
         {rows.length === 0 ? (
           <StateBlock
             kind="empty"
-            title={filtered ? 'No payout matches this status' : one(query, 'cursor') ? 'No more payouts' : 'No payout yet'}
+            title={filtered ? `No ${noun} matches this status` : one(query, 'cursor') ? `No more ${nouns}` : `No ${noun} yet`}
           >
             {filtered
-              ? 'Clear the filter to see every payout.'
-              : 'Payouts appear here after the first settlement. This is a successful read, not an error.'}
+              ? `Clear the filter to see every ${noun}.`
+              : `${Noun}s appear here after the first settlement. This is a successful read, not an error.`}
           </StateBlock>
         ) : (
-          <RowsTable caption="Payouts across merchants" cols={cols} rows={rows} rowKey={(p) => p.id} />
+          <RowsTable caption={`${Noun}s across merchants`} cols={cols} rows={rows} rowKey={(p) => p.id} />
         )}
         <Pager path={path} query={query} cursorParam="cursor" nextCursor={payouts.data.nextCursor} />
         <p className="mp-footnote mp-mt">
-          This list shows the settlement and its payout method. The two-founder approval state and the masked destination of a payout are on
-          the <a href="/merchants/approvals">approvals queue</a> and on each merchant&apos;s payouts page.
+          {settlements ? (
+            <>
+              Each row is one settlement window with the fee and net as stored. Totals across the whole list, failed-first ordering and a
+              settlement&apos;s payment lines are not available; use the status filter to see failed settlements first. Payouts are on the{' '}
+              <a href="/payouts">payouts page</a>.
+            </>
+          ) : (
+            <>
+              This list shows the settlement and its payout method. The two-founder approval state and the masked destination of a payout
+              are on the <a href="/merchants/approvals">approvals queue</a> and on each merchant&apos;s payouts page.
+            </>
+          )}
         </p>
       </Card>
     </>

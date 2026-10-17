@@ -37,7 +37,9 @@ const sample = {
   reasons: [{ ruleId: 'velocity', detail: 'Review requested' }],
 };
 /** Pages whose lists now come from the founder reads (#4870). With the reads off they show a named failure, never "arrives". */
-const WIRED = new Set(['F02', 'F03', 'F05', 'F32', 'F37']);
+const WIRED = new Set(['F02', 'F03', 'F05', 'F32']);
+/** Pages on the control-room reads: with the read off they say so in plain words, with no internal name. */
+const CONTROL_WIRED = new Set(['F25', 'F35', 'F37', 'F54', 'F58', 'F64']);
 const pathOf = (route: string) => route.replace(':id', 'review-1');
 const run = (route: string) =>
   FounderOpsPage({ params: Promise.resolve({ founderPath: pathOf(route).slice(1).split('/') }), searchParams: Promise.resolve({}) });
@@ -99,6 +101,10 @@ describe('new founder route inventory', () => {
     if (WIRED.has(s.id)) {
       expect(html).not.toContain('Not connected');
       expect(html).toContain('Not built yet');
+    } else if (CONTROL_WIRED.has(s.id)) {
+      expect(html).not.toContain('Not connected');
+      expect(html).toContain('Not switched on in this deployment');
+      expect(html).not.toContain('founderAdmin.');
     } else expect(html).toContain('Not connected');
     expect(html).not.toContain('NaN');
     expect(moduleForPage(pathOf(s.route))).toBe('merchants');
@@ -125,6 +131,9 @@ describe('new founder route inventory', () => {
       expect(html).toContain('Not built yet');
       expect(html).toContain('founderAdmin.merchants.section');
     }
+  });
+  it('no screen blocker promises a later arrival', () => {
+    for (const s of SCREENS) expect(s.gap, s.id).not.toMatch(/\b(yet|soon|coming|will arrive|arrives|next backend)\b|founderAdmin\./i);
   });
   it('rejects unregistered paths, malformed merchant ids and nested drilldown paths', async () => {
     cookie();

@@ -264,7 +264,7 @@ function Overview({
               label="Conversion volume"
               value={
                 m.conversionVolume === null ? (
-                  <span className="mp-muted">Not built yet</span>
+                  <span className="mp-muted">Not available</span>
                 ) : (
                   <Amounts rows={m.conversionVolume} empty="None" />
                 )
@@ -576,7 +576,7 @@ function ApprovalsTab({
           {rows.length === 0 ? (
             <StateBlock kind="empty" title="Nothing waiting for founders">
               No payout for this merchant is waiting at the founder step. Payouts still waiting for the merchant’s own team are not listed
-              here: the service has no founder-readable list for that earlier step yet.
+              here: the service has no founder-readable list for that earlier step.
             </StateBlock>
           ) : (
             <ApprovalsTable
