@@ -10,6 +10,7 @@ import {
   assertTradable,
   holdFor,
   protectionPriceFor,
+  sellProtectionPriceFor,
   requireSupportedType,
 } from './risk.js';
 import { TradeError, type Market } from './types.js';
@@ -348,6 +349,38 @@ describe('market buy protection price', () => {
   });
 });
 
+describe('market sell protection floor', () => {
+  it('floors under the best bid by the slippage cap, rounded up onto the tick', () => {
+    // 100 - 150 bps = 98.5, already a multiple of 0.01.
+    expect(formatAmount(sellProtectionPriceFor(BTCUSDT, amt('100'), 150))).toBe('98.5');
+  });
+
+  it('rounds UP to the tick so the floor is never worse than bid minus the cap', () => {
+    // 99 - 150 bps = 97.515 -> 97.52 at a 0.01 tick.
+    expect(formatAmount(sellProtectionPriceFor(withMarket({ tickSize: amt('0.01') }), amt('99'), 150))).toBe('97.52');
+  });
+
+  it('refuses an unpublished cap with trade.protection_unset', () => {
+    for (const cap of [null, undefined, Number.NaN, 0, 5001]) {
+      try {
+        sellProtectionPriceFor(BTCUSDT, amt('100'), cap);
+        throw new Error(`should have thrown for ${String(cap)}`);
+      } catch (err) {
+        expect((err as TradeError).code).toBe('trade.protection_unset');
+      }
+    }
+  });
+
+  it('refuses a missing bid with trade.no_reference_price', () => {
+    try {
+      sellProtectionPriceFor(BTCUSDT, null, 150);
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as TradeError).code).toBe('trade.no_reference_price');
+    }
+  });
+});
+
 describe('venue hours', () => {
   /**
    * Nothing checked this before. A weekend forex order was accepted, funded and
@@ -455,7 +488,7 @@ describe('venue hours', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(TradeError);
       expect((e as TradeError).code).toBe('trade.unsettled_asset_class_listing');
-      expect((e as TradeError).message).toContain('socket.forex-settlement');
+      expect((e as TradeError).message).toContain('settlement asset');
     }
     expect(() => assertSettlementRails({ ...EURUSD, paper: true })).not.toThrow();
     expect(() => assertSettlementRails(BTCUSDT)).not.toThrow();

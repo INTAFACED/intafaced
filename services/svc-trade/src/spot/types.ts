@@ -447,6 +447,11 @@ export type TradeErrorCode =
    */
   | 'trade.slippage_cap_unset'
   /**
+   * Market sell or flatten with no owner protection floor. Preview and place
+   * both refuse. Never `orderable: true` with a null protection price.
+   */
+  | 'trade.protection_unset'
+  /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
    */

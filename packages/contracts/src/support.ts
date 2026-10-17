@@ -60,6 +60,13 @@ export const supportKbArticleSchema = z.object({
   revision: z.number().int().positive().optional(),
   /** Public doors return published rows only. Optional so older callers still parse. */
   published: z.boolean().optional(),
+  /**
+   * Topic on the published version. Optional: a row written before a topic
+   * existed omits both. Not a seeded category.
+   */
+  category: z.string().min(1).max(200).optional(),
+  /** Same list bound as escalateTicketInputSchema.citedArticleIds (20), each key-length 200. */
+  tags: z.array(z.string().min(1).max(200)).max(20).optional(),
 });
 export type SupportKbArticle = z.infer<typeof supportKbArticleSchema>;
 

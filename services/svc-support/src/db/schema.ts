@@ -124,7 +124,72 @@ export const kbArticleVersions = schema.table(
     version: integer('version').notNull(),
     titleKey: text('title_key').notNull(),
     bodyKey: text('body_key').notNull(),
+    /** Topic of this generation. Null until a publish supplies one. */
+    category: text('category'),
+    tags: jsonb('tags').$type<string[] | null>(),
   },
   (t) => [primaryKey({ columns: [t.id, t.version] })],
 );
 export type KbArticleVersionRow = typeof kbArticleVersions.$inferSelect;
+
+/** First result of an owner write, keyed by procedure + actor + client request. */
+export const writeReceipts = schema.table(
+  'write_receipts',
+  {
+    procedure: text('procedure').notNull(),
+    actorId: text('actor_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    result: jsonb('result').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.procedure, t.actorId, t.clientRequestId] })],
+);
+
+/** One rating per ticket. Score range is the table check (1..5). */
+export const ticketRatings = schema.table('ticket_ratings', {
+  id: pk(),
+  ticketId: uuid('ticket_id')
+    .notNull()
+    .unique()
+    .references(() => tickets.id, { onDelete: 'restrict' }),
+  userId: text('user_id').notNull(),
+  score: integer('score').notNull(),
+  note: text('note'),
+  clientRequestId: text('client_request_id').notNull(),
+  createdAt: createdAt(),
+});
+
+/** Metadata only. Bytes live in the AttachmentStore, never in this row. */
+export const ticketAttachments = schema.table(
+  'ticket_attachments',
+  {
+    id: pk(),
+    ticketId: uuid('ticket_id')
+      .notNull()
+      .references(() => tickets.id, { onDelete: 'restrict' }),
+    ownerId: text('owner_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    storeKey: text('store_key').notNull(),
+    contentType: text('content_type').notNull(),
+    byteLength: integer('byte_length').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('ticket_attachments_owner_request_idx').on(t.ownerId, t.clientRequestId)],
+);
+
+/** One vote per account per article version. A repeat does not update the row. */
+export const kbFeedback = schema.table(
+  'kb_feedback',
+  {
+    id: pk(),
+    articleId: text('article_id').notNull(),
+    version: integer('version').notNull(),
+    userId: text('user_id').notNull(),
+    helpful: boolean('helpful').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('kb_feedback_user_article_version_idx').on(t.userId, t.articleId, t.version),
+    uniqueIndex('kb_feedback_user_request_idx').on(t.userId, t.clientRequestId),
+  ],
+);

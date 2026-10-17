@@ -39,8 +39,11 @@ const fields = z.object({
   confirmSend: z.boolean().default(true),
   confirmCancel: z.boolean().default(true),
   favoritesView: z.enum(['list', 'cards']).default('list'),
-  /** Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does. */
-  layoutMode: z.enum(['simple', 'pro']).default('simple'),
+  /**
+   * Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does.
+   * A first visit lands on Pro (PLT-0009); a stored Simple choice stays Simple.
+   */
+  layoutMode: z.enum(['simple', 'pro']).default('pro'),
 });
 /**
  * Older saves wrote the whole snapshot, so a stored `UTC` cannot be told apart from a chosen one.

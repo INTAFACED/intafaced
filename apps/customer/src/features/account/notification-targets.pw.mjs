@@ -235,7 +235,7 @@ test('typed verification lifetime refusal remains exact and publishes no invente
   await expect(room(page)).toContainText('notify.verify_ttl_unset');
   await expect(room(page)).toContainText('has not published a verification-code lifetime');
   await expect(room(page)).toContainText('The service refused this request.');
-  await expect(room(page)).not.toContainText('Request expiration returned by the service');
+  await expect(room(page)).not.toContainText('Request expires');
   await expect(room(page)).not.toContainText('The service accepted the verification send.');
   expect(targetWrites(calls)).toHaveLength(1);
 });
@@ -322,7 +322,7 @@ test('existing email and push targets can be removed with current-target confirm
       .getByRole('dialog', { name: 'Remove current target?' })
       .getByRole('button', { name: 'Remove current target', exact: true })
       .click();
-    await expect(channel(page, name)).toContainText('No target returned');
+    await expect(channel(page, name)).toContainText('No destination');
   }
   expect(targetWrites(calls)).toEqual([
     { procedure: 'notify.removeTarget', input: { channel: 'email' } },

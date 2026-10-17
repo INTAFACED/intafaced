@@ -5,6 +5,7 @@ import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders } fro
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
+import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from './business/business-directory.js';
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { cardIssuerFor } from './cards/issuer.js';
@@ -97,6 +98,12 @@ const bank = createBankServices(sql, ledger, history, {
   recipients: env.IDENTITY_URL ? createIdentityRecipientState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : unconfiguredRecipientState(),
   handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   requestNotices: eventPersonalRequestNotices(bus),
+  // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
+  // with bank.business_directory_unset. A 404 from identity is the same refusal:
+  // the directory route is not published. No invented handle.
+  directory: env.IDENTITY_URL
+    ? createIdentityBusinessDirectory(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
+    : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: { pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET), cursorSecret: env.INTERNAL_SERVICE_SECRET },
   loans: {

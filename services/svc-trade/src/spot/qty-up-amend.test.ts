@@ -133,33 +133,31 @@ describe('svc-trade qty-up-amend (H8a PG-hard)', () => {
       });
     });
 
-    it('takes extra ledger hold then PATCHes matching', async () => {
+    it('refuses a larger remaining with trade.amend_qty_up and posts no extra hold', async () => {
       await fund(ALICE, 'USDT', '1000');
       const original = await rest('2', '100', 'native-qty-up');
       const outcome = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('3') });
       expect(outcome).toMatchObject({
-        accepted: true,
-        code: 'AMENDED',
+        accepted: false,
+        code: 'NOT_AMENDABLE',
+        reasonCode: 'trade.amend_qty_up',
         path: 'NATIVE_AMEND',
-        reconciliationRequired: false,
       });
-      expect(outcome.order.qty).toBe(amt('3'));
-      expect(outcome.order.holdAmount).toBe(amt('300'));
-      expect(matching.amended).toHaveLength(1);
-      expect(matching.amended[0]?.request.qty).toBe('3');
-      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('300');
-      expect(await avail(ALICE, 'USDT')).toBe('700');
-      expect(postsWithReason('order.hold.amend')).toHaveLength(1);
+      expect(outcome.order.qty).toBe(amt('2'));
+      expect(matching.amended).toHaveLength(0);
+      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('200');
+      expect(await avail(ALICE, 'USDT')).toBe('800');
+      expect(postsWithReason('order.hold.amend')).toHaveLength(0);
     });
 
-    it('refuses when the extra hold cannot be taken', async () => {
+    it('refuses a qty-up even when the extra hold could be taken', async () => {
       await fund(ALICE, 'USDT', '200');
       const original = await rest('2', '100', 'native-qty-up-broke');
       const outcome = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('3') });
       expect(outcome).toMatchObject({
         accepted: false,
         code: 'NOT_AMENDABLE',
-        reasonCode: 'ledger.insufficient_funds',
+        reasonCode: 'trade.amend_qty_up',
         path: 'NATIVE_AMEND',
       });
       expect(matching.amended).toHaveLength(0);
@@ -167,52 +165,39 @@ describe('svc-trade qty-up-amend (H8a PG-hard)', () => {
       expect(postsWithReason('order.hold.amend')).toHaveLength(0);
     });
 
-    it('releases the extra hold when matching refuses', async () => {
+    it('a decrease still amends and a later raise is trade.amend_qty_up', async () => {
       await fund(ALICE, 'USDT', '1000');
-      const original = await rest('2', '100', 'native-qty-up-refuse');
-      matching.amendScript = async () => ({
-        accepted: false,
-        orderId: original.id,
-        sequence: null,
-        version: 1,
-        priority: null,
-        fills: [],
-        resting: null,
-        rejected: { code: 'version_mismatch', message: 'stale' },
-        cancellations: [],
-        triggered: [],
-      });
-      const outcome = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('3') });
-      expect(outcome).toMatchObject({ accepted: false, code: 'VERSION_MISMATCH', path: 'NATIVE_AMEND' });
-      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('200');
-      expect(await avail(ALICE, 'USDT')).toBe('800');
-      expect(postsWithReason('order.hold.amend')).toHaveLength(1);
-      expect(postsWithReason('order.hold.released')).toHaveLength(1);
-    });
-
-    it('returns the extra hold when a qty-up is refused after a qty-down already released that version', async () => {
-      await fund(ALICE, 'USDT', '1000');
-      const original = await rest('2', '100', 'native-qty-up-after-down');
+      const original = await rest('2', '100', 'native-qty-down');
       const down = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('1') });
       expect(down).toMatchObject({ accepted: true, code: 'AMENDED' });
       expect(await heldFor(ALICE, 'USDT', original.id)).toBe('100');
-      expect(await avail(ALICE, 'USDT')).toBe('900');
-      matching.amendScript = async () => ({
-        accepted: false,
-        orderId: original.id,
-        sequence: null,
-        version: down.order.engineVersion,
-        priority: null,
-        fills: [],
-        resting: null,
-        rejected: { code: 'version_mismatch', message: 'stale' },
-        cancellations: [],
-        triggered: [],
-      });
       const up = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('2') });
-      expect(up).toMatchObject({ accepted: false, code: 'VERSION_MISMATCH' });
+      expect(up).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
       expect(await heldFor(ALICE, 'USDT', original.id)).toBe('100');
       expect(await avail(ALICE, 'USDT')).toBe('900');
+    });
+
+    it('refuses trade.amend_stale when expectedRemaining or expectedVersion disagrees', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const original = await rest('2', '100', 'native-stale');
+      const staleQty = await trade.amendOrder(principalFor(ALICE), original.id, {
+        qty: amt('1'),
+        expectedRemaining: amt('1.5'),
+      });
+      expect(staleQty).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_stale' });
+      expect(matching.amended).toHaveLength(0);
+      const staleVersion = await trade.amendOrder(principalFor(ALICE), original.id, {
+        qty: amt('1'),
+        expectedVersion: 99,
+      });
+      expect(staleVersion).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_stale' });
+      const ok = await trade.amendOrder(principalFor(ALICE), original.id, {
+        qty: amt('1'),
+        expectedRemaining: amt('2'),
+        expectedVersion: 1,
+      });
+      expect(ok).toMatchObject({ accepted: true, code: 'AMENDED' });
+      expect(await heldFor(ALICE, 'USDT', original.id)).toBe('100');
     });
   });
 });

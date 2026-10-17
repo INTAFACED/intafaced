@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json",
     "typecheck": "node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",

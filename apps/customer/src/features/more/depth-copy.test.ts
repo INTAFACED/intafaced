@@ -29,6 +29,6 @@ describe('More depth copy', () => {
     expect(miningDepthCopy.forLocale('en').t('verdict_configured')).toMatch(/not proof/);
     expect(tokenHoldingsCopy.forLocale('en').t('ticketBlocked')).toMatch(/No return or yield is promised/);
     expect(agentsCatalogueCopy.forLocale('en').t('costNotice')).toMatch(/provider/);
-    expect(quantLibraryCopy.forLocale('en').t('memoryBody')).toMatch(/restart erases them/);
+    expect(quantLibraryCopy.forLocale('en').t('memoryBody')).toMatch(/not private to your account.*switched off/);
   });
 });
