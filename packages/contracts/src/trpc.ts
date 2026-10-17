@@ -51,6 +51,16 @@ export interface Context {
    * Null when the caller did not present service credentials.
    */
   service: string | null;
+  /**
+   * How `service` was authenticated, when the verifier can tell.
+   *
+   * `dedicated` means the HMAC matched that service's own secret, so the name
+   * is a verified key id. `shared` means only the fleet-wide internal secret
+   * matched, so the header name is a claim. Omit when the context was not
+   * produced by a verifier that distinguishes them. svc-ledger post treats
+   * anything other than `dedicated` as a claim.
+   */
+  serviceAuth?: 'dedicated' | 'shared';
   /** Resolved at the edge from IP / account region. Drives the matrix. */
   region: string;
   /** W3C traceparent so a call keeps its trace across services (§9). */

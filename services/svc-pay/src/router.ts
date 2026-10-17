@@ -4,6 +4,12 @@ import { AuthError, requireMfa } from '@intafaced/auth';
 import {
   payCheckoutSettingsGetInputSchema,
   payCheckoutSettingsSchema,
+  payCreateLinkInputSchema,
+  payCreateLinkOutputSchema,
+  payGetLinkInputSchema,
+  payLinkListInputSchema,
+  payLinkListItemSchema,
+  payLinkListPageSchema,
   payMerchantFailureSchema,
   payPageSchema,
   payPaymentListInputSchema,
@@ -672,35 +678,23 @@ export function createPayRouter(
           ),
       }),
 
-      /** Hosted checkout pointer — token returned once. */
+      /**
+       * Hosted checkout pointer. The token is the checkout credential.
+       * Same key and same body returns the original link, including that token.
+       * Same key and a different body is `pay.idempotency_conflict`.
+       */
       createLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            label: z.string().min(1).max(120),
-            profileId: z.string().uuid().nullish(),
-            amount: amountSchema.optional(),
-            currency: assetIdSchema.optional(),
-            /** Omit for the service default. A link with no expiry cannot be created. */
-            expiresAt: z.string().datetime({ offset: true }).optional(),
-            /** Completed payments this link may take. Omit for unbounded. */
-            maxUses: z.number().int().min(1).max(1_000_000).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            id: z.string().uuid(),
-            token: z.string(),
-            prefix: z.string(),
-            label: z.string(),
-            /** Always a date. The service defaults and caps it; it is never null. */
-            expiresAt: z.string().datetime({ offset: true }),
-            maxUses: z.number().int().nullable(),
-          }),
-        )
+        .input(payCreateLinkInputSchema)
+        .output(payCreateLinkOutputSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.createLink');
+            if (input.idempotencyKey !== undefined) {
+              const key = input.idempotencyKey.trim();
+              if (!key || key.length > 255) {
+                throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
+              }
+            }
             const link = await pay.createPaymentLink({
               merchantId: input.merchantId,
               label: input.label,
@@ -714,51 +708,34 @@ export function createPayRouter(
               // rather than forever.
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
               maxUses: input.maxUses,
+              idempotencyKey: input.idempotencyKey,
             });
             return { ...link, expiresAt: link.expiresAt.toISOString() };
           }),
         ),
 
       listLinks: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            /**
-             * Page size. Optional so omit reaches `pay.payment_link_list_limit_unset`
-             * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-            cursor: z.string().min(1).max(300).optional(),
-            search: z.string().trim().min(1).max(200).optional(),
-            assetId: z.string().trim().min(1).max(16).optional(),
-            from: z.string().datetime({ offset: true }).optional(),
-            to: z.string().datetime({ offset: true }).optional(),
-            active: z.boolean().optional(),
-          }),
-        )
-        .output(
-          z.object({
-            items: z.array(
-              z.object({
-                id: z.string().uuid(),
-                prefix: z.string(),
-                label: z.string(),
-                amount: amountSchema.nullable(),
-                currency: z.string().nullable(),
-                active: z.boolean(),
-                expiresAt: z.string().nullable(),
-                maxUses: z.number().int().nullable(),
-                uses: z.number().int(),
-                createdAt: z.string(),
-              }),
-            ),
-            nextCursor: z.string().nullable(),
-          }),
-        )
+        .input(payLinkListInputSchema)
+        .output(payLinkListPageSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.listLinks');
             return pay.listPaymentLinks(input.merchantId, input);
+          }),
+        ),
+
+      /**
+       * One link, including its checkout path when the credential was stored.
+       * Same gate as listLinks: the owner, or a PayFac grant of `payment.link`.
+       * The team role table has no link permission, so a stored role is not the owner.
+       */
+      getLink: scopedProcedure('pay:read', { module: 'pay' })
+        .input(payGetLinkInputSchema)
+        .output(payLinkListItemSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.getLink');
+            return pay.getPaymentLink(input.merchantId, input.linkId);
           }),
         ),
 
@@ -2190,6 +2167,7 @@ function toTrpcError(err: unknown): unknown {
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
+      case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for
         // different numbers; retrying repeats it. Nothing they can resend fixes
         // this, and telling them to try again is how a deposit gets credited

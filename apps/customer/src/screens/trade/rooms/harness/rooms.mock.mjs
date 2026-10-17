@@ -99,7 +99,8 @@ function optionPreview(draft, market) {
   const amount = scaled(draft.amount);
   const size = scaled(market.contractSize ?? '1');
   const premium = mul(mul(price, amount), size);
-  const hold = draft.side === 'buy' ? premium : mul(mul(scaled(market.strike), amount), size);
+  // The service holds nothing for a paper order (svc-trade order-preview-rest.ts: holdAmount is 0 for paper markets).
+  const hold = market.paper ? 0n : draft.side === 'buy' ? premium : mul(mul(scaled(market.strike), amount), size);
   return {
     symbol: draft.symbol,
     side: draft.side,
@@ -126,7 +127,7 @@ function optionPreview(draft, market) {
  *   exec.parents     TEST parents known to the service, by id (running / partial / halted)
  * Returns the live state so a scenario can steer it: `mock.state.greeks = 'refused'`, `mock.state.abortOnce.set('rfq.accept', { landed: false })`.
  */
-export async function installMock(page, { room, now, optionsPolicy = 'paper', schedulerOn = true } = {}) {
+export async function installMock(page, { room, now, optionsPolicy = 'paper', schedulerOn = true, emptyChain = false } = {}) {
   const exchange = new Exchange();
   const calls = [];
   const errors = [];
@@ -140,7 +141,7 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
   };
 
   exchange.balances = JSON.parse(JSON.stringify(TEST_BALANCES));
-  if (room === 'options') exchange.opts.markets = testChain;
+  if (room === 'options') exchange.opts.markets = emptyChain ? [] : testChain;
   else exchange.opts.markets = [wireSpot(TEST_MARKET)];
   if (room === 'execution') {
     exchange.open = [TEST_ORDERS.scaledOpen, TEST_ORDERS.manual, TEST_ORDERS.algoChild].map((o) => ({ ...o }));

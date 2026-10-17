@@ -49,7 +49,7 @@ export function AllocationTab() {
               <p className="m-0 mt-1 text-sm text-fg">{words.title}</p>
               <p className="m-0 text-sm text-fg-2">{words.body}</p>
               <p className="m-0 mt-1 text-xs text-fg-2">
-                {t('Allocation law')} <span className="font-mono">{words.code}</span>
+                {t('Allocation code')} <span className="font-mono">{words.code}</span>
               </p>
             </li>
           );

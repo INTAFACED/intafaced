@@ -32,12 +32,16 @@ import '../features/account/notifications-copy';
 import '../features/account/notification-targets-copy';
 import '../features/account/referral-copy';
 import '../features/account/promotions-copy';
+import '../features/account/dividends-copy';
 import '../features/pay/p2p-counterparty-copy';
 import '../features/pay/p2p-offer-copy';
 import '../features/pay/p2p-order-copy';
 import '../features/pay/personal/p2p-depth-copy';
 import '../features/public/help-copy';
+import '../screens/notifications/alerts-copy';
+import '../screens/pay/recent-copy';
 import '../features/pay/copy';
+import '../screens/coin/copy';
 import './ui-copy';
 
 /** Words that belong to engineers, not customers. A customer-facing sentence never needs them. */
@@ -109,12 +113,16 @@ const CHECKED = new Set([
   'account.notificationTargets',
   'account.referrals',
   'account.promotions',
+  'account.dividends',
   'pay.p2p.counterparty',
   'pay.p2p.offer',
   'pay.p2p.order',
   'pay.p2p.depth',
   'public.help',
+  'notifications.alerts',
+  'pay.recent',
   'shared.ui',
+  'customer.coin',
 ]);
 // pay.surface also holds merchant-portal sentences that are not part of this pass: only the personal and P2P ones are pinned.
 const PAY_SURFACE_KEYS = [

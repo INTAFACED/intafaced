@@ -52,7 +52,7 @@ describe('operatorDeliveries limit unset refuse — source pin', () => {
     const start = src.indexOf('async function loadOperatorDeliveries');
     const end = src.indexOf('const priceAlertOutput', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('notify.operatorDeliveryOutcomes(limit)');
+    expect(fn).toContain('notify.operatorDeliveryOutcomes(limit, status)');
     expect(fn).not.toMatch(/limit \?\? 50/);
     expect(fn).not.toMatch(/\?\? 50/);
     expect(src).toContain('NotifyOperatorDeliveriesLimitUnsetError');
