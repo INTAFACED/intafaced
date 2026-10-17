@@ -13,8 +13,7 @@ const messages = {
   'activity.invalid.context': 'Asset context is invalid',
   'activity.invalid.help': 'Use one exact asset code from a holding, or explicitly open activity for all assets.',
   'activity.company.unavailable': 'Company activity is not connected',
-  'activity.company.help':
-    'Verified company ownership and a company ledger history contract are required. Personal records cannot stand in for company activity.',
+  'activity.company.help': 'Company activity needs a verified company account. Your personal records can’t stand in for it.',
   'activity.all.assets': 'Activity for all assets',
   'activity.description': 'Inspect Bank records for this asset. Each source keeps its own status and references.',
   'activity.description.all': 'Inspect Bank records across assets. Each source keeps its own status and references.',
@@ -28,14 +27,14 @@ const messages = {
   'activity.instructions': 'These are scheduled instructions, not posted transfers. Open a record to inspect its execution outcomes.',
   'activity.inspect': 'Inspect {title} · {reference}',
   'activity.simulated': 'simulated',
-  'activity.no.matches': 'No matching records in this read',
-  'activity.no.asset.read': 'No {asset} records were returned in this bounded list. Other records may be outside this read.',
-  'activity.no.records.read': 'No records were returned by this source. This is not a complete account history.',
-  'activity.matches': '{count} matching {asset} records in {returned} returned.',
+  'activity.no.matches': 'No matching records',
+  'activity.no.asset.read': 'No {asset} activity in the records shown. Older records may not be listed.',
+  'activity.no.records.read': 'No records here yet. This is not your full account history.',
+  'activity.matches': '{count} {asset} records among the {returned} shown.',
   'activity.details': 'Record details',
   'activity.original': 'Original record',
   'activity.absent.selected':
-    'This reference is not present in the latest bounded read. Its absence does not prove cancellation or settlement. Keep the reference.',
+    'This record isn’t in the latest list. That doesn’t mean it was cancelled or completed. Keep its reference and check again.',
   'activity.current.unavailable':
     'Current details are unavailable. Keep this reference; a failed or incomplete read does not prove the outcome.',
   'activity.select': 'Select a record to inspect its amount, reported status and original references.',
@@ -50,7 +49,7 @@ const messages = {
   'holding.use.asset': 'Use your {asset}',
   'holding.task.context': 'Choose a task. Your {asset} context follows you.',
   'holding.send.source': 'Choose an owned {asset} bank space in Pay. Held and restricted amounts cannot be sent.',
-  'holding.space.alias': 'Bank spaces organize funds on the same ledger. Primary spaces repeat your main available projection.',
+  'holding.space.alias': 'Bank spaces organize your funds inside the same account. Primary spaces show your main available balance.',
   'availability.quantities.unavailable': 'Available quantities cannot be established while balance reads are failing.',
   'availability.asset.unavailable': 'This asset’s balance could not be loaded. Refresh before deciding what to do next.',
   'availability.holdings.unavailable': 'Holdings could not be loaded.',
@@ -79,10 +78,10 @@ const messages = {
   'client.the.settled.amount.must.match.the.review': 'The settled amount must match the review',
   'components.select.a.record.to.load.its.details': 'Select a record to load its details.',
   'components.sign.in.to.read.your.bank.information': 'Sign in to read your Bank information.',
-  'components.records.returned.requested.limit': ' records returned · requested limit ',
+  'components.records.returned.requested.limit': ' shown',
   'components.more.records.may.exist': 'More records may exist.',
-  'components.this.service.has.no.continuation.beyond.200': 'This service has no continuation beyond 200 records.',
-  'components.this.list.has.no.total.count.or': 'This list has no total-count or continuation cursor.',
+  'components.this.service.has.no.continuation.beyond.200': 'That is the most that can be shown here.',
+  'components.this.list.has.no.total.count.or': 'That is the whole list.',
   'components.load.up.to': 'Load up to ',
   'components.exact.decimal.amount.available.funds.only': 'Exact decimal amount. Available funds only.',
   'components.enter.an.exact.decimal.amount.greater.than': 'Enter an exact decimal amount greater than zero.',
@@ -120,7 +119,7 @@ const messages = {
   'components.choose': 'Choose…',
   'components.review.2': 'Review',
   'components.request.reference': 'Request reference: ',
-  'components.waiting.for.the.authoritative.outcome': 'Waiting for the authoritative outcome',
+  'components.waiting.for.the.authoritative.outcome': 'Waiting for the final result',
   'components.edit': 'Edit',
   'components.the.original.request.received.a.definitive.outcome':
     'The original request received a definitive outcome, but recovery storage could not be cleared. Keep its original reference before another Bank action.',
@@ -142,8 +141,8 @@ const messages = {
   'index.movement.by.asset.and.date': 'Movement by asset and date',
   'index.sign.in.to.see.your.money': 'Sign in to see your Money.',
   'index.a.verified.company.ledger.owner.and.company':
-    'A verified company ledger owner and company balance projection are not connected. Personal quantities cannot be shown as company money.',
-  'index.available.projection.only': 'Available projection only',
+    'A verified company account and company balances are not connected yet. Personal amounts can’t be shown as company money.',
+  'index.available.projection.only': 'Available balance only',
   'index.user.ledger.quantity': 'Account quantity',
   'index.amounts.hidden': 'Amounts hidden',
   'index.total.account.value': 'Total account value',
@@ -160,8 +159,8 @@ const messages = {
     'Exact quantities in this asset. Available excludes held and restricted accounts.',
   'index.available': 'Available',
   'index.held.restricted': 'Held & restricted',
-  'index.no.holding.returned.for.this.asset': 'No holding returned for this asset',
-  'index.this.projection.does.not.establish.a.zero': 'This projection does not establish a zero amount or include every owned account.',
+  'index.no.holding.returned.for.this.asset': 'You hold none of this asset',
+  'index.this.projection.does.not.establish.a.zero': 'This view doesn’t prove a zero balance and may not include every account you own.',
   'index.price.and.simple.analysis': 'Price and simple analysis',
   'index.published.live.spot.markets.supply.their.own': 'Published live spot markets supply their own quote currency and history.',
   'index.open.this.asset.in.trade': 'Open this asset in Trade',
@@ -183,19 +182,18 @@ const messages = {
   'index.order.holds.earn.and.collateral.stay.separate':
     'Restricted funds stay separate from available funds. Savings, collateral and pending deposits may not be fully covered here.',
   'index.separate.reads.disagree.for': 'Separate reads disagree for ',
-  'index.their.available.projection.is.omitted.refresh.to': '. Their available projection is omitted; refresh to reconcile.',
+  'index.their.available.projection.is.omitted.refresh.to': '. Their available balance is left out; refresh to update it.',
   'index.holdings': 'Holdings',
   'index.available.projections.from.bank.held.quantities.are':
     'Only available Bank funds are shown. Held amounts and total quantities are unavailable.',
   'index.refresh': 'Refresh',
-  'index.no.user.ledger.accounts.returned': 'No account balances returned',
-  'index.an.empty.projection.is.not.a.complete':
-    'No balances were returned by this source. This does not establish a complete account total.',
+  'index.no.user.ledger.accounts.returned': 'No account balances yet',
+  'index.an.empty.projection.is.not.a.complete': 'No balances to show. That doesn’t prove your account total is zero.',
   'index.your.spaces': 'Your spaces',
   'index.manage.spaces': 'Manage spaces ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Primary · included in your account balances',
   'index.named.separate.ledger.subaccount': 'Named space · balance shown separately',
-  'index.no.spaces.returned': 'No spaces returned',
+  'index.no.spaces.returned': 'No spaces yet',
   'index.name.a.space.to.organize.one.asset': 'Name a space to organize one asset. It stays inside the same ledger.',
   'index.money.activity': 'Money activity',
   'index.schedules.executions.and.ramp.outcomes': 'Schedules, executions and ramp outcomes',
@@ -247,7 +245,7 @@ const messages = {
   'repeat-buy.cancel.automation': 'Cancel automation',
   'repeat-buy.cancel.this.instruction.this.does.not.unwind': 'Cancel this instruction. This does not unwind past purchases or deposits.',
   'repeat-buy.cancel': 'Cancel',
-  'repeat-buy.no.automation.returned.for.this.asset': 'No automation returned for this asset',
+  'repeat-buy.no.automation.returned.for.this.asset': 'No repeat buys for this asset',
   'repeat-buy.create.an.instruction.only.when.its.required': 'Create an instruction only when its required capability is connected.',
   'repeat-buy.money.holding': 'Money / Holding',
   'repeat-buy.a.recurring.instruction.uses.available.funds.and':
@@ -268,7 +266,7 @@ const messages = {
   'repeat-buy.convert.counterparty.is.not.connected': 'Convert counterparty is not connected',
   'repeat-buy.auto.invest.is.disabled': 'Auto-invest is disabled',
   'repeat-buy.a.repeat.buy.requires.an.authoritative.convert':
-    'A repeat buy requires an authoritative convert route. No schedule is enabled from this screen.',
+    'A repeat buy needs a confirmed convert route. No schedule can be turned on from this screen.',
   'repeat-buy.the.current.bank.policy.disables.automated.investing': 'The current Bank policy disables automated investing.',
   'rooms.bank.rooms': 'Bank rooms',
   'rooms.money.bank': 'Money / Bank',
@@ -311,15 +309,14 @@ const messages = {
   'rooms.space': 'Space',
   'rooms.available.quantity': 'Available quantity',
   'rooms.archiving.removes.the.label.from.active.lists': 'Archiving removes the label from active lists. It does not move or sweep funds.',
-  'rooms.archived.named.space.funds.are.not.included':
-    'Archived named-space funds are not included in the current user holdings projection.',
+  'rooms.archived.named.space.funds.are.not.included': 'Funds in archived spaces are not included in your current holdings.',
   'rooms.archive.label': 'Archive label',
-  'rooms.no.spaces.returned': 'No spaces returned',
+  'rooms.no.spaces.returned': 'No spaces yet',
   'rooms.create.a.named.space.its.balance.will': 'Create a named space. Its balance will come from the ledger.',
   'rooms.assets.without.a.space': 'Assets without a space',
   'rooms.positive.user.available.accounts.only.these.quantities':
     'Available funds without a space label. These are already included in your main account balances.',
-  'rooms.no.unnamed.positive.quantities.returned': 'No unnamed positive quantities returned',
+  'rooms.no.unnamed.positive.quantities.returned': 'No funds outside your named spaces',
   'rooms.this.does.not.establish.that.all.balances': 'This does not establish that all balances are zero.',
   'rooms.execution.outcomes': 'Execution outcomes',
   'rooms.each.due.occurrence.has.its.own.status':
@@ -329,8 +326,8 @@ const messages = {
   'rooms.status.refusal': 'Status / refusal',
   'rooms.ledger.transaction': 'Ledger transaction',
   'rooms.schedule.execution.outcomes': 'Schedule execution outcomes',
-  'rooms.no.executions.returned': 'No executions returned',
-  'rooms.the.schedule.has.no.recorded.execution.on': 'The schedule has no recorded execution on this bounded list.',
+  'rooms.no.executions.returned': 'Nothing has run yet',
+  'rooms.the.schedule.has.no.recorded.execution.on': 'This schedule has no recorded runs in the list shown.',
   'rooms.standing.orders': 'Standing orders',
   'rooms.transfer.2': ' transfer',
   'rooms.next.run': ' · next run ',
@@ -346,7 +343,7 @@ const messages = {
   'rooms.cancel.standing.order': 'Cancel standing order',
   'rooms.cancel.future.occurrences.this.does.not.reverse': 'Cancel future occurrences. This does not reverse any posted transfer.',
   'rooms.cancel': 'Cancel',
-  'rooms.no.standing.orders.returned': 'No standing orders returned',
+  'rooms.no.standing.orders.returned': 'No standing orders yet',
   'rooms.a.scheduled.transfer.appears.here.after.the': 'A scheduled transfer appears here after the service confirms it.',
   'rooms.move.available.quantities.between.spaces.or.to': 'Move available quantities between spaces or to another user.',
   'rooms.new.transfer': 'New transfer',
@@ -366,7 +363,7 @@ const messages = {
   'rooms.use.the.destination.id.supplied.by.your':
     'Use the destination ID supplied by your recipient. No recipient identity is inferred from the ID.',
   'rooms.continue': 'Continue',
-  'rooms.no.source.spaces.returned': 'No source spaces returned',
+  'rooms.no.source.spaces.returned': 'No spaces to send from',
   'rooms.create.a.space.or.name.an.existing': 'Create a space or name an existing primary asset before transferring.',
   'rooms.configured.products.and.ledger.backed.principal.no': 'Configured products and ledger-backed principal. No rate is invented.',
   'rooms.available.pools': 'Available pools',
@@ -380,7 +377,7 @@ const messages = {
   'rooms.term': 'Term',
   'rooms.minimum': 'Minimum',
   'rooms.principal.moves.from.your.user.available.account':
-    'Principal moves from your user available account to a purpose-keyed earn stake account in the same ledger.',
+    'Your principal moves from your available balance into a dedicated earn account. It stays in the same ledger.',
   'rooms.the.service.verifies.the.pool.is.open': 'The service verifies the pool is open and the amount meets its minimum.',
   'rooms.the.amount.is.below.the.configured.minimum': 'The amount is below the configured minimum deposit.',
   'rooms.deposit': 'Deposit',
@@ -394,7 +391,7 @@ const messages = {
   'rooms.same.asset.spare.change.goes.to.this': 'Same-asset spare change goes to this earn pool when a connected card capture occurs.',
   'rooms.this.instruction.does.not.connect.an.issuer': 'This instruction does not connect an issuer or create a live card.',
   'rooms.card.round.up': 'Card round-up',
-  'rooms.no.configured.pools.returned': 'No configured pools returned',
+  'rooms.no.configured.pools.returned': 'No earn pools are open yet',
   'rooms.earn.requires.a.published.rate.and.open': 'Earn requires a published rate and open pool.',
   'rooms.your.positions': 'Your positions',
   'rooms.earn.position': ' earn position',
@@ -408,10 +405,10 @@ const messages = {
     'The service checks maturity and reconciles ledger-backed principal before withdrawal.',
   'rooms.a.refusal.leaves.the.position.unchanged.no': 'A refusal leaves the position unchanged. No yield amount is estimated here.',
   'rooms.review.withdrawal': 'Review withdrawal',
-  'rooms.no.active.earn.positions.returned': 'No active earn positions returned',
+  'rooms.no.active.earn.positions.returned': 'No active earn positions',
   'rooms.a.position.appears.only.after.the.service': 'A position appears only after the service confirms a deposit.',
   'rooms.configured.borrowing.terms.ledger.collateral.and.authoritative':
-    'Configured borrowing terms, ledger collateral and authoritative risk checks.',
+    'Borrowing terms, the collateral held in your account and confirmed risk checks.',
   'rooms.loan.health': 'Loan health',
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' loans in this risk calculation',
@@ -432,13 +429,13 @@ const messages = {
   'rooms.margin.call': 'Margin call',
   'rooms.liquidation': 'Liquidation',
   'rooms.collateral.moves.from.your.user.available.account':
-    'Collateral moves from your user available account into a purpose-keyed loan collateral account. Borrowed principal is credited only after the service confirms the draw.',
+    'Collateral moves from your available balance into a dedicated loan collateral account. Borrowed money is credited only after the service confirms the loan.',
   'rooms.the.service.obtains.acceptable.current.marks.and':
     'The service obtains acceptable current marks and checks LTV, minimum principal and reserve funding. No price or approval is invented by this review.',
   'rooms.principal.is.below.the.product.minimum': 'Principal is below the product minimum.',
   'rooms.confirm.loan.request': 'Confirm loan request',
   'rooms.review.borrowing': 'Review borrowing',
-  'rooms.no.loan.products.returned': 'No loan products returned',
+  'rooms.no.loan.products.returned': 'No loan products yet',
   'rooms.borrowing.requires.a.configured.open.product.usable':
     'Borrowing requires a configured open product, usable collateral marks and a funded reserve.',
   'rooms.your.loans': 'Your loans',
@@ -471,7 +468,7 @@ const messages = {
   'rooms.the.service.releases.collateral.only.after.verifying':
     'The service releases collateral only after verifying that nothing is owed. A read of zero is not a reservation.',
   'rooms.close.settled.loan': 'Close settled loan',
-  'rooms.no.loans.returned': 'No loans returned',
+  'rooms.no.loans.returned': 'No loans yet',
   'rooms.no.loan.balance.is.inferred.from.an': 'No loan balance is inferred from an empty list.',
   'rooms.card.decisions': 'Card decisions',
   'rooms.approvals.and.declines.remain.visible.including.the':
@@ -481,7 +478,7 @@ const messages = {
   'rooms.merchant.charge': 'Merchant charge',
   'rooms.conversion.rate': 'Conversion rate',
   'rooms.rate.time': 'Rate time',
-  'rooms.no.card.decisions.returned': 'No card decisions returned',
+  'rooms.no.card.decisions.returned': 'No card decisions yet',
   'rooms.no.purchase.or.decline.is.invented.here': 'No purchase or decline is invented here.',
   'rooms.issuer.connectivity.and.card.outcomes.are.separate': 'Issuer connectivity and card outcomes are separate from your balance.',
   'rooms.issuer.programme': 'Issuer programme',
@@ -510,7 +507,7 @@ const messages = {
   'rooms.close.card': 'Close card',
   'rooms.close.this.card.this.action.does.not': 'Close this card. This action does not reverse existing posted transactions.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Issuer actions remain unavailable for this record.',
-  'rooms.no.card.records.returned': 'No card records returned',
+  'rooms.no.card.records.returned': 'No cards yet',
   'rooms.an.empty.list.does.not.establish.issuer': 'An empty list does not establish issuer connectivity.',
   'rooms.incoming.rail.records': 'Incoming rail records',
   'rooms.outgoing.rail.records': 'Outgoing rail records',
@@ -520,7 +517,7 @@ const messages = {
   'rooms.reservation.transaction': 'Reservation transaction',
   'rooms.settlement.transaction': 'Settlement transaction',
   'rooms.this.record.does.not.confirm.a.live': 'This record does not confirm a live bank transfer or network broadcast.',
-  'rooms.no.rail.records.returned': 'No rail records returned',
+  'rooms.no.rail.records.returned': 'No transfer records yet',
   'rooms.no.completed.deposit.or.withdrawal.is.inferred': 'No completed deposit or withdrawal is inferred.',
   'rooms.inspect.the.connected.cash.and.crypto.rail': 'Inspect the connected cash and crypto rail capabilities and their actual records.',
   'rooms.rail.programme': 'Rail programme',
@@ -554,8 +551,8 @@ const messages = {
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' ledger movements. Transfers between your spaces may appear in both inflow and outflow; they net out. These figures are not gains, spending power or a complete valued portfolio.',
   'rooms.outflow.categories': 'Outflow categories',
-  'rooms.no.outflow.categories.returned': 'No outflow categories returned',
-  'rooms.the.service.returned.no.categorized.outflow.for': 'The service returned no categorized outflow for this exact asset and window.',
+  'rooms.no.outflow.categories.returned': 'No spending categories yet',
+  'rooms.the.service.returned.no.categorized.outflow.for': 'No categorized spending for this asset and period.',
   'rooms.choose.an.asset.and.time.window': 'Choose an asset and time window',
   'rooms.this.view.does.not.invent.a.default': 'This view does not invent a default spend period or balance.',
   'rooms.pending.maker.checker.approvals': 'Pending maker / checker approvals',
@@ -569,7 +566,7 @@ const messages = {
   'rooms.approval.reference': 'Approval reference',
   'rooms.approval.rejection.and.cancellation.require.verified.company':
     'Approval, rejection and cancellation require verified company authority. This record does not provide an organization-owned ledger context.',
-  'rooms.no.pending.approvals.returned': 'No pending approvals returned',
+  'rooms.no.pending.approvals.returned': 'No pending approvals',
   'rooms.an.empty.pending.list.does.not.imply':
     'An empty pending list does not imply a company balance or permission to propose a transfer.',
   'rooms.bank.membership.and.maker.checker.policy.records':
@@ -577,7 +574,7 @@ const messages = {
   'rooms.company.money': 'Company money',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Company balance and write authority are unavailable',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'The connected Bank contract does not supply an organization ledger owner or verified company identity. Its maker debit currently uses the actor’s personal space. Personal quantities cannot be labelled as company funds.',
+    'Company accounts are not connected yet, so payments here come from your personal space. Personal amounts can’t be labelled as company funds.',
   'rooms.creating.a.company.bank.record.adding.members':
     'Creating a company bank record, adding members, proposing transfers, approval decisions and payroll stay unavailable until those dependencies are connected.',
   'rooms.account.identity.and.verification': 'Account identity and verification ↗',
@@ -588,7 +585,7 @@ const messages = {
   'rooms.amounts.over.the.configured.threshold.require.separate':
     'Amounts over the configured threshold require separate maker and checker. The maker cannot approve their own proposal. This record is not a company balance.',
   'rooms.read.pending.approvals': 'Read pending approvals',
-  'rooms.no.bank.policy.memberships.returned': 'No Bank policy memberships returned',
+  'rooms.no.bank.policy.memberships.returned': 'No approval-policy members yet',
   'rooms.verified.company.ownership.and.company.balances.remain':
     'Verified company ownership and company balances remain separate missing contracts.',
   'rooms.money': 'Money',
@@ -674,7 +671,7 @@ const es = {
   'activity.invalid.help': 'Usa el código exacto de un activo de tus tenencias o abre expresamente la actividad de todos los activos.',
   'activity.company.unavailable': 'La actividad de la empresa no está conectada',
   'activity.company.help':
-    'Se requieren la titularidad verificada de la empresa y un contrato de historial de su libro contable. Los registros personales no pueden sustituir la actividad empresarial.',
+    'La actividad de empresa necesita una cuenta de empresa verificada. Tus registros personales no pueden sustituirla.',
   'activity.all.assets': 'Actividad de todos los activos',
   'activity.description': 'Inspecciona los registros bancarios de este activo. Cada fuente conserva su propio estado y sus referencias.',
   'activity.description.all':
@@ -690,14 +687,14 @@ const es = {
     'Son instrucciones programadas, no transferencias contabilizadas. Abre un registro para inspeccionar los resultados de su ejecución.',
   'activity.inspect': 'Inspeccionar {title} · {reference}',
   'activity.simulated': 'simulado',
-  'activity.no.matches': 'No hay registros coincidentes en esta lectura',
-  'activity.no.asset.read': 'Esta lista limitada no ha devuelto registros de {asset}. Puede haber otros registros fuera de esta lectura.',
-  'activity.no.records.read': 'Esta fuente no ha devuelto registros. No es el historial completo de la cuenta.',
-  'activity.matches': '{count} registros de {asset} coincidentes entre {returned} devueltos.',
+  'activity.no.matches': 'Ningún registro coincide',
+  'activity.no.asset.read': 'No hay actividad de {asset} en los registros mostrados. Puede que los registros más antiguos no aparezcan.',
+  'activity.no.records.read': 'Aún no hay registros aquí. Esto no es todo el historial de tu cuenta.',
+  'activity.matches': '{count} registros de {asset} entre los {returned} mostrados.',
   'activity.details': 'Detalles del registro',
   'activity.original': 'Registro original',
   'activity.absent.selected':
-    'Esta referencia no aparece en la última lectura limitada. Su ausencia no prueba la cancelación ni la liquidación. Conserva la referencia.',
+    'Este registro no está en la lista más reciente. Eso no significa que se haya cancelado ni completado. Guarda su referencia y vuelve a comprobarlo.',
   'activity.current.unavailable':
     'Los detalles actuales no están disponibles. Conserva esta referencia; una lectura fallida o incompleta no prueba el resultado.',
   'activity.select': 'Selecciona un registro para inspeccionar su importe, el estado informado y las referencias originales.',
@@ -714,7 +711,7 @@ const es = {
   'holding.send.source':
     'Elige en Pay un espacio bancario de {asset} que te pertenezca. Los importes retenidos y restringidos no se pueden enviar.',
   'holding.space.alias':
-    'Los espacios bancarios organizan fondos en el mismo libro contable. Los espacios principales repiten la proyección disponible de tu cuenta principal.',
+    'Los espacios bancarios organizan tus fondos dentro de la misma cuenta. Los espacios principales muestran tu saldo disponible principal.',
   'availability.quantities.unavailable': 'No se pueden determinar las cantidades disponibles mientras fallen las lecturas del saldo.',
   'availability.asset.unavailable': 'No se pudo cargar el saldo de este activo. Actualiza antes de decidir qué hacer.',
   'availability.holdings.unavailable': 'No se pudieron cargar las tenencias.',
@@ -744,10 +741,10 @@ const es = {
   'client.the.settled.amount.must.match.the.review': 'El importe liquidado debe coincidir con la revisión',
   'components.select.a.record.to.load.its.details': 'Selecciona un registro para cargar sus detalles.',
   'components.sign.in.to.read.your.bank.information': 'Inicia sesión para consultar tus datos bancarios.',
-  'components.records.returned.requested.limit': ' registros devueltos · límite solicitado ',
+  'components.records.returned.requested.limit': ' mostrados',
   'components.more.records.may.exist': 'Puede haber más registros.',
-  'components.this.service.has.no.continuation.beyond.200': 'Este servicio no permite continuar más allá de 200 registros.',
-  'components.this.list.has.no.total.count.or': 'Esta lista no tiene recuento total ni cursor de continuación.',
+  'components.this.service.has.no.continuation.beyond.200': 'Es lo máximo que se puede mostrar aquí.',
+  'components.this.list.has.no.total.count.or': 'Es toda la lista.',
   'components.load.up.to': 'Cargar hasta ',
   'components.exact.decimal.amount.available.funds.only': 'Importe decimal exacto. Solo fondos disponibles.',
   'components.enter.an.exact.decimal.amount.greater.than': 'Introduce un importe decimal exacto mayor que cero.',
@@ -787,7 +784,7 @@ const es = {
   'components.choose': 'Elige…',
   'components.review.2': 'Revisar',
   'components.request.reference': 'Referencia de la solicitud: ',
-  'components.waiting.for.the.authoritative.outcome': 'Esperando el resultado definitivo del servicio',
+  'components.waiting.for.the.authoritative.outcome': 'Esperando el resultado final',
   'components.edit': 'Editar',
   'components.the.original.request.received.a.definitive.outcome':
     'La solicitud original recibió un resultado definitivo, pero no se pudo borrar el almacenamiento de recuperación. Conserva la referencia original antes de otra acción bancaria.',
@@ -809,8 +806,8 @@ const es = {
   'index.movement.by.asset.and.date': 'Movimientos por activo y fecha',
   'index.sign.in.to.see.your.money': 'Inicia sesión para consultar tu dinero.',
   'index.a.verified.company.ledger.owner.and.company':
-    'No están conectados un titular verificado del libro contable empresarial ni la proyección de saldos de la empresa. Las cantidades personales no pueden mostrarse como dinero de la empresa.',
-  'index.available.projection.only': 'Solo proyección disponible',
+    'Aún no hay una cuenta de empresa verificada ni saldos de empresa conectados. Los importes personales no pueden mostrarse como dinero de la empresa.',
+  'index.available.projection.only': 'Solo saldo disponible',
   'index.user.ledger.quantity': 'Cantidad en la cuenta',
   'index.amounts.hidden': 'Importes ocultos',
   'index.total.account.value': 'Valor total de la cuenta',
@@ -827,9 +824,8 @@ const es = {
     'Cantidades exactas de este activo. Disponible excluye cuentas retenidas y restringidas.',
   'index.available': 'Disponible',
   'index.held.restricted': 'Retenido y restringido',
-  'index.no.holding.returned.for.this.asset': 'No se han devuelto tenencias de este activo',
-  'index.this.projection.does.not.establish.a.zero':
-    'Esta proyección no demuestra un importe cero ni incluye todas las cuentas de las que eres titular.',
+  'index.no.holding.returned.for.this.asset': 'No tienes nada de este activo',
+  'index.this.projection.does.not.establish.a.zero': 'Esta vista no demuestra un saldo cero y puede no incluir todas tus cuentas.',
   'index.price.and.simple.analysis': 'Precio y análisis sencillo',
   'index.published.live.spot.markets.supply.their.own':
     'Los mercados spot publicados en vivo proporcionan su propia moneda de cotización y su historial.',
@@ -853,18 +849,18 @@ const es = {
   'index.order.holds.earn.and.collateral.stay.separate':
     'Los fondos restringidos siguen separados de los disponibles. El ahorro, las garantías y los depósitos pendientes pueden no estar cubiertos por completo aquí.',
   'index.separate.reads.disagree.for': 'Las lecturas independientes discrepan para ',
-  'index.their.available.projection.is.omitted.refresh.to': '. Se omite su proyección disponible; actualiza para conciliar.',
+  'index.their.available.projection.is.omitted.refresh.to': '. Se omite su saldo disponible; actualiza para ponerlo al día.',
   'index.holdings': 'Tenencias',
   'index.available.projections.from.bank.held.quantities.are':
     'Solo se muestran fondos bancarios disponibles. Los importes retenidos y las cantidades totales no están disponibles.',
   'index.refresh': 'Actualizar',
-  'index.no.user.ledger.accounts.returned': 'No se han devuelto saldos de cuenta',
-  'index.an.empty.projection.is.not.a.complete': 'Esta fuente no ha devuelto saldos. Esto no demuestra el total completo de la cuenta.',
+  'index.no.user.ledger.accounts.returned': 'Aún no hay saldos de cuenta',
+  'index.an.empty.projection.is.not.a.complete': 'No hay saldos que mostrar. Eso no demuestra que el total de tu cuenta sea cero.',
   'index.your.spaces': 'Tus espacios',
   'index.manage.spaces': 'Gestionar espacios ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Principal · incluido en los saldos de tu cuenta',
   'index.named.separate.ledger.subaccount': 'Espacio con nombre · saldo mostrado por separado',
-  'index.no.spaces.returned': 'No se han devuelto espacios',
+  'index.no.spaces.returned': 'Aún no hay espacios',
   'index.name.a.space.to.organize.one.asset': 'Nombra un espacio para organizar un activo. Permanece dentro del mismo libro contable.',
   'index.money.activity': 'Actividad del dinero',
   'index.schedules.executions.and.ramp.outcomes': 'Programaciones, ejecuciones y resultados de entradas y salidas',
@@ -920,7 +916,7 @@ const es = {
   'repeat-buy.cancel.automation': 'Cancelar automatización',
   'repeat-buy.cancel.this.instruction.this.does.not.unwind': 'Cancela esta instrucción. Esto no revierte compras ni depósitos anteriores.',
   'repeat-buy.cancel': 'Cancelar',
-  'repeat-buy.no.automation.returned.for.this.asset': 'No se ha devuelto automatización para este activo',
+  'repeat-buy.no.automation.returned.for.this.asset': 'No hay compras recurrentes para este activo',
   'repeat-buy.create.an.instruction.only.when.its.required': 'Crea una instrucción solo cuando esté conectada la capacidad que requiere.',
   'repeat-buy.money.holding': 'Dinero / Tenencia',
   'repeat-buy.a.recurring.instruction.uses.available.funds.and':
@@ -941,7 +937,7 @@ const es = {
   'repeat-buy.convert.counterparty.is.not.connected': 'La contraparte de conversión no está conectada',
   'repeat-buy.auto.invest.is.disabled': 'La inversión automática está desactivada',
   'repeat-buy.a.repeat.buy.requires.an.authoritative.convert':
-    'Una compra periódica requiere una vía de conversión que sea la autoridad de ejecución. Esta pantalla no habilita ninguna programación.',
+    'Una compra recurrente necesita una ruta de conversión confirmada. Desde esta pantalla no se puede activar ningún calendario.',
   'repeat-buy.the.current.bank.policy.disables.automated.investing': 'La política bancaria actual desactiva la inversión automática.',
   'rooms.bank.rooms': 'Secciones del banco',
   'rooms.money.bank': 'Dinero / Banco',
@@ -986,15 +982,14 @@ const es = {
   'rooms.available.quantity': 'Cantidad disponible',
   'rooms.archiving.removes.the.label.from.active.lists':
     'Archivar elimina la etiqueta de las listas activas. No mueve ni transfiere fondos.',
-  'rooms.archived.named.space.funds.are.not.included':
-    'Los fondos de espacios archivados con nombre no se incluyen en la proyección actual de las tenencias del usuario.',
+  'rooms.archived.named.space.funds.are.not.included': 'Los fondos de espacios archivados no se incluyen en tus tenencias actuales.',
   'rooms.archive.label': 'Archivar etiqueta',
-  'rooms.no.spaces.returned': 'No se han devuelto espacios',
+  'rooms.no.spaces.returned': 'Aún no hay espacios',
   'rooms.create.a.named.space.its.balance.will': 'Crea un espacio con nombre. Su saldo vendrá del libro contable.',
   'rooms.assets.without.a.space': 'Activos sin espacio',
   'rooms.positive.user.available.accounts.only.these.quantities':
     'Fondos disponibles sin etiqueta de espacio. Ya se incluyen en los saldos de tu cuenta principal.',
-  'rooms.no.unnamed.positive.quantities.returned': 'No se han devuelto cantidades positivas sin nombre',
+  'rooms.no.unnamed.positive.quantities.returned': 'No hay fondos fuera de tus espacios con nombre',
   'rooms.this.does.not.establish.that.all.balances': 'Esto no demuestra que todos los saldos sean cero.',
   'rooms.execution.outcomes': 'Resultados de ejecución',
   'rooms.each.due.occurrence.has.its.own.status':
@@ -1004,8 +999,8 @@ const es = {
   'rooms.status.refusal': 'Estado / rechazo',
   'rooms.ledger.transaction': 'Transacción del libro contable',
   'rooms.schedule.execution.outcomes': 'Resultados de ejecución de la programación',
-  'rooms.no.executions.returned': 'No se han devuelto ejecuciones',
-  'rooms.the.schedule.has.no.recorded.execution.on': 'La programación no tiene ejecuciones registradas en esta lista limitada.',
+  'rooms.no.executions.returned': 'Todavía no se ha ejecutado nada',
+  'rooms.the.schedule.has.no.recorded.execution.on': 'Este calendario no tiene ejecuciones registradas en la lista mostrada.',
   'rooms.standing.orders': 'Órdenes permanentes',
   'rooms.transfer.2': ' transferencia',
   'rooms.next.run': ' · próxima ejecución ',
@@ -1023,7 +1018,7 @@ const es = {
   'rooms.cancel.future.occurrences.this.does.not.reverse':
     'Cancela ejecuciones futuras. Esto no revierte ninguna transferencia contabilizada.',
   'rooms.cancel': 'Cancelar',
-  'rooms.no.standing.orders.returned': 'No se han devuelto órdenes permanentes',
+  'rooms.no.standing.orders.returned': 'Aún no hay órdenes permanentes',
   'rooms.a.scheduled.transfer.appears.here.after.the': 'Una transferencia programada aparece aquí cuando el servicio la confirma.',
   'rooms.move.available.quantities.between.spaces.or.to': 'Mueve cantidades disponibles entre espacios o a otro usuario.',
   'rooms.new.transfer': 'Nueva transferencia',
@@ -1043,7 +1038,7 @@ const es = {
   'rooms.use.the.destination.id.supplied.by.your':
     'Usa el ID de destino facilitado por el destinatario. No se deduce su identidad a partir del ID.',
   'rooms.continue': 'Continuar',
-  'rooms.no.source.spaces.returned': 'No se han devuelto espacios de origen',
+  'rooms.no.source.spaces.returned': 'No hay espacios desde los que enviar',
   'rooms.create.a.space.or.name.an.existing': 'Crea un espacio o nombra un activo principal existente antes de transferir.',
   'rooms.configured.products.and.ledger.backed.principal.no':
     'Productos configurados y capital respaldado por el libro contable. No se inventa ninguna tasa.',
@@ -1058,7 +1053,7 @@ const es = {
   'rooms.term': 'Plazo',
   'rooms.minimum': 'Mínimo',
   'rooms.principal.moves.from.your.user.available.account':
-    'El capital pasa de tu cuenta disponible de usuario a una cuenta de participación de rendimiento identificada por finalidad en el mismo libro contable.',
+    'Tu capital pasa de tu saldo disponible a una cuenta de rendimiento específica. Sigue en el mismo libro mayor.',
   'rooms.the.service.verifies.the.pool.is.open': 'El servicio verifica que el fondo esté abierto y que el importe alcance su mínimo.',
   'rooms.the.amount.is.below.the.configured.minimum': 'El importe es inferior al depósito mínimo configurado.',
   'rooms.deposit': 'Depositar',
@@ -1074,7 +1069,7 @@ const es = {
     'El cambio del mismo activo va a este fondo de rendimiento cuando se registra una captura de una tarjeta conectada.',
   'rooms.this.instruction.does.not.connect.an.issuer': 'Esta instrucción no conecta un emisor ni crea una tarjeta real.',
   'rooms.card.round.up': 'Redondeo de tarjeta',
-  'rooms.no.configured.pools.returned': 'No se han devuelto fondos configurados',
+  'rooms.no.configured.pools.returned': 'Aún no hay fondos de rendimiento abiertos',
   'rooms.earn.requires.a.published.rate.and.open': 'El rendimiento requiere una tasa publicada y un fondo abierto.',
   'rooms.your.positions': 'Tus posiciones',
   'rooms.earn.position': ' posición de rendimiento',
@@ -1088,10 +1083,10 @@ const es = {
     'El servicio comprueba el vencimiento y concilia el capital respaldado por el libro contable antes del retiro.',
   'rooms.a.refusal.leaves.the.position.unchanged.no': 'Un rechazo deja la posición sin cambios. Aquí no se estima ningún rendimiento.',
   'rooms.review.withdrawal': 'Revisar retiro',
-  'rooms.no.active.earn.positions.returned': 'No se han devuelto posiciones de rendimiento activas',
+  'rooms.no.active.earn.positions.returned': 'No hay posiciones de rendimiento activas',
   'rooms.a.position.appears.only.after.the.service': 'Una posición aparece solo después de que el servicio confirma un depósito.',
   'rooms.configured.borrowing.terms.ledger.collateral.and.authoritative':
-    'Condiciones de préstamo configuradas, garantías del libro contable y comprobaciones de riesgo de la autoridad competente.',
+    'Condiciones del préstamo, la garantía retenida en tu cuenta y comprobaciones de riesgo confirmadas.',
   'rooms.loan.health': 'Estado de los préstamos',
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' préstamos en este cálculo de riesgo',
@@ -1112,13 +1107,13 @@ const es = {
   'rooms.margin.call': 'Llamada de margen',
   'rooms.liquidation': 'Liquidación',
   'rooms.collateral.moves.from.your.user.available.account':
-    'La garantía pasa de tu cuenta disponible de usuario a una cuenta de garantía de préstamo identificada por finalidad. El capital prestado se acredita solo después de que el servicio confirma el desembolso.',
+    'La garantía pasa de tu saldo disponible a una cuenta de garantía del préstamo. El dinero prestado se acredita solo cuando el servicio confirma el préstamo.',
   'rooms.the.service.obtains.acceptable.current.marks.and':
     'El servicio obtiene cotizaciones actuales aceptables y comprueba el LTV, el capital mínimo y la financiación de la reserva. Esta revisión no inventa precios ni aprobaciones.',
   'rooms.principal.is.below.the.product.minimum': 'El capital es inferior al mínimo del producto.',
   'rooms.confirm.loan.request': 'Confirmar solicitud de préstamo',
   'rooms.review.borrowing': 'Revisar préstamo',
-  'rooms.no.loan.products.returned': 'No se han devuelto productos de préstamo',
+  'rooms.no.loan.products.returned': 'Aún no hay productos de préstamo',
   'rooms.borrowing.requires.a.configured.open.product.usable':
     'Pedir prestado requiere un producto configurado y abierto, cotizaciones de garantía utilizables y una reserva financiada.',
   'rooms.your.loans': 'Tus préstamos',
@@ -1151,7 +1146,7 @@ const es = {
   'rooms.the.service.releases.collateral.only.after.verifying':
     'El servicio libera la garantía solo después de verificar que no se debe nada. Una lectura de cero no es una reserva.',
   'rooms.close.settled.loan': 'Cerrar préstamo saldado',
-  'rooms.no.loans.returned': 'No se han devuelto préstamos',
+  'rooms.no.loans.returned': 'Aún no hay préstamos',
   'rooms.no.loan.balance.is.inferred.from.an': 'No se deduce ningún saldo de préstamo de una lista vacía.',
   'rooms.card.decisions': 'Decisiones de tarjeta',
   'rooms.approvals.and.declines.remain.visible.including.the':
@@ -1161,7 +1156,7 @@ const es = {
   'rooms.merchant.charge': 'Cargo del comercio',
   'rooms.conversion.rate': 'Tasa de conversión',
   'rooms.rate.time': 'Hora de la tasa',
-  'rooms.no.card.decisions.returned': 'No se han devuelto decisiones de tarjeta',
+  'rooms.no.card.decisions.returned': 'Aún no hay decisiones de tarjeta',
   'rooms.no.purchase.or.decline.is.invented.here': 'Aquí no se inventa ninguna compra ni rechazo.',
   'rooms.issuer.connectivity.and.card.outcomes.are.separate':
     'La conexión con el emisor y los resultados de la tarjeta son independientes de tu saldo.',
@@ -1193,7 +1188,7 @@ const es = {
   'rooms.close.card': 'Cerrar tarjeta',
   'rooms.close.this.card.this.action.does.not': 'Cierra esta tarjeta. Esta acción no revierte las transacciones ya contabilizadas.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Las acciones del emisor siguen sin estar disponibles para este registro.',
-  'rooms.no.card.records.returned': 'No se han devuelto registros de tarjetas',
+  'rooms.no.card.records.returned': 'Aún no hay tarjetas',
   'rooms.an.empty.list.does.not.establish.issuer': 'Una lista vacía no demuestra la conexión con el emisor.',
   'rooms.incoming.rail.records': 'Registros de vía entrantes',
   'rooms.outgoing.rail.records': 'Registros de vía salientes',
@@ -1203,7 +1198,7 @@ const es = {
   'rooms.reservation.transaction': 'Transacción de reserva',
   'rooms.settlement.transaction': 'Transacción de liquidación',
   'rooms.this.record.does.not.confirm.a.live': 'Este registro no confirma una transferencia bancaria real ni una difusión a la red.',
-  'rooms.no.rail.records.returned': 'No se han devuelto registros de vía',
+  'rooms.no.rail.records.returned': 'Aún no hay registros de transferencias',
   'rooms.no.completed.deposit.or.withdrawal.is.inferred': 'No se deduce ningún depósito ni retiro completado.',
   'rooms.inspect.the.connected.cash.and.crypto.rail':
     'Inspecciona las capacidades de las vías de efectivo y cripto conectadas y sus registros reales.',
@@ -1239,9 +1234,8 @@ const es = {
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' movimientos del libro contable. Las transferencias entre tus espacios pueden aparecer tanto en entradas como en salidas; se compensan. Estas cifras no son ganancias, poder de gasto ni una cartera valorada completa.',
   'rooms.outflow.categories': 'Categorías de salidas',
-  'rooms.no.outflow.categories.returned': 'No se han devuelto categorías de salidas',
-  'rooms.the.service.returned.no.categorized.outflow.for':
-    'El servicio no ha devuelto salidas categorizadas para este activo y este intervalo exactos.',
+  'rooms.no.outflow.categories.returned': 'Aún no hay categorías de gasto',
+  'rooms.the.service.returned.no.categorized.outflow.for': 'No hay gasto clasificado para este activo y este periodo.',
   'rooms.choose.an.asset.and.time.window': 'Elige un activo y un intervalo de tiempo',
   'rooms.this.view.does.not.invent.a.default': 'Esta vista no inventa un período de gasto ni un saldo predeterminado.',
   'rooms.pending.maker.checker.approvals': 'Aprobaciones pendientes de proponente / verificador',
@@ -1255,7 +1249,7 @@ const es = {
   'rooms.approval.reference': 'Referencia de aprobación',
   'rooms.approval.rejection.and.cancellation.require.verified.company':
     'La aprobación, el rechazo y la cancelación requieren autoridad empresarial verificada. Este registro no proporciona un contexto de libro contable perteneciente a la organización.',
-  'rooms.no.pending.approvals.returned': 'No se han devuelto aprobaciones pendientes',
+  'rooms.no.pending.approvals.returned': 'No hay aprobaciones pendientes',
   'rooms.an.empty.pending.list.does.not.imply':
     'Una lista pendiente vacía no implica un saldo empresarial ni permiso para proponer una transferencia.',
   'rooms.bank.membership.and.maker.checker.policy.records':
@@ -1263,7 +1257,7 @@ const es = {
   'rooms.company.money': 'Dinero de la empresa',
   'rooms.company.balance.and.write.authority.are.unavailable': 'El saldo empresarial y la autoridad de escritura no están disponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'El contrato bancario conectado no proporciona un titular del libro contable de la organización ni una identidad empresarial verificada. Su débito del proponente usa actualmente el espacio personal del actor. Las cantidades personales no pueden etiquetarse como fondos de la empresa.',
+    'Las cuentas de empresa aún no están conectadas, así que los pagos de aquí salen de tu espacio personal. Los importes personales no pueden etiquetarse como fondos de la empresa.',
   'rooms.creating.a.company.bank.record.adding.members':
     'La creación de registros bancarios empresariales, la incorporación de miembros, las propuestas de transferencia, las decisiones de aprobación y las nóminas siguen sin estar disponibles hasta que se conecten esas dependencias.',
   'rooms.account.identity.and.verification': 'Identidad y verificación de la cuenta ↗',
@@ -1274,7 +1268,7 @@ const es = {
   'rooms.amounts.over.the.configured.threshold.require.separate':
     'Los importes superiores al umbral configurado requieren proponente y verificador distintos. El proponente no puede aprobar su propia propuesta. Este registro no es un saldo empresarial.',
   'rooms.read.pending.approvals': 'Consultar aprobaciones pendientes',
-  'rooms.no.bank.policy.memberships.returned': 'No se han devuelto afiliaciones a políticas bancarias',
+  'rooms.no.bank.policy.memberships.returned': 'Aún no hay miembros de la política de aprobación',
   'rooms.verified.company.ownership.and.company.balances.remain':
     'La titularidad empresarial verificada y los saldos empresariales siguen siendo contratos independientes ausentes.',
   'rooms.money': 'Dinero',
@@ -1359,7 +1353,7 @@ const fr = {
   'activity.invalid.help': 'Utilise le code exact d’un actif détenu ou ouvre explicitement l’activité de tous les actifs.',
   'activity.company.unavailable': 'L’activité de l’entreprise n’est pas connectée',
   'activity.company.help':
-    'La propriété vérifiée de l’entreprise et un contrat d’historique de son grand livre sont requis. Les enregistrements personnels ne peuvent pas remplacer l’activité de l’entreprise.',
+    'L’activité d’entreprise nécessite un compte d’entreprise vérifié. Tes enregistrements personnels ne peuvent pas la remplacer.',
   'activity.all.assets': 'Activité de tous les actifs',
   'activity.description': 'Examine les enregistrements bancaires de cet actif. Chaque source conserve son propre statut et ses références.',
   'activity.description.all':
@@ -1375,15 +1369,14 @@ const fr = {
     'Ce sont des instructions planifiées, pas des virements comptabilisés. Ouvre un enregistrement pour examiner les résultats de son exécution.',
   'activity.inspect': 'Examiner {title} · {reference}',
   'activity.simulated': 'simulé',
-  'activity.no.matches': 'Aucun enregistrement correspondant dans cette lecture',
-  'activity.no.asset.read':
-    'Cette liste limitée n’a renvoyé aucun enregistrement pour {asset}. D’autres enregistrements peuvent se trouver hors de cette lecture.',
-  'activity.no.records.read': 'Cette source n’a renvoyé aucun enregistrement. Ce n’est pas l’historique complet du compte.',
-  'activity.matches': '{count} enregistrements de {asset} correspondants parmi {returned} renvoyés.',
+  'activity.no.matches': 'Aucun enregistrement correspondant',
+  'activity.no.asset.read': 'Aucune activité en {asset} dans les enregistrements affichés. Les plus anciens peuvent ne pas figurer.',
+  'activity.no.records.read': 'Aucun enregistrement ici pour l’instant. Ce n’est pas tout l’historique de ton compte.',
+  'activity.matches': '{count} enregistrements en {asset} parmi les {returned} affichés.',
   'activity.details': 'Détails de l’enregistrement',
   'activity.original': 'Enregistrement original',
   'activity.absent.selected':
-    'Cette référence n’apparaît pas dans la dernière lecture limitée. Son absence ne prouve ni l’annulation ni le règlement. Conserve la référence.',
+    'Cet enregistrement ne figure pas dans la dernière liste. Cela ne veut pas dire qu’il a été annulé ou terminé. Garde sa référence et vérifie à nouveau.',
   'activity.current.unavailable':
     'Les détails actuels sont indisponibles. Conserve cette référence ; une lecture échouée ou incomplète ne prouve pas le résultat.',
   'activity.select': 'Sélectionne un enregistrement pour examiner son montant, le statut indiqué et ses références originales.',
@@ -1400,7 +1393,7 @@ const fr = {
   'holding.send.source':
     'Choisis dans Pay un espace bancaire {asset} qui t’appartient. Les montants bloqués et restreints ne peuvent pas être envoyés.',
   'holding.space.alias':
-    'Les espaces bancaires organisent les fonds dans le même grand livre. Les espaces principaux reprennent la projection disponible de ton compte principal.',
+    'Les espaces bancaires organisent tes fonds au sein du même compte. Les espaces principaux affichent ton solde disponible principal.',
   'availability.quantities.unavailable': 'Les quantités disponibles ne peuvent pas être établies tant que les lectures du solde échouent.',
   'availability.asset.unavailable': 'Le solde de cet actif n’a pas pu être chargé. Actualise avant de décider quoi faire.',
   'availability.holdings.unavailable': 'Les avoirs n’ont pas pu être chargés.',
@@ -1430,10 +1423,10 @@ const fr = {
   'client.the.settled.amount.must.match.the.review': 'Le montant réglé doit correspondre à la vérification',
   'components.select.a.record.to.load.its.details': 'Sélectionne un enregistrement pour charger ses détails.',
   'components.sign.in.to.read.your.bank.information': 'Connecte-toi pour consulter tes informations bancaires.',
-  'components.records.returned.requested.limit': ' enregistrements renvoyés · limite demandée ',
+  'components.records.returned.requested.limit': ' affichés',
   'components.more.records.may.exist': 'D’autres enregistrements peuvent exister.',
-  'components.this.service.has.no.continuation.beyond.200': 'Ce service ne permet pas de poursuivre au-delà de 200 enregistrements.',
-  'components.this.list.has.no.total.count.or': 'Cette liste ne fournit ni nombre total ni curseur de continuation.',
+  'components.this.service.has.no.continuation.beyond.200': 'C’est le maximum qui peut être affiché ici.',
+  'components.this.list.has.no.total.count.or': 'C’est toute la liste.',
   'components.load.up.to': 'Charger jusqu’à ',
   'components.exact.decimal.amount.available.funds.only': 'Montant décimal exact. Fonds disponibles uniquement.',
   'components.enter.an.exact.decimal.amount.greater.than': 'Saisis un montant décimal exact supérieur à zéro.',
@@ -1474,7 +1467,7 @@ const fr = {
   'components.choose': 'Choisis…',
   'components.review.2': 'Vérifier',
   'components.request.reference': 'Référence de la demande : ',
-  'components.waiting.for.the.authoritative.outcome': 'En attente du résultat faisant autorité',
+  'components.waiting.for.the.authoritative.outcome': 'En attente du résultat final',
   'components.edit': 'Modifier',
   'components.the.original.request.received.a.definitive.outcome':
     'La demande originale a reçu un résultat définitif, mais le stockage de récupération n’a pas pu être effacé. Conserve sa référence originale avant une autre action bancaire.',
@@ -1496,8 +1489,8 @@ const fr = {
   'index.movement.by.asset.and.date': 'Mouvements par actif et date',
   'index.sign.in.to.see.your.money': 'Connecte-toi pour consulter ton argent.',
   'index.a.verified.company.ledger.owner.and.company':
-    'Un propriétaire vérifié du grand livre de l’entreprise et une projection de ses soldes ne sont pas connectés. Les quantités personnelles ne peuvent pas être affichées comme de l’argent de l’entreprise.',
-  'index.available.projection.only': 'Projection disponible uniquement',
+    'Un compte d’entreprise vérifié et des soldes d’entreprise ne sont pas encore connectés. Les montants personnels ne peuvent pas être affichés comme de l’argent de l’entreprise.',
+  'index.available.projection.only': 'Solde disponible uniquement',
   'index.user.ledger.quantity': 'Quantité du compte',
   'index.amounts.hidden': 'Montants masqués',
   'index.total.account.value': 'Valeur totale du compte',
@@ -1515,9 +1508,8 @@ const fr = {
     'Quantités exactes de cet actif. Le disponible exclut les comptes bloqués et restreints.',
   'index.available': 'Disponible',
   'index.held.restricted': 'Bloqué et restreint',
-  'index.no.holding.returned.for.this.asset': 'Aucun avoir renvoyé pour cet actif',
-  'index.this.projection.does.not.establish.a.zero':
-    'Cette projection ne démontre pas un montant nul et n’inclut pas tous les comptes qui t’appartiennent.',
+  'index.no.holding.returned.for.this.asset': 'Tu ne détiens rien de cet actif',
+  'index.this.projection.does.not.establish.a.zero': 'Cette vue ne prouve pas un solde nul et peut ne pas inclure tous tes comptes.',
   'index.price.and.simple.analysis': 'Prix et analyse simple',
   'index.published.live.spot.markets.supply.their.own':
     'Les marchés au comptant publiés en direct fournissent leur propre devise de cotation et leur historique.',
@@ -1541,18 +1533,18 @@ const fr = {
   'index.order.holds.earn.and.collateral.stay.separate':
     'Les fonds restreints restent distincts des fonds disponibles. L’épargne, les garanties et les dépôts en attente peuvent ne pas être entièrement couverts ici.',
   'index.separate.reads.disagree.for': 'Les lectures distinctes divergent pour ',
-  'index.their.available.projection.is.omitted.refresh.to': '. Leur projection disponible est omise ; actualise pour réconcilier.',
+  'index.their.available.projection.is.omitted.refresh.to': '. Leur solde disponible est omis ; actualise pour le mettre à jour.',
   'index.holdings': 'Avoirs',
   'index.available.projections.from.bank.held.quantities.are':
     'Seuls les fonds bancaires disponibles sont affichés. Les montants bloqués et les quantités totales sont indisponibles.',
   'index.refresh': 'Actualiser',
-  'index.no.user.ledger.accounts.returned': 'Aucun solde de compte renvoyé',
-  'index.an.empty.projection.is.not.a.complete': 'Cette source n’a renvoyé aucun solde. Cela ne démontre pas le total complet du compte.',
+  'index.no.user.ledger.accounts.returned': 'Aucun solde de compte pour l’instant',
+  'index.an.empty.projection.is.not.a.complete': 'Aucun solde à afficher. Cela ne prouve pas que le total de ton compte est nul.',
   'index.your.spaces': 'Tes espaces',
   'index.manage.spaces': 'Gérer les espaces ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Principal · inclus dans les soldes de ton compte',
   'index.named.separate.ledger.subaccount': 'Espace nommé · solde affiché séparément',
-  'index.no.spaces.returned': 'Aucun espace renvoyé',
+  'index.no.spaces.returned': 'Aucun espace pour l’instant',
   'index.name.a.space.to.organize.one.asset': 'Nomme un espace pour organiser un actif. Il reste dans le même grand livre.',
   'index.money.activity': 'Activité de l’argent',
   'index.schedules.executions.and.ramp.outcomes': 'Planifications, exécutions et résultats des entrées et sorties',
@@ -1608,7 +1600,7 @@ const fr = {
   'repeat-buy.cancel.automation': 'Annuler l’automatisation',
   'repeat-buy.cancel.this.instruction.this.does.not.unwind': 'Annule cette instruction. Cela n’annule pas les achats ou dépôts antérieurs.',
   'repeat-buy.cancel': 'Annuler',
-  'repeat-buy.no.automation.returned.for.this.asset': 'Aucune automatisation renvoyée pour cet actif',
+  'repeat-buy.no.automation.returned.for.this.asset': 'Aucun achat récurrent pour cet actif',
   'repeat-buy.create.an.instruction.only.when.its.required': 'Crée une instruction uniquement lorsque la capacité requise est connectée.',
   'repeat-buy.money.holding': 'Argent / Avoir',
   'repeat-buy.a.recurring.instruction.uses.available.funds.and':
@@ -1629,7 +1621,7 @@ const fr = {
   'repeat-buy.convert.counterparty.is.not.connected': 'La contrepartie de conversion n’est pas connectée',
   'repeat-buy.auto.invest.is.disabled': 'L’investissement automatique est désactivé',
   'repeat-buy.a.repeat.buy.requires.an.authoritative.convert':
-    'Un achat récurrent nécessite une voie de conversion faisant autorité. Aucune planification n’est activée depuis cet écran.',
+    'Un achat récurrent nécessite une voie de conversion confirmée. Aucun calendrier ne peut être activé depuis cet écran.',
   'repeat-buy.the.current.bank.policy.disables.automated.investing':
     'La politique bancaire actuelle désactive l’investissement automatique.',
   'rooms.bank.rooms': 'Sections bancaires',
@@ -1675,15 +1667,14 @@ const fr = {
   'rooms.available.quantity': 'Quantité disponible',
   'rooms.archiving.removes.the.label.from.active.lists':
     'L’archivage retire le nom des listes actives. Il ne déplace ni ne transfère les fonds.',
-  'rooms.archived.named.space.funds.are.not.included':
-    'Les fonds des espaces nommés archivés ne sont pas inclus dans la projection actuelle des avoirs de l’utilisateur.',
+  'rooms.archived.named.space.funds.are.not.included': 'Les fonds des espaces archivés ne sont pas inclus dans tes avoirs actuels.',
   'rooms.archive.label': 'Archiver le nom',
-  'rooms.no.spaces.returned': 'Aucun espace renvoyé',
+  'rooms.no.spaces.returned': 'Aucun espace pour l’instant',
   'rooms.create.a.named.space.its.balance.will': 'Crée un espace nommé. Son solde viendra du grand livre.',
   'rooms.assets.without.a.space': 'Actifs sans espace',
   'rooms.positive.user.available.accounts.only.these.quantities':
     'Fonds disponibles sans nom d’espace. Ils sont déjà inclus dans les soldes de ton compte principal.',
-  'rooms.no.unnamed.positive.quantities.returned': 'Aucune quantité positive sans nom renvoyée',
+  'rooms.no.unnamed.positive.quantities.returned': 'Aucun fonds en dehors de tes espaces nommés',
   'rooms.this.does.not.establish.that.all.balances': 'Cela ne démontre pas que tous les soldes sont nuls.',
   'rooms.execution.outcomes': 'Résultats d’exécution',
   'rooms.each.due.occurrence.has.its.own.status':
@@ -1693,8 +1684,8 @@ const fr = {
   'rooms.status.refusal': 'Statut / refus',
   'rooms.ledger.transaction': 'Transaction du grand livre',
   'rooms.schedule.execution.outcomes': 'Résultats d’exécution de la planification',
-  'rooms.no.executions.returned': 'Aucune exécution renvoyée',
-  'rooms.the.schedule.has.no.recorded.execution.on': 'La planification n’a aucune exécution enregistrée dans cette liste limitée.',
+  'rooms.no.executions.returned': 'Rien ne s’est encore exécuté',
+  'rooms.the.schedule.has.no.recorded.execution.on': 'Ce calendrier n’a aucune exécution enregistrée dans la liste affichée.',
   'rooms.standing.orders': 'Ordres permanents',
   'rooms.transfer.2': ' virement',
   'rooms.next.run': ' · prochaine exécution ',
@@ -1711,7 +1702,7 @@ const fr = {
   'rooms.cancel.standing.order': 'Annuler l’ordre permanent',
   'rooms.cancel.future.occurrences.this.does.not.reverse': 'Annule les échéances futures. Cela ne revient sur aucun virement comptabilisé.',
   'rooms.cancel': 'Annuler',
-  'rooms.no.standing.orders.returned': 'Aucun ordre permanent renvoyé',
+  'rooms.no.standing.orders.returned': 'Aucun ordre permanent pour l’instant',
   'rooms.a.scheduled.transfer.appears.here.after.the': 'Un virement planifié apparaît ici après confirmation du service.',
   'rooms.move.available.quantities.between.spaces.or.to': 'Déplace les quantités disponibles entre espaces ou vers un autre utilisateur.',
   'rooms.new.transfer': 'Nouveau virement',
@@ -1731,7 +1722,7 @@ const fr = {
   'rooms.use.the.destination.id.supplied.by.your':
     'Utilise l’ID de destination fourni par le destinataire. Aucune identité de destinataire n’est déduite de cet ID.',
   'rooms.continue': 'Continuer',
-  'rooms.no.source.spaces.returned': 'Aucun espace source renvoyé',
+  'rooms.no.source.spaces.returned': 'Aucun espace depuis lequel envoyer',
   'rooms.create.a.space.or.name.an.existing': 'Crée un espace ou nomme un actif principal existant avant d’effectuer un virement.',
   'rooms.configured.products.and.ledger.backed.principal.no':
     'Produits configurés et capital adossé au grand livre. Aucun taux n’est inventé.',
@@ -1746,7 +1737,7 @@ const fr = {
   'rooms.term': 'Durée',
   'rooms.minimum': 'Minimum',
   'rooms.principal.moves.from.your.user.available.account':
-    'Le capital passe de ton compte disponible utilisateur à un compte de placement identifié par finalité dans le même grand livre.',
+    'Ton capital passe de ton solde disponible vers un compte de placement dédié. Il reste dans le même grand livre.',
   'rooms.the.service.verifies.the.pool.is.open': 'Le service vérifie que le fonds est ouvert et que le montant atteint son minimum.',
   'rooms.the.amount.is.below.the.configured.minimum': 'Le montant est inférieur au dépôt minimum configuré.',
   'rooms.deposit': 'Déposer',
@@ -1761,7 +1752,7 @@ const fr = {
     'La petite monnaie du même actif va à ce fonds de rendement lors de la capture d’une carte connectée.',
   'rooms.this.instruction.does.not.connect.an.issuer': 'Cette instruction ne connecte pas un émetteur et ne crée pas de carte réelle.',
   'rooms.card.round.up': 'Arrondi de carte',
-  'rooms.no.configured.pools.returned': 'Aucun fonds configuré renvoyé',
+  'rooms.no.configured.pools.returned': 'Aucun fonds de placement n’est encore ouvert',
   'rooms.earn.requires.a.published.rate.and.open': 'Le rendement nécessite un taux publié et un fonds ouvert.',
   'rooms.your.positions': 'Tes positions',
   'rooms.earn.position': ' position de placement',
@@ -1775,10 +1766,10 @@ const fr = {
     'Le service vérifie l’échéance et réconcilie le capital adossé au grand livre avant le retrait.',
   'rooms.a.refusal.leaves.the.position.unchanged.no': 'Un refus laisse la position inchangée. Aucun montant de rendement n’est estimé ici.',
   'rooms.review.withdrawal': 'Vérifier le retrait',
-  'rooms.no.active.earn.positions.returned': 'Aucune position de placement active renvoyée',
+  'rooms.no.active.earn.positions.returned': 'Aucune position de placement active',
   'rooms.a.position.appears.only.after.the.service': 'Une position apparaît uniquement après la confirmation d’un dépôt par le service.',
   'rooms.configured.borrowing.terms.ledger.collateral.and.authoritative':
-    'Conditions d’emprunt configurées, garanties du grand livre et vérifications de risque faisant autorité.',
+    'Conditions d’emprunt, garantie détenue sur ton compte et contrôles de risque confirmés.',
   'rooms.loan.health': 'État des prêts',
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' prêts dans ce calcul de risque',
@@ -1799,13 +1790,13 @@ const fr = {
   'rooms.margin.call': 'Appel de marge',
   'rooms.liquidation': 'Liquidation',
   'rooms.collateral.moves.from.your.user.available.account':
-    'La garantie passe de ton compte disponible utilisateur à un compte de garantie de prêt identifié par finalité. Le capital emprunté n’est crédité qu’après la confirmation du décaissement par le service.',
+    'La garantie passe de ton solde disponible vers un compte de garantie dédié au prêt. L’argent emprunté n’est crédité qu’une fois le prêt confirmé par le service.',
   'rooms.the.service.obtains.acceptable.current.marks.and':
     'Le service obtient des prix de référence actuels acceptables et vérifie le LTV, le capital minimum et le financement de la réserve. Cette vérification n’invente aucun prix ni aucune approbation.',
   'rooms.principal.is.below.the.product.minimum': 'Le capital est inférieur au minimum du produit.',
   'rooms.confirm.loan.request': 'Confirmer la demande de prêt',
   'rooms.review.borrowing': 'Vérifier l’emprunt',
-  'rooms.no.loan.products.returned': 'Aucun produit de prêt renvoyé',
+  'rooms.no.loan.products.returned': 'Aucun produit de prêt pour l’instant',
   'rooms.borrowing.requires.a.configured.open.product.usable':
     'Emprunter nécessite un produit configuré et ouvert, des prix de référence utilisables pour la garantie et une réserve financée.',
   'rooms.your.loans': 'Tes prêts',
@@ -1838,7 +1829,7 @@ const fr = {
   'rooms.the.service.releases.collateral.only.after.verifying':
     'Le service libère la garantie uniquement après avoir vérifié qu’aucune somme n’est due. Une lecture nulle n’est pas une réservation.',
   'rooms.close.settled.loan': 'Clore le prêt réglé',
-  'rooms.no.loans.returned': 'Aucun prêt renvoyé',
+  'rooms.no.loans.returned': 'Aucun prêt pour l’instant',
   'rooms.no.loan.balance.is.inferred.from.an': 'Aucun solde de prêt n’est déduit d’une liste vide.',
   'rooms.card.decisions': 'Décisions de carte',
   'rooms.approvals.and.declines.remain.visible.including.the':
@@ -1848,7 +1839,7 @@ const fr = {
   'rooms.merchant.charge': 'Débit du commerçant',
   'rooms.conversion.rate': 'Taux de conversion',
   'rooms.rate.time': 'Heure du taux',
-  'rooms.no.card.decisions.returned': 'Aucune décision de carte renvoyée',
+  'rooms.no.card.decisions.returned': 'Aucune décision de carte pour l’instant',
   'rooms.no.purchase.or.decline.is.invented.here': 'Aucun achat ni refus n’est inventé ici.',
   'rooms.issuer.connectivity.and.card.outcomes.are.separate':
     'La connexion à l’émetteur et les résultats de la carte sont distincts de ton solde.',
@@ -1880,7 +1871,7 @@ const fr = {
   'rooms.close.card': 'Clore la carte',
   'rooms.close.this.card.this.action.does.not': 'Clos cette carte. Cette action ne revient pas sur les transactions déjà comptabilisées.',
   'rooms.issuer.actions.remain.unavailable.for.this.record': 'Les actions de l’émetteur restent indisponibles pour cet enregistrement.',
-  'rooms.no.card.records.returned': 'Aucun enregistrement de carte renvoyé',
+  'rooms.no.card.records.returned': 'Aucune carte pour l’instant',
   'rooms.an.empty.list.does.not.establish.issuer': 'Une liste vide ne démontre pas la connexion à l’émetteur.',
   'rooms.incoming.rail.records': 'Enregistrements de voie entrants',
   'rooms.outgoing.rail.records': 'Enregistrements de voie sortants',
@@ -1891,7 +1882,7 @@ const fr = {
   'rooms.settlement.transaction': 'Transaction de règlement',
   'rooms.this.record.does.not.confirm.a.live':
     'Cet enregistrement ne confirme ni un virement bancaire réel ni une diffusion sur le réseau.',
-  'rooms.no.rail.records.returned': 'Aucun enregistrement de voie renvoyé',
+  'rooms.no.rail.records.returned': 'Aucun enregistrement de virement pour l’instant',
   'rooms.no.completed.deposit.or.withdrawal.is.inferred': 'Aucun dépôt ni retrait effectué n’est déduit.',
   'rooms.inspect.the.connected.cash.and.crypto.rail':
     'Examine les capacités des voies de paiement et crypto connectées et leurs enregistrements réels.',
@@ -1927,9 +1918,8 @@ const fr = {
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' mouvements du grand livre. Les virements entre tes espaces peuvent apparaître dans les entrées et les sorties ; ils se compensent. Ces chiffres ne sont ni des gains, ni un pouvoir de dépense, ni un portefeuille valorisé complet.',
   'rooms.outflow.categories': 'Catégories de sorties',
-  'rooms.no.outflow.categories.returned': 'Aucune catégorie de sortie renvoyée',
-  'rooms.the.service.returned.no.categorized.outflow.for':
-    'Le service n’a renvoyé aucune sortie catégorisée pour cet actif et cette période exacts.',
+  'rooms.no.outflow.categories.returned': 'Aucune catégorie de dépenses pour l’instant',
+  'rooms.the.service.returned.no.categorized.outflow.for': 'Aucune dépense catégorisée pour cet actif et cette période.',
   'rooms.choose.an.asset.and.time.window': 'Choisis un actif et une période',
   'rooms.this.view.does.not.invent.a.default': 'Cette vue n’invente ni période de dépense ni solde par défaut.',
   'rooms.pending.maker.checker.approvals': 'Approbations en attente de proposant / vérificateur',
@@ -1943,7 +1933,7 @@ const fr = {
   'rooms.approval.reference': 'Référence d’approbation',
   'rooms.approval.rejection.and.cancellation.require.verified.company':
     'L’approbation, le refus et l’annulation nécessitent une autorité d’entreprise vérifiée. Cet enregistrement ne fournit pas de contexte de grand livre appartenant à l’organisation.',
-  'rooms.no.pending.approvals.returned': 'Aucune approbation en attente renvoyée',
+  'rooms.no.pending.approvals.returned': 'Aucune approbation en attente',
   'rooms.an.empty.pending.list.does.not.imply':
     'Une liste d’attente vide n’implique ni solde d’entreprise ni permission de proposer un virement.',
   'rooms.bank.membership.and.maker.checker.policy.records':
@@ -1951,7 +1941,7 @@ const fr = {
   'rooms.company.money': 'Argent de l’entreprise',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Le solde de l’entreprise et l’autorité d’écriture sont indisponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Le contrat bancaire connecté ne fournit ni propriétaire du grand livre de l’organisation ni identité d’entreprise vérifiée. Son débit du proposant utilise actuellement l’espace personnel de l’acteur. Les quantités personnelles ne peuvent pas être désignées comme des fonds de l’entreprise.',
+    'Les comptes d’entreprise ne sont pas encore connectés : les paiements ici sont prélevés sur ton espace personnel. Les montants personnels ne peuvent pas être présentés comme des fonds d’entreprise.',
   'rooms.creating.a.company.bank.record.adding.members':
     'La création d’enregistrements bancaires d’entreprise, l’ajout de membres, les propositions de virement, les décisions d’approbation et la paie restent indisponibles jusqu’à la connexion de ces dépendances.',
   'rooms.account.identity.and.verification': 'Identité et vérification du compte ↗',
@@ -1962,7 +1952,7 @@ const fr = {
   'rooms.amounts.over.the.configured.threshold.require.separate':
     'Les montants supérieurs au seuil configuré nécessitent un proposant et un vérificateur distincts. Le proposant ne peut pas approuver sa propre proposition. Cet enregistrement n’est pas un solde d’entreprise.',
   'rooms.read.pending.approvals': 'Consulter les approbations en attente',
-  'rooms.no.bank.policy.memberships.returned': 'Aucune adhésion à une politique bancaire renvoyée',
+  'rooms.no.bank.policy.memberships.returned': 'Aucun membre de la politique d’approbation pour l’instant',
   'rooms.verified.company.ownership.and.company.balances.remain':
     'La propriété vérifiée de l’entreprise et les soldes de l’entreprise restent des contrats distincts manquants.',
   'rooms.money': 'Argent',

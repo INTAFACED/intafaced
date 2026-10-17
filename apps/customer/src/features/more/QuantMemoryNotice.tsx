@@ -3,9 +3,9 @@ import './support-desk.css';
 
 // English source only.
 export const quantMemoryCopy = defineCopy('quant-memory', {
-  title: 'Strategies are kept in memory only',
-  body: 'Saved strategies live in the quant service’s memory. They are lost when that service restarts, the catalogue is shared rather than private to your account, and there is no version history. Keep your strategy source somewhere you control.',
-  next: 'Lasting, private storage for each account needs a database behind the quant service. That is not connected, so nothing here is saved to your account.',
+  title: 'Saving to the library is switched off',
+  body: 'Saved strategies are not private to your account yet: everyone using this service shares one library. Until each account has its own storage, nothing you build here is saved to it. Your draft stays on this device.',
+  next: 'Keep your strategy source somewhere you control.',
 });
 
 export function QuantMemoryNotice() {

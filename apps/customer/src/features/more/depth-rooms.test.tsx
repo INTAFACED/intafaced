@@ -42,7 +42,7 @@ describe('rooms with no backing service', () => {
     const html = renderToStaticMarkup(<LaunchJourney onTab={() => undefined} />);
     expect((html.match(/depth-step depth-step--/g) ?? []).length).toBe(7);
     expect((html.match(/depth-step--blocked/g) ?? []).length).toBe(5);
-    expect(html).toContain('Blocked: issuance is held');
+    expect(html).toContain('Blocked: issuance is on hold');
   });
   it('Launch participation reads as unavailable, not zero', () => {
     const html = renderToStaticMarkup(<LaunchParticipation />);
@@ -60,7 +60,7 @@ describe('rooms with no backing service', () => {
     }
     expect(renderToStaticMarkup(<MiningRooms room="Workers" health={ready(health)} />)).toContain('disabled=""');
   });
-  it('Quant library labels the strategies as memory-only, shared and simulated', () => {
+  it('Quant library labels the strategies as shared, not private, saving off, and simulated', () => {
     const html = renderToStaticMarkup(
       <QuantLibrary
         onPick={() => undefined}
@@ -77,7 +77,7 @@ describe('rooms with no backing service', () => {
         ]}
       />,
     );
-    expect(html).toContain('Held in memory only');
+    expect(html).toContain('Shared library');
     expect(html).toContain('not private to your account');
     expect(html).toContain('Momentum');
     expect(html).toContain('Showing 1 of 1 loaded');

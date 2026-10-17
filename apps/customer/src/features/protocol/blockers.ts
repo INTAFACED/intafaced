@@ -83,12 +83,13 @@ export interface Blocker {
 }
 
 const blocker = (code: BlockerCode, params: Record<string, string> = {}): Blocker => ({ code, key: `blk_${code}`, params });
+/** How a source is named to a customer. Never a procedure name. */
 const sourceName = {
-  chain: 'protocol.chainStatus',
-  audit: 'protocol.auditStatus',
-  indexer: 'indexer.status',
-  dex: 'dex.health',
-  health: 'protocol.health',
+  chain: 'network status',
+  audit: 'audit status',
+  indexer: 'indexer status',
+  dex: 'DEX status',
+  health: 'service health',
 };
 
 type Check = (snap: ProtocolSnapshot, p1Go: boolean) => Blocker | null;

@@ -3,6 +3,7 @@ import { Panel } from '@intafaced/ui';
 import type { ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
+import { classifyRefusal, type RefusalKind } from '../data/refusal-codes';
 export { Panel };
 
 export function Button({
@@ -77,6 +78,29 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
+/** Refusals that come from something not being switched on, allowed or listed. A second attempt cannot change them. */
+const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
+  'screening',
+  'region',
+  'verify',
+  'convertSpreadUnset',
+  'slippageCapUnset',
+  'noBook',
+  'marketNotOpen',
+  'stepUp',
+  'mfaRequired',
+  'noPermission',
+  'orderTypeUnsupported',
+  'accountOnHold',
+  'notFound',
+  'notSetUp',
+]);
+/** Try again belongs to network trouble and to refusals that can clear by themselves, never to a missing setting or permission. */
+export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
+  if (result.reason === 'uncertain' || result.reason === 'unauthorized') return false;
+  if (result.reason === 'forbidden' || result.reason === 'not_mounted' || result.reason === 'not_supported') return false;
+  return !SETTLED_KINDS.has(classifyRefusal(result.code));
+}
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
@@ -95,7 +119,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
           </a>
         )}
         {words.reference && <small className="muted">{words.reference}</small>}
-        {retry && result.reason !== 'uncertain' && result.reason !== 'unauthorized' && (
+        {retry && canTryAgain(result) && (
           <Button variant="secondary" onClick={retry}>
             <Copy k="retry" />
           </Button>
@@ -117,7 +141,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
         </a>
       ) : (
         retry &&
-        result.reason !== 'uncertain' && (
+        canTryAgain(result) && (
           <Button variant="secondary" onClick={retry}>
             <Copy k="retry" />
           </Button>

@@ -41,6 +41,9 @@ const en = {
   disputeOverdue: 'This dispute is past its deadline.',
   // Chat
   chatEmpty: 'No messages yet.',
+  chatPickTitle: 'Choose an order',
+  chatPickBody: 'Order chat opens from one of your orders. Pick an order to see its messages, payment details and dispute options.',
+  chatPickAction: 'Go to Your orders',
   chatReasonTitle: 'Order chat isn’t connected yet',
   chatReasonBody:
     'No chat service is connected to orders yet, so messages can’t be sent or read here. Use the payment details on this order, and if something goes wrong open a dispute and add your evidence there.',
@@ -108,7 +111,7 @@ const en = {
   editClosed: 'This offer is closed. A closed offer can’t be changed.',
   changedFields: 'Changed from the live offer: {fields}',
   noChanges: 'No changes from the live offer.',
-  backToOffers: 'Back to my offers',
+  backToOffers: 'Go to Your offers',
   editOffer: 'Edit offer',
   // Offer and order filters
   tabAllOffers: 'All',
@@ -116,7 +119,7 @@ const en = {
   tabSell: 'I want to sell',
   filterMethod: 'Payment method',
   anyMethod: 'Any method',
-  makerNotice: 'Showing only offers from {maker} among the offers loaded.',
+  makerNotice: 'Showing only offers from member {maker}.',
   makerClear: 'Show all offers',
   ordersAll: 'All',
   ordersActive: 'Active',
@@ -126,11 +129,18 @@ const en = {
   ordersFilterLabel: 'Filter orders',
   ordersCountsNote: 'Counts cover the orders loaded on this page.',
   ordersNone: 'No orders in this view.',
+  offersNoneBoardTitle: 'No offers match',
+  offersNoneBoardBody: 'Try other filters, or check again later.',
   // Counterparty
   cpTheirOffers: 'See their offers',
   cpFollow: 'Follow',
   cpBlock: 'Block',
   cpReason: 'Following and blocking need a contacts service, which isn’t connected yet.',
+  cpPickTitle: 'Choose a counterparty',
+  cpPickBody:
+    'A counterparty is the other person in a trade. Open someone from an offer or an order to see their completion rate, release speed, disputes and badges.',
+  cpPickOffers: 'Browse offers',
+  cpPickOrders: 'Go to Your orders',
 } as const;
 
 const es = {
@@ -170,6 +180,10 @@ const es = {
   stageRuled: 'Resolución',
   disputeOverdue: 'Esta disputa ha superado su plazo.',
   chatEmpty: 'Aún no hay mensajes.',
+  chatPickTitle: 'Elige una orden',
+  chatPickBody:
+    'El chat de la orden se abre desde una de tus órdenes. Elige una orden para ver sus mensajes, datos de pago y opciones de disputa.',
+  chatPickAction: 'Ir a Tus órdenes',
   chatReasonTitle: 'El chat del pedido aún no está conectado',
   chatReasonBody:
     'Todavía no hay un servicio de chat conectado a los pedidos, así que aquí no se pueden enviar ni leer mensajes. Usa los datos de pago de este pedido y, si algo sale mal, abre una disputa y añade allí tus pruebas.',
@@ -235,14 +249,14 @@ const es = {
   editClosed: 'Esta oferta está cerrada. Una oferta cerrada no se puede cambiar.',
   changedFields: 'Cambios respecto a la oferta activa: {fields}',
   noChanges: 'Sin cambios respecto a la oferta activa.',
-  backToOffers: 'Volver a mis ofertas',
+  backToOffers: 'Ir a Tus ofertas',
   editOffer: 'Editar oferta',
   tabAllOffers: 'Todas',
   tabBuy: 'Quiero comprar',
   tabSell: 'Quiero vender',
   filterMethod: 'Método de pago',
   anyMethod: 'Cualquier método',
-  makerNotice: 'Mostrando solo las ofertas de {maker} entre las ofertas cargadas.',
+  makerNotice: 'Mostrando solo las ofertas del miembro {maker}.',
   makerClear: 'Mostrar todas las ofertas',
   ordersAll: 'Todos',
   ordersActive: 'Activos',
@@ -252,10 +266,17 @@ const es = {
   ordersFilterLabel: 'Filtrar pedidos',
   ordersCountsNote: 'Los totales cubren los pedidos cargados en esta página.',
   ordersNone: 'No hay pedidos en esta vista.',
+  offersNoneBoardTitle: 'Ninguna oferta coincide',
+  offersNoneBoardBody: 'Prueba otros filtros o vuelve a comprobarlo más tarde.',
   cpTheirOffers: 'Ver sus ofertas',
   cpFollow: 'Seguir',
   cpBlock: 'Bloquear',
   cpReason: 'Seguir y bloquear requieren un servicio de contactos, que aún no está conectado.',
+  cpPickTitle: 'Elige una contraparte',
+  cpPickBody:
+    'Una contraparte es la otra persona en una operación. Abre a alguien desde una oferta o una orden para ver su tasa de finalización, velocidad de liberación, disputas e insignias.',
+  cpPickOffers: 'Ver ofertas',
+  cpPickOrders: 'Ir a Tus órdenes',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -295,6 +316,10 @@ const fr = {
   stageRuled: 'Décision',
   disputeOverdue: 'Ce litige a dépassé son échéance.',
   chatEmpty: 'Aucun message pour l’instant.',
+  chatPickTitle: 'Choisissez une commande',
+  chatPickBody:
+    'Le chat d’une commande s’ouvre depuis l’une de vos commandes. Choisissez une commande pour voir ses messages, ses informations de paiement et les options de litige.',
+  chatPickAction: 'Aller à Vos commandes',
   chatReasonTitle: 'Le chat de la commande n’est pas encore connecté',
   chatReasonBody:
     'Aucun service de chat n’est encore relié aux commandes : les messages ne peuvent donc être ni envoyés ni lus ici. Utilisez les coordonnées de paiement de cette commande et, en cas de problème, ouvrez un litige et ajoutez-y vos preuves.',
@@ -360,14 +385,14 @@ const fr = {
   editClosed: 'Cette offre est fermée. Une offre fermée ne peut pas être modifiée.',
   changedFields: 'Modifié par rapport à l’offre en ligne : {fields}',
   noChanges: 'Aucune modification par rapport à l’offre en ligne.',
-  backToOffers: 'Retour à mes offres',
+  backToOffers: 'Aller à Vos offres',
   editOffer: 'Modifier l’offre',
   tabAllOffers: 'Toutes',
   tabBuy: 'Je veux acheter',
   tabSell: 'Je veux vendre',
   filterMethod: 'Mode de paiement',
   anyMethod: 'Tout mode',
-  makerNotice: 'Seules les offres de {maker} parmi les offres chargées sont affichées.',
+  makerNotice: 'Seules les offres du membre {maker} sont affichées.',
   makerClear: 'Afficher toutes les offres',
   ordersAll: 'Toutes',
   ordersActive: 'Actives',
@@ -377,10 +402,17 @@ const fr = {
   ordersFilterLabel: 'Filtrer les commandes',
   ordersCountsNote: 'Les totaux portent sur les commandes chargées sur cette page.',
   ordersNone: 'Aucune commande dans cette vue.',
+  offersNoneBoardTitle: 'Aucune offre ne correspond',
+  offersNoneBoardBody: 'Essayez d’autres filtres ou revenez plus tard.',
   cpTheirOffers: 'Voir ses offres',
   cpFollow: 'Suivre',
   cpBlock: 'Bloquer',
   cpReason: 'Suivre et bloquer nécessitent un service de contacts, qui n’est pas encore connecté.',
+  cpPickTitle: 'Choisissez une contrepartie',
+  cpPickBody:
+    'Une contrepartie est l’autre personne d’un échange. Ouvrez quelqu’un depuis une offre ou une commande pour voir son taux de réalisation, sa rapidité de libération, ses litiges et ses badges.',
+  cpPickOffers: 'Parcourir les offres',
+  cpPickOrders: 'Aller à Vos commandes',
 } satisfies Record<keyof typeof en, string>;
 
 export const p2pDepth = defineCopy('pay.p2p.depth', en, { es, fr });

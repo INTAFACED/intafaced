@@ -124,7 +124,7 @@ const messages = {
     'A published partner contact or intake form is not available. This screen does not submit an application.',
   'Campaign catalogue is not connected': 'Campaign catalogue is not connected',
   'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-    'No public campaign contract or published campaign list is available. There are no invented promotions here.',
+    'No promotions are published yet, and none are made up here.',
   'Invite from your account': 'Invite from your account',
   'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.',
@@ -259,7 +259,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'No hay un contacto publicado para socios ni un formulario de solicitud disponible. Esta pantalla no envía solicitudes.',
     'Campaign catalogue is not connected': 'El catálogo de campañas no está conectado',
     'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-      'No hay un contrato de campañas públicas ni una lista de campañas publicada. Aquí no se inventan promociones.',
+      'Aún no hay promociones publicadas y aquí no se inventa ninguna.',
     'Invite from your account': 'Invita desde tu cuenta',
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
       'Las relaciones de referidos y la actividad de invitaciones pertenecen a la cuenta con sesión iniciada. Inicia sesión para ver las herramientas de referidos disponibles.',
@@ -392,7 +392,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Aucun contact partenaire publié ni formulaire de demande n’est disponible. Cet écran n’envoie aucune candidature.',
     'Campaign catalogue is not connected': 'Le catalogue des campagnes n’est pas connecté',
     'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-      'Aucun contrat de campagne publique ni liste de campagnes publiée n’est disponible. Aucune promotion n’est inventée ici.',
+      'Aucune promotion n’est encore publiée, et aucune n’est inventée ici.',
     'Invite from your account': 'Invitez depuis votre compte',
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
       'Les liens de parrainage et l’activité des invitations appartiennent au compte connecté. Connectez-vous pour consulter les outils de parrainage disponibles.',
