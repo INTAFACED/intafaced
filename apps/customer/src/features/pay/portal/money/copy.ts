@@ -42,7 +42,8 @@ const en = {
   reserveNoneShort: 'No reserve is set up',
   reserveSet: 'Your account holds back a rolling reserve of {pct}.',
   reserveDaysNone: 'The holding period is not configured.',
-  payoutFailedBody: 'This payout did not complete. The reason is not shown here yet. Check your notifications before trying again.',
+  payoutFailedBody: 'This payout did not complete. The reason is not shown here yet.',
+  payoutFailedContactSupport: 'If this payout failed, contact support before trying again.',
   payoutNotReadyBody: 'This settlement is not final yet, so there is nothing to pay out.',
   voidBanner:
     'The approval on this payout no longer counts, because the amount, destination or payout method changed after it was requested. The payout will not be sent. Ask again to start a new request.',

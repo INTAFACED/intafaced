@@ -17,6 +17,7 @@ import { SelectField } from '../components';
 import { LinkButton, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
+import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 import { approvalsBySettlement, payoutBlock, payoutHeadroom, splitPayable, type PayoutBlock } from './model';
 import { settlementName } from './Settlements';
 import type { DestinationItem } from './schemas';
@@ -51,15 +52,15 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const { access, can } = useMerchantAccess();
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
-  // A payout can be started from a finalised settlement ("posted") or retried from one that did not complete ("failed").
+  // A payout can be started from a finalised settlement ("posted"). Retrying a "failed" one is held (PAYOUT_RETRY_ENABLED).
   const ready = useResource(async (s) => {
     const [posted, failed] = await Promise.all([
       portal.settlementPage(merchantId, { status: 'posted' }, undefined, s),
-      portal.settlementPage(merchantId, { status: 'failed' }, undefined, s),
+      PAYOUT_RETRY_ENABLED ? portal.settlementPage(merchantId, { status: 'failed' }, undefined, s) : Promise.resolve(null),
     ]);
     if (!posted.ok) return posted;
     // A failed read only hides the retry rows; the ready ones still show.
-    const retry = failed.ok ? failed.data.items : [];
+    const retry = failed?.ok ? failed.data.items : [];
     return { ok: true as const, data: { ...posted.data, items: [...posted.data.items, ...retry] } };
   }, `money:payable:${merchantId}`);
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);

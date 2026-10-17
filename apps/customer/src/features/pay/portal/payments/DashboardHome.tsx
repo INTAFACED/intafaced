@@ -14,6 +14,7 @@ import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { TierUsage } from './TierUsage';
 import { dateRange } from '../ui/FilterRow';
+import { DateTime, UTC } from '../ui/DateTime';
 
 export function LayoutDashboard({
   portal,
@@ -269,9 +270,7 @@ export function RecentPaymentsView({ resource, retry, at }: { resource: Resource
                         <strong>{paymentLabel(payment)}</strong>
                         <span>
                           <Chip kind="payment" value={payment.status} /> ·{' '}
-                          <time dateTime={payment.createdAt}>
-                            {new Date(payment.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}
-                          </time>
+                          <DateTime value={payment.createdAt} timeZone={UTC} dayOnly />
                         </span>
                       </span>
                       <span className="plo-payment-amount">

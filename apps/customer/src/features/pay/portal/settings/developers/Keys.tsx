@@ -161,7 +161,13 @@ export function KeysView({
                             {k.name} <code>{k.prefix}</code>
                           </>
                         ),
-                        time: k.lastUsedAt ? t('usedAt', { when: new Date(k.lastUsedAt).toLocaleDateString() }) : t('neverUsed'),
+                        time: k.lastUsedAt ? (
+                          <>
+                            {t('usedAt')} <DateTime value={k.lastUsedAt} />
+                          </>
+                        ) : (
+                          t('neverUsed')
+                        ),
                         status: <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} />,
                       })}
                     />

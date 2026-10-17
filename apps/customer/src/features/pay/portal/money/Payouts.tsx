@@ -40,6 +40,7 @@ import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
 import type { Lifecycle, PayoutItem } from './schemas';
 import { Facts, NotConfigured, UsageBar } from '../components';
 import type { PayoutState } from '../model';
+import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 
 const PAYOUT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
 const stateOfStatus = { pending: 'not_ready', posted: 'ready', paid_out: 'paid_out', failed: 'failed' } as const;
@@ -333,7 +334,7 @@ export function PayoutDetailView({
               ? destination(latest)
               : null;
           const action =
-            state === 'ready' || state === 'failed' ? (
+            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) ? (
               <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
                 {t(state === 'failed' ? 'pdoRetry' : 'pdoRequest')}
               </LinkButton>
@@ -357,6 +358,7 @@ export function PayoutDetailView({
               {state === 'failed' && (
                 <p className="pp-callout pp-callout--warn" role="alert">
                   {lc?.failure?.message ?? s.failure?.message ?? t('payoutFailedBody')}
+                  {!PAYOUT_RETRY_ENABLED && <> {t('payoutFailedContactSupport')}</>}
                 </p>
               )}
               {state === 'not_ready' && <p className="pp-callout">{t('payoutNotReadyBody')}</p>}

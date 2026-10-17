@@ -1,4 +1,4 @@
-import { parseAmount, displayAmount, formatAmount } from '../../../shared/money';
+import { parseAmount, formatAmount } from '../../../shared/money';
 import type {
   Approval,
   AssetAmount,
@@ -71,10 +71,6 @@ export function assetsOf(snapshot: Snapshot): string[] {
   for (const row of snapshot.balances) all.add(row.assetCode);
   for (const row of snapshot.settlements) all.add(row.assetCode);
   return [...all].sort();
-}
-
-export function formatMoney(value: string, assetCode: string): string {
-  return `${displayAmount(value)} ${assetCode}`;
 }
 
 export type Bar = { day: string; volume: string; pct: number; today: boolean };

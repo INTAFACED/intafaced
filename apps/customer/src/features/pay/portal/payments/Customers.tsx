@@ -24,7 +24,7 @@ import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, type ListState } from '../hooks';
 import { DAY_MS, addDays, utcDay } from '../model';
 import { seriesTotals } from './model';
-import { uiCopy } from '../ui/copy';
+import { DateTime, UTC } from '../ui/DateTime';
 import type { CustomerSeries } from './schemas';
 import type { PortalApi } from '../api';
 import type { Customer, CustomerDetail, customerSummarySchema } from '../schemas';
@@ -314,14 +314,7 @@ export function CustomerDetailView({
 
 /** A day, with no time: the daily table counts whole UTC days, so "12:00 AM" would be a made-up hour. */
 function DayOnly({ period }: { period: string }) {
-  const { requestedLocale } = uiCopy.useCopy();
-  const date = new Date(`${period}T00:00:00.000Z`);
-  if (!Number.isFinite(date.getTime())) return <span lang="zxx">{period}</span>;
-  return (
-    <time dateTime={period} lang={requestedLocale}>
-      {date.toLocaleDateString(requestedLocale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
-    </time>
-  );
+  return <DateTime value={`${period}T00:00:00.000Z`} timeZone={UTC} dayOnly />;
 }
 function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries>; today: string; retry: () => void }) {
   const { t } = portalCopy.useCopy();

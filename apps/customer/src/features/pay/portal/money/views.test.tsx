@@ -158,9 +158,10 @@ describe('payout detail', () => {
     );
     expect(out).toContain('The payment network declined this payout.');
     expect(out).not.toMatch(/pay\.[a-z_]+/);
-    // The failure copy says "try again", so the page has to offer it: a link that opens the payout form on this settlement.
-    expect(out).toContain('Try this payout again');
-    expect(out).toContain('href="/pay/payouts/new?settlement=bb000002-0000-4000-8000-000000000002"');
+    // Retry is held until PAYOUTONCE lands (payout-retry.ts): no button, no link into the payout form, a pointer to support.
+    expect(out).not.toContain('Try this payout again');
+    expect(out).not.toContain('/pay/payouts/new');
+    expect(out).toContain('If this payout failed, contact support before trying again.');
   });
   it('offers no retry on a payout that was paid', () => {
     expect(render([paid])).not.toContain('Try this payout again');

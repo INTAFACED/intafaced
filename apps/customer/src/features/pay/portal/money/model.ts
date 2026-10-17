@@ -15,6 +15,7 @@ import type {
 } from '../schemas';
 import { capKinds } from '../schemas';
 import { shortId, type PayoutState, type DecisionBlock, usagePct } from '../model';
+import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 
 /** Amounts of one asset as `1,234.50`; an empty list is "nothing yet", never a made-up zero. */
 export function amountFor(list: readonly AssetAmount[], assetCode: string): string | null {
@@ -257,14 +258,15 @@ export function approvalsBySettlement(approvals: readonly Approval[]): Map<strin
 }
 
 /**
- * Settlements a payout can be started from: finalised ("posted") or one that did not complete ("failed", to try again),
- * less those that already have a request waiting for approval. `waitingN` counts the ones left out for that reason.
+ * Settlements a payout can be started from: finalised ("posted"), plus one that did not complete ("failed") only while
+ * PAYOUT_RETRY_ENABLED, less those that already have a request waiting for approval. `waitingN` counts the ones left out for
+ * that reason.
  */
 export function splitPayable<S extends { id: string; status: string }>(
   items: readonly S[],
   waiting: ReadonlyMap<string, Pick<Approval, 'status'>> | null,
 ): { payable: S[]; waitingN: number } {
-  const startable = items.filter((s) => s.status === 'posted' || s.status === 'failed');
+  const startable = items.filter((s) => s.status === 'posted' || (PAYOUT_RETRY_ENABLED && s.status === 'failed'));
   const payable = startable.filter((s) => waiting?.get(s.id)?.status !== 'pending');
   return { payable, waitingN: startable.length - payable.length };
 }

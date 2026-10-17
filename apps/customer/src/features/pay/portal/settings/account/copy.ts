@@ -169,9 +169,7 @@ const en = {
     'When on, a legal-detail change also needs someone else on your team to confirm it before INTAFACED reviews it. When off, it goes straight to INTAFACED.',
   secondApprovalIsOn: 'Second approval is on.',
   secondApprovalIsOff: 'Second approval is off.',
-  secondApprovalUnknown:
-    'We can’t read this setting yet, so we can’t tell you whether it is on. Turning it on or off here sets it either way.',
-  secondApprovalRemembered: 'Last set from this browser {when}.',
+  secondApprovalUnknown: 'We can’t read this setting yet.',
   secondApprovalOn: 'Turn on second approval',
   secondApprovalOnBody: 'Legal-detail changes will need a second person on your team to confirm them.',
   secondApprovalOff: 'Turn off second approval',

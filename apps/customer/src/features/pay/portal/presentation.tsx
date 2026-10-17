@@ -1,20 +1,15 @@
 import { createContext, useContext, useState } from 'react';
 import { Amount, Button } from '@intafaced/ui';
-import { fmtAmount } from '../../../data/format';
-import { displayAmount, parseAmount } from '../../../shared/money';
 import { layoutCopy } from './home-layout/copy';
 import type { Payment } from './schemas';
 import { useExactMoneyScope } from './ui/ExactMoneyScope';
+import { formatMoney, isRounded } from './ui/format';
 
 /** Full precision is an explicit choice in a detail, statement or review, never the headline default. */
 export const ExactMoneyContext = createContext(false);
+/** The portal's one money formatter (ui/format.ts), kept under this name for the pages that already import it. */
 export function portalAmount(value: string, asset: string): string {
-  const places = asset === 'USD' || asset === 'USDT' ? 2 : 8;
-  const scaled = parseAmount(value);
-  const abs = scaled < 0n ? -scaled : scaled;
-  // Match Home's bigint formatter; preserve the fact that dust is nonzero without a long decimal headline.
-  if (abs > 0n && abs < 10n ** BigInt(18 - places)) return `${scaled < 0n ? '−' : ''}<${places === 2 ? '0.01' : '0.00000001'}`;
-  return fmtAmount(value, { places, fixed: places === 2 });
+  return formatMoney(value, asset);
 }
 export function MoneyDisplay({
   value,
@@ -32,10 +27,10 @@ export function MoneyDisplay({
   const [exact, setExact] = useState(false);
   const { t } = layoutCopy.useCopy();
   const compact = portalAmount(value, asset);
-  const full = displayAmount(value);
+  const full = formatMoney(value, asset, { exact: true });
   // In a review the exact amount is the default and needs no toggle. In a detail view the compact amount keeps a "Show exact" button.
   if (inReview) return <Amount className={className} value={full} sensitive={sensitive} />;
-  const hasExtraPrecision = /[1-9]/.test((value.split('.')[1] ?? '').slice(asset === 'USD' || asset === 'USDT' ? 2 : 8));
+  const hasExtraPrecision = isRounded(value, asset);
   return (
     <span className="plo-money-exact">
       <Amount className={className} value={exact && canShowExact ? full : compact} sensitive={sensitive} />

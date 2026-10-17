@@ -412,29 +412,10 @@ function ChangeRow({
   );
 }
 
-const rememberedKey = (merchantId: string) => `intafaced.pay.second-approval.v1:${merchantId}`;
-type Remembered = { enabled: boolean; at: string };
-function readRemembered(merchantId: string): Remembered | null {
-  try {
-    const raw = window.localStorage.getItem(rememberedKey(merchantId));
-    const value = raw ? (JSON.parse(raw) as Partial<Remembered>) : null;
-    return value && typeof value.enabled === 'boolean' && typeof value.at === 'string' ? { enabled: value.enabled, at: value.at } : null;
-  } catch {
-    return null;
-  }
-}
-function remember(merchantId: string, value: Remembered) {
-  try {
-    window.localStorage.setItem(rememberedKey(merchantId), JSON.stringify(value));
-  } catch {
-    /* private window or blocked storage: the page still works, it just forgets */
-  }
-}
-
 /**
  * Second approval: whether a legal-detail change also needs a teammate. The service takes the setting but does not
- * report it, so this shows what the service says when it does, and otherwise the last value set from this browser.
- * Never both buttons: one control that moves the setting to the other state.
+ * report it everywhere yet, so this shows only what the service says. Security state never comes from the browser: when
+ * the service sends no value the page says it can't read the setting. Never both buttons: one control that moves the setting to the other state.
  */
 function SecondApproval({
   portal,
@@ -450,14 +431,12 @@ function SecondApproval({
   reload: () => void;
 }) {
   const { t } = accountCopy.useCopy();
-  const [last, setLast] = useState<Remembered | null>(() => readRemembered(merchantId));
-  const current = fromService ?? last?.enabled ?? null;
+  const current = fromService ?? null;
   const turnOn = current !== true;
   return (
     <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
       <p role="status">
         <strong>{current === null ? t('secondApprovalUnknown') : current ? t('secondApprovalIsOn') : t('secondApprovalIsOff')}</strong>
-        {fromService === undefined && last && <> {t('secondApprovalRemembered', { when: new Date(last.at).toLocaleString() })}</>}
       </p>
       <div className="pp-actions">
         <PortalReview
@@ -465,12 +444,7 @@ function SecondApproval({
           title={turnOn ? t('secondApprovalOn') : t('secondApprovalOff')}
           description={turnOn ? t('secondApprovalOnBody') : t('secondApprovalOffBody')}
           perform={() => portal.profileSecondApproval(merchantId, turnOn)}
-          onConfirmed={(result) => {
-            const value = { enabled: result.enabled, at: new Date().toISOString() };
-            remember(merchantId, value);
-            setLast(value);
-            reload();
-          }}
+          onConfirmed={reload}
           disabled={!mayEdit}
           disabledReason={t('whoMayEditNot')}
         />

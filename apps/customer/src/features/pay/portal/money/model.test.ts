@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { askCaps } from './Limits';
+import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 import { referenceProblem } from './Destinations';
 import {
   approvalsBySettlement,
@@ -260,9 +261,10 @@ describe('forms', () => {
 describe('payout picker', () => {
   const s = (id: string, status: string) => ({ id, status });
   const pending = new Map([['b', { status: 'pending' as const }]]);
-  it('includes posted and failed settlements, never pending or paid out', () => {
+  it('includes only posted settlements while payout retry is held, never failed, pending or paid out', () => {
+    expect(PAYOUT_RETRY_ENABLED).toBe(false);
     const r = splitPayable([s('a', 'posted'), s('c', 'failed'), s('d', 'pending'), s('e', 'paid_out')], null);
-    expect(r.payable.map((x) => x.id)).toEqual(['a', 'c']);
+    expect(r.payable.map((x) => x.id)).toEqual(['a']);
   });
   it('leaves out settlements already waiting for approval and counts them', () => {
     const r = splitPayable([s('a', 'posted'), s('b', 'posted')], pending);

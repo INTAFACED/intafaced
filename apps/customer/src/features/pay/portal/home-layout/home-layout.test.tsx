@@ -64,7 +64,8 @@ describe('asset display precision', () => {
     expect(portalAmount('9007199254740993.123456789123456789', asset)).toBe('9,007,199,254,740,993.12');
     expect(portalAmount('999.999', asset)).toBe('1,000.00');
     expect(portalAmount('0', asset)).toBe('0.00');
-    expect(portalAmount('0.000000000000000001', asset)).toBe('<0.01');
+    // One formatter (ui/format.ts): a non-zero amount below one cent keeps its digits, it is never shown as zero.
+    expect(portalAmount('0.000000000000000001', asset)).toBe('0.000000000000000001');
   });
   it('offers exact precision only in detail/statement context', () => {
     const money = <MoneyDisplay value="1.123456789" asset="USDT" />;

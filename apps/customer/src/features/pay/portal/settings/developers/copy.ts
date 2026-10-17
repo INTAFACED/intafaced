@@ -88,7 +88,7 @@ const en = {
   noKeysMatch: 'No keys match',
   noKeysMatchBody: 'Try a different search or status.',
   neverUsed: 'Never used',
-  usedAt: 'Last used {when}',
+  usedAt: 'Last used',
   modeTest: 'Test',
   modeLive: 'Live',
   revokeKey: 'Revoke key',
