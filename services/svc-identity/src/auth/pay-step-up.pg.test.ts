@@ -5,7 +5,7 @@
  * older than five minutes does not. Refresh does not carry the scope forward.
  * A key receives pay:refund only when create is told this was a step-up.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign as cryptoSign, type KeyObject } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,17 @@ import { verifyAccessToken } from '@intafaced/auth';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService } from './auth-service.js';
+import { encodeCbor } from './cbor.js';
 import { totp } from './totp.js';
+import {
+  b64urlEncode,
+  buildAuthenticatorData,
+  buildClientDataJSON,
+  coseKeyFromJwk,
+  generateChallenge,
+  type AuthenticationResponseJSON,
+  type RegistrationResponseJSON,
+} from './webauthn.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 
@@ -42,6 +52,71 @@ function totpNext(secret: string): string {
   const step = 30;
   const counter = Math.floor(Math.floor(Date.now() / 1000) / step);
   return totp(secret, { at: new Date((counter + 1) * step * 1000) });
+}
+
+const webauthnConfig = {
+  rpID: 'localhost',
+  rpName: 'INTAFACED',
+  origin: 'http://localhost:3000',
+};
+
+/**
+ * A synced passkey. The signature counter stays 0, so the same assertion
+ * verifies again unless the server consumes the challenge it issued.
+ */
+function syncedPasskey() {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const jwk = publicKey.export({ format: 'jwk' }) as { x: string; y: string };
+  const cose = coseKeyFromJwk(jwk);
+  const credId = randomBytes(16);
+  const sign = (authData: Buffer, clientDataJSON: Buffer, key: KeyObject = privateKey) => {
+    const clientDataHash = createHash('sha256').update(clientDataJSON).digest();
+    return cryptoSign('SHA256', Buffer.concat([authData, clientDataHash]), { key, dsaEncoding: 'der' });
+  };
+  return {
+    registrationResponse(challenge: string): RegistrationResponseJSON {
+      const clientDataJSON = buildClientDataJSON({ type: 'webauthn.create', challenge, origin: webauthnConfig.origin });
+      const authData = buildAuthenticatorData({
+        rpID: webauthnConfig.rpID,
+        counter: 0,
+        credential: { id: credId, publicKeyCose: cose },
+      });
+      const attestationObject = Buffer.from(
+        encodeCbor(
+          new Map<string | number, unknown>([
+            ['fmt', 'none'],
+            ['attStmt', new Map()],
+            ['authData', new Uint8Array(authData)],
+          ]) as never,
+        ),
+      );
+      return {
+        id: b64urlEncode(credId),
+        rawId: b64urlEncode(credId),
+        type: 'public-key',
+        response: {
+          clientDataJSON: b64urlEncode(clientDataJSON),
+          attestationObject: b64urlEncode(attestationObject),
+          transports: ['internal'],
+        },
+      };
+    },
+    assertionResponse(challenge: string): AuthenticationResponseJSON {
+      const clientDataJSON = buildClientDataJSON({ type: 'webauthn.get', challenge, origin: webauthnConfig.origin });
+      const authData = buildAuthenticatorData({ rpID: webauthnConfig.rpID, counter: 0 });
+      const signature = sign(authData, clientDataJSON);
+      return {
+        id: b64urlEncode(credId),
+        rawId: b64urlEncode(credId),
+        type: 'public-key',
+        response: {
+          clientDataJSON: b64urlEncode(clientDataJSON),
+          authenticatorData: b64urlEncode(authData),
+          signature: b64urlEncode(signature),
+        },
+      };
+    },
+  };
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -98,6 +173,17 @@ if (!available) {
 
   function allow(userId: string, merchantId = MERCHANT) {
     grants.set(`${userId}:${merchantId}`, { refundsCreate: true, payoutSend: true });
+  }
+
+  async function enrolPasskey(userId: string) {
+    const authenticator = syncedPasskey();
+    const options = await auth.startWebauthnRegistration(userId, PASSWORD_SESSION);
+    await auth.confirmWebauthnRegistration(userId, PASSWORD_SESSION, authenticator.registrationResponse(options.challenge));
+    return authenticator;
+  }
+
+  function replayProof(assertion: AuthenticationResponseJSON, challenge: string) {
+    return { webauthn: assertion, webauthnChallenge: challenge };
   }
 
   describe('auth.stepUpPay', () => {
@@ -223,6 +309,61 @@ if (!available) {
       expect(stored[0]?.scopes).toEqual(['pay:refund']);
       const exchanged = await auth.exchangeApiKey(key.key);
       expect(exchanged.scopes).toEqual(['pay:refund']);
+    });
+
+    it('refuses a passkey assertion signed over a challenge the server never issued and writes no mint', async () => {
+      const session = await register();
+      const authenticator = await enrolPasskey(session.userId);
+      allow(session.userId);
+      const neverIssued = generateChallenge();
+      const assertion = authenticator.assertionResponse(neverIssued);
+      await expect(
+        auth.stepUpPay({
+          userId: session.userId,
+          sessionId: session.sessionId,
+          merchantId: MERCHANT,
+          scopes: ['pay:payout'],
+          factorProof: replayProof(assertion, neverIssued),
+        }),
+      ).rejects.toMatchObject({ code: 'auth.webauthn_invalid' });
+      const audit = await db.sql<Array<{ audit_id: string }>>`
+        SELECT audit_id FROM pay_step_up_mints WHERE user_id = ${session.userId}
+      `;
+      expect(audit).toEqual([]);
+    });
+
+    it('mints once from a startWebauthnStepUp challenge and refuses the same assertion a second time', async () => {
+      const session = await register();
+      const authenticator = await enrolPasskey(session.userId);
+      allow(session.userId);
+      const options = await auth.startWebauthnStepUp(session.userId);
+      const assertion = authenticator.assertionResponse(options.challenge);
+      const factorProof = replayProof(assertion, options.challenge);
+      const minted = await auth.stepUpPay({
+        userId: session.userId,
+        sessionId: session.sessionId,
+        merchantId: MERCHANT,
+        scopes: ['pay:refund'],
+        factorProof,
+      });
+      expect(minted.scopes).toContain('pay:refund');
+      const first = await db.sql<Array<{ factor: string }>>`
+        SELECT factor FROM pay_step_up_mints WHERE user_id = ${session.userId}
+      `;
+      expect(first).toEqual([{ factor: 'passkey' }]);
+      await expect(
+        auth.stepUpPay({
+          userId: session.userId,
+          sessionId: session.sessionId,
+          merchantId: MERCHANT,
+          scopes: ['pay:refund'],
+          factorProof,
+        }),
+      ).rejects.toMatchObject({ code: 'auth.webauthn_invalid' });
+      const second = await db.sql<Array<{ factor: string }>>`
+        SELECT factor FROM pay_step_up_mints WHERE user_id = ${session.userId}
+      `;
+      expect(second).toEqual([{ factor: 'passkey' }]);
     });
   });
 }

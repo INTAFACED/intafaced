@@ -1062,9 +1062,10 @@ export function createIdentityRouter(
        * payment.refund or settlement.payout.
        *
        * Input: `{ merchantId, scopes: ('pay:refund' | 'pay:payout')[], factorProof }`.
-       * `factorProof` is exactly one of `{ totpCode }`, `{ webauthn, webauthnChallenge }`,
+       * `factorProof` is exactly one of `{ totpCode }`, `{ webauthn }`,
        * or `{ proofId }` from a factor verified in the last five minutes
-       * (`proveFreshFactor`, STEPUP #4880).
+       * (`proveFreshFactor`, STEPUP #4880). A passkey assertion is signed over
+       * the single-use challenge from `auth.stepUpOptions`.
        * Output: `{ accessToken, expiresAt, scopes, refreshable: false }`.
        * Refusals: `auth.step_up_required`, `auth.step_up_expired`, `pay.role_not_allowed`.
        * Nothing is minted on a refusal.
@@ -1093,7 +1094,6 @@ export function createIdentityRouter(
                     }),
                     clientExtensionResults: z.record(z.unknown()).optional(),
                   }),
-                  webauthnChallenge: z.string().min(1),
                 })
                 .strict(),
               z.object({ proofId: z.string().uuid() }).strict(),

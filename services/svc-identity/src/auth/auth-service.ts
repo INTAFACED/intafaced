@@ -326,9 +326,7 @@ export type PayStepUpGrant = {
 };
 
 export type PayStepUpFactorProof =
-  | { readonly totpCode: string }
-  | { readonly webauthn: AuthenticationResponseJSON; readonly webauthnChallenge: string }
-  | { readonly proofId: string };
+  { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
 
 export interface RegisterInput {
   handle: string;
@@ -2208,11 +2206,19 @@ export class AuthService {
       await this.recordPayStepUpProof(userId, sessionId, 'totp');
       return 'totp';
     }
+    // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
+    // A body-supplied challenge is not accepted: a captured assertion would mint again.
+    const clientChallenge = readClientChallenge(proof.webauthn.response.clientDataJSON);
+    if (!clientChallenge) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    const held = await this.challenges.take(clientChallenge, 'step-up');
+    if (!held || held.userId !== userId) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
     await this.proveFreshFactor({
       userId,
       sessionId,
       webauthn: proof.webauthn,
-      webauthnChallenge: proof.webauthnChallenge,
+      webauthnChallenge: held.challenge,
     });
     await this.recordPayStepUpProof(userId, sessionId, 'passkey');
     return 'passkey';
