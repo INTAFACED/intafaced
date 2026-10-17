@@ -1,0 +1,830 @@
+import { createHash } from 'node:crypto';
+import type { Sql } from 'postgres';
+import { transaction } from '@intafaced/db';
+import {
+  payMerchantIdSchema,
+  type PayHaltErrorCode,
+  type PayHaltPendingClear,
+  type PayHaltPendingClearListInput,
+} from '@intafaced/contracts';
+import type {
+  PayHaltEvent,
+  PayHaltMerchantState,
+  PayHaltOperatorStatus,
+  PayHaltScope,
+  PayHaltSetInput,
+  PayHaltSetResult,
+  PayHaltState,
+  PayHaltStatus,
+  PayHaltTarget,
+} from './types.js';
+import { PAY_HALT_SCOPES } from './types.js';
+import { dualControlRefuse } from '../dual-control.js';
+import type { PayHaltAutoTripConfig } from './config.js';
+
+/**
+ * THE HALT STORE (W5). Postgres is the only copy of a halt, so every svc-pay
+ * replica sees the same switch the moment it commits. There is no in-process
+ * cache: the guards read one indexed row per call. A read that fails is the
+ * caller's problem to treat as HALTED (see guards.ts); this class never invents
+ * "not halted" from an error.
+ */
+
+export class PayHaltError extends Error {
+  constructor(
+    readonly code: PayHaltErrorCode,
+    options?: { cause?: unknown },
+  ) {
+    super(code, options);
+    this.name = 'PayHaltError';
+  }
+}
+
+/** A proposed clear that nobody confirmed within this long is dead; a fresh proposal is needed. */
+export const CLEAR_PROPOSAL_TTL_MS = 60 * 60 * 1000;
+
+/** One user's withdrawal exit. Not one row per merchant that user owns. */
+export const userHaltKey = (userId: string): string => `user:${userId.toLowerCase()}`;
+/** One rail, counted and halted across every merchant. */
+export const railHaltKey = (railId: string): string => `rail:${railId}`;
+
+export const targetKey = (target: PayHaltTarget): string => {
+  if (target.level === 'global') return 'global';
+  if (target.level === 'merchant') return target.merchantId.toLowerCase();
+  if (target.level === 'user') return userHaltKey(target.userId);
+  return railHaltKey(target.railId);
+};
+const targetOf = (key: string): PayHaltTarget => {
+  if (key === 'global') return { level: 'global' };
+  if (key.startsWith('user:')) return { level: 'user', userId: key.slice('user:'.length) };
+  if (key.startsWith('rail:')) return { level: 'rail', railId: key.slice('rail:'.length) };
+  return { level: 'merchant', merchantId: key };
+};
+const iso = (value: unknown): string | null => (value == null ? null : new Date(value as string | Date).toISOString());
+
+interface HaltRow {
+  scope: PayHaltScope;
+  target: string;
+  halted: boolean;
+  reason: string | null;
+  source: 'operator' | 'auto_trip';
+  actor_user_id: string | null;
+  version: string | number | bigint;
+  changed_at: Date | string;
+}
+
+function stateOf(row: HaltRow): PayHaltState {
+  return {
+    scope: row.scope,
+    target: targetOf(row.target),
+    halted: row.halted,
+    reason: row.reason,
+    source: row.source,
+    actorUserId: row.actor_user_id,
+    version: String(row.version),
+    changedAt: iso(row.changed_at),
+  };
+}
+
+const neverHalted = (scope: PayHaltScope, target: PayHaltTarget): PayHaltState => ({
+  scope,
+  target,
+  halted: false,
+  reason: null,
+  source: null,
+  actorUserId: null,
+  version: '0',
+  changedAt: null,
+});
+
+/** What a merchant may see: on/off and since when. No reason, no actor, no source. */
+export const merchantSafe = (state: PayHaltState): PayHaltMerchantState => ({
+  scope: state.scope,
+  target: state.target,
+  halted: state.halted,
+  changedAt: state.changedAt,
+});
+
+/** Stable streak key for one payout rail. Two rails do not share a count. */
+export const payoutRailSourceKey = (railId: string): string => `rail:${railId}`;
+
+/** The scope+target of a halt that is ON and covers this work. */
+export interface BlockingHalt {
+  readonly scope: PayHaltScope;
+  readonly target: string;
+}
+
+/**
+ * Is `scope` halted, globally, for `merchantId`, or for `railId`? Reads through
+ * `conn` so a guard running inside a money transaction asks on its own connection.
+ * THROWS if the store cannot be read; the caller must treat that as halted.
+ */
+export async function findBlockingHalt(conn: Sql, scope: PayHaltScope, merchantId?: string, railId?: string): Promise<BlockingHalt | null> {
+  const targets = [merchantId?.toLowerCase() ?? 'global'];
+  if (railId) targets.push(railHaltKey(railId));
+  return findBlockingHaltForTargets(conn, scope, targets);
+}
+
+/**
+ * First halted switch for `scope` among the global switch and `targets` (lower-cased merchant ids).
+ * The one query behind `findBlockingHalt` and the user-money guard, so the two cannot drift.
+ */
+export async function findBlockingHaltForTargets(conn: Sql, scope: PayHaltScope, targets: readonly string[]): Promise<BlockingHalt | null> {
+  const rows = await conn<Array<{ scope: PayHaltScope; target: string }>>`
+    SELECT scope, target FROM pay.halts
+     WHERE scope = ${scope} AND halted AND target IN ${conn(['global', ...targets])}
+     LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+/** Enough of a rail registry for a founder halt to name a rail this process can send on. */
+export interface PayHaltRailLookup {
+  has(railId: string): boolean;
+}
+
+export class PayHaltStore {
+  constructor(
+    private readonly sql: Sql,
+    private readonly autoTrip: PayHaltAutoTripConfig,
+    /**
+     * Registered rails. Omitted means every rail target is unknown: a founder
+     * halt must not name a rail this process cannot match on a send.
+     */
+    private readonly rails: PayHaltRailLookup = { has: () => false },
+  ) {}
+
+  autoTripPosture() {
+    return this.autoTrip.failures === null
+      ? { enabled: false, consecutiveFailures: null }
+      : { enabled: true, consecutiveFailures: this.autoTrip.failures };
+  }
+
+  /** Merchant-safe effective status: per scope, the global switch and (when given) that merchant's switch. */
+  async status(merchantId?: string): Promise<PayHaltStatus> {
+    try {
+      const merchant = merchantId?.toLowerCase();
+      const rows = await this.sql<HaltRow[]>`
+        SELECT * FROM pay.halts
+         WHERE target = 'global'
+            OR target = ${merchant ?? 'global'}
+            OR (halted AND target LIKE 'rail:%')
+      `;
+      const states: PayHaltState[] = [];
+      for (const scope of PAY_HALT_SCOPES) {
+        const targets: PayHaltTarget[] = [{ level: 'global' }];
+        if (merchant) targets.push({ level: 'merchant', merchantId: merchant });
+        for (const target of targets) {
+          const row = rows.find((r) => r.scope === scope && r.target === targetKey(target));
+          states.push(row ? stateOf(row) : neverHalted(scope, target));
+        }
+      }
+      for (const row of rows) {
+        if (row.halted && row.target.startsWith('rail:')) states.push(stateOf(row));
+      }
+      return { readable: true, states: states.map(merchantSafe) };
+    } catch {
+      // Unreadable = halted. The shape says so; every scope is reported halted.
+      return {
+        readable: false,
+        states: PAY_HALT_SCOPES.map((scope) => ({ scope, target: { level: 'global' as const }, halted: true, changedAt: null })),
+      };
+    }
+  }
+
+  /**
+   * Operator view of the switches that cover one merchant: the global switch and that merchant's switch,
+   * per scope. Other merchants' rows are not included. A missing row is "never set" (`halted: false`,
+   * version `0`), the same as `operatorStatus`. A failed read is `readable: false`, not "nothing is halted".
+   */
+  async operatorStatusForMerchant(merchantId: string): Promise<PayHaltOperatorStatus> {
+    const autoTrip = this.autoTripPosture();
+    const merchant = merchantId.toLowerCase();
+    try {
+      const rows = await this.sql<HaltRow[]>`
+        SELECT * FROM pay.halts WHERE target = 'global' OR target = ${merchant} ORDER BY scope, target
+      `;
+      const states = rows.map(stateOf);
+      for (const scope of PAY_HALT_SCOPES) {
+        if (!states.some((s) => s.scope === scope && s.target.level === 'global')) states.push(neverHalted(scope, { level: 'global' }));
+        if (!states.some((s) => s.scope === scope && s.target.level === 'merchant' && s.target.merchantId === merchant)) {
+          states.push(neverHalted(scope, { level: 'merchant', merchantId: merchant }));
+        }
+      }
+      return { readable: true, autoTrip, states };
+    } catch {
+      return { readable: false, autoTrip, states: [] };
+    }
+  }
+
+  /** Operator view: every halt row that exists, plus the global switch of each scope even when never set. */
+  async operatorStatus(): Promise<PayHaltOperatorStatus> {
+    const autoTrip = this.autoTripPosture();
+    try {
+      const rows = await this.sql<HaltRow[]>`SELECT * FROM pay.halts ORDER BY scope, target`;
+      const states = rows.map(stateOf);
+      for (const scope of PAY_HALT_SCOPES) {
+        if (!states.some((s) => s.scope === scope && s.target.level === 'global')) states.push(neverHalted(scope, { level: 'global' }));
+      }
+      return { readable: true, autoTrip, states };
+    } catch {
+      return { readable: false, autoTrip, states: [] };
+    }
+  }
+
+  async history(input: { scope?: PayHaltScope; target?: PayHaltTarget; limit: number }): Promise<PayHaltEvent[]> {
+    const scope = input.scope ?? null;
+    const target = input.target ? targetKey(input.target) : null;
+    const rows = await this.sql<Array<HaltRow & { confirmed_by_user_id: string | null; occurred_at: Date | string }>>`
+      SELECT scope, target, halted, reason, source, actor_user_id, confirmed_by_user_id, version, occurred_at AS changed_at, occurred_at
+        FROM pay.halt_events
+       WHERE (${scope}::text IS NULL OR scope = ${scope}) AND (${target}::text IS NULL OR target = ${target})
+       ORDER BY id DESC
+       LIMIT ${input.limit}
+    `;
+    return rows.map((row) => ({ ...stateOf(row), confirmedByUserId: row.confirmed_by_user_id }));
+  }
+
+  /**
+   * Clears a founder has proposed that a different founder has not confirmed, still inside the
+   * confirm window, and whose expected_version still equals the current halt version. A proposal
+   * left behind after the halt moved is omitted.
+   *
+   * Ordered by request id. That cursor can skip a row inserted behind it: request ids are random
+   * UUIDs, so a new id that sorts before the cursor never appears on a later page.
+   */
+  async pendingClears(input: PayHaltPendingClearListInput): Promise<{ proposals: PayHaltPendingClear[]; nextCursor: string | null }> {
+    const cursor = input.cursor ?? null;
+    const oldest = new Date(Date.now() - CLEAR_PROPOSAL_TTL_MS);
+    const rows = await this.sql<
+      Array<{
+        request_id: string;
+        scope: PayHaltScope;
+        target: string;
+        expected_version: string | number | bigint;
+        reason: string;
+        requested_by_user_id: string;
+        requested_at: Date | string;
+      }>
+    >`
+      SELECT r.request_id, r.scope, r.target, r.expected_version, r.reason, r.requested_by_user_id, r.requested_at
+        FROM pay.halt_clear_requests r
+        JOIN pay.halts h
+          ON h.scope = r.scope AND h.target = r.target AND h.halted AND h.version = r.expected_version
+       WHERE r.status = 'pending'
+         AND r.requested_at >= ${oldest}
+         AND (${cursor}::uuid IS NULL OR r.request_id > ${cursor}::uuid)
+       ORDER BY r.request_id ASC
+       LIMIT ${input.limit + 1}
+    `;
+    const page = rows.slice(0, input.limit);
+    return {
+      proposals: page.map((row) => ({
+        requestId: row.request_id,
+        scope: row.scope,
+        target: targetOf(row.target),
+        expectedVersion: String(row.expected_version),
+        reason: row.reason,
+        requestedByUserId: row.requested_by_user_id,
+        requestedAt: new Date(row.requested_at).toISOString(),
+      })),
+      nextCursor: rows.length > input.limit ? page[page.length - 1]!.request_id : null,
+    };
+  }
+
+  /**
+   * Operator set or clear.
+   *   SET   one founder, immediate (the fast stop).
+   *   CLEAR two distinct founders: the first call records a proposal and answers
+   *         `pending_confirmation`; a DIFFERENT founder repeating the call (same
+   *         requestId, same scope/target/expectedVersion) applies it.
+   * `expectedVersion` is checked on every path that writes; a stale one is `conflict`.
+   */
+  async set(actorUserId: string, input: PayHaltSetInput): Promise<PayHaltSetResult> {
+    const actor = actorUserId.toLowerCase();
+    const key = targetKey(input.target);
+    // Before any write, including a clear. Guards enforce a user or rail halt on
+    // payout only, so another scope is refused here. A clear skips the rail
+    // registry check: the existing row and expectedVersion already prove the
+    // target. Auto-trip writes through recordFailure, not set().
+    this.assertOperatorTarget(input);
+    if (input.target.level === 'merchant') {
+      const found = await this.sql`SELECT 1 FROM pay.merchants WHERE id = ${key}`;
+      if (found.length === 0) throw new PayHaltError('pay.halt_target_not_found');
+    }
+    return transaction(
+      this.sql,
+      async (tx) => {
+        // A clear shares the auto-trip lock with accounting and must take it
+        // before this target, then the window row. An emergency halt takes only
+        // this target, so a stop does not wait behind a count change.
+        if (!input.halted) await this.lockAutoTrip(tx);
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.halt:${input.scope}:${key}`}))`;
+        const requestId = input.requestId.toLowerCase();
+        const repeated = await tx<HaltRow[]>`
+          SELECT scope, target, halted, reason, source, actor_user_id, version, occurred_at AS changed_at
+            FROM pay.halt_events WHERE request_id = ${requestId}
+        `;
+        if (repeated[0]) {
+          const same = repeated[0].scope === input.scope && repeated[0].target === key && repeated[0].halted === input.halted;
+          return {
+            requestId,
+            outcome: same ? ('noop' as const) : ('conflict' as const),
+            state: await this.current(tx, input.scope, input.target),
+          };
+        }
+        const state = await this.current(tx, input.scope, input.target);
+        const done = (outcome: PayHaltSetResult['outcome'], current: PayHaltState): PayHaltSetResult => ({
+          requestId,
+          outcome,
+          state: current,
+        });
+        if (!input.halted) return this.clear(tx, actor, requestId, input, key, state, done);
+
+        if (String(input.expectedVersion) !== state.version) return done('conflict', state);
+        if (state.halted) return done('noop', state);
+        const next = await this.write(tx, {
+          scope: input.scope,
+          key,
+          halted: true,
+          reason: input.reason,
+          source: 'operator',
+          actor,
+          confirmedBy: null,
+          requestId,
+        });
+        return done('changed', next);
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /**
+   * Founder targets only. A user or rail halt is enforced on payout alone, so any
+   * other scope is refused rather than stored. svc-pay does not own the user
+   * table, so a user id is checked for uuid shape and not for a row. A new rail
+   * halt must name a rail this process has registered. A clear skips that check:
+   * the existing row and expectedVersion already prove the target, including a
+   * rail this process no longer registers.
+   */
+  private assertOperatorTarget(input: PayHaltSetInput): void {
+    const target = input.target;
+    if ((target.level === 'user' || target.level === 'rail') && input.scope !== 'payout') {
+      throw new PayHaltError('pay.halt_target_unsupported');
+    }
+    if (target.level === 'user' && !payMerchantIdSchema.safeParse(target.userId).success) {
+      throw new PayHaltError('pay.halt_target_unsupported');
+    }
+    if (input.halted && target.level === 'rail' && !this.rails.has(target.railId)) {
+      throw new PayHaltError('pay.halt_target_unknown_rail');
+    }
+  }
+
+  private async clear(
+    tx: Sql,
+    actor: string,
+    requestId: string,
+    input: PayHaltSetInput,
+    key: string,
+    state: PayHaltState,
+    done: (outcome: PayHaltSetResult['outcome'], current: PayHaltState) => PayHaltSetResult,
+  ): Promise<PayHaltSetResult> {
+    if (String(input.expectedVersion) !== state.version) return done('conflict', state);
+    if (!state.halted) return done('noop', state);
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify([input.scope, key, input.expectedVersion]))
+      .digest('hex');
+    const proposals = await tx<
+      Array<{
+        scope: string;
+        target: string;
+        expected_version: string | number;
+        requested_by_user_id: string;
+        requested_at: Date;
+        status: string;
+      }>
+    >`SELECT * FROM pay.halt_clear_requests WHERE request_id = ${requestId} FOR UPDATE`;
+    const proposal = proposals[0];
+    if (!proposal) {
+      await tx`
+        INSERT INTO pay.halt_clear_requests (request_id, scope, target, expected_version, reason, requested_by_user_id)
+        VALUES (${requestId}, ${input.scope}, ${key}, ${String(input.expectedVersion)}, ${input.reason}, ${actor})
+      `;
+      return done('pending_confirmation', state);
+    }
+    const theirs = createHash('sha256')
+      .update(JSON.stringify([proposal.scope, proposal.target, String(proposal.expected_version)]))
+      .digest('hex');
+    if (theirs !== fingerprint || proposal.status !== 'pending') return done('conflict', state);
+    if (Date.now() - new Date(proposal.requested_at).getTime() > CLEAR_PROPOSAL_TTL_MS) return done('conflict', state);
+    // Two distinct founders, or it does not happen. Same actor repeating = still waiting.
+    if (dualControlRefuse(proposal.requested_by_user_id, actor)) return done('pending_confirmation', state);
+    const next = await this.write(tx, {
+      scope: input.scope,
+      key,
+      halted: false,
+      reason: input.reason,
+      source: 'operator',
+      actor: proposal.requested_by_user_id.toLowerCase(),
+      confirmedBy: actor,
+      requestId,
+    });
+    await tx`UPDATE pay.halt_clear_requests SET status = 'applied' WHERE request_id = ${requestId}`;
+    // Window after the advisory locks taken in `set`, same order as a count change.
+    await this.lockWindow(tx);
+    // A cleared halt starts counting failures from zero, or it would re-trip on the old streak.
+    await tx`DELETE FROM pay.halt_failure_streaks WHERE scope = ${input.scope} AND target = ${key}`;
+    return done('changed', next);
+  }
+
+  private async current(tx: Sql, scope: PayHaltScope, target: PayHaltTarget): Promise<PayHaltState> {
+    const rows = await tx<HaltRow[]>`SELECT * FROM pay.halts WHERE scope = ${scope} AND target = ${targetKey(target)}`;
+    return rows[0] ? stateOf(rows[0]) : neverHalted(scope, target);
+  }
+
+  /** The one writer of `pay.halts` + `pay.halt_events`. The caller holds the advisory lock for (scope, key). */
+  private async write(
+    tx: Sql,
+    w: {
+      scope: PayHaltScope;
+      key: string;
+      halted: boolean;
+      reason: string;
+      source: 'operator' | 'auto_trip';
+      actor: string | null;
+      confirmedBy: string | null;
+      requestId: string | null;
+    },
+  ): Promise<PayHaltState> {
+    const rows = await tx<HaltRow[]>`
+      INSERT INTO pay.halts (scope, target, halted, reason, source, actor_user_id, version)
+      VALUES (${w.scope}, ${w.key}, ${w.halted}, ${w.reason}, ${w.source}, ${w.actor}, 1)
+      ON CONFLICT (scope, target) DO UPDATE
+         SET halted = EXCLUDED.halted, reason = EXCLUDED.reason, source = EXCLUDED.source,
+             actor_user_id = EXCLUDED.actor_user_id, version = pay.halts.version + 1, changed_at = now()
+      RETURNING *
+    `;
+    const row = rows[0]!;
+    await tx`
+      INSERT INTO pay.halt_events (scope, target, halted, reason, source, actor_user_id, confirmed_by_user_id, request_id, version)
+      VALUES (${w.scope}, ${w.key}, ${w.halted}, ${w.reason}, ${w.source}, ${w.actor}, ${w.confirmedBy}, ${w.requestId}, ${String(row.version)})
+    `;
+    return stateOf(row);
+  }
+
+  /**
+   * Mark a count that this process does not have as disarmed, when a window
+   * row already exists. Boot calls this so a later re-arm opens a fresh window.
+   * A missing row stays missing: nothing was ever armed.
+   */
+  async adoptConfig(): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        await this.lockAutoTrip(tx);
+        await this.disarmUnset(tx);
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /**
+   * AUTO-TRIP, failure side. A merchant payout counts on that merchant and rail.
+   * A user withdrawal counts on ONE user key. A payout whose source is `rail:*`
+   * also counts toward that rail across every merchant, when the rail count is
+   * configured. Reaching a count halts that target (`source: auto_trip`).
+   *
+   * Both counts unset: return before any query or lock. A window armed earlier
+   * is disarmed at boot (`adoptConfig`), not on the send. One count unset still
+   * disarms that side inside the accounting transaction. A global target does
+   * not count: one caller cannot aim the platform switch by passing `global`.
+   * The per-rail halt is a `rail:` target.
+   *
+   * Failures before the configured count's effective time do not add. The same
+   * count keeps that time. A different count, or a re-arm after disarm, starts
+   * a new window and drops the old streak.
+   *
+   * `eventKey`, when passed, counts this outcome once. A crash retry of the
+   * same refusal finds the key and does not add again.
+   *
+   * `conn`, when passed, must be idle (not already in a transaction). The write
+   * then uses that connection so a caller holding the pool's only connection
+   * does not wait on itself. Omit it to take a connection from the pool.
+   */
+  async recordFailure(
+    scope: PayHaltScope,
+    target: PayHaltTarget,
+    sourceKey: string,
+    conn?: Sql,
+    eventKey?: string,
+  ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
+    if (target.level === 'global') return { tripped: false, consecutiveFailures: 0 };
+    if (this.autoTripOff()) return { tripped: false, consecutiveFailures: 0 };
+    const run = async (tx: Sql) => {
+      await this.boundAccountingLock(tx);
+      return this.applyFailure(tx, scope, target, sourceKey, eventKey);
+    };
+    if (!conn) return transaction(this.sql, run, { isolation: 'read committed' });
+    await conn`BEGIN ISOLATION LEVEL READ COMMITTED`;
+    try {
+      const result = await run(conn);
+      await conn`COMMIT`;
+      return result;
+    } catch (error) {
+      try {
+        await conn`ROLLBACK`;
+      } catch {
+        // The connection is already out of the transaction.
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * A success ends the streak for that target and source. One unset count
+   * disarms that side instead of resetting a streak that must not come back.
+   * Both counts unset: return before any query or lock. A global target writes
+   * nothing.
+   */
+  async recordSuccess(scope: PayHaltScope, target: PayHaltTarget, sourceKey: string, conn?: Sql): Promise<void> {
+    if (target.level !== 'merchant' && target.level !== 'user') return;
+    if (this.autoTripOff()) return;
+    const run = async (tx: Sql) => {
+      await this.boundAccountingLock(tx);
+      return this.applySuccess(tx, scope, target, sourceKey);
+    };
+    if (!conn) {
+      await transaction(this.sql, run, { isolation: 'read committed' });
+      return;
+    }
+    await conn`BEGIN ISOLATION LEVEL READ COMMITTED`;
+    try {
+      await run(conn);
+      await conn`COMMIT`;
+    } catch (error) {
+      try {
+        await conn`ROLLBACK`;
+      } catch {
+        // The connection is already out of the transaction.
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Lock order, every count change and every clear:
+   *   1. advisory `pay.halt:autotrip`
+   *   2. advisory `pay.halt:<scope>:<target>`, names sorted
+   *   3. the window row
+   *   4. streak rows
+   * A count change that takes the window before the advisory lock deadlocks a clear.
+   * An emergency halt does not take step 1.
+   *
+   * Both configured counts null: a send must not touch the auto-trip lock or the window row.
+   */
+  private autoTripOff(): boolean {
+    return this.autoTrip.failures === null && this.autoTrip.railFailures === null;
+  }
+
+  /** Accounting waits at most a second for the auto-trip lock, then the caller logs it and keeps the money result. */
+  private async boundAccountingLock(tx: Sql): Promise<void> {
+    await tx`SET LOCAL lock_timeout = '1s'`;
+  }
+
+  private async lockAutoTrip(tx: Sql): Promise<void> {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('pay.halt:autotrip'))`;
+  }
+
+  private async lockTargets(tx: Sql, scope: PayHaltScope, keys: readonly string[]): Promise<void> {
+    const names = [...new Set(keys)].map((key) => `pay.halt:${scope}:${key}`).sort();
+    for (const name of names) await tx`SELECT pg_advisory_xact_lock(hashtext(${name}))`;
+  }
+
+  private async lockWindow(tx: Sql): Promise<void> {
+    await tx`SELECT singleton FROM pay.halt_autotrip_window WHERE singleton = 'autotrip' FOR UPDATE`;
+  }
+
+  private async disarmUnset(tx: Sql): Promise<void> {
+    if (this.autoTrip.failures === null) await this.disarmSide(tx, 'merchant');
+    if (this.autoTrip.railFailures === null) await this.disarmSide(tx, 'rail');
+  }
+
+  private async disarmSide(tx: Sql, side: 'merchant' | 'rail'): Promise<void> {
+    await this.lockWindow(tx);
+    if (side === 'merchant') {
+      const updated = await tx`
+        UPDATE pay.halt_autotrip_window
+           SET failures = NULL, effective_at = NULL, disarmed_at = now()
+         WHERE singleton = 'autotrip' AND failures IS NOT NULL
+        RETURNING singleton
+      `;
+      if (updated.length === 0) return;
+      await tx`
+        UPDATE pay.halt_failure_streaks
+           SET consecutive_failures = 0, last_failure_at = NULL, updated_at = now()
+         WHERE target NOT LIKE 'rail:%'
+      `;
+      return;
+    }
+    const updated = await tx`
+      UPDATE pay.halt_autotrip_window
+         SET rail_failures = NULL, rail_effective_at = NULL, rail_disarmed_at = now()
+       WHERE singleton = 'autotrip' AND rail_failures IS NOT NULL
+      RETURNING singleton
+    `;
+    if (updated.length === 0) return;
+    await tx`
+      UPDATE pay.halt_failure_streaks
+         SET consecutive_failures = 0, last_failure_at = NULL, updated_at = now()
+       WHERE target LIKE 'rail:%'
+    `;
+  }
+
+  /** Same count keeps the stored time. A new count, or a re-arm after disarm, opens a fresh window. */
+  private async armSide(tx: Sql, side: 'merchant' | 'rail', limit: number): Promise<void> {
+    await this.lockWindow(tx);
+    if (side === 'merchant') {
+      const rows = await tx<Array<{ failures: string | number | null; disarmed_at: Date | null }>>`
+        INSERT INTO pay.halt_autotrip_window (singleton, failures, effective_at)
+        VALUES ('autotrip', ${limit}, now())
+        ON CONFLICT (singleton) DO UPDATE
+          SET singleton = pay.halt_autotrip_window.singleton
+        RETURNING failures, disarmed_at
+      `;
+      const row = rows[0]!;
+      if (row.disarmed_at == null && row.failures != null && Number(row.failures) === limit) return;
+      await tx`
+        UPDATE pay.halt_autotrip_window
+           SET failures = ${limit}, effective_at = now(), disarmed_at = NULL
+         WHERE singleton = 'autotrip'
+      `;
+      await tx`
+        UPDATE pay.halt_failure_streaks
+           SET consecutive_failures = 0, last_failure_at = NULL, updated_at = now()
+         WHERE target NOT LIKE 'rail:%'
+      `;
+      return;
+    }
+    const rows = await tx<Array<{ rail_failures: string | number | null; rail_disarmed_at: Date | null }>>`
+      INSERT INTO pay.halt_autotrip_window (singleton, rail_failures, rail_effective_at)
+      VALUES ('autotrip', ${limit}, now())
+      ON CONFLICT (singleton) DO UPDATE
+        SET singleton = pay.halt_autotrip_window.singleton
+      RETURNING rail_failures, rail_disarmed_at
+    `;
+    const row = rows[0]!;
+    if (row.rail_disarmed_at == null && row.rail_failures != null && Number(row.rail_failures) === limit) return;
+    await tx`
+      UPDATE pay.halt_autotrip_window
+         SET rail_failures = ${limit}, rail_effective_at = now(), rail_disarmed_at = NULL
+       WHERE singleton = 'autotrip'
+    `;
+    await tx`
+      UPDATE pay.halt_failure_streaks
+         SET consecutive_failures = 0, last_failure_at = NULL, updated_at = now()
+       WHERE target LIKE 'rail:%'
+    `;
+  }
+
+  private countPlan(
+    scope: PayHaltScope,
+    target: PayHaltTarget,
+    sourceKey: string,
+  ): { merchant: boolean; rail: boolean; merchantKey: string | null; railKey: string | null } {
+    const merchant = this.autoTrip.failures !== null && (target.level === 'merchant' || target.level === 'user');
+    const rail =
+      this.autoTrip.railFailures !== null &&
+      scope === 'payout' &&
+      sourceKey.startsWith('rail:') &&
+      (target.level === 'merchant' || target.level === 'user');
+    return {
+      merchant,
+      rail,
+      merchantKey: merchant ? targetKey(target) : null,
+      railKey: rail ? sourceKey : null,
+    };
+  }
+
+  private async applyFailure(
+    tx: Sql,
+    scope: PayHaltScope,
+    target: PayHaltTarget,
+    sourceKey: string,
+    eventKey?: string,
+  ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
+    if (this.autoTripOff()) return { tripped: false, consecutiveFailures: 0 };
+    const plan = this.countPlan(scope, target, sourceKey);
+    await this.lockAutoTrip(tx);
+    const keys = [plan.merchantKey, plan.railKey].filter((key): key is string => key !== null);
+    await this.lockTargets(tx, scope, keys);
+    await this.disarmUnset(tx);
+    if (!plan.merchant && !plan.rail) return { tripped: false, consecutiveFailures: 0 };
+    if (plan.merchant && this.autoTrip.failures !== null) await this.armSide(tx, 'merchant', this.autoTrip.failures);
+    if (plan.rail && this.autoTrip.railFailures !== null) await this.armSide(tx, 'rail', this.autoTrip.railFailures);
+    if (eventKey) {
+      const inserted =
+        await tx`INSERT INTO pay.halt_autotrip_counted (event_key) VALUES (${eventKey}) ON CONFLICT DO NOTHING RETURNING event_key`;
+      if (inserted.length === 0) {
+        const key = plan.merchantKey ?? plan.railKey;
+        const rows = await tx<Array<{ consecutive_failures: string | number }>>`
+          SELECT consecutive_failures FROM pay.halt_failure_streaks
+           WHERE scope = ${scope} AND target = ${key!} AND source_key = ${sourceKey}
+        `;
+        return { tripped: false, consecutiveFailures: Number(rows[0]?.consecutive_failures ?? 0) };
+      }
+    }
+    let primary = { tripped: false, consecutiveFailures: 0 };
+    if (plan.merchant && plan.merchantKey && this.autoTrip.failures !== null) {
+      primary = await this.bump(tx, scope, plan.merchantKey, sourceKey, this.autoTrip.failures, 'merchant');
+    }
+    if (plan.rail && plan.railKey && this.autoTrip.railFailures !== null) {
+      const railResult = await this.bump(tx, scope, plan.railKey, sourceKey, this.autoTrip.railFailures, 'rail');
+      if (!plan.merchant) primary = railResult;
+    }
+    return primary;
+  }
+
+  private async applySuccess(tx: Sql, scope: PayHaltScope, target: PayHaltTarget, sourceKey: string): Promise<void> {
+    if (this.autoTripOff()) return;
+    const plan = this.countPlan(scope, target, sourceKey);
+    await this.lockAutoTrip(tx);
+    const keys = [plan.merchantKey, plan.railKey].filter((key): key is string => key !== null);
+    await this.lockTargets(tx, scope, keys);
+    if (this.autoTrip.failures === null) await this.disarmSide(tx, 'merchant');
+    else if (plan.merchantKey) {
+      await tx`
+        UPDATE pay.halt_failure_streaks SET consecutive_failures = 0, updated_at = now()
+         WHERE scope = ${scope} AND target = ${plan.merchantKey} AND source_key = ${sourceKey} AND consecutive_failures <> 0
+      `;
+    }
+    if (scope === 'payout' && sourceKey.startsWith('rail:')) {
+      if (this.autoTrip.railFailures === null) await this.disarmSide(tx, 'rail');
+      else {
+        await tx`
+          UPDATE pay.halt_failure_streaks SET consecutive_failures = 0, updated_at = now()
+           WHERE scope = ${scope} AND target = ${sourceKey} AND source_key = ${sourceKey} AND consecutive_failures <> 0
+        `;
+      }
+    }
+  }
+
+  private async bump(
+    tx: Sql,
+    scope: PayHaltScope,
+    key: string,
+    sourceKey: string,
+    limit: number,
+    side: 'merchant' | 'rail',
+  ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
+    // Compare against the stored timestamp in SQL. A JS Date would drop
+    // microseconds and could count a failure that is still before the window.
+    const rows =
+      side === 'rail'
+        ? await tx<Array<{ consecutive_failures: string | number }>>`
+            INSERT INTO pay.halt_failure_streaks (scope, target, source_key, consecutive_failures, last_failure_at)
+            VALUES (${scope}, ${key}, ${sourceKey}, 1, now())
+            ON CONFLICT (scope, target, source_key) DO UPDATE
+               SET consecutive_failures = CASE
+                     WHEN pay.halt_failure_streaks.last_failure_at IS NULL
+                       OR pay.halt_failure_streaks.last_failure_at < (
+                         SELECT rail_effective_at FROM pay.halt_autotrip_window WHERE singleton = 'autotrip'
+                       )
+                     THEN 1
+                     ELSE pay.halt_failure_streaks.consecutive_failures + 1
+                   END,
+                   last_failure_at = now(),
+                   updated_at = now()
+            RETURNING consecutive_failures
+          `
+        : await tx<Array<{ consecutive_failures: string | number }>>`
+            INSERT INTO pay.halt_failure_streaks (scope, target, source_key, consecutive_failures, last_failure_at)
+            VALUES (${scope}, ${key}, ${sourceKey}, 1, now())
+            ON CONFLICT (scope, target, source_key) DO UPDATE
+               SET consecutive_failures = CASE
+                     WHEN pay.halt_failure_streaks.last_failure_at IS NULL
+                       OR pay.halt_failure_streaks.last_failure_at < (
+                         SELECT effective_at FROM pay.halt_autotrip_window WHERE singleton = 'autotrip'
+                       )
+                     THEN 1
+                     ELSE pay.halt_failure_streaks.consecutive_failures + 1
+                   END,
+                   last_failure_at = now(),
+                   updated_at = now()
+            RETURNING consecutive_failures
+          `;
+    const count = Number(rows[0]!.consecutive_failures);
+    if (count < limit) return { tripped: false, consecutiveFailures: count };
+    const reason =
+      side === 'rail'
+        ? `auto_trip: ${count} consecutive rail-health failures across merchants of ${sourceKey}`
+        : `auto_trip: ${count} consecutive failures of ${sourceKey}`;
+    return { tripped: await this.tripLocked(tx, scope, key, reason), consecutiveFailures: count };
+  }
+
+  private async tripLocked(tx: Sql, scope: PayHaltScope, key: string, reason: string): Promise<boolean> {
+    const rows = await tx<HaltRow[]>`SELECT * FROM pay.halts WHERE scope = ${scope} AND target = ${key}`;
+    if (rows[0]?.halted) return false;
+    await this.write(tx, { scope, key, halted: true, reason, source: 'auto_trip', actor: null, confirmedBy: null, requestId: null });
+    return true;
+  }
+}

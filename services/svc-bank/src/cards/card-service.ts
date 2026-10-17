@@ -13,6 +13,7 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertCardAuthorizationsListLimit, assertCardsListLimit } from '../owner-list-limit.js';
 import type { MarkQuality, PriceSource } from '../loans/prices.js';
 import { withMoneySpan } from '../tracing.js';
@@ -1449,13 +1450,20 @@ export class CardService {
     try {
       posted = await input.post();
     } catch (err) {
-      await this.sql`
-        UPDATE bank.card_settlements
-           SET status = 'rejected',
-               rejection_code = ${err instanceof LedgerError ? err.code : 'bank.post_failed'},
-               ledger_tx_id = NULL
-         WHERE id = ${claim.id}
-      `;
+      // Only a definite ledger refusal proves nothing committed under this key.
+      // Anything else (a transport error, a 5xx, an untyped body) can follow a
+      // commit whose reply was lost: the row stays `pending` and a retry
+      // re-drives the same key. A durable `rejected` for a committed capture
+      // would let the same authorisation settle twice.
+      if (isDefiniteLedgerRefusal(err)) {
+        await this.sql`
+          UPDATE bank.card_settlements
+             SET status = 'rejected',
+                 rejection_code = ${(err as LedgerError).code},
+                 ledger_tx_id = NULL
+           WHERE id = ${claim.id}
+        `;
+      }
       throw err;
     }
 

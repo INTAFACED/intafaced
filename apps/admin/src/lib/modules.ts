@@ -17,7 +17,7 @@
  * Edge middleware, in server components and in tests.
  */
 
-export const MODULE_IDS = ['crm', 'accounts', 'killswitches', 'launch', 'jurisdiction', 'ledger', 'tools'] as const;
+export const MODULE_IDS = ['crm', 'accounts', 'killswitches', 'launch', 'jurisdiction', 'ledger', 'tools', 'merchants'] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 
 /** Nav order, page href and label. `/` is the kill-switch board. */
@@ -29,6 +29,7 @@ export const MODULE_ROUTES: readonly { readonly id: ModuleId; readonly href: str
   { id: 'jurisdiction', href: '/jurisdiction', label: 'Jurisdiction' },
   { id: 'ledger', href: '/ledger', label: 'Ledger ops' },
   { id: 'tools', href: '/tools', label: 'Operator tools' },
+  { id: 'merchants', href: '/merchants', label: 'Merchants' },
 ];
 
 /**
@@ -43,6 +44,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/ledger-freeze', 'ledger'],
   ['/api/operator-tools', 'tools'],
   ['/api/analytics', 'tools'],
+  ['/api/merchants', 'merchants'],
 ];
 
 type Env = Record<string, string | undefined>;
@@ -122,6 +124,30 @@ export function moduleForPage(pathname: string): ModuleId | null {
   const path = normalise(pathname);
   if (path === null) return null;
   if (path === '/') return 'killswitches';
+  if (
+    [
+      'approvals',
+      'kyb',
+      'screening',
+      'fraud',
+      'disputes',
+      'payments',
+      'settlements',
+      'payouts',
+      'conversion',
+      'treasury',
+      'pricing',
+      'limits',
+      'halts',
+      'webhooks',
+      'audit',
+      'b2b-ramp',
+      'simulator',
+      'analytics',
+      'system',
+    ].some((prefix) => under(path, `/${prefix}`))
+  )
+    return 'merchants';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }

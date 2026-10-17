@@ -979,6 +979,26 @@ export const userWithdrawDestinations = bank.table(
   (t) => [primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.userId, t.kind] })],
 );
 
+/**
+ * Which operation spent a money-out step-up approval (migration 0033). Written once
+ * after identity consumes the approval; lets a retry of the SAME operation succeed and
+ * refuses a different one. Ids and a payload hash only.
+ */
+export const stepUpUses = bank.table(
+  'step_up_uses',
+  {
+    approvalId: text('approval_id').primaryKey(),
+    userId: text('user_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    actionType: text('action_type').notNull(),
+    payloadHash: text('payload_hash').notNull(),
+    operationKey: text('operation_key').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at').notNull().defaultNow(),
+  },
+  (t) => [index('step_up_uses_user_idx').on(t.userId, t.consumedAt)],
+);
+
 // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────────────
 // Rules are instructions; runs are write-once records. No balance column.
 
@@ -1132,6 +1152,7 @@ export const schema = {
   rampOnramps,
   rampOfframps,
   userWithdrawDestinations,
+  stepUpUses,
   autoInvestRules,
   autoInvestRuns,
   businessAccounts,

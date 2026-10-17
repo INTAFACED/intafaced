@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { fingerprintRequest } from '../rest-idempotency.js';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   PayError,
@@ -9,6 +10,7 @@ import {
   assertMandateListLimit,
   assertSubscriptionListLimit,
 } from '../payment-service.js';
+import { encodeListCursor, ListQueryError, parseListFilters } from '../list-page.js';
 import { merchantKybMoneyGateRefusal, type MerchantKybStatus } from '../merchant-kyb-money-gate.js';
 import type { ValueMovementPolicy } from '../rails/posture.js';
 import { CADENCES, occurrenceStart, type Cadence } from './schedule.js';
@@ -40,6 +42,35 @@ import {
 } from './mandate-product.js';
 
 export { normaliseSubscriptionPath, SUBSCRIPTION_PATHS, type SubscriptionPath };
+
+/** Same cap as the public REST Idempotency-Key. Not a new product limit. */
+const SUBSCRIPTION_CREATE_KEY_MAX = 255;
+
+/**
+ * Blank and oversized keys refuse before any row is written. Undefined means
+ * the caller sent no key; the mandate unique index still applies.
+ */
+function subscriptionCreateKey(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const key = raw.trim();
+  if (!key || key.length > SUBSCRIPTION_CREATE_KEY_MAX) {
+    throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
+  }
+  return key;
+}
+
+function subscriptionCreateFingerprint(mandateId: string, path: string | undefined): string {
+  return fingerprintRequest('POST', 'subscription.create', {
+    mandateId: mandateId.toLowerCase(),
+    path: normaliseSubscriptionPath(path),
+  });
+}
+
+function openMandateIndexViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const row = err as { code?: string; constraint_name?: string };
+  return row.code === '23505' && row.constraint_name === 'subscriptions_one_open_per_mandate_uq';
+}
 
 /**
  * SUBSCRIPTION LIFECYCLE AND CHARGE CYCLE (SPEC §4).
@@ -421,33 +452,120 @@ export class SubscriptionService {
    * Create a subscription from an active mandate. nextRunAt = occurrence 0
    * start (or startsAt itself). The anchor starts as the mandate's own start —
    * stored as NULL, which means exactly that and needs no backfill.
+   *
+   * `idempotencyKey` is the caller's Idempotency-Key. Same key and same body
+   * returns the original subscription. Same key and a different body refuses.
+   * With or without a key, a mandate keeps at most one subscription that is
+   * not cancelled and not completed. The partial unique index is the race
+   * backstop; the mandate row lock makes the second caller see the first.
    */
-  async createSubscription(input: { mandateId: string; path?: string }): Promise<SubscriptionRecord> {
+  async createSubscription(input: { mandateId: string; path?: string; idempotencyKey?: string }): Promise<SubscriptionRecord> {
+    const idempotencyKey = subscriptionCreateKey(input.idempotencyKey);
     const mandate = await this.getMandate(input.mandateId);
-    if (mandate.status !== 'active') {
-      throw new PayError(`Mandate ${mandate.id} is ${mandate.status}`, 'pay.mandate_inactive');
-    }
-    this.assertMerchantMayOpenMoney(await this.requireMerchant(mandate.merchantId));
+    const fingerprint = subscriptionCreateFingerprint(mandate.id, input.path);
 
-    const nextRunAt = occurrenceStart(mandate.startsAt, mandate.cadence, 0);
-    const path = normaliseSubscriptionPath(input.path);
+    return transaction(this.sql, async (tx) => {
+      const lockedRows = await tx<Array<{ status: MandateStatus; merchant_id: string }>>`
+        SELECT status, merchant_id
+          FROM pay.subscription_mandates
+         WHERE id = ${mandate.id}
+         FOR UPDATE
+      `;
+      const locked = lockedRows[0];
+      if (!locked) throw new PayError(`Mandate ${mandate.id} not found`, 'pay.mandate_not_found');
 
-    const rows = await this.sql<SubRow[]>`
-      INSERT INTO pay.subscriptions (
-        mandate_id, merchant_id, customer_id, next_run_at, status, path
-      ) VALUES (
-        ${mandate.id}, ${mandate.merchantId}, ${mandate.customerId},
-        ${nextRunAt}, 'active', ${path}
-      )
-      RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
-                cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                paused_at, resumed_at, stalled_at, stall_reason
-    `;
-    return toSub(rows[0]!);
+      if (idempotencyKey) {
+        const claimed = await tx<Array<{ idempotency_key: string }>>`
+          INSERT INTO pay.subscription_create_idempotency (
+            merchant_id, idempotency_key, request_fingerprint
+          ) VALUES (
+            ${locked.merchant_id}, ${idempotencyKey}, ${fingerprint}
+          )
+          ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
+          RETURNING idempotency_key
+        `;
+        if (claimed.length === 0) {
+          const prior = await tx<Array<{ request_fingerprint: string; subscription_id: string | null }>>`
+            SELECT request_fingerprint, subscription_id
+              FROM pay.subscription_create_idempotency
+             WHERE merchant_id = ${locked.merchant_id}
+               AND idempotency_key = ${idempotencyKey}
+          `;
+          const row = prior[0];
+          if (!row || row.request_fingerprint !== fingerprint) {
+            throw new PayError('Idempotency-Key was already used with a different request body', 'pay.idempotency_conflict');
+          }
+          if (!row.subscription_id) {
+            throw new PayError('Subscription create idempotency claim has no subscription', 'pay.subscription_invalid');
+          }
+          const existing = await this.readSubscription(tx, row.subscription_id);
+          if (existing.merchantId !== locked.merchant_id) {
+            throw new PayError('Idempotency-Key was already used with a different request body', 'pay.idempotency_conflict');
+          }
+          return existing;
+        }
+      }
+
+      if (locked.status !== 'active') {
+        throw new PayError(`Mandate ${mandate.id} is ${locked.status}`, 'pay.mandate_inactive');
+      }
+      this.assertMerchantMayOpenMoney(await this.requireMerchant(locked.merchant_id, tx));
+
+      const open = await tx<Array<{ id: string }>>`
+        SELECT id
+          FROM pay.subscriptions
+         WHERE mandate_id = ${mandate.id}
+           AND status IN ('active', 'paused')
+         LIMIT 1
+      `;
+      if (open[0]) {
+        throw new PayError(`Mandate ${mandate.id} already has an open subscription`, 'pay.subscription_mandate_open');
+      }
+
+      const nextRunAt = occurrenceStart(mandate.startsAt, mandate.cadence, 0);
+      const path = normaliseSubscriptionPath(input.path);
+      let rows: SubRow[];
+      try {
+        rows = await tx<SubRow[]>`
+          INSERT INTO pay.subscriptions (
+            mandate_id, merchant_id, customer_id, next_run_at, status, path
+          ) VALUES (
+            ${mandate.id}, ${locked.merchant_id}, ${mandate.customerId},
+            ${nextRunAt}, 'active', ${path}
+          )
+          RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                    cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                    paused_at, resumed_at, stalled_at, stall_reason
+        `;
+      } catch (err) {
+        if (openMandateIndexViolation(err)) {
+          throw new PayError(`Mandate ${mandate.id} already has an open subscription`, 'pay.subscription_mandate_open');
+        }
+        throw err;
+      }
+      const created = toSub(rows[0]!);
+      if (idempotencyKey) {
+        const pointed = await tx`
+          UPDATE pay.subscription_create_idempotency
+             SET subscription_id = ${created.id}
+           WHERE merchant_id = ${locked.merchant_id}
+             AND idempotency_key = ${idempotencyKey}
+             AND subscription_id IS NULL
+        `;
+        if (pointed.count !== 1) {
+          throw new PayError('Subscription create idempotency claim was not stored', 'pay.subscription_invalid');
+        }
+      }
+      return created;
+    });
   }
 
   async getSubscription(subscriptionId: string): Promise<SubscriptionRecord> {
-    const rows = await this.sql<SubRow[]>`
+    return this.readSubscription(this.sql, subscriptionId);
+  }
+
+  private async readSubscription(sql: Sql, subscriptionId: string): Promise<SubscriptionRecord> {
+    const rows = await sql<SubRow[]>`
       SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
                 paused_at, resumed_at, stalled_at, stall_reason
@@ -458,59 +576,61 @@ export class SubscriptionService {
     return toSub(row);
   }
 
-  /** Merchant fleet list — mandates (ops truth). Read-only. */
-  async listMandates(merchantId: string, options: { status?: MandateStatus; limit?: number } = {}): Promise<MandateRecord[]> {
+  /** Merchant fleet list — mandates (ops truth). Read-only. Filters run in SQL before the page is cut. */
+  async listMandates(
+    merchantId: string,
+    options: { status?: MandateStatus; limit?: number; cursor?: string; search?: string; from?: string; to?: string } = {},
+  ): Promise<{ items: MandateRecord[]; nextCursor: string | null }> {
     await this.requireMerchant(merchantId);
     const limit = assertMandateListLimit(options.limit);
-    const rows = options.status
-      ? await this.sql<MandateRow[]>`
-          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
-                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
-                 status, cancelled_at, created_at
-            FROM pay.subscription_mandates
-           WHERE merchant_id = ${merchantId} AND status = ${options.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<MandateRow[]>`
-          SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
-                 cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
-                 status, cancelled_at, created_at
-            FROM pay.subscription_mandates
-           WHERE merchant_id = ${merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    return rows.map(toMandate);
+    const filters = subscriptionListFilters(options);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<MandateRow & { created_at_cursor: string }>>`
+      SELECT id, merchant_id, customer_id, asset_id, amount::text, ceiling::text,
+             cadence, starts_at, ends_at, rail_adapter, rail_mandate_ref,
+             status, cancelled_at, created_at,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.subscription_mandates
+       WHERE merchant_id = ${merchantId}
+         AND (${options.status ?? null}::text IS NULL OR status = ${options.status ?? null})
+         AND (${filters.assetId}::text IS NULL OR asset_id = ${filters.assetId})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (${filters.search}::text IS NULL OR id::text = lower(${filters.search}) OR customer_id = ${filters.search})
+         AND (${cursorAt}::text IS NULL OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid))
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return subscriptionPage(rows, limit, toMandate);
   }
 
-  /** Merchant fleet list — subscriptions (ops truth). Read-only. */
+  /** Merchant fleet list — subscriptions (ops truth). Read-only. Filters run in SQL before the page is cut. */
   async listSubscriptions(
     merchantId: string,
-    options: { status?: SubscriptionStatus; limit?: number } = {},
-  ): Promise<SubscriptionRecord[]> {
+    options: { status?: SubscriptionStatus; limit?: number; cursor?: string; search?: string; from?: string; to?: string } = {},
+  ): Promise<{ items: SubscriptionRecord[]; nextCursor: string | null }> {
     await this.requireMerchant(merchantId);
     const limit = assertSubscriptionListLimit(options.limit);
-    const rows = options.status
-      ? await this.sql<SubRow[]>`
-          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
-                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                 paused_at, resumed_at, stalled_at, stall_reason
-            FROM pay.subscriptions
-           WHERE merchant_id = ${merchantId} AND status = ${options.status}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `
-      : await this.sql<SubRow[]>`
-          SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
-                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
-                 paused_at, resumed_at, stalled_at, stall_reason
-            FROM pay.subscriptions
-           WHERE merchant_id = ${merchantId}
-           ORDER BY created_at DESC
-           LIMIT ${limit}
-        `;
-    return rows.map(toSub);
+    const filters = subscriptionListFilters(options);
+    const cursorAt = filters.cursor?.createdAtCursor ?? null;
+    const cursorId = filters.cursor?.id ?? null;
+    const rows = await this.sql<Array<SubRow & { created_at_cursor: string }>>`
+      SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
+             cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+             paused_at, resumed_at, stalled_at, stall_reason,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+        FROM pay.subscriptions
+       WHERE merchant_id = ${merchantId}
+         AND (${options.status ?? null}::text IS NULL OR status = ${options.status ?? null})
+         AND (${filters.from}::timestamptz IS NULL OR created_at >= ${filters.from})
+         AND (${filters.to}::timestamptz IS NULL OR created_at < ${filters.to})
+         AND (${filters.search}::text IS NULL OR id::text = lower(${filters.search}) OR customer_id = ${filters.search} OR mandate_id::text = lower(${filters.search}))
+         AND (${cursorAt}::text IS NULL OR (created_at, id) < ((${cursorAt}::text)::timestamptz, ${cursorId}::uuid))
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit + 1}
+    `;
+    return subscriptionPage(rows, limit, toSub);
   }
 
   /**
@@ -1583,8 +1703,11 @@ export class SubscriptionService {
     return occurrenceDueAt(frame, occurrence + 1);
   }
 
-  private async requireMerchant(merchantId: string): Promise<{ id: string; status: string; kybStatus: MerchantKybStatus }> {
-    const rows = await this.sql<Array<{ id: string; status: string; kyb_status: MerchantKybStatus }>>`
+  private async requireMerchant(
+    merchantId: string,
+    sql: Sql = this.sql,
+  ): Promise<{ id: string; status: string; kybStatus: MerchantKybStatus }> {
+    const rows = await sql<Array<{ id: string; status: string; kyb_status: MerchantKybStatus }>>`
       SELECT id, status, kyb_status FROM pay.merchants WHERE id = ${merchantId}
     `;
     const row = rows[0];
@@ -1607,4 +1730,26 @@ export class SubscriptionService {
       throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
     }
   }
+}
+
+function subscriptionListFilters(input: { search?: string; from?: string; to?: string; cursor?: string; assetId?: string }) {
+  try {
+    return parseListFilters(input);
+  } catch (error) {
+    if (error instanceof ListQueryError) throw new PayError(error.message, error.code);
+    throw error;
+  }
+}
+
+function subscriptionPage<R extends { created_at_cursor: string; id: string }, T>(
+  rows: R[],
+  limit: number,
+  map: (row: R) => T,
+): { items: T[]; nextCursor: string | null } {
+  const kept = rows.slice(0, limit);
+  const last = kept[kept.length - 1];
+  return {
+    items: kept.map(map),
+    nextCursor: rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+  };
 }
