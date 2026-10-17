@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**64 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**65 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -39,6 +39,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `fxConversionHold`              | `pay`      | `pay.conversion.held`                                            |
 | `fxConversionRelease`           | `pay`      | `pay.conversion.released`                                        |
 | `fxConversionReverse`           | `pay`      | `pay.conversion.reversed`                                        |
+| `fxConversionLateFill`          | `pay`      | `pay.conversion.late_booked` or `pay.conversion.late_shortfall`  |
 | `chargebackOpen`                | `pay`      | `pay.chargeback.opened`                                          |
 | `chargebackShortfall`           | `pay`      | `pay.chargeback.shortfall.covered`                               |
 | `chargebackWon`                 | `pay`      | `pay.chargeback.won`                                             |
@@ -82,7 +83,7 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (explicit §13 sockets; chargebackOpen posted from svc-pay chargeback-ledger.ts) |
 | `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                                           |
 | `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                                             |
-| `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, and a reverse that leaves the venue legs in place                                       |
+| `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory                            |
 
 ## Sealed notes
 

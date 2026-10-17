@@ -17,7 +17,8 @@ import { loadHaltAutoTripConfig } from './halts/config.js';
 import { PayHaltStore } from './halts/store.js';
 import { loadTreasuryLimits } from './treasury/config.js';
 import { createConversionInventory } from './conversion/inventory.js';
-import { ConversionService, CONVERSION_LATE_FILL_RECHECK_MS } from './conversion/service.js';
+import { ConversionService } from './conversion/service.js';
+import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
@@ -615,6 +616,7 @@ webhookDrain.unref?.();
 /**
  * Late-fill detection stays off the quote and execute path. A venue or rate
  * error is logged and retried next tick; only a found fill blocks new conversions.
+ * The sweep does not book. Booking is the two-founder procedure.
  */
 const lateFillSweep = setInterval(() => {
   void conversion
@@ -627,8 +629,19 @@ const lateFillSweep = setInterval(() => {
     .catch((err) => {
       app.log.warn({ err }, 'conversion late-fill sweep failed');
     });
-}, CONVERSION_LATE_FILL_RECHECK_MS);
+}, CONVERSION_LATE_FILL_TICK_MS);
 lateFillSweep.unref?.();
+
+/**
+ * Orphan holds: a failed or missing conversion row whose clearing hold is still
+ * up. The founder trigger stays. A second replica finds the lock busy and skips.
+ */
+const holdSweep = setInterval(() => {
+  void conversion.sweepOrphanHolds('hold-sweep').catch((err) => {
+    app.log.warn({ err }, 'conversion hold sweep failed');
+  });
+}, CONVERSION_HOLD_SWEEP_MS);
+holdSweep.unref?.();
 
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
@@ -787,6 +800,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       watcher?.stop();
       clearInterval(lateFillSweep);
+      clearInterval(holdSweep);
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the
