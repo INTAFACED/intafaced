@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cn } from './cn.js';
 import { type Density, DEFAULT_DENSITY } from './density.js';
 import { type AsOf, type Freshness, asOfIso, formatAsOf, freshnessOf } from './freshness.js';
+import { useFreshnessClock } from './use-freshness-clock.js';
 
 export type ChipShape = 'dot' | 'ring' | 'dashed' | 'slashed';
 
@@ -59,7 +60,7 @@ export interface StatusChipProps extends Omit<React.ComponentProps<'span'>, 'chi
   /** Fixed kind. If omitted it is derived from asOf / now / staleAfterMs / refused with freshnessOf. */
   kind?: Freshness;
   asOf?: AsOf;
-  /** Epoch ms. Defaults to Date.now() here at the component edge. Pass it for stable tests and screenshots. */
+  /** Epoch ms. Leave it out and the chip keeps its own clock and turns Stale by itself; pass it only for stable tests and screenshots, or if your screen re-renders on its own clock. */
   now?: number;
   staleAfterMs?: number | null;
   refused?: boolean;
@@ -94,7 +95,7 @@ export function StatusChip({
   title,
   ...props
 }: StatusChipProps) {
-  const clock = now ?? Date.now();
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: kind == null });
   const resolved: Freshness = kind ?? freshnessOf({ asOf, now: clock, staleAfterMs, refused });
   const l = look[resolved];
   const iso = showAsOf ? asOfIso(asOf) : null;

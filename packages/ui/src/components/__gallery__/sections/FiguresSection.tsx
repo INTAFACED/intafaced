@@ -17,6 +17,8 @@ const LIVE_AT = '2026-10-17T14:04:30Z';
 const STALE_AT = '2026-10-17T13:41:07Z';
 const OLD_DAY_AT = '2026-10-15T09:12:44Z';
 const STALE_AFTER = 5 * 60_000;
+// Page-load time, read once: the one example that runs on a real clock (no `now`), so it must turn Stale by itself.
+const LOADED_AT = Date.now();
 const TZ = { timeZone: 'UTC', locale: 'en-GB' } as const;
 
 const TONES: BadgeTone[] = ['neutral', 'lime', 'warn', 'error', 'up', 'down'];
@@ -80,6 +82,10 @@ export function FiguresSection() {
           <StatusChip asOf={null} now={NOW} staleAfterMs={STALE_AFTER} showAsOf {...TZ} reason="No timestamp from the feed (TEST)" />
           <StatusChip asOf={LIVE_AT} now={NOW} staleAfterMs={STALE_AFTER} refused showAsOf {...TZ} reason="Source refused (TEST)" />
           <StatusChip kind="live" labels={{ live: 'En direct' }} />
+        </div>
+        <div className="flex flex-wrap items-center gap-6">
+          <Caption>ticks: turns Stale after 2 s (TEST)</Caption>
+          <StatusChip asOf={LOADED_AT} staleAfterMs={2000} showAsOf {...TZ} data-testid="ticking-chip" />
         </div>
       </Part>
 

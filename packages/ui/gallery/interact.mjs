@@ -20,10 +20,10 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`);
 };
 
-const open = async (section) => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+const open = async (section, viewport = { width: 1440, height: 900 }, waitUntil = 'networkidle') => {
+  const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
   const page = await context.newPage();
-  await page.goto(`${base}?only=${section}`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}?only=${section}`, { waitUntil });
   return page;
 };
 
@@ -114,6 +114,104 @@ const open = async (section) => {
   check('input: 0.1 stepped by 0.1 is exactly 0.2', (await p.inputValue()) === '0.2', await p.inputValue());
   await p.press('ArrowUp');
   check('input: 0.2 stepped by 0.1 is exactly 0.3', (await p.inputValue()) === '0.3', await p.inputValue());
+  await page.context().close();
+}
+
+// Freshness: a chip given no `now` keeps its own clock and must turn Stale when its window passes
+{
+  const page = await open('figures', undefined, 'domcontentloaded');
+  const chip = page.getByTestId('ticking-chip');
+  await chip.waitFor();
+  const before = await chip.getAttribute('data-freshness');
+  await page.waitForTimeout(3000);
+  const after = await chip.getAttribute('data-freshness');
+  const word = (await chip.locator('[data-part="word"]').textContent()) ?? '';
+  check(
+    'freshness: a chip with no `now` turns Stale after its window',
+    before === 'live' && after === 'stale' && word === 'Stale',
+    `before ${before}, after 3 s ${after}, word ${word}`,
+  );
+  await page.context().close();
+}
+
+// Narrow screen (390 x 844): the pinned column and the wrapping page actions
+const phone = { width: 390, height: 844 };
+{
+  const page = await open('table', phone);
+  const grid = page.getByRole('grid', { name: 'Markets, comfortable' });
+  const region = grid.locator('xpath=ancestor::*[@data-slot="table-scroll"]');
+  const overflow = await region.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+  check(
+    'narrow table: the Markets table is wider than its region, so it scrolls sideways',
+    overflow.scroll > overflow.client,
+    `${overflow.scroll} > ${overflow.client}`,
+  );
+  await region.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth - el.clientWidth;
+  });
+  const scrolled = await region.evaluate((el) => ({ left: el.scrollLeft, max: el.scrollWidth - el.clientWidth }));
+  check(
+    'narrow table: the region scrolled all the way right',
+    scrolled.left > 0 && Math.abs(scrolled.left - scrolled.max) <= 1,
+    `${scrolled.left} of ${scrolled.max}`,
+  );
+  const boxes = await page.evaluate(() => {
+    const table = [...document.querySelectorAll('table')].find((t) => t.querySelector('caption')?.textContent === 'Markets, comfortable');
+    const r = (el) => {
+      const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right };
+    };
+    const scroller = table.closest('[data-slot="table-scroll"]');
+    const row = table.querySelector('tbody tr');
+    const cells = [...row.children];
+    const heads = [...table.querySelectorAll('thead th')];
+    return {
+      region: r(scroller),
+      firstCell: r(cells[0]),
+      firstHead: r(heads[0]),
+      lastCell: r(cells.at(-1)),
+      lastText: cells.at(-1).textContent,
+    };
+  });
+  const near = (a, b) => Math.abs(a - b) <= 1;
+  check(
+    "narrow table: the pinned first column cell stays at the region's left edge after scrolling right",
+    near(boxes.firstCell.left, boxes.region.left),
+    `cell ${boxes.firstCell.left}, region ${boxes.region.left}`,
+  );
+  check(
+    'narrow table: the pinned header cell stays at the left edge too',
+    near(boxes.firstHead.left, boxes.region.left),
+    `${boxes.firstHead.left}`,
+  );
+  check(
+    'narrow table: the last column is now visible',
+    boxes.lastCell.right <= boxes.region.right + 1 && boxes.lastCell.left >= boxes.region.left,
+    `last cell ${boxes.lastCell.left}..${boxes.lastCell.right}, region right ${boxes.region.right}, text ${boxes.lastText}`,
+  );
+  await page.context().close();
+}
+{
+  const page = await open('page', phone);
+  const headers = page.locator('[data-slot="page-header"]').filter({ has: page.locator('[data-slot="page-header-actions"]') });
+  const count = await headers.count();
+  let ok = true;
+  const detail = [];
+  let checked = 0;
+  for (let i = 0; i < count; i++) {
+    const h = headers.nth(i);
+    // The "width" previews are 1440 px pages shrunk by a transform: their layout width is 1440, so they are not phone headers.
+    if ((await h.evaluate((el) => el.offsetWidth)) > 390) continue;
+    checked++;
+    const title = await h.locator('[data-slot="page-header-title"]').first().boundingBox();
+    const actions = await h.locator('[data-slot="page-header-actions"]').boundingBox();
+    const fine = title && actions && actions.y >= title.y + title.height - 0.5;
+    detail.push(
+      `#${i} title bottom ${title ? Math.round(title.y + title.height) : '?'} actions top ${actions ? Math.round(actions.y) : '?'}`,
+    );
+    if (!fine) ok = false;
+  }
+  check("narrow page: a PageHeader's actions sit below its title at 390", ok && checked >= 2, `${checked} headers: ${detail.join('; ')}`);
   await page.context().close();
 }
 

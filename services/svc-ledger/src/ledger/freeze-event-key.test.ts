@@ -69,7 +69,7 @@ describe('MemoryPostingFreeze inside one millisecond', () => {
     const book = new MemoryPostingFreeze();
     const frozen = book.freeze('reconciliation mismatch', 'reconciliation');
     const again = book.freeze('reconciliation mismatch', 'reconciliation');
-    const thawed = book.unfreeze('reconciliation');
+    const thawed = book.unfreeze('ops-clear', 'ops-confirm');
 
     expect(frozen.changedAt.getTime()).toBe(thawed.changedAt.getTime());
     expect(freezeEventKey(frozen)).toBe(`ledger.freeze:${frozen.changedAtPrecise}`);
