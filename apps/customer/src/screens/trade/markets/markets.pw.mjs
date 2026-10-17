@@ -523,3 +523,38 @@ test('with two top cards, the two share the row (no empty third) (critic M8)', a
   // However many cards are drawn (one to three), together with their gaps they fill the row.
   expect(widths.reduce((a, b) => a + b, 0) + (count - 1) * 24).toBeGreaterThanOrEqual(row - 2);
 });
+
+for (const mode of ['simple', 'pro']) {
+  test(`phase2 ${mode}: phone quote identifiers remain fully visible`, async ({ page }) => {
+    if (mode === 'pro') await pro(page);
+    await mock(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page);
+    await ready(page);
+    for (const symbol of ['BTC/USDT', 'BTC/USDC']) {
+      const row = page.locator(`[role="row"][data-symbol="${symbol}"]`);
+      const identity = await row.locator('.mkt-name__ticker').evaluate((node) => {
+        const quote = node.querySelector('.mkt-name__quote');
+        const rect = node.getBoundingClientRect();
+        const ink = document.createRange();
+        ink.selectNodeContents(quote);
+        const value = ink.getBoundingClientRect();
+        return {
+          text: node.textContent,
+          right: rect.right,
+          inkRight: value.right,
+          top: rect.top,
+          inkTop: value.top,
+          bottom: rect.bottom,
+          inkBottom: value.bottom,
+        };
+      });
+      expect(identity.text.replace(/\s/g, '')).toBe(symbol);
+      expect(identity.inkRight).toBeLessThanOrEqual(identity.right + 1);
+      expect(identity.inkTop).toBeGreaterThanOrEqual(identity.top - 1);
+      expect(identity.inkBottom).toBeLessThanOrEqual(identity.bottom + 1);
+      expect((await row.boundingBox()).height).toBeGreaterThanOrEqual(60);
+    }
+    await page.screenshot({ path: join(shots, `phase2-phone-${mode}.png`), fullPage: true });
+  });
+}
