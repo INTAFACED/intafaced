@@ -41,11 +41,13 @@ export function BlotterTable({
 }) {
   const { t } = execCopy.useCopy();
   const when = useWhen();
+  const typeWord = (type: string): string =>
+    type === 'limit' || type === 'market' || type === 'fill' ? t(`Type ${type}`) : type.charAt(0).toUpperCase() + type.slice(1);
   const columns: TableColumn<BlotterRow>[] = [
     { id: 'time', header: t('Time'), pin: 'start', value: (r) => when(r.time), sortable: false },
     { id: 'market', header: t('Market'), value: (r) => r.symbol },
     { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), value: (r) => r.type },
+    { id: 'type', header: t('Type'), value: (r) => typeWord(r.type) },
     {
       id: 'price',
       header: t('Price'),
@@ -86,6 +88,7 @@ export function BlotterTable({
       status={status}
       columns={columns}
       rows={rows}
+      minWidth={onCancel ? 1000 : 900}
       getRowId={(r) => r.id}
       emptyState={<EmptyState variant="empty" size="inline" title={emptyText} />}
     />
