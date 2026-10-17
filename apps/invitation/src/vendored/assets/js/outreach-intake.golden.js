@@ -494,6 +494,13 @@ async function main() {
     contactUrl: 'mailto:contact@example.test',
     retentionNotice: 'Operator-approved test notice',
   });
+  let component = require('node:fs').readFileSync(require('node:path').join(__dirname, '../../../journey.js'), 'utf8');
+  assert.ok(component.includes("mutate('ops', 'outreach.' + method, input, null)"));
+  assert.equal(
+    /localStorage|console\.|analytics|continuationToken.*(?:query|href)/.test(component),
+    false,
+    'capability has no public URL/log sink',
+  );
   console.log('outreach-intake.golden: all five mappings, money strings, privacy, durable retry, revisions and host dispatch passed');
 }
 main().catch(function (e) {

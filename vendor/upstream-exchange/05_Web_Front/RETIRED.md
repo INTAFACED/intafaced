@@ -12,7 +12,7 @@ This directory is the old Vue 2 customer site. It was replaced by the React cust
 
 ## What moved out
 
-On 2026-10-17 (decision D-135, vendor slim) the public invitation app (`apps/invitation`) took its six JavaScript modules, the two modules they need (`ix-wire.js`, `auth-refusal.js`), the golden tests, images and fonts into `apps/invitation/src/vendored/`. The `invitation-outreach-golden` and `brand` gates now read them there. Images, audio, tests and the Docker files were deleted from this tree; the pages, goldens and config stay only because `tooling/tracker/features.mjs`, `tooling/uiproof/` and `NOTICE` name them as evidence.
+On 2026-10-17 (decision D-140, vendor slim) the public invitation app (`apps/invitation`) took its six JavaScript modules, the two modules they need (`ix-wire.js`, `auth-refusal.js`), the golden tests, images and fonts into `apps/invitation/src/vendored/`. The `invitation-outreach-golden` and `brand` gates now read them there. Images, audio, tests and the Docker files were deleted from this tree; the pages, goldens and config stay only because `tooling/tracker/features.mjs`, `tooling/uiproof/` and `NOTICE` name them as evidence.
 
 ## Other things that depend on it
 
