@@ -554,25 +554,42 @@ try {
     'skip',
   );
   assert.equal(planMerchantDispute({ userId, merchantId: dsMId, payments: [], existing: null }).kind, 'skip');
-  // The approval binding matches svc-pay `payActionPayloadHash('pay.fraud_open_dispute', { disputeId, paymentId, merchantId, amount, assetId })`.
+  // The approval binding matches svc-pay fraudOpenDisputeFields + payActionPayloadHash (approval-bindings.ts, #5010):
+  // reason (trimmed) and the disputed flag are bound, in this key order.
   assert.equal(OPEN_DISPUTE_ACTION, 'pay.fraud_open_dispute');
-  assert.deepEqual(Object.keys(openDisputeApprovalFields(disputeFields)), ['disputeId', 'paymentId', 'merchantId', 'amount', 'assetId']);
-  assert.deepEqual(Object.keys(openDisputeHashedBody(disputeFields)), [
-    'actionType',
+  const boundDispute = { ...disputeFields, reasonCode: MERCHANT_DISPUTE.reasonCode, markPaymentDisputed: true };
+  assert.deepEqual(Object.keys(openDisputeApprovalFields(boundDispute)), [
     'disputeId',
     'paymentId',
     'merchantId',
     'amount',
     'assetId',
+    'reasonCode',
+    'markPaymentDisputed',
   ]);
-  const disputeHash = openDisputePayloadHash(disputeFields);
+  assert.deepEqual(Object.keys(openDisputeHashedBody(boundDispute))[0], 'actionType');
+  const disputeHash = openDisputePayloadHash(boundDispute);
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, amount: '13' }));
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, reasonCode: 'other' }), 'the reason is bound');
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, markPaymentDisputed: false }), 'the flag is bound');
   assert.equal(
+    openDisputePayloadHash({ ...boundDispute, reasonCode: `  ${MERCHANT_DISPUTE.reasonCode} ` }),
     disputeHash,
-    `sha256:${createHash('sha256')
-      .update(JSON.stringify({ actionType: OPEN_DISPUTE_ACTION, ...disputeFields }))
-      .digest('hex')}`,
+    'trimmed like svc-pay',
   );
-  assert.notEqual(disputeHash, openDisputePayloadHash({ ...disputeFields, amount: '13' }));
+  // Pinned vector: computed once from svc-pay's field order, so a key-order or encoding drift fails here.
+  assert.equal(
+    openDisputePayloadHash({
+      disputeId: 'd-1',
+      paymentId: 'p-1',
+      merchantId: 'm-1',
+      amount: '12',
+      assetId: 'USDT',
+      reasonCode: 'LOCAL-TEST product_not_received',
+      markPaymentDisputed: true,
+    }),
+    'sha256:f445656c779dce9f47fe5497bc2764437b0a7a45692bbb216ae795bf1b5cc554',
+  );
   const dsDsql = openDisputeApprovalSql(disputeHash);
   assert.match(dsDsql, /action_type = 'pay\.fraud_open_dispute'/);
   assert.match(dsDsql, /status IN \('PENDING', 'APPROVED'\)/);
