@@ -344,17 +344,19 @@ interface PresentExtras {
 }
 
 /**
- * Unrealised PnL ÷ initial margin.
+ * Unrealised PnL over initial margin, in CCXT percent points.
  *
- * Rounding is `half-up` (`div` in `@intafaced/ledger-client`): a ratio, not a
+ * `div(unrealized * 100n, initialMargin, half-up)`. Amounts are 1e18-scaled
+ * bigints, so multiplying the scaled PnL by the plain integer `100n` is exact.
+ * Rounding is `half-up` (`div` in `@intafaced/ledger-client`): a percent, not a
  * fee, so neither side is favoured by a one-sided ceil or floor. The PnL
  * itself is `unrealizedPnl` from `liquidation-planner`, the same truncation
- * toward zero that `planClose` posts.
+ * toward zero that `planClose` posts. `'20'` means +20%.
  */
 export const POSITION_PERCENTAGE_ROUNDING = 'half-up' as const;
 
 export function positionPercentage(unrealized: Amount, initialMarginAmount: Amount): Amount {
-  return div(unrealized, initialMarginAmount, POSITION_PERCENTAGE_ROUNDING);
+  return div(unrealized * 100n, initialMarginAmount, POSITION_PERCENTAGE_ROUNDING);
 }
 
 export class PositionService {
@@ -2537,7 +2539,11 @@ export class PositionService {
     }
     let maintenanceMargin = extras?.maintenanceMargin;
     let maintenanceReason = extras?.maintenanceReason ?? null;
-    if (maintenanceMargin === undefined) {
+    // A settled row has no maintenance requirement. Do not read depth for it.
+    if (row.status === 'closed' || row.status === 'liquidated') {
+      maintenanceMargin = null;
+      maintenanceReason = 'position_closed';
+    } else if (maintenanceMargin === undefined) {
       if (markPrice == null) {
         maintenanceMargin = null;
         maintenanceReason = markReason;
@@ -2643,22 +2649,29 @@ function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
     else markReason = 'mark_missing';
   }
 
+  const settled = row.status === 'closed' || row.status === 'liquidated';
+
   let unrealized: Amount | null = null;
   let unrealizedReason: string | null = null;
-  if (markPrice == null) unrealizedReason = markReason;
+  if (settled) unrealizedReason = 'position_closed';
+  else if (markPrice == null) unrealizedReason = markReason;
   else {
     unrealized = unrealizedPnl(row.side, size, entry, parseAmount(markPrice));
   }
 
   let percentage: string | null = null;
   let percentageReason: string | null = null;
-  if (unrealized == null) percentageReason = unrealizedReason;
+  if (settled) percentageReason = 'position_closed';
+  else if (unrealized == null) percentageReason = unrealizedReason;
   else if (marginInitial <= 0n) percentageReason = 'initial_margin_missing';
   else percentage = formatAmount(positionPercentage(unrealized, marginInitial));
 
-  const maintenanceMargin = extras?.maintenanceMargin === undefined ? null : extras.maintenanceMargin;
+  let maintenanceMargin = extras?.maintenanceMargin === undefined ? null : extras.maintenanceMargin;
   let maintenanceReason = extras?.maintenanceReason ?? null;
-  if (maintenanceMargin != null) maintenanceReason = null;
+  if (settled) {
+    maintenanceMargin = null;
+    maintenanceReason = 'position_closed';
+  } else if (maintenanceMargin != null) maintenanceReason = null;
   else if (maintenanceReason == null) maintenanceReason = markReason;
 
   let contractSize: string | null = null;
@@ -2678,9 +2691,12 @@ function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
   if (extras?.realizedPnl !== undefined) {
     realizedReason =
       realizedPnl == null ? (row.status === 'closed' || row.status === 'liquidated' ? 'realized_pnl_not_recorded' : 'not_realized') : null;
-  } else if (row.status === 'closed' || row.status === 'liquidated') {
+  } else if (row.status === 'closed') {
     if (row.accepted_mark == null || row.accepted_mark.trim() === '') realizedReason = 'realized_pnl_not_recorded';
     else realizedPnl = formatAmount(unrealizedPnl(row.side, size, entry, parseAmount(row.accepted_mark)));
+  } else if (row.status === 'liquidated') {
+    // Liquidation writes no exit price and no realised figure. accepted_mark is the tick mark.
+    realizedReason = 'realized_pnl_not_recorded';
   } else {
     realizedReason = 'not_realized';
   }

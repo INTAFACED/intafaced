@@ -427,6 +427,7 @@ export const positionSchema = z.object({
   realizedPnl: decimal.nullable(),
   liquidationPrice: decimal.nullable(),
   marginMode: z.enum(['cross', 'isolated']).nullable(),
+  /** Unrealised PnL over initial margin in percent points (CCXT): '20' means +20%. Null with a reason in fieldReasons. */
   percentage: decimal.nullable(),
   /** When the position closed. Null on an open row, and on a legacy closed row that never recorded one. */
   closedAt: isoDatetime.nullable().optional(),

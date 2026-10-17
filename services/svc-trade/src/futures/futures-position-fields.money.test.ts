@@ -194,7 +194,7 @@ describe('futures position fields', () => {
     expect(longRow.initialMargin).toBe('5000');
     expect(longRow.unrealizedPnl).toBe('1000');
     expect(longRow.percentage).toBe(formatAmount(positionPercentage(amt('1000'), amt('5000'))));
-    expect(longRow.percentage).toBe('0.2');
+    expect(longRow.percentage).toBe('20');
     expect(longRow.maintenanceMargin).toBe(formatAmount(longMaint.maintenanceRequired));
     expect(longRow.maintenanceMargin).toBe('510');
     expect(longRow.contractSize).toBeNull();
@@ -221,7 +221,7 @@ describe('futures position fields', () => {
     });
     expect(shortRow!.unrealizedPnl).toBe(formatAmount(unrealizedPnl('short', amt('1'), amt('50000'), amt('49000'))));
     expect(shortRow!.unrealizedPnl).toBe('1000');
-    expect(shortRow!.percentage).toBe('0.2');
+    expect(shortRow!.percentage).toBe('20');
     expect(shortRow!.maintenanceMargin).toBe(formatAmount(shortMaint.maintenanceRequired));
     expect(shortRow!.maintenanceMargin).toBe('245');
 
@@ -247,6 +247,10 @@ describe('futures position fields', () => {
     expect((await positions.get(ALICE, long.id!)).contractSize).toBe('0.01');
   });
 
+  it('percentage is CCXT percent points, half-up when unrealised over initial margin does not terminate', () => {
+    expect(formatAmount(positionPercentage(amt('1'), amt('3')))).toBe('33.333333333333333333');
+  });
+
   it('a closed row reports the posted realised pnl, closedAt, and a legacy null with a reason', async () => {
     await fundProfitSource('10000');
     const pos = await openSide('close-pnl', 'long');
@@ -254,6 +258,14 @@ describe('futures position fields', () => {
     feed('51000');
     const closed = await positions.close(ALICE, pos.id!);
     expect(closed.realizedPnl).toBe('1000');
+    expect(closed.unrealizedPnl).toBeNull();
+    expect(closed.percentage).toBeNull();
+    expect(closed.maintenanceMargin).toBeNull();
+    expect(closed.fieldReasons).toMatchObject({
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
     expect(postedAmount('futures.profit.realized', pos.id!)).toBe('1000');
     expect(closed.closedAt).toBeTruthy();
     expect(closed.timestamp).toBe(openedAt);
@@ -280,6 +292,80 @@ describe('futures position fields', () => {
     await sql.unsafe(migration);
     const [backfilled] = await sql<{ closed_at: Date }[]>`SELECT closed_at FROM trade.positions WHERE id = ${pos.id}`;
     expect(backfilled!.closed_at.toISOString()).toBe('2024-06-01T00:00:00.000Z');
+  });
+
+  it('a closed row keeps realised pnl and drops live unrealised, percentage and maintenance after the mark moves', async () => {
+    await fundProfitSource('10000');
+    const pos = await openSide('close-settled', 'long');
+    feed('51000');
+    const closed = await positions.close(ALICE, pos.id!);
+    expect(closed.realizedPnl).toBe('1000');
+    expect(closed.unrealizedPnl).toBeNull();
+    expect(closed.percentage).toBeNull();
+    expect(closed.maintenanceMargin).toBeNull();
+    expect(closed.fieldReasons).toMatchObject({
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
+
+    feed('60000');
+    const got = await positions.get(ALICE, pos.id!);
+    expect(got.markPrice).toBe('60000');
+    expect(got.realizedPnl).toBe('1000');
+    expect(got.unrealizedPnl).toBeNull();
+    expect(got.percentage).toBeNull();
+    expect(got.maintenanceMargin).toBeNull();
+    expect(got.fieldReasons).toMatchObject({
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
+    const listed = await positions.listClosed(ALICE, { limit: 10 });
+    expect(listed[0]!.id).toBe(pos.id);
+    expect(listed[0]!.realizedPnl).toBe('1000');
+    expect(listed[0]!.unrealizedPnl).toBeNull();
+    expect(listed[0]!.percentage).toBeNull();
+    expect(listed[0]!.maintenanceMargin).toBeNull();
+    expect(listed[0]!.fieldReasons).toMatchObject({
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
+  });
+
+  it('a liquidated row does not synthesise realised pnl from the tick mark', async () => {
+    const pos = await openSide('liq-no-pnl', 'long');
+    feed('45600');
+    await sql`
+      UPDATE trade.positions
+      SET status = 'liquidated', closed_at = now(), updated_at = now(), accepted_mark = '45600'
+      WHERE id = ${pos.id}
+    `;
+    const got = await positions.get(ALICE, pos.id!);
+    expect(got.status).toBe('liquidated');
+    expect(got.realizedPnl).toBeNull();
+    expect(got.unrealizedPnl).toBeNull();
+    expect(got.percentage).toBeNull();
+    expect(got.maintenanceMargin).toBeNull();
+    expect(got.fieldReasons).toMatchObject({
+      realizedPnl: 'realized_pnl_not_recorded',
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
+    const listed = await positions.listClosed(ALICE, { limit: 10 });
+    const row = listed.find((item) => item.id === pos.id);
+    expect(row?.realizedPnl).toBeNull();
+    expect(row?.unrealizedPnl).toBeNull();
+    expect(row?.percentage).toBeNull();
+    expect(row?.maintenanceMargin).toBeNull();
+    expect(row?.fieldReasons).toMatchObject({
+      realizedPnl: 'realized_pnl_not_recorded',
+      unrealizedPnl: 'position_closed',
+      percentage: 'position_closed',
+      maintenanceMargin: 'position_closed',
+    });
   });
 
   it('closing twice posts once and returns the same closed row; another account is not found; a rolled-back close can run', async () => {
