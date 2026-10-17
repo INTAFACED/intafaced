@@ -12,11 +12,25 @@ export interface ApprovalLike {
 }
 export type ApprovalAction = 'approve' | 'reject' | 'cancel';
 
-/** What this person may try on an approval. The service still has the last word; this only avoids pointless buttons. */
-export function approvalActions(approval: Pick<ApprovalLike, 'status' | 'makerUserId'>, me: string | null): ApprovalAction[] {
+/**
+ * What this person may try on an approval. Approving and rejecting are for administrators and checkers; cancelling
+ * someone else's proposal is for administrators. The app cannot read members yet, so with the role unknown every
+ * action is offered and the service decides. A known role removes the buttons it can never use.
+ */
+export function approvalActions(
+  approval: Pick<ApprovalLike, 'status' | 'makerUserId'>,
+  me: string | null,
+  role: Role | null = null,
+): ApprovalAction[] {
   if (approval.status !== 'pending' || !me) return [];
-  return approval.makerUserId === me ? ['cancel'] : ['approve', 'reject'];
+  if (approval.makerUserId === me) return ['cancel'];
+  if (role === 'admin' || role === null) return ['approve', 'reject', 'cancel'];
+  if (role === 'checker') return ['approve', 'reject'];
+  return [];
 }
+
+/** A short reference for someone the app cannot name yet (the first block of their id). */
+export const shortRef = (id: string): string => id.split('-')[0]!.slice(0, 8);
 
 export type Party = 'you' | 'teammate';
 export function whoMade(approval: Pick<ApprovalLike, 'makerUserId'>, me: string | null): Party {
@@ -43,4 +57,34 @@ export function thresholdProblem(value: string): 'invalid' | 'zero' | null {
 export function needsSecondPerson(amount: string, threshold: string): boolean | null {
   if (!decimalSchema.safeParse(amount).success || !decimalSchema.safeParse(threshold).success) return null;
   return parseAmount(amount) >= parseAmount(threshold);
+}
+
+/**
+ * The reply to a payment proposal must be the one that was asked for. Pending: the approval carries the request id,
+ * the same account, accounts and amount to the digit. Posted: a ledger transaction exists.
+ */
+export function proposalMatches(data: unknown, input: Record<string, unknown>): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const reply = data as Record<string, unknown>;
+  if (reply.kind === 'posted') return typeof reply.ledgerTxId === 'string' && reply.ledgerTxId.trim().length > 0;
+  if (reply.kind !== 'pending' || !reply.approval || typeof reply.approval !== 'object') return false;
+  const approval = reply.approval as Record<string, unknown>;
+  return (
+    typeof approval.id === 'string' &&
+    typeof input.clientId === 'string' &&
+    approval.id.toLowerCase() === input.clientId.toLowerCase() &&
+    approval.accountId === input.accountId &&
+    approval.fromSpaceId === input.fromSpaceId &&
+    approval.toSpaceId === input.toSpaceId &&
+    typeof approval.amount === 'string' &&
+    typeof input.amount === 'string' &&
+    decimalSchema.safeParse(approval.amount).success &&
+    parseAmount(approval.amount) === parseAmount(input.amount)
+  );
+}
+
+/** Which of the two outcomes a proposal reply was, in words the screen can pick copy for. */
+export function proposalOutcome(data: unknown): 'pending' | 'posted' | null {
+  const kind = data && typeof data === 'object' ? (data as Record<string, unknown>).kind : null;
+  return kind === 'pending' || kind === 'posted' ? kind : null;
 }

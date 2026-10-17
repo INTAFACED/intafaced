@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { filterPayees, forgetPayee, parsePayees, readPayees, recentHandles, rememberPayee, type PayeeStorage } from './payees';
+import {
+  filterPayees,
+  identityChanged,
+  forgetPayee,
+  parsePayees,
+  readPayees,
+  recentHandles,
+  rememberPayee,
+  type PayeeStorage,
+} from './payees';
 
 const owner = 'a779d840-9715-4517-af5d-d9f7195e466a';
 const maria = { userId: '11111111-1111-4111-8111-111111111111', handle: 'maria_k' };
@@ -69,5 +78,13 @@ describe('recent recipients from activity', () => {
   it('stops at the limit', () => {
     const items = ['aaa', 'bbb', 'ccc'].map((handle, i) => row(handle, `2026-10-0${i + 1}T00:00:00Z`));
     expect(recentHandles(items, 2)).toEqual(['ccc', 'bbb']);
+  });
+});
+
+describe('a saved handle that moved to someone else', () => {
+  it('is flagged when the person behind it is different', () => {
+    expect(identityChanged(maria, maria.userId.toUpperCase())).toBe(false);
+    expect(identityChanged(maria, noor.userId)).toBe(true);
+    expect(identityChanged(undefined, noor.userId)).toBe(false);
   });
 });

@@ -77,11 +77,21 @@ export function BankNavigation({ current }: { current: string }) {
     </nav>
   );
 }
-function BankPage({ room, description, children }: { room: string; description: string; children: React.ReactNode }) {
+function BankPage({
+  room,
+  title,
+  description,
+  children,
+}: {
+  room: string;
+  title?: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
     <Page
       eyebrow={copyText('rooms.money.bank')}
-      title={room in bankLabels ? copyText(bankLabels[room as keyof typeof bankLabels]) : room}
+      title={title ?? (room in bankLabels ? copyText(bankLabels[room as keyof typeof bankLabels]) : room)}
       description={description}
       actions={
         room !== 'Ramps' ? (
@@ -1405,7 +1415,7 @@ function Analytics() {
 function Business({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
   return (
-    <BankPage room="Business" description={t('lead')}>
+    <BankPage room="Business" title={t('pageTitle')} description={t('lead')}>
       <BusinessBank open={open} />
     </BankPage>
   );

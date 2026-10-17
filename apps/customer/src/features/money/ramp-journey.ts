@@ -62,3 +62,20 @@ export function rampStatusKey(status: string): 'pending' | 'done' | 'failed' | '
   if (['rejected', 'failed', 'cancelled', 'canceled', 'expired', 'reversed'].includes(word)) return 'failed';
   return 'unknown';
 }
+
+/**
+ * Cash-out needs the `trade:withdraw` scope, which only a second-factor check can mint. The app has no client for that
+ * check yet, so a cash-out would be refused every time. Flip this when step-up lands.
+ */
+export const CLIENT_STEP_UP = false;
+
+export type CashOutBlock = 'loading' | 'none' | 'simulated' | 'noAssets' | 'stepUp' | null;
+/** Why cash-out cannot start now, first thing to fix first; null when it can. */
+export function cashOutBlock(gate: RampGate, loading: boolean, assetCount: number, stepUp: boolean = CLIENT_STEP_UP): CashOutBlock {
+  if (loading) return 'loading';
+  if (gate === 'none') return 'none';
+  if (gate === 'simulated') return 'simulated';
+  if (assetCount === 0) return 'noAssets';
+  if (!stepUp) return 'stepUp';
+  return null;
+}

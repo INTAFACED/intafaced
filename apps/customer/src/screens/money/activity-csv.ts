@@ -3,11 +3,8 @@ import type { ActivityItem } from './deps';
 /** A cell that begins with one of these can be run as a formula by a spreadsheet; text cells get a leading apostrophe. */
 const RISKY = /^[=+\-@\t\r]/;
 
-/** A plain @handle is a name, not a formula. */
-const HANDLE = /^@[A-Za-z0-9_]{3,32}$/;
-
 function cell(value: string, text: boolean): string {
-  const safe = text && RISKY.test(value) && !HANDLE.test(value) ? `'${value}` : value;
+  const safe = text && RISKY.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 

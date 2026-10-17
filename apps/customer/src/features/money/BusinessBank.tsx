@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { z } from 'zod';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session/session';
+import { fetchMe } from '../../data/identity';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { RecipientPicker } from './RecipientPicker';
 import type { Payee } from './payees';
@@ -9,6 +10,9 @@ import {
   approvalActions,
   companySpaces,
   ownSpaceName,
+  proposalMatches,
+  proposalOutcome,
+  shortRef,
   thresholdProblem,
   whoMade,
   type ApprovalAction,
@@ -43,25 +47,38 @@ const verifyApproval = (key: 'approvalId') => (data: unknown, input: Record<stri
 function ApprovalRow({
   approval,
   me,
+  myHandle,
   spaces,
   open,
 }: {
   approval: Approval;
   me: string | null;
+  myHandle: string | null;
   spaces: readonly OwnSpace[];
   open: (spec: ActionSpec) => void;
 }) {
   const { t } = businessCopy.useCopy();
-  const actions = approvalActions(approval, me);
-  const label = (id: string) => ownSpaceName(spaces, id) ?? t('otherAccount');
+  // The app cannot read members or look up owners yet, so the role is unknown and the service has the last word.
+  const actions = approvalActions(approval, me, null);
+  const unnamed = (id: string) => t('destinationUnnamed', { ref: id });
+  const label = (id: string) => ownSpaceName(spaces, id) ?? unnamed(id);
+  const destinationNamed = ownSpaceName(spaces, approval.toSpaceId) !== null;
+  const maker =
+    whoMade(approval, me) === 'you'
+      ? myHandle
+        ? t('makerYou', { handle: myHandle })
+        : t('makerYouNoHandle')
+      : t('makerTeammate', { ref: shortRef(approval.makerUserId) });
+  const blockApprove = !destinationNamed;
   const act = (action: ApprovalAction) =>
     open({
       title: action === 'approve' ? t('approveTitle') : action === 'reject' ? t('rejectTitle') : t('cancelTitle'),
       procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel',
       facts: [
         [t('amountLabel'), funds(approval.amount, approval.assetId)],
+        [t('makerLabel'), maker],
         [t('fromAccount'), label(approval.fromSpaceId)],
-        [t('toAccount'), label(approval.toSpaceId)],
+        [t('destinationLabel'), label(approval.toSpaceId)],
       ],
       notes: [action === 'approve' ? t('approveNote') : action === 'reject' ? t('rejectNote') : t('cancelNote'), t('needsSecondStep')],
       input: () => ({ approvalId: approval.id }),
@@ -77,8 +94,13 @@ function ApprovalRow({
         <strong className="numeric">{funds(approval.amount, approval.assetId)}</strong>
       </header>
       <dl className="bd-facts">
+        <Fact label={t('makerLabel')}>{maker}</Fact>
         <Fact label={t('fromAccount')}>{label(approval.fromSpaceId)}</Fact>
-        <Fact label={t('toAccount')}>{label(approval.toSpaceId)}</Fact>
+        <Fact label={t('destinationLabel')}>
+          <span lang="zxx" dir="ltr">
+            {label(approval.toSpaceId)}
+          </span>
+        </Fact>
         <Fact label={t('statusLabel')}>
           {approval.status === 'pending'
             ? t('pending')
@@ -91,7 +113,15 @@ function ApprovalRow({
       </dl>
       {actions.length > 0 && (
         <div className="actions">
-          {actions.includes('approve') && <Button onClick={() => act('approve')}>{t('approve')}</Button>}
+          {actions.includes('approve') && (
+            <Button
+              onClick={() => act('approve')}
+              disabled={blockApprove}
+              aria-describedby={blockApprove ? `approve-why-${approval.id}` : undefined}
+            >
+              {t('approve')}
+            </Button>
+          )}
           {actions.includes('reject') && (
             <Button variant="secondary" onClick={() => act('reject')}>
               {t('reject')}
@@ -99,19 +129,34 @@ function ApprovalRow({
           )}
           {actions.includes('cancel') && (
             <Button variant="secondary" onClick={() => act('cancel')}>
-              {t('cancel')}
+              {whoMade(approval, me) === 'you' ? t('cancel') : t('adminCancel')}
             </Button>
           )}
         </div>
       )}
-      {actions.includes('cancel') && <p className="money-caption">{t('selfApproveNote')}</p>}
+      {actions.includes('approve') && blockApprove && (
+        <p id={`approve-why-${approval.id}`} className="money-caption" role="status">
+          {t('approveBlocked')}
+        </p>
+      )}
+      {actions.includes('approve') && <p className="money-caption">{t('roleNote')}</p>}
+      {actions.includes('cancel') && whoMade(approval, me) === 'you' && <p className="money-caption">{t('selfApproveNote')}</p>}
+      {actions.includes('cancel') && whoMade(approval, me) !== 'you' && <p className="money-caption">{t('adminCancelNote')}</p>}
     </article>
   );
 }
 
 function Approvals({ accountId, spaces, open }: { accountId: string; spaces: readonly OwnSpace[]; open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
-  const { userId } = useSession();
+  const { api, userId } = useSession();
+  const [myHandle, setMyHandle] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchMe(api, controller.signal).then((me) => {
+      if (!controller.signal.aborted && me.kind === 'ok') setMyHandle(me.handle);
+    });
+    return () => controller.abort();
+  }, [api, userId]);
   const [limit, setLimit] = usePageLimit();
   const query = useBankRead('business.pending', { accountId, limit });
   return (
@@ -120,7 +165,9 @@ function Approvals({ accountId, spaces, open }: { accountId: string; spaces: rea
         {(rows) => (
           <>
             {rows.length ? (
-              rows.map((approval) => <ApprovalRow key={approval.id} approval={approval} me={userId ?? null} spaces={spaces} open={open} />)
+              rows.map((approval) => (
+                <ApprovalRow key={approval.id} approval={approval} me={userId ?? null} myHandle={myHandle} spaces={spaces} open={open} />
+              ))
             ) : (
               <NoRows title={t('approvalsEmpty')}>{t('approvalsEmptyBody')}</NoRows>
             )}
@@ -207,6 +254,18 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
         amount: values.amount,
         clientId: requestId,
       }),
+      verifyOutcome: proposalMatches,
+      describeOutcome: (data, input) => {
+        const outcome = proposalOutcome(data);
+        if (!outcome) return null;
+        const name = (id: unknown) => ownSpaceName(own, String(id)) ?? String(id);
+        return [
+          [t('outcomeResult'), outcome === 'pending' ? t('outcomePending') : t('outcomePosted')],
+          [t('amountLabel'), funds(String(input.amount), account.assetId)],
+          [t('fromAccount'), name(input.fromSpaceId)],
+          [t('toAccount'), name(input.toSpaceId)],
+        ];
+      },
     });
   return (
     <article className="money-record bd-account">

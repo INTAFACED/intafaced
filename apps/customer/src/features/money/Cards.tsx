@@ -8,6 +8,7 @@ import { bps, Continuation, funds, ResourceView, Section, useBankRead, usePageLi
 import type { bankReads, cardSchema } from './contracts';
 import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
+import { orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 
 type CardRecord = z.infer<typeof cardSchema>;
@@ -310,9 +311,11 @@ function CardRead({
   live,
   open,
   refreshCards,
+  orderBlocked,
 }: {
   card: CardRecord;
   live: boolean;
+  orderBlocked: OrderBlock;
   open: (spec: ActionSpec) => void;
   refreshCards: () => void;
 }) {
@@ -439,7 +442,7 @@ function CardRead({
         <>
           <CardConfiguration card={card} expanded />
           <CardActions card={card} live={live} open={open} />
-          <CardControlPanels card={card} />
+          <CardControlPanels card={card} orderBlock={orderBlocked} />
         </>
       )}
     </>
@@ -453,6 +456,14 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const programme = useBankRead('cards.programme', undefined);
   const query = useBankRead('cards.list', { limit });
   const held = useHoldings();
+  const orderProgramme =
+    programme.resource.status === 'loading'
+      ? undefined
+      : programme.resource.status === 'ready'
+        ? { id: programme.resource.data.id, simulated: programme.resource.data.simulated }
+        : null;
+  const orderAssets = held.resource.status === 'ready' ? held.resource.data.assets : held.resource.status === 'failed' ? [] : undefined;
+  const ordering = orderBlock(orderProgramme, orderAssets?.length);
   const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -500,17 +511,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
           )}
         </ResourceView>
       </div>
-      <OrderCard
-        open={open}
-        programme={
-          programme.resource.status === 'loading'
-            ? undefined
-            : programme.resource.status === 'ready'
-              ? { id: programme.resource.data.id, simulated: programme.resource.data.simulated }
-              : null
-        }
-        assets={held.resource.status === 'ready' ? held.resource.data.assets : held.resource.status === 'failed' ? [] : undefined}
-      />
+      <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">
           <header>
@@ -536,6 +537,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                   live={live}
                   open={open}
                   refreshCards={refresh}
+                  orderBlocked={ordering}
                 />
               ) : (
                 <div className="money-card-missing" role="status">

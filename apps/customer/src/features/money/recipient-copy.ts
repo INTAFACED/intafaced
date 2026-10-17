@@ -21,6 +21,10 @@ const en = {
   unavailable: 'Looking people up by handle is not available right now.',
   failed: 'We could not look that up. Try again.',
   malformed: 'A handle has 3 to 32 letters, numbers or underscores.',
+  changedTitle: 'This handle belongs to someone else now',
+  changedBody: 'You saved @{handle} for a different person than the one it points to today. Check before you pay.',
+  changedUse: 'Pay the person it points to now',
+  changedCancel: 'Choose someone else',
 } as const;
 const es = {
   label: '¿A quién vas a pagar?',
@@ -43,6 +47,10 @@ const es = {
   unavailable: 'La búsqueda de personas por usuario no está disponible ahora mismo.',
   failed: 'No pudimos buscarlo. Inténtalo de nuevo.',
   malformed: 'Un usuario tiene de 3 a 32 letras, números o guiones bajos.',
+  changedTitle: 'Este usuario ahora es de otra persona',
+  changedBody: 'Guardaste @{handle} para una persona distinta de la que representa hoy. Compruébalo antes de pagar.',
+  changedUse: 'Pagar a la persona actual',
+  changedCancel: 'Elegir a otra persona',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   label: 'Qui payez-vous ?',
@@ -65,6 +73,10 @@ const fr = {
   unavailable: 'La recherche de personnes par identifiant n’est pas disponible pour le moment.',
   failed: 'Nous n’avons pas pu la trouver. Réessayez.',
   malformed: 'Un identifiant compte de 3 à 32 lettres, chiffres ou tirets bas.',
+  changedTitle: 'Cet identifiant appartient désormais à quelqu’un d’autre',
+  changedBody: 'Vous avez enregistré @{handle} pour une autre personne que celle qu’il désigne aujourd’hui. Vérifiez avant de payer.',
+  changedUse: 'Payer la personne actuelle',
+  changedCancel: 'Choisir quelqu’un d’autre',
 } satisfies Record<keyof typeof en, string>;
 
 export const recipientCopy = defineCopy('customer.money.recipient', en, { es, fr });

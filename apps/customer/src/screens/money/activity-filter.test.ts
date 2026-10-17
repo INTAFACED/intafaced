@@ -73,10 +73,10 @@ describe('activity statement export', () => {
     const lines = csv.replace('﻿', '').trimEnd().split('\r\n');
     expect(lines[0]).toBe(CSV_HEADER.join(','));
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toBe('2026-10-10T12:00:00.000Z,Sent,out,USDT,-12.5,@maria_k,"Holiday, ""fund""",tx-100,id-1');
+    expect(lines[1]).toBe(`2026-10-10T12:00:00.000Z,Sent,out,USDT,-12.5,'@maria_k,"Holiday, ""fund""",tx-100,id-1`);
     expect(lines[2]).toBe('2026-10-10T12:00:00.000Z,Deposit,in,USDT,3,,,tx-100,id-2');
   });
-  it('defuses text that a spreadsheet would run as a formula, but never touches the amount', () => {
+  it('defuses text that a spreadsheet would run as a formula, including a leading at sign, but never touches the amount', () => {
     const csv = activityCsv([item({ spaceName: '=HYPERLINK("x")', amount: '9' })], () => 'Sent');
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
     expect(csv).toContain(',-9,');

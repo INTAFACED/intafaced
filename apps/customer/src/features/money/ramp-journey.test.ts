@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOfframpInput,
+  cashOutBlock,
+  CLIENT_STEP_UP,
   destinationProblem,
   offrampAmountProblem,
   offrampMatches,
@@ -59,5 +61,20 @@ describe('status words', () => {
     expect(rampStatusKey('settled')).toBe('done');
     expect(rampStatusKey('rejected')).toBe('failed');
     expect(rampStatusKey('weird')).toBe('unknown');
+  });
+});
+
+describe('cash-out block', () => {
+  it('names the first thing in the way, and step-up last', () => {
+    expect(cashOutBlock('live', true, 2)).toBe('loading');
+    expect(cashOutBlock('none', false, 2)).toBe('none');
+    expect(cashOutBlock('simulated', false, 2)).toBe('simulated');
+    expect(cashOutBlock('live', false, 0)).toBe('noAssets');
+    expect(cashOutBlock('live', false, 2, false)).toBe('stepUp');
+    expect(cashOutBlock('live', false, 2, true)).toBeNull();
+  });
+  it('stays blocked until a client step-up exists', () => {
+    expect(CLIENT_STEP_UP).toBe(false);
+    expect(cashOutBlock('live', false, 2)).toBe('stepUp');
   });
 });

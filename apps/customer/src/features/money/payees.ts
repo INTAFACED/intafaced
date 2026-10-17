@@ -91,3 +91,8 @@ export function filterPayees(rows: readonly Payee[], query: string): Payee[] {
   const needle = query.trim().replace(/^@/, '').toLowerCase();
   return needle ? rows.filter((row) => row.handle.toLowerCase().includes(needle)) : [...rows];
 }
+
+/** True when a handle that was saved for one person now points at someone else. Nothing is paid until the customer says so. */
+export function identityChanged(saved: Payee | undefined, resolvedUserId: string): boolean {
+  return saved !== undefined && saved.userId.toLowerCase() !== resolvedUserId.toLowerCase();
+}

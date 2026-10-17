@@ -3,6 +3,7 @@ import { displayAmount } from '../../shared/money';
 import { DepthPanel, DisabledAction } from './DepthParts';
 import {
   buildOfframpInput,
+  cashOutBlock,
   destinationProblem,
   offrampAmountProblem,
   offrampMatches,
@@ -43,15 +44,19 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const fiatReady = fiat.resource.status === 'ready';
   const providerWord = gate === 'live' ? t('statusLive') : gate === 'simulated' ? t('statusTest') : t('statusOff');
-  const blocked = loading
-    ? t('outBlockLoading')
-    : gate === 'none'
-      ? t('outBlockNone')
-      : gate === 'simulated'
-        ? t('outBlockTest')
-        : assets.length === 0
-          ? t('outBlockNoAssets')
-          : null;
+  const block = cashOutBlock(gate, loading, assets.length);
+  const blocked =
+    block === 'loading'
+      ? t('outBlockLoading')
+      : block === 'none'
+        ? t('outBlockNone')
+        : block === 'simulated'
+          ? t('outBlockTest')
+          : block === 'noAssets'
+            ? t('outBlockNoAssets')
+            : block === 'stepUp'
+              ? t('outBlockStepUp')
+              : null;
   const cashOut = () => {
     if (blocked !== null) return;
     open({

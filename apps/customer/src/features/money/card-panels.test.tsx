@@ -67,4 +67,11 @@ describe('card screens show every control and say why one is off', () => {
     );
     expect(ready).not.toMatch(/<button[^>]*disabled[^>]*>Order a card<\/button>/);
   });
+  it('the replace panel does not offer a live link while ordering is blocked', () => {
+    const blocked = renderToStaticMarkup(<CardControlPanels card={card} orderBlock="simulated" />);
+    expect(blocked).not.toContain('href="#order-card"');
+    expect(blocked).toMatch(/<button[^>]*disabled[^>]*>Order a card<\/button>/);
+    const open = renderToStaticMarkup(<CardControlPanels card={card} orderBlock={null} />);
+    expect(open).toContain('href="#order-card"');
+  });
 });

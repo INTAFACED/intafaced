@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { DepthPanel, DisabledAction, Fact, UnknownSwitch } from './DepthParts';
-import { buildIssueInput, issuedMatches, limitProblem, maskedPan, orderBlock, type ProgrammeInfo } from './card-controls';
+import { buildIssueInput, issuedMatches, limitProblem, maskedPan, orderBlock, type OrderBlock, type ProgrammeInfo } from './card-controls';
 import { cardDepthCopy } from './card-depth-copy';
 import { bps, funds, positiveMoney, type ActionSpec } from './components';
 import type { cardSchema } from './contracts';
@@ -108,7 +108,7 @@ export function OrderCard({
 }
 
 /** Everything else a card owner expects, laid out in full. Each control states why it cannot be used yet. */
-export function CardControlPanels({ card }: { card: CardRecord }) {
+export function CardControlPanels({ card, orderBlock: blocked = null }: { card: CardRecord; orderBlock?: OrderBlock }) {
   const { t } = cardDepthCopy.useCopy();
   return (
     <div className="bd-grid" data-card={card.id}>
@@ -166,9 +166,24 @@ export function CardControlPanels({ card }: { card: CardRecord }) {
       </DepthPanel>
       <DepthPanel title={t('replaceTitle')}>
         <p>{t('replaceBody')}</p>
-        <a className="button button--secondary" href="#order-card">
-          {t('orderButton')}
-        </a>
+        {blocked ? (
+          <DisabledAction
+            label={t('orderButton')}
+            reason={
+              blocked === 'loading'
+                ? t('blockLoading')
+                : blocked === 'none'
+                  ? t('blockNone')
+                  : blocked === 'simulated'
+                    ? t('blockSimulated')
+                    : t('blockNoAssets')
+            }
+          />
+        ) : (
+          <a className="button button--secondary" href="#order-card">
+            {t('orderButton')}
+          </a>
+        )}
       </DepthPanel>
     </div>
   );

@@ -3,7 +3,7 @@ import { Button } from '../../shared/ui';
 import { cleanHandle, resolveHandle } from '../../data/identity';
 import { useActivity } from '../../data/activity';
 import { useSession } from '../session/session';
-import { filterPayees, forgetPayee, readPayees, recentHandles, rememberPayee, type Payee } from './payees';
+import { filterPayees, forgetPayee, identityChanged, readPayees, recentHandles, rememberPayee, type Payee } from './payees';
 import { recipientCopy } from './recipient-copy';
 import './bank-depth.css';
 
@@ -21,6 +21,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
   const [problem, setProblem] = useState<Problem>(null);
   const [saved, setSaved] = useState<Payee[]>(() => (userId ? readPayees(userId) : []));
   const [remembered, setRemembered] = useState(false);
+  const [moved, setMoved] = useState<Payee | null>(null);
   const run = useRef(0);
   const activity = useActivity({ pageSize: 100 });
   const recents = useMemo(
@@ -46,7 +47,18 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
         return;
       }
       setRemembered(false);
-      onChange({ userId: outcome.userId.toLowerCase(), handle: outcome.handle });
+      const found = { userId: outcome.userId.toLowerCase(), handle: outcome.handle };
+      // A saved handle can be released and taken by someone else. Never switch the payee silently.
+      if (
+        identityChanged(
+          saved.find((row) => row.handle.toLowerCase() === clean.toLowerCase()),
+          found.userId,
+        )
+      ) {
+        setMoved(found);
+        return;
+      }
+      onChange(found);
       return;
     }
     setProblem(outcome.kind);
@@ -89,6 +101,32 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
     );
 
   const shown = filterPayees(saved, text);
+  if (moved)
+    return (
+      <div className="bd-recipient" role="alert">
+        <h4 className="bd-subhead">
+          <Copy k="changedTitle" />
+        </h4>
+        <p>
+          <Copy k="changedBody" params={{ handle: moved.handle }} />
+        </p>
+        <div className="actions">
+          <Button
+            onClick={() => {
+              if (userId)
+                setSaved(forgetPayee(userId, saved.find((row) => row.handle.toLowerCase() === moved.handle.toLowerCase())?.userId ?? ''));
+              onChange(moved);
+              setMoved(null);
+            }}
+          >
+            <Copy k="changedUse" />
+          </Button>
+          <Button variant="secondary" onClick={() => setMoved(null)}>
+            <Copy k="changedCancel" />
+          </Button>
+        </div>
+      </div>
+    );
   return (
     <div className="bd-recipient">
       <form
