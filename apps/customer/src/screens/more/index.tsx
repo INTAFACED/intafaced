@@ -14,7 +14,7 @@ export default function MoreScreen(_props: ScreenProps) {
           <h2 className="more-h2" id={`more-${section}`}>
             {t(section)}
           </h2>
-          <ul className="more-grid">
+          <ul className="more-hub-grid">
             {tiles.map(({ id, href, icon: Icon, title, line }) => (
               <li key={id}>
                 <a className="more-tile" href={href} data-tile={id}>

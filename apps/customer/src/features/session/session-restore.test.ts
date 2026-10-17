@@ -75,6 +75,12 @@ describe('refresh error mapping', () => {
     ['401 auth.session_reused', () => refusal(401, 'auth.session_reused'), 'signed_out'],
     ['403 edge.origin_not_allowed', () => refusal(403, 'edge.origin_not_allowed'), 'signed_out'],
     ['403 auth.account_frozen', () => refusal(403, 'auth.account_frozen'), 'signed_out'],
+    ['400 from an identity service without cookie refresh', () => refusal(400, 'BAD_REQUEST'), 'refused'],
+    ['404 no route', () => refusal(404, 'edge.no_route'), 'refused'],
+    ['501 not supported', () => refusal(501, 'NOT_IMPLEMENTED'), 'refused'],
+    ['429 rate limited', () => refusal(429, 'TOO_MANY_REQUESTS'), 'unavailable'],
+    ['425 too early', () => new Response('', { status: 425 }), 'unavailable'],
+    ['408 request timeout', () => new Response('', { status: 408 }), 'unavailable'],
     ['503 gateway', () => new Response('', { status: 503 }), 'unavailable'],
     ['500 with body', () => refusal(500, 'internal'), 'unavailable'],
     ['network failure', () => Promise.reject(new TypeError('offline')), 'unavailable'],
@@ -407,6 +413,28 @@ describe('server-ended sessions and boot outages', () => {
     expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: false, notice });
     controller.commit(session('signed-in-again'));
     expect(controller.getState().notice).toBeNull();
+    controller.stop();
+  });
+  it('a definite refusal at boot (old identity answers 400) is signed out, not an outage, and is not retried', async () => {
+    const { controller, calls } = build(() => refusal(400, 'BAD_REQUEST'));
+    await controller.start();
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: false, notice: null });
+    expect(calls).toHaveLength(1);
+    controller.stop();
+  });
+  it('a definite refusal mid-session keeps the session and backs off, like an outage', async () => {
+    const { controller, calls } = build((n) =>
+      n === 1 ? ok(session('t1', 60_000)) : n <= 3 ? refusal(400, 'BAD_REQUEST') : ok(session('t4', 900_000)),
+    );
+    await controller.start();
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(calls).toHaveLength(2);
+    expect(controller.getState().session?.accessToken).toBe('t1');
+    await vi.advanceTimersByTimeAsync(5_500);
+    expect(calls).toHaveLength(3);
+    expect(controller.getState().session?.accessToken).toBe('t1');
+    await vi.advanceTimersByTimeAsync(10_500);
+    expect(controller.getState().session?.accessToken).toBe('t4');
     controller.stop();
   });
   it('an ordinary session_invalid carries no notice', async () => {

@@ -13,9 +13,9 @@ describe('forex-settlement (D26-P1-T7)', () => {
     const s = forexSettlementStatus();
     expect(s.published).toBe(false);
     expect(s.socket).toBe(FOREX_SETTLEMENT_SOCKET);
-    expect(s.blockers).toEqual(['D26-P0-05', 'fiat_settle_rails']);
+    expect(s.blockers).toEqual(['settlement_asset_law', 'fiat_settle_rails']);
     expect(s.statusLine).toContain(FOREX_SETTLEMENT_SOCKET);
-    expect(s.residual).toMatch(/never invent/i);
+    expect(s.residual).toMatch(/settlement asset/i);
     expect(s.allowed.productionActiveListing).toBe(false);
     expect(s.allowed.productionPlace).toBe(false);
     expect(s.allowed.paperListing).toBe(true);
@@ -29,8 +29,7 @@ describe('forex-settlement (D26-P1-T7)', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(TradeError);
       expect((e as TradeError).code).toBe(FOREX_SETTLEMENT_REFUSE_CODE);
-      expect((e as TradeError).message).toContain(FOREX_SETTLEMENT_SOCKET);
-      expect((e as TradeError).message).toMatch(/D26-P0-05/);
+      expect((e as TradeError).message).toMatch(/settlement asset/);
     }
   });
 
@@ -47,7 +46,7 @@ describe('forex-settlement (D26-P1-T7)', () => {
       assertSettlementRails({ symbol: 'EUR/USD', assetClass: 'forex', paper: false });
     } catch (e) {
       expect((e as TradeError).code).toBe(FOREX_SETTLEMENT_REFUSE_CODE);
-      expect((e as TradeError).message).toContain(FOREX_SETTLEMENT_SOCKET);
+      expect((e as TradeError).message).toMatch(/cannot be traded yet/);
     }
     expect(() => assertSettlementRails({ symbol: 'EUR/USD', assetClass: 'forex', paper: true })).not.toThrow();
     expect(() => assertSettlementRails({ symbol: 'BTC/USDT', assetClass: 'crypto', paper: false })).not.toThrow();

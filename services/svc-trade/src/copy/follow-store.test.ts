@@ -103,10 +103,7 @@ describe('CopyFollowStore unique (follower, leader)', () => {
     ).toBe(true);
     expect(
       isCopyFeeSharePrePostUnclaim(
-        new CopyError(
-          'Copy fee-share is refuse-closed until owner publishes DIRECTION §8 / D26-P0-02 leader_share_bps',
-          'trade.copy_fee_share_blank',
-        ),
+        new CopyError('Copy trading is not available yet: the leader fee share is not set.', 'trade.copy_fee_share_blank'),
       ),
     ).toBe(true);
     expect(isCopyFeeSharePrePostUnclaim(new Error('payout threw after sweep'))).toBe(false);

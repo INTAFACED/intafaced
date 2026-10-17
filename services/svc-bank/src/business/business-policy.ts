@@ -23,5 +23,9 @@ export function describeBusinessPolicy() {
     payrollSameAssetOnly: true as const,
     inventsPayrollRates: false as const,
     payrollRateUnsetCode: BUSINESS_PAYROLL_RATE_UNSET,
+    closeNeedsSecondAdmin: true as const,
+    thresholdChangeNeedsSecondAdmin: true as const,
+    memberHandlesFromIdentity: true as const,
+    approvalHistoryUsesHandles: true as const,
   };
 }

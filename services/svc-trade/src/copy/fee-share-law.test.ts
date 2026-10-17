@@ -159,8 +159,7 @@ describe('requirePublished*', () => {
       expect(err).toBeInstanceOf(CopyError);
       expect((err as CopyError).code).toBe('trade.copy_fee_share_blank');
       expect((err as CopyError).residual).toBe(COPY_FEE_SHARE_RESIDUAL);
-      expect(COPY_FEE_SHARE_RESIDUAL).toContain('DIRECTION §8');
-      expect(COPY_FEE_SHARE_RESIDUAL).toContain('D26-P0-02');
+      expect(COPY_FEE_SHARE_RESIDUAL).toContain('leader fee share is not set');
     }
   });
 
@@ -172,7 +171,7 @@ describe('requirePublished*', () => {
       expect(err).toBeInstanceOf(CopyError);
       expect((err as CopyError).code).toBe('trade.copy_jurisdiction_blank');
       expect((err as CopyError).residual).toBe(COPY_JURISDICTION_RESIDUAL);
-      expect(COPY_JURISDICTION_RESIDUAL).toContain('D26-P0-15');
+      expect(COPY_JURISDICTION_RESIDUAL).toContain('served regions is not set');
     }
   });
 
@@ -180,8 +179,8 @@ describe('requirePublished*', () => {
     const line = copyLawStatusLine(UNPUBLISHED_COPY_FEE_SHARE_LAW, UNPUBLISHED_COPY_JURISDICTION_LAW);
     expect(line).toContain('feeShare=0');
     expect(line).toContain('jurisdiction=0');
-    expect(line).toContain('D26-P0-02');
-    expect(line).toContain('D26-P0-15');
+    expect(line).toContain('leader_fee_share_unset');
+    expect(line).toContain('served_regions_unset');
     expect(copyLawResidual(UNPUBLISHED_COPY_FEE_SHARE_LAW, UNPUBLISHED_COPY_JURISDICTION_LAW)).toBe(COPY_LAW_RESIDUAL);
   });
 });
@@ -221,6 +220,6 @@ describe('blank leader_share_bps pin — never invent a default', () => {
     const src = readFileSync(join(COPY_DIR, 'fee-share.ts'), 'utf8');
     expect(src).toContain('export function refusePnlLinkedCopyFee');
     expect(src).toContain('trade.copy_pnl_fee_forbidden');
-    expect(src).toMatch(/P&L-linked copy fees \(performance \/ HWM \/ success\) are forbidden/);
+    expect(src).toMatch(/does not charge a fee on profit/);
   });
 });

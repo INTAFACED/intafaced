@@ -2,8 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { mnemonicToAccount } from 'viem/accounts';
-import { devAccount, PUBLIC_ANVIL_DEV_MNEMONIC, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
+import { devAccount, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -48,9 +47,7 @@ const label = (f: string) => relative(serviceRoot, f).replace(/\\/g, '/');
 const onChainSuites = testFiles.filter((f) => /devSuiteClients\(\s*import\.meta\.url/.test(readFileSync(f, 'utf8')));
 
 /** anvil's ten pre-funded accounts — `deploy-dev.ts` territory, off limits to suites. */
-const PREFUNDED = new Set(
-  Array.from({ length: 10 }, (_, i) => mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: i }).address.toLowerCase()),
-);
+const PREFUNDED = new Set(Array.from({ length: 10 }, (_, i) => devAccount(i).address.toLowerCase()));
 
 describe('every on-chain suite sends from an account no other suite sends from', () => {
   it('found the on-chain suites at all', () => {
