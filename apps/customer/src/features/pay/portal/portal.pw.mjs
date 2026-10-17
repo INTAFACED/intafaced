@@ -120,21 +120,21 @@ test('dashboard: a new merchant sees how the first payment appears, not a wall o
   await snap(page, '03-dashboard-empty');
 });
 
-test('dashboard: no merchant yet leads to setup; operations not switched on says "arrives soon"', async ({ page }) => {
+test('dashboard: no merchant yet leads to setup; operations not switched on says "not connected yet"', async ({ page }) => {
   await setup(page, 'new');
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'Set up your merchant account' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No business account yet' })).toBeVisible();
   await snap(page, '04-dashboard-no-merchant');
   const soon = await page.context().newPage();
   await setup(soon, 'soon');
   await signIn(soon, '/pay/merchant');
-  await expect(soon.getByText('Arrives soon').first()).toBeVisible();
+  await expect(soon.getByText('Not connected yet').first()).toBeVisible();
   await snap(soon, '05-dashboard-arrives-soon');
 });
 
 test('onboarding: verification then payout destination, with activation explicitly unconfirmed', async ({ page }) => {
   const { mock } = await setup(page, 'quiet');
-  await signIn(page, '/pay/onboarding');
+  await signIn(page, '/pay/onboarding/verification');
   await expect(page.getByText('Step 2 of 3: Verification').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send for review' })).toBeDisabled();
   await page.getByLabel('Verification file reference *').fill('TEST-dossier-777');
@@ -145,7 +145,7 @@ test('onboarding: verification then payout destination, with activation explicit
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchant.submitKyb')).toHaveLength(1);
-  await page.getByRole('link', { name: /Step 3 of 3/ }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Step 3 of 3' }).getByRole('link', { name: 'Continue' }).click();
   const address = page.getByLabel('Wallet address *');
   await address.fill('0x123');
   await expect(page.getByText('This is not a valid address')).toBeVisible();
@@ -157,21 +157,21 @@ test('onboarding: verification then payout destination, with activation explicit
     .getByRole('dialog')
     .getByRole('button', { name: /^Confirm/ })
     .click();
-  await expect(page.getByRole('heading', { name: 'Destination saved for this visit' })).toBeVisible();
-  await expect(page.getByText('Waiting for verification to be approved')).toBeVisible();
-  await expect(page.getByText(/Saving a destination below does not complete go-live/).first()).toBeVisible();
+  await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Waiting for your verification to be approved')).toBeVisible();
+  await expect(page.getByText(/Saving a destination does not activate payments/).first()).toBeVisible();
   await snap(page, '08-onboarding-sandbox-summary');
 });
 
 test('onboarding: step 1 refuses to open an account while no starting fee is published', async ({ page }) => {
   await setup(page, 'new');
-  await signIn(page, '/pay/onboarding');
+  await signIn(page, '/pay/onboarding/business');
   await expect(page.getByText('Step 1 of 3: Business details').first()).toBeVisible();
   await page.getByLabel('Legal business name *').fill('TEST Trading Ltd');
   await page.getByLabel('Country code *').fill('gb');
   await page.getByLabel('Type of business *').fill('Online shop');
   await page.getByLabel('Contact email *').fill('ops@test.invalid');
-  await expect(page.getByText('Accounts cannot be opened yet')).toBeVisible();
+  await expect(page.getByText('Opening new accounts isn’t available yet')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create my account' })).toBeDisabled();
   await snap(page, '09-onboarding-business');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -183,15 +183,18 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   await signIn(page, '/pay/team');
   await expect(page.getByText('verified with two-step sign-in (MFA)')).toBeVisible();
   const members = page.getByRole('region', { name: 'Members' });
-  await expect(members.getByRole('row', { name: /TEST-user-finance/ })).toBeVisible();
+  await expect(members.getByRole('row', { name: /TEST Accounts/ })).toBeVisible();
   await snap(page, '10-team');
-  const row = members.getByRole('row', { name: /TEST-user-dev/ });
-  await row.getByLabel('New role').selectOption('viewer');
-  await row.getByRole('button', { name: 'Change role', exact: true }).click();
+  await members
+    .getByRole('row', { name: /TEST Dev/ })
+    .getByRole('link', { name: 'Open' })
+    .click();
+  await page.getByLabel('New role').selectOption('viewer');
+  await page.getByRole('button', { name: 'Change role', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Change role' });
-  await expect(dialog.getByText(/TEST-user-dev changes from Developer to Viewer/)).toBeVisible();
+  await expect(dialog.getByText(/TEST Dev changes from Developer to Viewer/)).toBeVisible();
   await dialog.getByRole('button', { name: /^Confirm/ }).click();
-  await expect(page.getByText('TEST-user-dev changed from Developer to Viewer')).toBeVisible();
+  await expect(page.getByText('TEST Dev changed from Developer to Viewer')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.changeRole').input).toMatchObject({ role: 'viewer' });
   // A refusal from the service: words, not a code.
   await page.route('**/api/pay/trpc/merchantOps.team.invite', (route) =>
@@ -247,7 +250,7 @@ test('disputes: filter in the URL, open one, upload evidence, then contest', asy
     .getByRole('dialog')
     .getByRole('button', { name: /^Confirm/ })
     .click();
-  await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ })).toBeVisible();
+  await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ }).first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.uploadEvidence').input;
   expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', contentBase64: content.toString('base64') });
   expect(sent.sha256).toBe(createHash('sha256').update(content).digest('hex'));
@@ -317,7 +320,7 @@ test('exports: request, watch it build, download it', async ({ page }) => {
     .getByRole('row', { name: /Settlements.*Ready/ })
     .getByRole('button', { name: /Download/ })
     .click();
-  expect((await download).suggestedFilename()).toBe('payments.csv');
+  expect((await download).suggestedFilename()).toBe('settlements.csv');
   await snap(page, '17-exports-ready');
 });
 
@@ -373,7 +376,7 @@ test('payments: totals with their period, filters the service applies, load more
   const totals = page.getByRole('group', { name: 'Totals for Last 30 days' });
   await expect(totals).toBeVisible();
   await expect(totals.getByRole('link', { name: /Failed/ })).toHaveAttribute('href', /status=failed&date=30d/);
-  await expect(page.getByText('4 s behind').first()).toBeVisible();
+  await expect(page.getByText('Updated just now').first()).toBeVisible();
   const rows = page.locator('.pe-table tbody tr');
   await expect(rows).toHaveCount(25);
   await expect(page.getByText('Newest 25 · Load more')).toBeVisible();
@@ -393,6 +396,7 @@ test('payments: totals with their period, filters the service applies, load more
   await expect(page.getByRole('heading', { name: 'No payments match these filters' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows.first()).toBeVisible();
+  await page.getByLabel('Search', { exact: true }).fill('TEST-cust-001');
   await page.getByRole('button', { name: 'Export these results' }).click();
   await expect(page.getByRole('dialog')).toContainText('Search text isn’t part of an export');
   await page.keyboard.press('Escape');
@@ -492,7 +496,7 @@ test('payouts: named by destination and date, a status on every row, and a timel
   await expect(page).toHaveURL(/status=paid_out/);
   await expect(page.getByRole('region', { name: 'Payouts', exact: true }).getByRole('row')).toHaveCount(3);
   await go(page, `/pay/payouts/${STL_PAID}`);
-  await expect(page.getByRole('heading', { name: /USDT/, level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /USDT/, level: 2 }).first()).toBeVisible();
   await expect(page.getByText('TEST-tx-0xabc123')).toBeVisible();
   await expect(page.getByText('Your daily payout limit')).toBeVisible();
   // rejected once, approved later, paid: every attempt in order and the final state last
@@ -643,7 +647,7 @@ test('pricing: not configured shows the words "not configured" and not one place
   await setup(page, 'quiet');
   await signIn(page, '/pay/pricing');
   await expect(page.getByText('INTAFACED has not published pricing for your account.')).toBeVisible();
-  await expect(page.getByText('No tier assigned')).toBeVisible();
+  await expect(page.getByText('No tier assigned').first()).toBeVisible();
   await expect(page.getByText('The calculator needs published pricing')).toBeVisible();
   await expect(page.getByText(/\d\.\d\d%/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download schedule (CSV)' })).toHaveCount(0);

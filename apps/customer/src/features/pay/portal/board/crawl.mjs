@@ -100,7 +100,8 @@ try {
       visited.add(edge);
       await go(page, href);
       const landed = await page.evaluate(() => location.pathname + location.search);
-      const want = REDIRECTS[href.split('?')[0]] ?? href.split('?')[0];
+      const wantPath = href.split('#')[0].split('?')[0];
+      const want = REDIRECTS[wantPath] ?? wantPath;
       edges.push({ from: route.path, to: href, landed });
       if (landed.split('?')[0] !== want) fail(`${route.path} -> ${href}`, `landed on ${landed}`);
       await inspect(page, `${route.path} -> ${href}`, route.who, 1440);

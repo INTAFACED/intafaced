@@ -94,7 +94,9 @@ test('keys: a new key is shown once, then hidden; revoking asks first', async ({
   await expect(page.getByText(/shown only once/)).toBeVisible();
   await page.getByRole('button', { name: 'Hide it', exact: true }).click();
   await expect(page.getByText(/test_TEST-NOT-A-REAL-KEY/)).toHaveCount(0);
-  await page.reload();
+  // A reload drops the in-memory sign-in, so leave the page and come back inside the app.
+  await go(page, '/pay/developer/signing');
+  await go(page, '/pay/developer/keys');
   await expect(page.getByText(/test_TEST-NOT-A-REAL-KEY/)).toHaveCount(0);
   const revoke = page.getByRole('button', { name: 'Revoke key', exact: true }).first();
   await revoke.click();
@@ -129,7 +131,7 @@ test('webhooks: a private address is refused before sending; a good one shows it
   await signIn(page, '/pay/developer/webhooks');
   await expect(page.locator('.pp')).not.toContainText('TEST-secret-in-URL');
   await page.getByLabel('Endpoint address').fill('https://10.0.0.5/hook');
-  await expect(page.getByText(/private or internal/)).toBeVisible();
+  await expect(page.getByText(/This address is private or internal/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add endpoint', exact: true }).last()).toBeDisabled();
   await page.getByLabel('Endpoint address').fill('https://receiver.example/new');
   await page.getByRole('button', { name: 'Add endpoint', exact: true }).last().click();
@@ -159,7 +161,7 @@ test('endpoint: disabling asks first and the page then offers no way back on', a
 test('deliveries: filter to failed and send one again after a review', async ({ page }) => {
   const { b } = await setup(page);
   await signIn(page, '/pay/developer/deliveries');
-  await page.getByLabel('Status', { exact: true }).selectOption('failed');
+  await page.getByLabel('Status').selectOption('failed');
   await expect(page).toHaveURL(/status=failed/);
   await expect
     .poll(() => b.calls.some((c) => c.procedure === 'merchantOps.webhooks.deliveries.list' && c.input.status === 'failed'))
@@ -194,6 +196,7 @@ test('reports: the catalog opens the request form on the chosen kind; request, b
     .getByRole('dialog')
     .getByRole('button', { name: /^Confirm/ })
     .click();
+  await expect.poll(() => b.calls.some((c) => c.procedure === 'merchantOps.exports.create')).toBe(true);
   const create = b.calls.find((c) => c.procedure === 'merchantOps.exports.create');
   expect(create.input.requestId).toMatch(/^[0-9a-f-]{36}$/);
   expect(JSON.stringify(create.input)).not.toMatch(/merchantId/i);
