@@ -90,6 +90,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '../index.js';
+import { KitSections } from './KitSections.js';
 
 // SAMPLE series for layout only.
 const UP = ['100', '101.2', '100.6', '102.4', '103.1', '102.2', '104.8', '105.5', '104.9', '106.8', '107.4', '108.9'];
@@ -143,6 +144,8 @@ const searchItems = [
 ];
 
 export function Gallery() {
+  // `?only=<part>` shows one kit part and hides the older sections (screenshots, focused review).
+  const onlyKit = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('only');
   const [hidden, setHidden] = React.useState(false);
   const [redUp, setRedUp] = React.useState(false);
   const [mode, setMode] = React.useState('simple');
@@ -288,48 +291,53 @@ export function Gallery() {
             </Row>
 
             <HideBalancesProvider hidden={hidden}>
-              <Section title="Home hero (HeroNumber, ChangeText, action pills, market cards)">
-                <div className="flex flex-col gap-2">
-                  <span className="text-sm text-fg-2">Est. total value</span>
-                  <HeroNumber value="3489.16" decimals={2} prefix="$" unit="USD" />
-                  <ChangeText value="+$134.46 (+4.02%)" suffix="Today" className="text-base" />
-                </div>
-                <Row className="mt-6 gap-2">
-                  <Button variant="primary">Buy</Button>
-                  <Button variant="secondary">Sell</Button>
-                  <Button variant="secondary">Convert</Button>
-                  <Button variant="secondary">Send</Button>
-                  <Button variant="secondary">Receive</Button>
-                </Row>
-                <div className="mt-6 w-full max-w-[792px] rounded-lg bg-panel py-2">
-                  {[
-                    ['Cash', '$1,305.76', '$'],
-                    ['Crypto', '$2,183.40', '₿'],
-                  ].map(([name, value, glyph]) => (
-                    <div key={name} className="flex h-16 items-center gap-3 px-4">
-                      <span className="inline-flex size-8 items-center justify-center rounded-pill bg-raised text-md">{glyph}</span>
-                      <span className="text-md font-medium">{name}</span>
-                      <Money value={value} className="ml-auto text-md" />
+              <KitSections />
+              {onlyKit === null ? (
+                <>
+                  <Section title="Home hero (HeroNumber, ChangeText, action pills, market cards)">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-sm text-fg-2">Est. total value</span>
+                      <HeroNumber value="3489.16" decimals={2} prefix="$" unit="USD" />
+                      <ChangeText value="+$134.46 (+4.02%)" suffix="Today" className="text-base" />
                     </div>
-                  ))}
-                </div>
-                <div className="mt-6 flex flex-wrap gap-4">
-                  <MarketCard ticker="BTC" name="Bitcoin" price="$83,281.80" pct="+1.24%" series={UP} />
-                  <MarketCard ticker="ETH" name="Ethereum" price="$2,494.09" pct="−2.34%" series={DOWN} />
-                  <MarketCard ticker="USDC" name="USD Coin" price="$1.0000" pct="0.00%" series={['1', '1', '1', '1', '1']} />
-                  <MarketCard ticker="IFC" name="Intacoin" price="—" pct="" series={[]} />
-                </div>
-                <Row className="mt-6">
-                  <Money value="1234.50" />
-                  <Money value={null} />
-                  <Amount value="0.0420 BTC" />
-                  <Price value="83,281.80" />
-                  <Pct value="+1.24%" arrow />
-                  <Pct value="−0.28%" arrow />
-                  <Pct value="0.00%" />
-                  <Pct value={null} />
-                </Row>
-              </Section>
+                    <Row className="mt-6 gap-2">
+                      <Button variant="primary">Buy</Button>
+                      <Button variant="secondary">Sell</Button>
+                      <Button variant="secondary">Convert</Button>
+                      <Button variant="secondary">Send</Button>
+                      <Button variant="secondary">Receive</Button>
+                    </Row>
+                    <div className="mt-6 w-full max-w-[792px] rounded-lg bg-panel py-2">
+                      {[
+                        ['Cash', '$1,305.76', '$'],
+                        ['Crypto', '$2,183.40', '₿'],
+                      ].map(([name, value, glyph]) => (
+                        <div key={name} className="flex h-16 items-center gap-3 px-4">
+                          <span className="inline-flex size-8 items-center justify-center rounded-pill bg-raised text-md">{glyph}</span>
+                          <span className="text-md font-medium">{name}</span>
+                          <Money value={value} className="ml-auto text-md" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-6 flex flex-wrap gap-4">
+                      <MarketCard ticker="BTC" name="Bitcoin" price="$83,281.80" pct="+1.24%" series={UP} />
+                      <MarketCard ticker="ETH" name="Ethereum" price="$2,494.09" pct="−2.34%" series={DOWN} />
+                      <MarketCard ticker="USDC" name="USD Coin" price="$1.0000" pct="0.00%" series={['1', '1', '1', '1', '1']} />
+                      <MarketCard ticker="IFC" name="Intacoin" price="—" pct="" series={[]} />
+                    </div>
+                    <Row className="mt-6">
+                      <Money value="1234.50" />
+                      <Money value={null} />
+                      <Amount value="0.0420 BTC" />
+                      <Price value="83,281.80" />
+                      <Pct value="+1.24%" arrow />
+                      <Pct value="−0.28%" arrow />
+                      <Pct value="0.00%" />
+                      <Pct value={null} />
+                    </Row>
+                  </Section>
+                </>
+              ) : null}
             </HideBalancesProvider>
 
             <Section title="Buttons">

@@ -100,3 +100,18 @@ export {
   isPositiveAmount,
   type DecimalSeparator,
 } from './amount-input-logic.js';
+
+/* Shared screen kit (feat/ui-kit-core): the parts every customer screen builds from. See docs/ui-kit.md. */
+export { type Density } from './density.js';
+export { Table, type TableProps, type TableColumn, type TableLabels } from './table.js';
+export { sortRows, nextSort, compareDecimal, type SortState, type SortDirection, type SortType } from './table-logic.js';
+export { Input, type InputProps, type TextInputProps, type DecimalInputProps } from './input.js';
+export { Field, useFieldContext, type FieldProps } from './field.js';
+export { Page, PageHeader, PageBody, PageSection, Breadcrumbs } from './page.js';
+export type { PageProps, PageWidth, PageHeaderProps, PageBodyProps, PageSectionProps, BreadcrumbsProps, BreadcrumbItem } from './page.js';
+export { EmptyState, type EmptyStateProps, type EmptyStateAction, type EmptyStateVariant, type EmptyStateSize } from './empty-state.js';
+export { Stat, type StatProps, type StatSize } from './stat.js';
+export { KeyValue, type KeyValueProps, type KeyValueItem } from './key-value.js';
+export { Badge, type BadgeProps, type BadgeTone, type BadgeVariant } from './badge.js';
+export { StatusChip, type StatusChipProps } from './status-chip.js';
+export { freshnessOf, formatAsOf, type Freshness, type FreshnessInput } from './freshness.js';
