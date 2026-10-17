@@ -24,6 +24,8 @@ export const TRADE_SCALE_INSUFFICIENT_BALANCE = 'trade.scale_insufficient_balanc
 export const TRADE_SCALE_BALANCE_UNREADABLE = 'trade.scale_balance_unreadable' as const;
 export const TRADE_SCALE_GROUP_NOT_FOUND = 'trade.scale_group_not_found' as const;
 export const TRADE_SCALE_CLIENT_ID_UNSET = 'trade.scale_client_id_unset' as const;
+export const TRADE_SCALE_CHILD_REFUSED = 'trade.scale_child_refused' as const;
+export const TRADE_SCALE_ROLLBACK_INCOMPLETE = 'trade.scale_rollback_incomplete' as const;
 
 export type ScaleGroupState = 'open' | 'partial' | 'filled' | 'cancelled' | 'mixed';
 
@@ -173,7 +175,7 @@ export function planScaleLevels(market: Market, input: ScaleCreateInput): Planne
     index,
     qty,
     price: prices[index]!,
-    clientOrderId: `${input.clientGroupId}:${index}`,
+    clientOrderId: `scale:${input.clientGroupId}:${index}`,
   }));
 }
 
@@ -219,18 +221,33 @@ export async function createScaleGroup(ports: ScaleGroupPorts, principal: Princi
     );
   }
 
-  const childIds: string[] = [];
+  const placed: OrderRecord[] = [];
   for (const level of plan) {
-    const order = await ports.placeOrder(principal, {
-      symbol: market.symbol,
-      side: input.side,
-      type: 'limit',
-      qty: level.qty,
-      price: level.price,
-      clientOrderId: level.clientOrderId,
-    });
-    childIds.push(order.id);
+    let order: OrderRecord;
+    try {
+      order = await ports.placeOrder(principal, {
+        symbol: market.symbol,
+        side: input.side,
+        type: 'limit',
+        qty: level.qty,
+        price: level.price,
+        clientOrderId: level.clientOrderId,
+      });
+    } catch (err) {
+      await rollbackScaleChildren(ports, principal, placed, level.index, childRefusalCode(err));
+      throw new DeskError(`scale child ${level.index} refused: ${childRefusalCode(err)}`, TRADE_SCALE_CHILD_REFUSED);
+    }
+    const matches = plannedChildMatches(order, market, input.side, level);
+    const replayedTerminal = order.status === 'cancelled' || order.status === 'rejected' || order.status === 'expired';
+    if (!matches || replayedTerminal) {
+      const code = matches ? 'trade.order_not_open' : 'trade.scale_child_mismatch';
+      if (order.clientOrderId === level.clientOrderId && isLiveScaleStatus(order.status)) placed.push(order);
+      await rollbackScaleChildren(ports, principal, placed, level.index, code);
+      throw new DeskError(`scale child ${level.index} refused: ${code}`, TRADE_SCALE_CHILD_REFUSED);
+    }
+    placed.push(order);
   }
+  const childIds = placed.map((order) => order.id);
 
   const id = randomUUID();
   const params = {
@@ -274,6 +291,56 @@ export async function cancelScaleGroup(ports: ScaleGroupPorts, principal: Princi
     }
   }
   return presentGroup(ports.sql, stored);
+}
+
+function plannedChildMatches(order: OrderRecord, market: Market, side: OrderSide, level: PlannedLevel): boolean {
+  return (
+    order.marketId === market.id && order.side === side && order.type === 'limit' && order.qty === level.qty && order.price === level.price
+  );
+}
+
+function isLiveScaleStatus(status: string): boolean {
+  return status === 'open' || status === 'pending' || status === 'recovery_required' || status === 'hold_unknown';
+}
+
+function childRefusalCode(err: unknown): string {
+  if (err instanceof TradeError || err instanceof DeskError) return err.code;
+  if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
+    return (err as { code: string }).code;
+  }
+  return 'unknown';
+}
+
+/**
+ * Cancel every child this call placed. A cancel that finds the order already
+ * terminal is finished. Any other failure leaves the id in the typed refusal
+ * so the caller never sees an error while a child is still open.
+ */
+async function rollbackScaleChildren(
+  ports: ScaleGroupPorts,
+  principal: Principal,
+  placed: readonly OrderRecord[],
+  index: number,
+  childCode: string,
+): Promise<void> {
+  const stillOpen: string[] = [];
+  for (const order of placed) {
+    if (order.status === 'filled') continue;
+    try {
+      const cancelled = await ports.cancelOrder(principal, order.id);
+      if (isLiveScaleStatus(cancelled.status)) stillOpen.push(order.id);
+    } catch (err) {
+      const code = childRefusalCode(err);
+      if (code === 'trade.order_not_open' || code === 'trade.order_not_found') continue;
+      stillOpen.push(order.id);
+    }
+  }
+  if (stillOpen.length > 0) {
+    throw new DeskError(
+      `scale child ${index} refused: ${childCode}; rollback incomplete; orders still open: ${stillOpen.join(',')}`,
+      TRADE_SCALE_ROLLBACK_INCOMPLETE,
+    );
+  }
 }
 
 async function loadByClient(sql: Sql, userId: string, clientGroupId: string): Promise<StoredGroup | null> {

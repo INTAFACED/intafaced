@@ -4132,6 +4132,24 @@ export class TradeService {
   }
 
   /**
+   * The order this caller already placed under `clientOrderId` on this market,
+   * or null when this request would create it. Used to tell an iceberg replay
+   * from a new order without a clock.
+   */
+  async findClientOrder(
+    principal: Principal,
+    input: { symbol?: string; marketId?: string; clientOrderId?: string },
+  ): Promise<OrderRecord | null> {
+    const clientOrderId = input.clientOrderId;
+    if (clientOrderId == null || clientOrderId.length < 1) return null;
+    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
+    if (!market) return null;
+    const order = await this.findOrder(orderIdFor(principal.userId, market.id, clientOrderId));
+    if (!order || order.userId !== principal.userId) return null;
+    return order;
+  }
+
+  /**
    * Self open/pending/recovery rows. Limit is required — same inner door as
    * private REST orders/open and tRPC orders.open. Missing / non-integer / out
    * of 1..500 refuses (never invent 100). Owner/query may pass 100 explicitly.

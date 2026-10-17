@@ -870,6 +870,7 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
+  findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });

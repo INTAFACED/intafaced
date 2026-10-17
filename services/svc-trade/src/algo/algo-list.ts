@@ -84,7 +84,7 @@ export function decodeAlgoCursor(cursor: string): { createdAt: string; id: strin
   return { createdAt, id };
 }
 
-function childOrderIds(raw: unknown): string[] {
+export function childOrderIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const ids: string[] = [];
   for (const item of raw) {

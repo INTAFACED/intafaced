@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
-import { attachIcebergDisplay, readRawDisplayQty, type IcebergDisplayStore } from './spot/iceberg-door.js';
+import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -117,6 +117,14 @@ export interface PrivateRestDeps {
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
+  /**
+   * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
+   * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
+   */
+  findClientOrder?(
+    principal: Principal,
+    input: { symbol?: string; marketId?: string; clientOrderId?: string },
+  ): Promise<OrderRecord | null>;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -2133,8 +2141,24 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
+      const prior =
+        displayQty && deps.findClientOrder
+          ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
+          : null;
       const order = await deps.placeOrder(principal, input);
-      if (displayQty && deps.icebergDisplay) await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
+      if (displayQty && deps.icebergDisplay) {
+        if (deps.findClientOrder && prior) {
+          const storedPeak = await deps.icebergDisplay.read(order.id);
+          if (!storedPeak) {
+            throw new TradeError(
+              'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
+              TRADE_ICEBERG_DISPLAY_INVALID,
+            );
+          }
+        } else {
+          await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
+        }
+      }
       const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
