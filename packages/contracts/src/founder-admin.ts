@@ -416,6 +416,22 @@ const disputeItemSchema = z
     responseDueSource: z.enum(['rail_event']).nullable(),
     ledgerWire: z.enum(['posted', 'refused']),
     ledgerRefuseCode: z.string().nullable(),
+    /**
+     * Posted chargeback transactions. Null when no effect has been recorded.
+     * `feePosted` is false: pay pricing has no dispute fee, so none is posted.
+     */
+    ledgerEffect: z
+      .object({
+        openingTxId: z.string().nullable(),
+        shortfallTxId: z.string().nullable(),
+        wonTxId: z.string().nullable(),
+        recoveredTxId: z.string().nullable(),
+        feePosted: z.literal(false),
+        feeNote: z.string().min(1),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 

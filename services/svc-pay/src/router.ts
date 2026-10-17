@@ -1606,7 +1606,14 @@ export function createPayRouter(
               throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e.message, cause: e });
             }
             // A redelivered open for another amount is a state conflict (retrying cannot fix it), not a malformed request.
-            if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') throw toTrpcError(e);
+            if (
+              e instanceof PayError &&
+              (e.code === 'pay.chargeback_plan_conflict' ||
+                e.code === 'pay.chargeback_shortfall_unfunded' ||
+                e.code === 'pay.chargeback_ledger_failed')
+            ) {
+              throw toTrpcError(e);
+            }
             if (e instanceof DisputeCaseError || e instanceof PayError) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
@@ -2150,6 +2157,8 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.capture_reconcile_disabled':
       case 'pay.capture_reconcile_batch_limit_unset':
       case 'pay.kyb_profile_unbound':
+      case 'pay.chargeback_shortfall_unfunded':
+      case 'pay.chargeback_ledger_failed':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

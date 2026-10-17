@@ -41,15 +41,17 @@ describe('W6 honesty residuals', () => {
     const body = stripComments(applySrc as string);
     expect(body).toMatch(/case\s+['\"]dispute\.opened['\"]/);
     expect(body).toMatch(/postChargebackOpenOrRefuse/);
+    expect(body).toMatch(/bookDisputeResolution/);
     expect(body).not.toMatch(/case\s+['\"]voided['\"]/);
-    expect(body).not.toMatch(/chargebackWon|chargebackShortfall/);
     expect(body).toMatch(/case\s+['\"]refunded['\"]/);
   });
 
-  it('payment-service never calls shortfall/won recipes (no invented cover policy)', () => {
+  it('payment-service posts won and shortfall through chargeback-ledger, not inline recipes', () => {
     const body = stripComments(paymentService);
     expect(body).not.toMatch(/recipes\.chargeback/);
-    expect(body).not.toMatch(/chargebackWon|chargebackShortfall/);
     expect(body).toMatch(/postDisputeOpening/);
+    expect(body).toMatch(/postDisputeWon/);
+    expect(body).toMatch(/postDisputeShortfall/);
+    expect(body).toMatch(/postDisputeShortfallRecovered/);
   });
 });

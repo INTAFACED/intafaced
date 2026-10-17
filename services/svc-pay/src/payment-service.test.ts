@@ -1071,11 +1071,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('still names an uncovered chargeback and plans nothing', async () => {
+    it('refuses an unfunded shortfall before planning, and plans nothing', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
-      await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.invalid_amount' });
+      await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.chargeback_shortfall_unfunded' });
       expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(0);
     });
 
@@ -1253,7 +1253,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('webhook: when even the freshly computed plan is short, the redelivery gets the named uncovered refusal', async () => {
+    it('webhook: when even the freshly computed plan is short, the redelivery refuses an unfunded shortfall and writes no case', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
@@ -1274,12 +1274,12 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         }),
       );
 
-      const outcome = await flaky.handleWebhook('card-sandbox', delivery);
-      expect(outcome.applied).toBe(true);
-      const c = defaultDisputeCaseStore.get(disputeId);
-      expect(c?.ledgerWire).toBe('refused');
-      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
+      await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toMatchObject({
+        code: 'pay.chargeback_shortfall_unfunded',
+      });
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
       expect(openedTxs()).toHaveLength(0);
+      expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
       expect(await count(payment.id, 'chargeback.opening_planned')).toBe(1);
       expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
     });
@@ -1303,7 +1303,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
     });
 
-    it('production client (getTxByKey throws): a fresh plan that is still short gets the named refusal and the marker is written', async () => {
+    it('production client (getTxByKey throws): a fresh plan that is still short refuses unfunded and does not write the marker', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
@@ -1323,12 +1323,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         }),
       );
 
-      const outcome = await flaky.handleWebhook('card-sandbox', delivery);
-      expect(outcome.applied).toBe(true);
-      expect(outcome.duplicate).toBe(false);
-      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
-      // The delivery marker was written, so the rail's next redelivery is a duplicate, not another loop.
-      expect((await flaky.handleWebhook('card-sandbox', delivery)).duplicate).toBe(true);
+      await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toMatchObject({
+        code: 'pay.chargeback_shortfall_unfunded',
+      });
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+      // The marker was not written, so a later delivery can post once the fund can cover.
+      await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toMatchObject({
+        code: 'pay.chargeback_shortfall_unfunded',
+      });
       expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
     });
 
@@ -1781,31 +1783,30 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('dispute.opened names refuse when pots cannot cover — no invented shortfall', async () => {
+    it('dispute.opened refuses an unfunded shortfall and plans nothing', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await settle(m.id, 'w-cb-uncovered');
       // After 250 bps, merchant available is 97.5 and clearing is empty.
-      // A 100 chargeback cannot be covered; shortfall stays refuse-closed.
+      // The house fund is empty, so the shortfall is refused before a plan is stored.
       const disputeId = `dsp-uncovered-${payment.id}`;
-      const outcome = await pay.handleWebhook(
-        'card-sandbox',
-        signed('card-sandbox', {
-          id: 'evt_cb_uncovered',
-          type: 'dispute.opened',
-          ref: payment.railRef,
-          amount: '100',
-          assetId: 'USDT',
-          disputeId,
-        }),
-      );
-
-      expect(outcome.applied).toBe(true);
-      const c = defaultDisputeCaseStore.get(disputeId);
-      expect(c?.ledgerWire).toBe('refused');
-      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
+      await expect(
+        pay.handleWebhook(
+          'card-sandbox',
+          signed('card-sandbox', {
+            id: 'evt_cb_uncovered',
+            type: 'dispute.opened',
+            ref: payment.railRef,
+            amount: '100',
+            assetId: 'USDT',
+            disputeId,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'pay.chargeback_shortfall_unfunded' });
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
       expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
+      expect((await events(payment.id)).filter((event) => event === 'chargeback.opening_planned')).toHaveLength(0);
     });
   });
 
