@@ -17,6 +17,7 @@ import { listControlAudit, readMerchantAudit, type MerchantAuditEvent } from './
 import { ApprovalService } from './approvals.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
+import { reservedLivePayoutAmount } from './payout-daily-limit.js';
 import { ControlError } from './errors.js';
 import {
   closeLimitRequest,
@@ -216,13 +217,15 @@ export class ControlService {
       }
       const daily = cap.kind === 'daily_intake' || cap.kind === 'daily_payout';
       const used = await readUsage(this.sql, merchantId, cap.kind, cap.assetCode, daily ? dayKey(at) : monthKey(at));
+      const reserved = cap.kind === 'daily_payout' ? await reservedLivePayoutAmount(this.sql, merchantId, cap.assetCode, at) : 0n;
       const limit = parseAmount(cap.limit);
+      const committed = used + reserved;
       rows.push({
         kind: cap.kind,
         assetCode: cap.assetCode,
         limit: cap.limit,
         used: fmt(used),
-        remaining: fmt(limit > used ? limit - used : 0n),
+        remaining: fmt(limit > committed ? limit - committed : 0n),
         resetsAt: (daily ? nextDayStart(at) : nextMonthStart(at)).toISOString(),
       });
     }
