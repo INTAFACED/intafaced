@@ -20,6 +20,14 @@ import {
 import { DEFAULT_FUTURES_LADDER_POLICY } from './ladder-policy.test-harness.js';
 import type { LiquidationPosition } from './liquidation-planner.js';
 
+/**
+ * 1 500–2 000 fast-check runs. Five local runs peaked at 346 ms on
+ * "never draws more than the position holds"; 346×3 is still under Vitest's
+ * 5 s default, which is the limit CI already hit on #4920 (file 16.8 s).
+ * 30 s is that file's budget and the #4738/#4864 precedent.
+ */
+const LADDER_PROPERTY_TIMEOUT_MS = 30_000;
+
 const USER = '11111111-1111-4111-8111-111111111111';
 const SCALE = 10n ** 18n;
 
@@ -151,7 +159,7 @@ describe('maintenanceBpsFor', () => {
    * constant — which is exactly what `liquidation-planner.ts` still does — this
    * is the assertion that catches it.
    */
-  it('never requires LESS margin from a thinner book (property)', () => {
+  it('never requires LESS margin from a thinner book (property)', { timeout: LADDER_PROPERTY_TIMEOUT_MS }, () => {
     fc.assert(
       fc.property(
         fc.bigInt({ min: 1n, max: 10n ** 30n }),
@@ -507,7 +515,7 @@ const liquidatableCases = positionArb.map(buildCase).filter((c) => {
   return rung.action === 'liquidate';
 });
 
-describe('ladder properties', () => {
+describe('ladder properties', { timeout: LADDER_PROPERTY_TIMEOUT_MS }, () => {
   /**
    * EQUITY IS INVARIANT UNDER A CLOSE AT THE MARK.
    *
