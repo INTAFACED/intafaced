@@ -290,7 +290,7 @@ const messages = {
   'availabilityrooms.a.customer.owned.participation.read.and.ledger':
     'A customer-owned participation read and ledger-backed subscription/allocation recipes are needed before an amount or order state can be shown.',
   'availabilityrooms.asset.issuance.currently.belongs.to.the.parked':
-    'Asset issuance currently belongs to the parked chain plane. INTACHAIN has not been started, so this room cannot deploy a token, predict a live address, sign calldata or present a usable factory.',
+    'Asset issuance belongs to the chain plane. INTACHAIN is approved to build but not running yet, so this room cannot deploy a token, predict a live address, sign calldata or present a usable factory.',
   'availabilityrooms.the.existing.template.is.explicitly.unaudited.compiler':
     'The existing template is explicitly unaudited. Compiler artifacts do not establish an audit or permission to launch.',
   'availabilityrooms.launch.overview': 'Launch overview',

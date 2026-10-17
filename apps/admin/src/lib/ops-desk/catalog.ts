@@ -828,7 +828,7 @@ const moreSections: readonly DeskSection[] = [
       un(
         'launch.predict',
         'Predict markets',
-        'Predict stays on Protocol and waits for the recorded P1 GO. Nothing here reads a chain.',
+        'Predict stays on Protocol. The P1 GO is recorded, but INTACORE and svc-predict do not run yet. Nothing here reads a chain.',
         null,
       ),
     ],
