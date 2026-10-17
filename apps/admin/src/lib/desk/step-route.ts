@@ -58,6 +58,11 @@ export async function handleStep(request: Request, ctx: FounderCallContext, opti
   if (body.request && !options.kinds.includes(body.request.kind)) {
     return refusalResponse(body.step, explainRefusal('admin.request_invalid', 400, false), 400);
   }
+  // Reject and withdraw name an approval by id only, so without the packet's request any desk could cancel any other desk's
+  // approval (a ledger freeze, say). They must carry the request, and it was checked against this route's kinds above.
+  if ((body.step === 'reject' || body.step === 'revoke') && body.request === null) {
+    return refusalResponse(body.step, explainRefusal('admin.request_invalid', 400, false), 400);
+  }
   // Undoing (reject, withdraw) is never blocked by deployment state: it only ever removes a pending approval.
   if (body.step !== 'reject' && body.step !== 'revoke') {
     const blocked = options.check(body);

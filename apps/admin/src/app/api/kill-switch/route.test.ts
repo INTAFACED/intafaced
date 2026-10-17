@@ -178,7 +178,7 @@ describe('kill-switch POST refuses before it sends anything', () => {
       expect(await res.json()).toMatchObject({ refusal: { code: 'admin.kill_unconfigured', changed: 'no' } });
     }
     expect(fn).not.toHaveBeenCalled();
-    expect((await post({ step: 'reject', approvalId: 'appr_1' })).status).toBe(200);
+    expect((await post({ step: 'reject', request: kill, approvalId: 'appr_1' })).status).toBe(200);
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });

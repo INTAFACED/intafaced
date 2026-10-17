@@ -859,3 +859,5 @@ The OS itself becomes sellable infrastructure:
 **TWELVE ROOMS. TWO PLANES. ONE ECONOMY. THE RAILS ARE THE PRODUCT. THE ALPHA STAYS SEALED. NEVER HALF DONE.**
 
 *Phantom Capital Holdings // Strictly Confidential // July 2026 // v2.2 FINAL*
+
+Historical (July 2026). Current rules: AGENTS.md and docs/ARCHITECTURE.md.
