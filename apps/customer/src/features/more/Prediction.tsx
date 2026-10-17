@@ -4,26 +4,25 @@ import { z } from 'zod';
 import { orderBookSchema, tradeSchema } from '@intafaced/exchange-contract/schemas';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { DataTable, Field, Panel, Tabs } from '../../shared/ui';
+import { DataTable, Panel, Tabs } from '../../shared/ui';
 import { Details, Read } from './common';
 import { predictionCatalogueSchema } from './prediction-catalogue';
 import { PredictionCatalogue } from './PredictionCatalogue';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
+import { PredictionTicket } from './PredictionTicket';
+import { ticketCopy } from './prediction-ticket-copy';
 import './prediction-catalogue.css';
 export function Prediction() {
   const api = useApi(),
     { userId } = useSession();
   const [selected, setSelected] = useState(''),
-    [outcome, setOutcome] = useState('Yes'),
-    [quantityDraft, setQuantityDraft] = useState<{ terms: string; symbol: string; amount: string } | null>(null);
+    [outcome, setOutcome] = useState('Yes');
   const markets = useResource((signal) => api.rest('/outcomes/markets', predictionCatalogueSchema, { signal }), 'outcome-markets');
   const market = markets.resource.status === 'ready' ? markets.resource.data.find((m) => m.id === selected) : undefined,
     instrument = market?.instruments.find((i) => i.outcome === outcome.toLowerCase());
   const terms = market ? JSON.stringify(market) : '';
-  const amount = quantityDraft?.terms === terms && quantityDraft.symbol === instrument?.symbol ? quantityDraft.amount : '';
-  const validQuantity = decimalSchema.safeParse(amount).success && parseAmount(amount) > 0n;
-  const { Copy, t, languageFor, directionFor } = predictionCatalogueCopy.useCopy();
+  const { Copy } = predictionCatalogueCopy.useCopy();
+  const ticket = ticketCopy.useCopy();
   const sequence = useRef<{ symbol: string; nonce: number | null }>({ symbol: '', nonce: null });
   const book = useResource<z.infer<typeof orderBookSchema> | null>(async (signal) => {
     if (!instrument) return { ok: true as const, data: null };
@@ -78,7 +77,6 @@ export function Prediction() {
       `outcome-fills:${userId}:${instrument?.symbol}`,
     );
   useEffect(() => {
-    setQuantityDraft(null);
     if (!instrument) return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -97,7 +95,6 @@ export function Prediction() {
           select={(id) => {
             setSelected(id);
             setOutcome('Yes');
-            setQuantityDraft(null);
           }}
         />
         {market && (
@@ -115,10 +112,7 @@ export function Prediction() {
                 items={['Yes', 'No']}
                 labels={{ Yes: copyText('prediction.yes'), No: copyText('prediction.no') }}
                 value={outcome}
-                onChange={(value) => {
-                  setOutcome(value);
-                  setQuantityDraft(null);
-                }}
+                onChange={setOutcome}
                 label={copyText('prediction.outcome.selection')}
               />
               <strong>{instrument?.symbol}</strong>
@@ -207,75 +201,25 @@ export function Prediction() {
           </>
         )}
       </div>
-      <section className="prediction-room-review" lang={languageFor('review')} dir={directionFor('review')}>
-        <div className="prediction-room-review-copy">
-          <h2>
-            <Copy k="review" />
-          </h2>
-          <p className="muted">
-            <Copy k="reviewBody" />
-          </p>
-        </div>
+      <section className="prediction-room-review" lang={ticket.languageFor('title')}>
+        {market && instrument ? (
+          <PredictionTicket key={`${market.id}:${instrument.symbol}`} market={market} outcome={outcome === 'No' ? 'no' : 'yes'} />
+        ) : (
+          <div className="prediction-room-review-copy">
+            <h2>
+              <ticketCopy.Copy k="title" />
+            </h2>
+            <p className="muted">
+              <ticketCopy.Copy k="idleBody" />
+            </p>
+            <p className="prediction-ticket__blocker" role="status">
+              <ticketCopy.Copy k="chainReason" />
+            </p>
+          </div>
+        )}
         <a className="text-link prediction-room-link" href="/support">
           <Copy k="support" />
         </a>
-        <details className="prediction-room-details">
-          <summary>
-            <Copy k="requirements" />
-          </summary>
-          <dl className="prediction-room-requirements">
-            {(['admission', 'pricing', 'placement'] as const).map((key) => (
-              <div key={key}>
-                <dt>
-                  <span>
-                    <Copy k={key} />
-                  </span>
-                  <span className="prediction-room-state">
-                    <Copy k="unavailable" />
-                  </span>
-                </dt>
-                <dd>
-                  <Copy k={key === 'admission' ? 'admissionBody' : key === 'pricing' ? 'pricingBody' : 'placementBody'} />
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <p className="muted">
-            <Copy k="reviewBoundary" />
-          </p>
-        </details>
-        {market && (
-          <details className="prediction-room-planning">
-            <summary>
-              <Copy k="planning" />
-            </summary>
-            <p className="muted">
-              <Copy k="planningBody" />
-            </p>
-            <Field
-              label={copyText('prediction.outcome.contract.quantity')}
-              value={amount}
-              onChange={(e) => {
-                if (instrument) setQuantityDraft({ terms, symbol: instrument.symbol, amount: e.target.value });
-              }}
-              inputMode="decimal"
-              error={amount !== '' && !validQuantity ? t('quantityError') : undefined}
-            />
-            {validQuantity && (
-              <Details
-                items={[
-                  [copyText('prediction.instrument'), instrument?.symbol ?? copyText('common.unavailable')],
-                  [copyText('prediction.full.collateral.by.published.rule'), `${displayAmount(amount)} ${market.settlementAssetId}`],
-                  [copyText('prediction.authoritative.fee'), copyText('common.unavailable')],
-                  [copyText('prediction.order.admission'), copyText('common.unavailable')],
-                ]}
-              />
-            )}
-            <p className="muted">
-              <Text k="prediction.closing.or.settling.an.event.is.not" />
-            </p>
-          </details>
-        )}
         <a className="text-link prediction-room-link" href="/more">
           <Copy k="more" />
         </a>

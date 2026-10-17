@@ -1,27 +1,32 @@
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
+import { PayHaltsDesk } from '@/components/pay-halts-desk';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
+import { loadPayHalts } from '@/lib/pay-halts/server';
 
 /**
- * Ledger operations (§4.2 / §14.6).
+ * Ledger operations (§4.2 / §14.6): the posting freeze, and the payments halts that stop one operation.
  *
- * Server-loads the real freeze state through `readFreeze()` — the same client
- * `/api/ledger-freeze` uses — so the first paint is svc-ledger's answer and not
- * a default. This page previously rendered `operator-commands.ts` stubs and
- * seeded its posting indicator from the `ledger.posting` FLAG, which is a
- * drop-clock default rather than the state of the book: a console with no
- * credential at all displayed a confident "ACCEPTING".
+ * Server-loads the real freeze state through `readFreeze()` — the same client `/api/ledger-freeze` uses — so the
+ * first paint is svc-ledger's answer and not a default. This page previously rendered `operator-commands.ts` stubs
+ * and seeded its posting indicator from the `ledger.posting` FLAG, which is a drop-clock default rather than the
+ * state of the book: a console with no credential at all displayed a confident "ACCEPTING".
  *
- * `readFreeze()` never throws and never invents a state. Unconfigured and
- * unreachable both arrive as `ok: false` with a reason, and the view renders
- * UNKNOWN.
+ * `readFreeze()` never throws and never invents a state. Unconfigured and unreachable both arrive as `ok: false`
+ * with a reason, and the view renders UNKNOWN. The payments halts are read as the signed-in founder and each part
+ * of that read can fail on its own, shown as a failure and never as "nothing is halted".
  */
 export default async function LedgerOpsPage() {
   requireModulePage('ledger');
-  await requireFounderPage();
+  const founder = await requireFounderPage();
   const status = readConsoleStatus();
-  const initialFreeze = await readFreeze();
-  return <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} />;
+  const [initialFreeze, halts] = await Promise.all([readFreeze(), loadPayHalts(founder)]);
+  return (
+    <div className="adm-stack">
+      <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} userId={founder.session.userId} />
+      <PayHaltsDesk initial={halts} userId={founder.session.userId} />
+    </div>
+  );
 }

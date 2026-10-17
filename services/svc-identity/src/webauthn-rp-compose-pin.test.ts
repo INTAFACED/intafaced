@@ -9,7 +9,7 @@
  * 3. Done bar: docker-compose.apps.yml svc-identity has
  *    WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
  *    WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-INTAFACED}
- *    WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+ *    WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:8090,http://localhost:3100}
  * 4. Class N
  * 5. Paths: docker-compose.apps.yml (svc-identity block only)
  * 6. RED: pin fails if a line drops, is duplicated, or the compose default
@@ -53,10 +53,12 @@ describe('compose WebAuthn RP id/name/origin for svc-identity', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-identity/);
     expect(block).toMatch(/WEBAUTHN_RP_ID:\s*\$\{WEBAUTHN_RP_ID:-localhost\}/);
     expect(block).toMatch(/WEBAUTHN_RP_NAME:\s*\$\{WEBAUTHN_RP_NAME:-INTAFACED\}/);
-    expect(block).toMatch(/WEBAUTHN_ORIGIN:\s*\$\{WEBAUTHN_ORIGIN:-http:\/\/localhost:3000\}/);
+    expect(block).toMatch(/WEBAUTHN_ORIGIN:\s*\$\{WEBAUTHN_ORIGIN:-http:\/\/localhost:8090,http:\/\/localhost:3100\}/);
     expect(block.match(/^\s+WEBAUTHN_RP_ID:\s*\$\{WEBAUTHN_RP_ID:-localhost\}\s*$/gm)).toHaveLength(1);
     expect(block.match(/^\s+WEBAUTHN_RP_NAME:\s*\$\{WEBAUTHN_RP_NAME:-INTAFACED\}\s*$/gm)).toHaveLength(1);
-    expect(block.match(/^\s+WEBAUTHN_ORIGIN:\s*\$\{WEBAUTHN_ORIGIN:-http:\/\/localhost:3000\}\s*$/gm)).toHaveLength(1);
+    expect(block.match(/^\s+WEBAUTHN_ORIGIN:\s*\$\{WEBAUTHN_ORIGIN:-http:\/\/localhost:8090,http:\/\/localhost:3100\}\s*$/gm)).toHaveLength(
+      1,
+    );
     expect(countAssignments(compose, RP_ID)).toBe(1);
     expect(countAssignments(compose, RP_NAME)).toBe(1);
     expect(countAssignments(compose, ORIGIN)).toBe(1);

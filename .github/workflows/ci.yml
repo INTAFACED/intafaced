@@ -13,26 +13,20 @@ on:
   # that moves money. That is exactly what #901 ("main is red") and #221 were.
   # A PR check proves the branch was green; only a push check proves the trunk is.
   #
-  # ONE MARKDOWN FILE IS NOT DOCUMENTATION. INTAFACED_DEFINITIVE_BUILD.md is
-  # the law, and coverage-check reads it: a chapter appearing there is exactly
-  # the event that gate exists to catch. Under a blanket `**/*.md` ignore,
-  # adding §39 would skip CI entirely and no gate would ever see it — which is
-  # a fair description of how §27–§37 arrived with nobody noticing. Negation
-  # needs `paths` rather than `paths-ignore`; the last matching pattern wins.
-  # That path filter stays: it is about relevance, not cost.
+  # Docs-only PRs run this workflow so the required "Doctrine gates" job
+  # reports. A path filter that skipped docs/** and **/*.md left that check
+  # missing, and a required check that never reports cannot merge. Test shards
+  # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
+  # INTAFACED_DEFINITIVE_BUILD.md stays listed because coverage-check reads it.
+  # Agent-rule markdown stays listed so a rules-only change cannot be treated
+  # as docs-only. tooling/scripts/merge-gate.mjs mirrors this list and its
+  # test fails on drift. The last matching pattern wins.
   push:
     branches: [main]
   pull_request:
     paths:
       - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!NOTICE'
-      - '!LICENSE'
       - INTAFACED_DEFINITIVE_BUILD.md
-      # Agent-rule files are markdown but they ARE the law agents load: a change must run the doctrine gates, whose
-      # agent-autoload scan pins them. Listed after the markdown exclusion so they win (the last match decides).
-      # tooling/scripts/merge-gate.mjs mirrors this list (AGENT_RULE_PATTERNS) and its test fails on drift.
       - '**/AGENTS.md'
       - '**/CLAUDE.md'
       - '**/AGENT_PROTOCOL.md'
@@ -82,8 +76,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -134,8 +128,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -151,8 +145,8 @@ jobs:
     timeout-minutes: 10 # healthy run: 1-2 min
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -167,8 +161,8 @@ jobs:
     needs: [changes]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -246,8 +240,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -455,8 +449,8 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -577,8 +571,8 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -678,8 +672,8 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -778,8 +772,8 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
@@ -872,8 +866,8 @@ jobs:
     if: needs.merge-seal.result == 'success'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm

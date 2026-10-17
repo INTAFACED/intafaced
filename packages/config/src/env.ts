@@ -48,7 +48,7 @@ export const redisEnvSchema = z.object({
 });
 
 export const natsEnvSchema = z.object({
-  NATS_URL: z.string().default('nats://localhost:4222'),
+  NATS_URL: z.string().trim().min(1).default('nats://localhost:4222'),
   NATS_STREAM_PREFIX: z.string().default('INTAFACED'),
 });
 
