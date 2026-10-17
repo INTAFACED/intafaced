@@ -112,8 +112,8 @@ describe('rooms with no backing service', () => {
     };
     const html = renderToStaticMarkup(<SharesView read={read} />);
     expect(html).toContain('9,007,199,254,741,000');
-    expect(html).toContain('Window 1');
-    expect(html).toContain('Window 2');
+    expect(html).toContain('Counted window 1');
+    expect(html).toContain('Counted window 2');
     expect(html).not.toContain('win_aaaa1111');
   });
   it('Mining rewards show the fee, window size, an estimate labelled as one, and paid credits', () => {
@@ -154,12 +154,43 @@ describe('rooms with no backing service', () => {
       />,
     );
     expect(html).toContain('1.5%');
-    expect(html).toContain('1,000 shares');
+    expect(html).toContain('Window size (pool setting)</dt><dd>1,000</dd>');
     expect(html).toContain('0.00985 BTC');
     expect(html).toContain('An estimate');
     expect(html).toContain('0.001 BTC');
     expect(html).not.toContain('mining.ledger_tx_unrecorded');
     expect(html).not.toContain('win_0');
+  });
+  it('Mining rewards never count an unreadable payout as zero, and mark an unconfirmed ledger entry', () => {
+    const ok = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
+    const row = (amount: string | null, ledgerReason: string | null) => ({
+      windowId: `w${amount}`,
+      minerId: 'm1',
+      assetId: 'BTC',
+      amount,
+      amountReason: amount === null ? 'mining.emission_unpublished' : null,
+      paidAt: '2026-10-17T10:00:00.000Z',
+      ledgerTransactionId: null,
+      ledgerReason,
+    });
+    const view = (payouts: ReturnType<typeof row>[]) =>
+      renderToStaticMarkup(
+        <RewardsView
+          terms={ok({ feeBps: 150, feeReason: null, windowSize: 1000, windowSizeReason: null })}
+          pending={ok({ asOf: '2026-10-18T03:00:00.000Z', windows: [] })}
+          payouts={ok({ asOf: '2026-10-18T03:00:00.000Z', nextCursor: null, payouts })}
+        />,
+      );
+    const allMissing = view([row(null, null)]);
+    expect(allMissing).not.toMatch(/Paid to you<\/dt><dd>0</);
+    expect(allMissing).toContain('Paid to you</dt><dd>Unknown');
+    const some = view([row('0.5', null), row(null, null)]);
+    expect(some).toContain('0.5 BTC');
+    expect(some).toContain('Some credits can’t be shown');
+    expect(view([])).toContain('Paid to you</dt><dd>0');
+    expect(view([row('0.5', 'mining.ledger_tx_unrecorded')])).toContain('Recorded, ledger entry not confirmed');
+    expect(view([row('0.5', null)])).not.toContain('ledger entry not confirmed');
+    expect(view([row('0.5', null)])).toContain('Window size (pool setting)</dt><dd>1,000</dd>');
   });
   it('Mining rewards keep the honest refusal when the pool does not answer', () => {
     const failed = {

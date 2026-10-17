@@ -20,7 +20,7 @@ export function GoalProgress({ balance, target, assetId }: { balance: string; ta
         aria-valuenow={Math.floor(share.basisPoints / 100)}
         aria-valuetext={text}
       >
-        <span className="money-bar__fill" style={{ width: `${share.basisPoints / 100}%` }} />
+        <span className="money-bar__fill" style={{ width: `${share.basisPoints / 100}%`, minWidth: share.basisPoints > 0 ? 2 : 0 }} />
       </div>
       <p className="money-caption numeric">
         {text}
@@ -50,7 +50,10 @@ export function MovementBars({ inflow, outflow, net, assetId }: { inflow: string
           <div className="money-movement-chart__row" key={row.key}>
             <span>{row.label}</span>
             <div className="money-bar">
-              <span className={`money-bar__fill money-bar__fill--${row.key}`} style={{ width: `${row.width / 100}%` }} />
+              <span
+                className={`money-bar__fill money-bar__fill--${row.key}`}
+                style={{ width: `${row.width / 100}%`, minWidth: row.width > 0 ? 2 : 0 }}
+              />
             </div>
             <strong className="numeric">
               {displayAmount(row.value)} {assetId}

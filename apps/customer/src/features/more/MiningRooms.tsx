@@ -306,6 +306,8 @@ export function RewardsView({
   const pendingData = pending.resource.status === 'ready' ? pending.resource.data : null;
   const rows = payouts.resource.status === 'ready' ? [...payouts.resource.data.payouts, ...extra] : null;
   const credited = rows ? amounts(sumByAsset(rows)) : null;
+  // A payout whose amount can't be read is left out of the total, and the total says so. It is never counted as zero.
+  const missing = rows?.some((row) => row.amount === null) ?? false;
   const estimated = pendingData
     ? amounts(sumByAsset(pendingData.windows.map((row) => ({ assetId: row.assetId, amount: row.estimate?.estimatedGross ?? null }))))
     : null;
@@ -318,8 +320,8 @@ export function RewardsView({
           items={[
             {
               label: t('rewardsCredited'),
-              value: loadingOf(payouts) ? '…' : rows ? (credited ?? displayAmount('0')) : unknown,
-              ...(rows && hasMore ? { note: t('payoutsSoFar') } : {}),
+              value: loadingOf(payouts) ? '…' : rows ? (rows.length === 0 ? displayAmount('0') : (credited ?? unknown)) : unknown,
+              ...(rows && missing && credited ? { note: t('creditedIncomplete') } : rows && hasMore ? { note: t('payoutsSoFar') } : {}),
             },
             {
               label: t('rewardsPending'),
@@ -363,7 +365,15 @@ export function RewardsView({
                 <DataTable headers={[t('payoutPaid'), t('payoutAmount')]} label={t('payoutsTitle')}>
                   {all.map((row) => (
                     <tr key={`${row.windowId}:${row.minerId}`}>
-                      <td>{row.paidAt ? stamp(row.paidAt, timeZone) : '—'}</td>
+                      <td>
+                        {row.paidAt ? stamp(row.paidAt, timeZone) : '—'}
+                        {row.ledgerReason ? (
+                          <>
+                            <br />
+                            <small className="muted">{t('payoutUnconfirmed')}</small>
+                          </>
+                        ) : null}
+                      </td>
                       <td className="numeric">
                         {row.amount === null ? t('payoutAmountMissing') : `${displayAmount(row.amount)} ${row.assetId}`}
                       </td>
@@ -401,7 +411,7 @@ export function RewardsView({
               >
                 {data.windows.map((row, index) => (
                   <tr key={row.windowId}>
-                    <td>{t('sharesWindowN', { n: index + 1 })}</td>
+                    <td>{t('openWindowN', { n: index + 1 })}</td>
                     <td className="numeric">{displayAmount(row.callerWeight)}</td>
                     <td className="numeric">{row.totalWeight === null ? '—' : displayAmount(row.totalWeight)}</td>
                     <td className="numeric">{row.reward === null ? '—' : `${displayAmount(row.reward)} ${row.assetId}`}</td>
