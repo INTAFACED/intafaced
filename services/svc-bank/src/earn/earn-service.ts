@@ -20,6 +20,7 @@ import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
+import { readPoolTotals, type PoolTotal } from '../ops/pool-totals.js';
 
 /**
  * EARN — flexible and fixed pools as `stake`-kind ledger accounts (§8.1).
@@ -280,6 +281,14 @@ export class EarnService {
       total += stakePrincipalForAccrual(row.id, recorded, book);
     }
     return total;
+  }
+
+  /**
+   * Operator totals. Same stake-pot read as `poolSize`, but an inflated
+   * principal column is ignored and a failed ledger read is null, not a refusal.
+   */
+  poolTotals(): Promise<{ asOf: string; pools: PoolTotal[] }> {
+    return readPoolTotals(this.sql, this.ledger);
   }
 
   // ── Positions ──────────────────────────────────────────────────────────────

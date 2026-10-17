@@ -118,6 +118,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
     it('an immediate transfer posts: propose looks up both keys and reads the receipt back', async () => {
       const bank = bankOverHttp();
       const account = await bank.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('500'),
@@ -157,6 +158,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       });
       const bank = bankOverHttp();
       const account = await direct.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('50'),
@@ -194,6 +196,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       });
       const bank = bankOverHttp();
       const account = await direct.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('50'),
@@ -246,6 +249,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       });
       const bank = bankOverHttp();
       const account = await direct.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('50'),
@@ -350,6 +354,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
     async function fixture() {
       const bank = bankOverHttp();
       const account = await bank.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('50'),

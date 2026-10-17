@@ -33,6 +33,7 @@ const USER_VISIBLE_CODES = new Set<BankErrorCode>([
   'bank.step_up_unavailable',
   'bank.card_not_found',
   'bank.card_not_active',
+  'bank.card_operator_frozen',
   'bank.card_limit_exceeded',
   'bank.card_authorization_not_found',
   'bank.card_authorization_declined',

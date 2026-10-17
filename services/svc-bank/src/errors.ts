@@ -559,6 +559,23 @@ export type BankErrorCode =
   | 'bank.party_handles_unset'
   /** Identity did not answer a handle lookup. Nothing was created. */
   | 'bank.party_handles_unavailable'
+  /**
+   * The same business id already exists for someone else, or for different
+   * rules. Both answers use this one code so the caller cannot tell them apart.
+   */
+  | 'bank.business_conflict'
+  /** The owner cannot lift a freeze an operator placed. */
+  | 'bank.card_operator_frozen'
+  /** An operator write named no reason, or fewer than 10 characters. */
+  | 'bank.ops_reason_too_short'
+  /** Card programme from/to was omitted, unreadable, or not a positive span. */
+  | 'bank.card_programme_span_unset'
+  /** Card programme span is longer than 92 days. */
+  | 'bank.card_programme_span_too_long'
+  /** Ramp health window was omitted or outside 1..720 hours. */
+  | 'bank.ramp_health_window_unset'
+  /** Operator business-approval page size unpublished. Blank is not 50. */
+  | 'bank.ops_business_approvals_limit_unset'
   /** A transfer id was reused with a different note or reference. */
   | 'bank.transfer_message_conflict'
   /** The activity id is not in this customer's history. */
