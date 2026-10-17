@@ -51,6 +51,11 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-identity'),
       HTTP_PORT: z.coerce.number().int().default(4002),
+      /**
+       * Seconds a just-rotated refresh token may be presented again (two tabs).
+       * Default 10. 0 disables the grace window. Ceiling 120.
+       */
+      REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(120).default(10),
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),

@@ -51,7 +51,9 @@ import type { TradeHub } from '../trade/hub.js';
  * authorisation control, and there is nothing here to authorise — it would
  * inconvenience a bot without protecting anything, since the same data is a
  * `curl` away. Cross-site WebSocket hijacking is a risk to endpoints that
- * carry ambient credentials; this one carries none.
+ * carry ambient credentials; this one carries none. The private and drop-copy
+ * upgrades do check Origin (`customer-origin.ts`) because a session cookie
+ * can be attached to those sockets.
  *
  * ── Channels ────────────────────────────────────────────────────────────────
  *

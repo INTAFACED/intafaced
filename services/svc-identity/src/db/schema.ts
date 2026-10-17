@@ -258,6 +258,14 @@ export const sessions = identity.table(
      * stolen. Reuse detection is the entire point of rotating them.
      */
     reuseDetectedAt: tstz('reuse_detected_at'),
+    /**
+     * Set when this refresh token is rotated. A second presentation inside the
+     * grace window reads `successorId` instead of burning the family.
+     */
+    rotatedAt: tstz('rotated_at'),
+    successorId: uuid('successor_id'),
+    /** AES-256-GCM (`enc:v1`) of the successor refresh token. Not the raw token. */
+    successorRefresh: text('successor_refresh'),
     createdAt: createdAt(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },

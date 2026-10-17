@@ -48,6 +48,7 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { openRefreshCookieBag, refreshCookieAls, type RefreshCookieBag } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -127,6 +128,11 @@ await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
     'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
   );
 });
+await sql`SELECT successor_refresh FROM sessions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sessions.successor_refresh is missing — apply drizzle/0032_session_refresh_grace.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -174,6 +180,7 @@ const auth = new AuthService(
   undefined,
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
+  env.REFRESH_REUSE_GRACE_SECONDS,
 );
 
 const placeDoor = new PlaceDoor(sql);
@@ -312,6 +319,8 @@ const identityRequestContext = createIdentityRequestContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
 
+const refreshCookieBags = new WeakMap<object, RefreshCookieBag>();
+
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];
   const forwarded = Array.isArray(rawIp) ? rawIp[0] : rawIp;
@@ -319,9 +328,20 @@ app.addHook('onRequest', (req, _reply, done) => {
   const rawProduct = req.headers['x-product'];
   const productHeader = Array.isArray(rawProduct) ? rawProduct[0] : rawProduct;
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
-  requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => done());
+  const bag = openRefreshCookieBag(req.headers);
+  refreshCookieBags.set(req, bag);
+  refreshCookieAls.enterWith(bag);
+  refreshCookieAls.run(bag, () => {
+    requestIpAls.run(clientIp || undefined, () => {
+      requestProductAls.run(clientProduct || undefined, () => done());
+    });
   });
+});
+
+app.addHook('onSend', async (req, reply, payload) => {
+  const setCookie = refreshCookieBags.get(req)?.setCookie;
+  if (setCookie) reply.header('set-cookie', setCookie);
+  return payload;
 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
