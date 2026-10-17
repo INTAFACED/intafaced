@@ -71,12 +71,12 @@ const PREFIXES_LONGEST_FIRST: readonly string[] = [...MODULE_BY_PREFIX.keys()].s
 /**
  * Procedure leaf names that a killed module must still serve.
  *
- * `cancel` is the whole list on purpose. Every other "release" path in the
- * platform (`payment.refund`, escrow release) either is a cancel or moves value
- * on the platform's authority rather than the user's, and widening this list is
- * a decision that belongs in a PR with an argument attached, not in a regex.
+ * `cancel` is one order. `cancelAll` and `massCancel` are the same release
+ * for the rest of the caller's book: a kill that allows only the leaf `cancel`
+ * traps every other open order (TRD-0236). Refunds and escrow release stay off
+ * this list; those move value on the platform's authority.
  */
-export const ALWAYS_ALLOWED_PROCEDURES: readonly string[] = ['cancel'];
+export const ALWAYS_ALLOWED_PROCEDURES: readonly string[] = ['cancel', 'cancelAll', 'massCancel'];
 
 export interface RestRelease {
   readonly method: string;
@@ -310,23 +310,57 @@ export interface KillSwitchAuditEntry {
  * was and does not return the audit entry. An explicit `{ "killed": [] }` is
  * the recorded all-on state.
  */
-export interface KillSwitchStateOptions {
-  /** Path to JSON map of killed modules. Empty/undefined = memory only. */
-  readonly statePath?: string;
+export interface SharedKillSnapshot {
+  readonly killed: readonly { module: ModuleId; reason: string | null }[];
 }
 
 /**
- * Operator-visible durability of kill state — never invent multi-replica share.
+ * Re-read on every decision. Two replicas that hold this store share one kill.
+ * `read` returns null when the store cannot be read; that is a fail-closed
+ * refuse of new holds, not "every module is on".
+ */
+export interface SharedKillStore {
+  read(): SharedKillSnapshot | null;
+  write(next: SharedKillSnapshot): void;
+}
+
+export class MemorySharedKillStore implements SharedKillStore {
+  private snapshot: SharedKillSnapshot = { killed: [] };
+  private readsFail = false;
+
+  failReads(fail: boolean): void {
+    this.readsFail = fail;
+  }
+
+  read(): SharedKillSnapshot | null {
+    if (this.readsFail) return null;
+    return { killed: this.snapshot.killed.map((row) => ({ module: row.module, reason: row.reason })) };
+  }
+
+  write(next: SharedKillSnapshot): void {
+    this.snapshot = { killed: next.killed.map((row) => ({ module: row.module, reason: row.reason })) };
+  }
+}
+
+export interface KillSwitchStateOptions {
+  /** Path to JSON map of killed modules. Empty/undefined = memory only. */
+  readonly statePath?: string;
+  /** When set, every decision re-reads this store. File and memory stay process-local. */
+  readonly shared?: SharedKillStore;
+}
+
+/**
+ * Operator-visible durability of kill state.
  *
- * `multiReplicaShared` is always false today: a file is per process host, and
- * memory is per process. The field exists so a future shared store must flip it
- * deliberately rather than leaving the console assuming process-local is fleet-wide.
+ * `multiReplicaShared` is true only when a shared store is attached. A file is
+ * per process host, and memory is per process. The field must not call either
+ * of those fleet-wide.
  */
 export interface KillSwitchDurability {
-  /** `file` when EDGE_KILL_STATE_PATH is set; otherwise in-process only. */
-  readonly persistence: 'file' | 'memory';
-  /** Always false until a shared store exists (§13 residual — do not invent). */
-  readonly multiReplicaShared: false;
+  /** `shared` when a SharedKillStore is attached; `file` when EDGE_KILL_STATE_PATH is set; otherwise memory. */
+  readonly persistence: 'file' | 'memory' | 'shared';
+  /** True only for an attached shared store. */
+  readonly multiReplicaShared: boolean;
   /** One sentence an operator can act on at 3am. */
   readonly note: string;
 }
@@ -336,6 +370,7 @@ export class KillSwitchState {
   private readonly reasons = new Map<ModuleId, string>();
   private readonly audit: KillSwitchAuditEntry[] = [];
   private readonly statePath: string | undefined;
+  private readonly shared: SharedKillStore | undefined;
 
   /**
    * How many audit entries are retained in memory.
@@ -349,6 +384,7 @@ export class KillSwitchState {
 
   constructor(options: KillSwitchStateOptions = {}) {
     this.statePath = options.statePath?.trim() || undefined;
+    this.shared = options.shared;
     this.hydrateFromDisk();
   }
 
@@ -362,6 +398,13 @@ export class KillSwitchState {
    * (or none) still has its own switches.
    */
   durability(): KillSwitchDurability {
+    if (this.shared) {
+      return {
+        persistence: 'shared',
+        multiReplicaShared: true,
+        note: 'Shared kill store is re-read on every decision. A replica that cannot read it refuses new holds and still allows a single-order cancel.',
+      };
+    }
     if (this.statePath) {
       return {
         persistence: 'file',
@@ -372,7 +415,7 @@ export class KillSwitchState {
     return {
       persistence: 'memory',
       multiReplicaShared: false,
-      note: 'Memory only — process restart clears all kills. Multi-replica shared store is SOCKET §13 residual (not invented here).',
+      note: 'Memory only — process restart clears all kills. Attach a shared kill store for a fleet-wide halt.',
     };
   }
 
@@ -498,17 +541,34 @@ export class KillSwitchState {
     }
   }
 
+  private killView(module: ModuleId): 'live' | 'killed' | 'unreadable' {
+    if (!this.shared) return this.killed.has(module) ? 'killed' : 'live';
+    const snap = this.shared.read();
+    if (snap === null) return 'unreadable';
+    return snap.killed.some((row) => row.module === module) ? 'killed' : 'live';
+  }
+
   /** Modules currently switched off, in `MODULE_IDS` order so the output is stable. */
   disabledModules(): ModuleId[] {
-    return MODULE_IDS.filter((id) => this.killed.has(id));
+    if (!this.shared) return MODULE_IDS.filter((id) => this.killed.has(id));
+    const snap = this.shared.read();
+    if (snap === null) return [...MODULE_IDS];
+    const ids = new Set(snap.killed.map((row) => row.module));
+    return MODULE_IDS.filter((id) => ids.has(id));
   }
 
   reasonFor(module: ModuleId): string | null {
+    if (this.shared) {
+      const snap = this.shared.read();
+      if (snap === null) return null;
+      return snap.killed.find((row) => row.module === module)?.reason ?? null;
+    }
     return this.reasons.get(module) ?? null;
   }
 
   isKilled(module: ModuleId): boolean {
-    return this.killed.has(module);
+    const view = this.killView(module);
+    return view === 'killed' || view === 'unreadable';
   }
 
   /** Newest first — an operator opening the console wants the last thing that happened. */
@@ -528,7 +588,9 @@ export class KillSwitchState {
    * missing.
    */
   set(module: ModuleId, disabled: boolean, actor: string, reason: string, confirmOperatorId: string | null = null): KillSwitchAuditEntry {
-    const previous = this.killed.has(module);
+    const view = this.killView(module);
+    if (view === 'unreadable') throw new Error('shared kill store unreadable');
+    const previous = view === 'killed';
 
     const entry: KillSwitchAuditEntry = {
       at: new Date().toISOString(),
@@ -542,6 +604,14 @@ export class KillSwitchState {
     };
 
     const recorded = confirmOperatorId ? `${reason} (by ${actor}; confirmed ${confirmOperatorId})` : `${reason} (by ${actor})`;
+
+    if (this.shared && entry.changed) {
+      const snap = this.shared.read();
+      if (snap === null) throw new Error('shared kill store unreadable');
+      const killed = snap.killed.filter((row) => row.module !== module);
+      if (disabled) killed.push({ module, reason: recorded });
+      this.shared.write({ killed });
+    }
 
     if (entry.changed) {
       this.persistToDisk({ module, disabled, reason: disabled ? recorded : null });
@@ -573,29 +643,37 @@ export class KillSwitchState {
     if (!prefix) return { module: null, refused: false, reason: 'no-route' };
 
     const module = MODULE_BY_PREFIX.get(prefix) as ModuleId;
-    if (!this.killed.has(module)) return { module, refused: false, reason: 'not-killed' };
+    const view = this.killView(module);
+    if (view === 'live') return { module, refused: false, reason: 'not-killed' };
 
     // A read commits nothing. tRPC queries are GET; a user watching their open
     // orders during an incident is not the problem the switch is there to solve.
     const verb = method.toUpperCase();
     if (verb === 'GET' || verb === 'HEAD') return { module, refused: false, reason: 'read-only' };
 
-    // EVERY procedure in the batch must be allowed, not just one of them. A
-    // batch is a single request carrying several calls, and reading only the
-    // last let `orders.create,orders.cancel` through a halted module.
-    const procedures = proceduresOf(pathname);
-    if (procedures !== null && procedures.length > 0 && procedures.every((p) => ALWAYS_ALLOWED_PROCEDURES.includes(procedureLeaf(p)))) {
-      return { module, refused: false, reason: 'lets-the-user-out' };
-    }
+    if (this.isRelease(pathname, verb)) return { module, refused: false, reason: 'lets-the-user-out' };
 
-    // Path only, never the query string: `?symbol=BTC/USDT` on a cancel-all
-    // must not change whether the user is allowed out.
-    const path = pathname.split('?')[0] ?? pathname;
-    if (ALWAYS_ALLOWED_REST.some((r) => r.method === verb && r.pattern.test(path))) {
-      return { module, refused: false, reason: 'lets-the-user-out' };
-    }
+    // Cannot read the shared kill. Refuse the new hold. Do not call it a deliberate halt.
+    if (view === 'unreadable') return { module, refused: true, reason: 'undecidable' };
 
     return { module, refused: true, reason: 'module-killed' };
+  }
+
+  /**
+   * EVERY procedure in the batch must be allowed, not just one of them. A
+   * batch is a single request carrying several calls, and reading only the
+   * last let `orders.create,orders.cancel` through a halted module.
+   *
+   * Path only, never the query string: `?symbol=BTC/USDT` on a cancel-all
+   * must not change whether the user is allowed out.
+   */
+  private isRelease(pathname: string, verb: string): boolean {
+    const procedures = proceduresOf(pathname);
+    if (procedures !== null && procedures.length > 0 && procedures.every((p) => ALWAYS_ALLOWED_PROCEDURES.includes(procedureLeaf(p)))) {
+      return true;
+    }
+    const path = pathname.split('?')[0] ?? pathname;
+    return ALWAYS_ALLOWED_REST.some((r) => r.method === verb && r.pattern.test(path));
   }
 
   /**
