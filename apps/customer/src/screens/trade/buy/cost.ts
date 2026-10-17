@@ -53,6 +53,23 @@ export function protectedTotal(
   return toPlaces(net > 0n ? net : 0n, 2);
 }
 
+/**
+ * The most a buyer can pay or the least a seller gets, with a fee charged in the paying money counted in. The card and
+ * the review dialog both read this, so they always show the same worst case. Null when any part is unknown.
+ */
+export function limitFor(
+  side: 'buy' | 'sell',
+  amount: string,
+  preview: { estimatedFee: string | null; feeAsset: string | null; protectionPrice: string | null },
+  quoteAsset: string,
+): string | null {
+  return protectedTotal(side, amount, preview.protectionPrice, {
+    amount: preview.estimatedFee,
+    asset: preview.feeAsset,
+    quote: quoteAsset,
+  });
+}
+
 export interface CostInput {
   side: 'buy' | 'sell';
   /** The coin amount the order is for. */
@@ -99,8 +116,6 @@ export function costRows(input: CostInput): CostRows {
     estimated,
     fee,
     get,
-    limit: preview
-      ? protectedTotal(side, base, preview.protectionPrice, { amount: feeAmount, asset: preview.feeAsset, quote: quoteAsset })
-      : null,
+    limit: preview ? limitFor(side, base, preview, quoteAsset) : null,
   };
 }

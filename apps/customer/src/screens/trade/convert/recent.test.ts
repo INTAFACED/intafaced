@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ActivityItem } from './deps';
-import { recentConversions } from './recent';
+import { recentPanelState } from './recent';
 
 let n = 0;
 const line = (over: Partial<ActivityItem>): ActivityItem => ({
@@ -16,45 +17,26 @@ const line = (over: Partial<ActivityItem>): ActivityItem => ({
   ...over,
 });
 
-describe('recentConversions', () => {
-  it('groups the two trade lines of one order and keeps exact decimal strings', () => {
-    const rows = recentConversions([
-      line({ orderId: 'o1', direction: 'in', asset: 'ETH', amount: '0.123456789012345678' }),
-      line({ orderId: 'o1', direction: 'out', asset: 'USDT', amount: '320.10', postedAt: '2026-10-17T10:00:01.000Z' }),
-    ]);
-    expect(rows).toEqual([
-      {
-        id: 'o1',
-        fromAsset: 'USDT',
-        fromAmount: '320.10',
-        toAsset: 'ETH',
-        toAmount: '0.123456789012345678',
-        at: '2026-10-17T10:00:01.000Z',
-      },
-    ]);
+// The real shape of a conversion in Activity: a hold on the paying asset plus a trade line for the bought asset.
+const conversion = [
+  line({ orderId: 'o1', kind: 'order_hold', direction: 'out', asset: 'USDT', amount: '9.73524' }),
+  line({ orderId: 'o1', kind: 'trade', direction: 'in', asset: 'BTC', amount: '0.00015' }),
+];
+
+describe('recentPanelState', () => {
+  it('is parked on TRD-0857 even when the feed holds a real conversion', () => {
+    expect(recentPanelState({ status: 'ready', data: { items: conversion } as never, asOf: 1 })).toEqual({
+      kind: 'parked',
+      blocker: 'TRD-0857',
+    });
   });
-  it('skips lines without an order id, spot orders with holds or fees, and one-sided orders', () => {
-    const rows = recentConversions([
-      line({ direction: 'out' }),
-      line({ direction: 'in', asset: 'ETH' }),
-      line({ orderId: 'o2', direction: 'out' }),
-      line({ orderId: 'o2', direction: 'in', asset: 'ETH' }),
-      line({ orderId: 'o2', kind: 'fee' }),
-      line({ orderId: 'o3', direction: 'out' }),
-      line({ orderId: 'o4', kind: 'deposit', direction: 'in', asset: 'ETH' }),
-      line({ orderId: 'o4', direction: 'out' }),
-    ]);
-    expect(rows).toEqual([]);
+  it('is parked for an empty feed too, so the panel never claims there are none', () => {
+    expect(recentPanelState({ status: 'ready', data: { items: [] } as never, asOf: 1 })).toEqual({ kind: 'parked', blocker: 'TRD-0857' });
+    expect(recentPanelState({ status: 'empty' })).toEqual({ kind: 'parked', blocker: 'TRD-0857' });
   });
-  it('lists newest first and honours the limit', () => {
-    const pair = (id: string, at: string) => [
-      line({ orderId: id, direction: 'out', postedAt: at }),
-      line({ orderId: id, direction: 'in', asset: 'ETH', postedAt: at }),
-    ];
-    const rows = recentConversions(
-      [...pair('a', '2026-10-17T09:00:00Z'), ...pair('b', '2026-10-17T11:00:00Z'), ...pair('c', '2026-10-17T10:00:00Z')],
-      2,
-    );
-    expect(rows.map((r) => r.id)).toEqual(['b', 'c']);
+  it('RecentConversions.tsx no longer says "No conversions yet"', () => {
+    const source = readFileSync(new URL('./RecentConversions.tsx', import.meta.url), 'utf8');
+    expect(source).not.toContain('No conversions yet');
+    expect(source).toContain('TRD-0857');
   });
 });

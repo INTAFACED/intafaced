@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { afterFee, afterQuoteFee, aboutValue, costRows, protectedTotal } from './cost';
+import { readFileSync } from 'node:fs';
+import { afterFee, afterQuoteFee, aboutValue, costRows, limitFor, protectedTotal } from './cost';
 
 describe('protectedTotal', () => {
   it('rounds the most a buyer can pay UP to the cent', () => {
@@ -86,5 +87,27 @@ describe('costRows', () => {
     expect(noProtection.limit).toBeNull();
     expect(noProtection.get).toBeNull();
     expect(noProtection.fee).toBeNull();
+  });
+});
+
+describe('limitFor (the card and the review dialog share one worst case)', () => {
+  it('counts a fee in the paying money, rounding the buy up and the sell down', () => {
+    const fee = { estimatedFee: '0.065', feeAsset: 'USDT' };
+    // 0.001 * 64674.999 = 64.674999, less the 0.065 USDT fee = 64.609999 -> 64.6 (the bare protectedTotal says 64.67)
+    expect(limitFor('sell', '0.001', { ...fee, protectionPrice: '64674.999' }, 'USDT')).toBe('64.6');
+    expect(limitFor('buy', '0.001', { ...fee, protectionPrice: '65325.001' }, 'USDT')).toBe('65.4');
+  });
+  it('stays unknown when the fee is unknown', () => {
+    expect(limitFor('buy', '0.001', { estimatedFee: null, feeAsset: null, protectionPrice: '65000' }, 'USDT')).toBeNull();
+  });
+  it('is what costRows reports as the limit', () => {
+    const preview = { estimatedFee: '0.065', feeAsset: 'USDT', protectionPrice: '64674.999' };
+    const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
+    expect(rows.limit).toBe(limitFor('sell', '0.001', preview, 'USDT'));
+  });
+  it('BuyReview.tsx uses limitFor and never the bare 3-argument protectedTotal', () => {
+    const source = readFileSync(new URL('./BuyReview.tsx', import.meta.url), 'utf8');
+    expect(source).toMatch(/limitFor\(/);
+    expect(source).not.toMatch(/protectedTotal\(/);
   });
 });

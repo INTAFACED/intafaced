@@ -1,48 +1,16 @@
 /**
- * Recent conversions, read from the ledger (TRMKT R3). A conversion is one order whose ledger lines are exactly one
- * `trade` line going out and one coming in, in two different assets. Lines with no `orderId` never group. Amounts are
- * passed through as the exact decimal strings the ledger sent: no arithmetic here.
+ * Recent conversions panel state (TRMKT R3). The panel is parked until TRD-0857 lands a convert-history read.
+ *
+ * Why not read Activity: a real conversion reaches the customer's Activity as an `order_hold` line out (the paying
+ * asset) plus a `trade` line in (the bought asset) with the same `orderId`. A zero-fee spot order has the same two
+ * lines, so Activity cannot tell the two apart and any list built from it could show a spot order as a conversion.
+ * So the panel names the blocker instead of guessing, and never says "No conversions yet" when it cannot see them.
  */
-import type { ActivityItem } from './deps';
+import type { ActivityFeed, Loadable } from './deps';
 
-export interface RecentConversion {
-  id: string;
-  fromAsset: string;
-  fromAmount: string;
-  toAsset: string;
-  toAmount: string;
-  /** ISO time of the later of the two lines. */
-  at: string;
-}
+export type RecentPanelState = { kind: 'parked'; blocker: 'TRD-0857' };
 
-const ms = (iso: string): number => {
-  const parsed = Date.parse(iso);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-export function recentConversions(items: readonly ActivityItem[], limit = 8): RecentConversion[] {
-  const orders = new Map<string, ActivityItem[]>();
-  for (const line of items) {
-    if (!line.orderId) continue;
-    const lines = orders.get(line.orderId);
-    if (lines) lines.push(line);
-    else orders.set(line.orderId, [line]);
-  }
-  const found: RecentConversion[] = [];
-  for (const [orderId, lines] of orders) {
-    // Holds, releases or fee lines mean a spot order, which Buy and sell shows; a conversion has two trade lines only.
-    if (lines.some((line) => line.kind !== 'trade') || lines.length !== 2) continue;
-    const out = lines.find((line) => line.direction === 'out');
-    const into = lines.find((line) => line.direction === 'in');
-    if (!out || !into || out.asset === into.asset) continue;
-    found.push({
-      id: orderId,
-      fromAsset: out.asset,
-      fromAmount: out.amount,
-      toAsset: into.asset,
-      toAmount: into.amount,
-      at: ms(out.postedAt) >= ms(into.postedAt) ? out.postedAt : into.postedAt,
-    });
-  }
-  return found.sort((a, b) => ms(b.at) - ms(a.at)).slice(0, limit);
+/** What the panel shows when the ledger read worked (or has nothing): parked, whatever the feed holds. */
+export function recentPanelState(_feed: Loadable<ActivityFeed>): RecentPanelState {
+  return { kind: 'parked', blocker: 'TRD-0857' };
 }

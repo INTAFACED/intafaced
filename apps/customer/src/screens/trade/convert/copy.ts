@@ -57,8 +57,9 @@ const messages = {
   Time: 'Time',
   Status: 'Status',
   Settled: 'Settled',
-  'No conversions yet': 'No conversions yet',
-  'No conversions body': 'Settled conversions appear here and in Activity.',
+  'Recent parked title': 'Conversion history isn’t available here yet',
+  'Recent parked body':
+    'Your conversions are safe and still show in Activity, but this list can’t pick them out yet. Blocked on the conversion history read (TRD-0857).',
   'Recent error title': 'Couldn’t load your conversions',
   'Recent error body': 'Nothing was changed. Try again.',
   // Review

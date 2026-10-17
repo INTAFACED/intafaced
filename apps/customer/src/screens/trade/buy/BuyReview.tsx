@@ -15,7 +15,7 @@ import {
   type Preview,
 } from './deps';
 import { buyCopy } from './copy';
-import { aboutValue, afterFee, protectedTotal } from './cost';
+import { aboutValue, afterFee, limitFor } from './cost';
 import { fractionDigits } from './trade-math';
 
 export interface ReviewState {
@@ -51,7 +51,7 @@ export function BuyReview({
   const places = fractionDigits(market.lotSize) ?? 8;
   const protection = review?.preview.protectionPrice ?? null;
   const price = review?.price ?? null;
-  const limit = review ? protectedTotal(review.draft.side, review.draft.amount, protection) : null;
+  const limit = review ? limitFor(review.draft.side, review.draft.amount, review.preview, market.quote) : null;
   const about = review && price !== null ? aboutValue(review.draft.amount, price) : null;
   // The fee comes out of the coins bought, so say what is left: "about 0.00007992 BTC after the fee" (words only; the order is unchanged).
   const net = review ? afterFee(review.draft.amount, review.preview.estimatedFee, review.preview.feeAsset, market.base) : null;
