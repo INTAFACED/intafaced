@@ -516,7 +516,8 @@ const en = {
   invoiceNewPurpose: 'Bill a customer for one amount and send them a payment link.',
   checkoutSettingsTitle: 'Checkout',
   checkoutSettingsPurpose: 'How your hosted checkout looks and which payment methods it offers.',
-  checkoutSettingsSoon: 'You’ll be able to see and change your checkout settings here.',
+  checkoutSettingsSoon:
+    'Your current checkout settings can’t be read yet, so this page doesn’t show or change them. A form here would only guess at your settings.',
 } as const;
 
 export const paymentsCopy = defineCopy('pay.portal.payments', en);
