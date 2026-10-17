@@ -16,7 +16,13 @@ import type { EventBus } from '@intafaced/events';
 import type { MatchingClient } from '../spot/matching-client.js';
 import { createJobHost, type JobHost } from './job-host.js';
 import { runFundingTick } from './funding-tick.js';
-import { ABANDONED_PARKED, runLiquidationTick, type LiquidationTickResult, type MarkSource } from './liquidation-tick.js';
+import {
+  ABANDONED_PARKED,
+  runLiquidationTick,
+  type DepthNotionalSource,
+  type LiquidationTickResult,
+  type MarkSource,
+} from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, type FundingRateEntry } from './funding-rate-source.js';
@@ -144,6 +150,13 @@ export interface FuturesJobsHandle {
    * into, so private REST can observe a delivered call end-to-end.
    */
   marginCalls: MarginCallStore;
+  /**
+   * The ladder numbers and the book they are rated against — the same two things the liquidation
+   * tick uses. Handed to `PositionService` so a margin withdrawal is refused when the LADDER would
+   * liquidate what is left, not only when equity is gone. `policy` is undefined until the owner
+   * publishes the D3 table (then nothing is rated, and the old equity-only gate applies).
+   */
+  ladderGate: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
   stop(): void;
 }
 
@@ -170,6 +183,25 @@ export function reportLiquidationTick(tick: LiquidationTickResult, onError: (nam
       onError(
         'futures.liquidation',
         new Error(`${item.alert.code} positionId=${item.positionId} rungId=${item.alert.rungId} amount=${item.alert.amount}`),
+      );
+    }
+    if (item.divergence) {
+      // The row's margin and the ledger pot disagree. The rung (if any) was planned against the
+      // smaller; the difference is an operator's to reconcile (runbook section 3). Error level, like
+      // every other money alert here: there is no paging route behind it yet.
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.divergence.code} positionId=${item.positionId} row=${item.divergence.row} pot=${item.divergence.pot} (the position row and the ledger collateral pot disagree; planned against the smaller)`,
+        ),
+      );
+    }
+    if (item.insuranceGrown) {
+      onError(
+        'futures.liquidation',
+        new Error(
+          `${item.insuranceGrown.code} positionId=${item.positionId} rungId=${item.insuranceGrown.rungId} amount=${item.insuranceGrown.amount} (a closing rung's loss was amended: the pot held less than planned, so the insurance fund paid this much more)`,
+        ),
       );
     }
     if (item.lossShort) {
@@ -229,6 +261,11 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   const depthMarks = markSourceFromDepth((marketId) => deps.matching.depth(marketId, 1));
   const marks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
 
+  const ladderGate = {
+    depth: depthNotionalSourceFromDepth((marketId) => deps.matching.depth(marketId, 1)),
+    policy: deps.ladderPolicy,
+  };
+
   const markPrice = async (marketId: string, at?: Date) => marks.markPrice({ marketId, at: at ?? (deps.now ? deps.now() : new Date()) });
   const publicMark = async (marketId: string, symbol: string, at?: Date) => {
     if (!marks.quote) return null;
@@ -255,6 +292,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       publicMark,
       marks,
       marginCalls,
+      ladderGate,
       stop: () => host.stopAll(),
     };
   }
@@ -290,9 +328,8 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
    * absorb them".
    */
   const ladder = {
-    depth: depthNotionalSourceFromDepth((marketId) => deps.matching.depth(marketId, 1)),
+    ...ladderGate,
     reducer: sqlPositionReducer(deps.sql),
-    policy: deps.ladderPolicy,
   };
 
   const datedMarkets = deps.datedSettlement?.markets ?? sqlDatedSettlementMarketLoader(deps.sql);
@@ -362,6 +399,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     publicMark,
     marks,
     marginCalls,
+    ladderGate,
     stop: () => host.stopAll(),
   };
 }
