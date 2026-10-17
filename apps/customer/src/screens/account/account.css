@@ -22,6 +22,11 @@
   .acct * {
     box-sizing: border-box;
   }
+  /* Reserve the scrollbar's width on every settings page. A short page (Display) has no scrollbar and a long one
+     (Security) does, which narrowed the viewport by ~15 px and slid the centred sub-nav sideways between sections. */
+  html:has(.acct) {
+    scrollbar-gutter: stable;
+  }
   .acct .acct-sr {
     position: absolute;
     width: 1px;
@@ -218,8 +223,15 @@
     overflow-wrap: anywhere;
   }
   .acct-body .rank-perks {
-    grid-template-columns: minmax(0, 232px) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(0, 280px) minmax(0, 1fr) !important;
     gap: 32px !important;
+  }
+  /* "Current rank" and "Refresh rank" fit side by side in 280 px; in a narrower column the button drops under the title. */
+  .acct-body .rank-perks__heading {
+    flex-wrap: wrap;
+  }
+  .acct-body .rank-perks__heading h2 {
+    white-space: nowrap;
   }
   .acct-body .subaccounts__rows,
   .acct-body .subaccounts__row {
