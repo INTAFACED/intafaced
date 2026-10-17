@@ -1,49 +1,76 @@
 import './money.css';
-import { Button } from '@intafaced/ui';
+import './refusals';
+import type { ReactNode } from 'react';
 import { Requires } from '../access/MerchantAccess';
 import { WithAccount } from '../access/WithAccount';
-import { moneyCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Approvals } from './Approvals';
-import { Conversion, conversionHeader } from './Conversion';
+import { LinkButton } from './common';
+import { mc } from './copy';
+import { Conversion, ConversionDetail, ConversionNew } from './Conversion';
+import { Destinations } from './Destinations';
 import { Limits } from './Limits';
-import { BalanceActivity, MerchantMoney } from './Money';
+import { MerchantMoney } from './Money';
 import { PayoutDetailPage, Payouts } from './Payouts';
+import { PayoutNew } from './PayoutNew';
 import { Pricing } from './Pricing';
-import { comingSoonRoom } from '../ui/comingSoonRoom';
-import { Refunds } from './Refunds';
+import { RefundDetail, RefundNew, Refunds } from './Refunds';
 import { SettlementDetailPage, Settlements } from './Settlements';
+import { Statement } from './Statement';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
+const t = mc.t;
+const go = (href: string, label: string, primary = false): ReactNode => (
+  <LinkButton href={href} variant={primary ? 'primary' : 'secondary'}>
     {label}
-  </Button>
+  </LinkButton>
 );
-const t = portalCopy.t;
-const c = w3cCopy.t;
 
 const conversion: RoomDef = {
-  header: conversionHeader,
+  header: (route) =>
+    route.room === 'conversion-new'
+      ? { title: t('pageConvertNew'), purpose: t('purposeConvertNew'), action: go('/pay/conversion', t('pageConversion')) }
+      : route.room === 'conversion-order'
+        ? { title: t('pageConversionOrder'), purpose: t('purposeConversionOrder') }
+        : { title: t('pageConversion'), purpose: t('purposeConversion'), action: go('/pay/conversion/new', t('actConvert'), true) },
   here: '/pay/conversion',
   render: (route, { portal }) => (
-    <WithAccount>{({ merchantId }) => <Conversion portal={portal} merchantId={merchantId} route={route} />}</WithAccount>
+    <WithAccount>
+      {({ merchantId }) =>
+        route.room === 'conversion-new' ? (
+          <Requires need="payout.approve">
+            <ConversionNew portal={portal} merchantId={merchantId} />
+          </Requires>
+        ) : route.room === 'conversion-order' ? (
+          <ConversionDetail portal={portal} orderId={route.param!} />
+        ) : (
+          <Conversion portal={portal} merchantId={merchantId} />
+        )
+      }
+    </WithAccount>
   ),
 };
+
 const refunds: RoomDef = {
   header: (route) =>
     route.room === 'refunds'
-      ? { title: c('refundsTitle'), purpose: c('refundsPurpose'), action: link('/pay/refunds/new', c('issueRefund'), 'primary') }
+      ? { title: t('pageRefunds'), purpose: t('purposeRefunds'), action: go('/pay/refunds/new', t('actIssueRefund'), true) }
       : route.room === 'refund-new'
-        ? { title: c('issueRefund'), purpose: c('issuePurpose'), action: link('/pay/payments', c('openPayments')) }
-        : { title: c('refundTitle'), purpose: c('refundPurpose'), action: link('/pay/refunds', c('backRefunds')) },
+        ? { title: t('pageRefundNew'), purpose: t('purposeRefundNew'), action: go('/pay/refunds', t('pageRefunds')) }
+        : { title: t('pageRefund'), purpose: t('purposeRefund') },
   here: '/pay/refunds',
   render: (route, { portal, authority }) => (
     <WithAccount>
-      {() => (
-        <Requires need="owner">
-          <Refunds portal={portal} refundId={route.param} create={route.room === 'refund-new'} authority={authority} />
-        </Requires>
-      )}
+      {({ merchantId }) =>
+        route.room === 'refund-new' ? (
+          <Requires need="owner">
+            <RefundNew portal={portal} merchantId={merchantId} authority={authority} />
+          </Requires>
+        ) : (
+          <Requires need="payments.read">
+            {route.room === 'refund' ? <RefundDetail portal={portal} refundId={route.param!} /> : <Refunds portal={portal} merchantId={merchantId} />}
+          </Requires>
+        )
+      }
     </WithAccount>
   ),
 };
@@ -53,11 +80,7 @@ export const moneyRooms: RoomTable = {
   'conversion-new': conversion,
   'conversion-order': conversion,
   money: {
-    header: () => ({
-      title: c('moneyTitle'),
-      purpose: c('moneyPurpose'),
-      action: link('/pay/money/activity', c('openStatement'), 'primary'),
-    }),
+    header: () => ({ title: t('pageMoney'), purpose: t('purposeMoney'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
     render: (_route, { portal }) => (
       <WithAccount>
         {({ merchantId }) => (
@@ -69,19 +92,23 @@ export const moneyRooms: RoomTable = {
     ),
   },
   'money-activity': {
-    header: () => ({ title: c('statementTitle'), purpose: c('statementPurpose'), action: link('/pay/exports', c('exportJobs')) }),
+    header: () => ({ title: t('pageStatement'), purpose: t('purposeStatement'), action: go('/pay/money', t('pageMoney')) }),
     here: '/pay/money',
-    render: (_route, {}) => <WithAccount>{() => <BalanceActivity />}</WithAccount>,
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="settlements.read">
+            <Statement portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
   },
   refunds,
   'refund-new': refunds,
   refund: refunds,
   settlements: {
-    header: () => ({
-      title: t('pageSettlements'),
-      purpose: t('purposeSettlements'),
-      action: link('/pay/settlements?view=tools', t('actSettlementTools'), 'primary'),
-    }),
+    header: () => ({ title: t('pageSettlements'), purpose: t('purposeSettlements'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
     render: (_route, { portal }) => (
       <WithAccount>
         {({ merchantId }) => (
@@ -106,11 +133,7 @@ export const moneyRooms: RoomTable = {
     ),
   },
   payouts: {
-    header: () => ({
-      title: t('pagePayouts'),
-      purpose: t('purposePayouts'),
-      action: link('/pay/payouts?view=tools', t('actRequestPayout'), 'primary'),
-    }),
+    header: () => ({ title: t('pagePayouts'), purpose: t('purposePayouts'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
     render: (_route, { portal }) => (
       <WithAccount>
         {({ merchantId }) => (
@@ -121,14 +144,40 @@ export const moneyRooms: RoomTable = {
       </WithAccount>
     ),
   },
+  'payout-new': {
+    header: () => ({ title: t('pagePayoutNew'), purpose: t('purposePayoutNew'), action: go('/pay/payouts/destinations', t('pageDestinations')) }),
+    here: '/pay/payouts',
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="payout.request">
+            <PayoutNew portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
+  },
+  'payout-destinations': {
+    header: () => ({ title: t('pageDestinations'), purpose: t('purposeDestinations'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
+    here: '/pay/payouts',
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="settlements.read">
+            <Destinations portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ),
+  },
   payout: {
     header: () => ({ title: t('pagePayout'), purpose: t('purposePayout') }),
     here: '/pay/payouts',
     render: (route, { portal }) => (
       <WithAccount>
-        {({ merchantId, role, record }) => (
+        {({ merchantId, role }) => (
           <Requires need="settlements.read">
-            <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} merchant={record} />
+            <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} />
           </Requires>
         )}
       </WithAccount>
@@ -137,7 +186,13 @@ export const moneyRooms: RoomTable = {
   approvals: {
     header: () => ({ title: t('pageApprovals'), purpose: t('purposeApprovals') }),
     render: (_route, { portal }) => (
-      <WithAccount>{({ merchantId, role }) => <Approvals portal={portal} merchantId={merchantId} role={role} />}</WithAccount>
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="settlements.read">
+            <Approvals portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
     ),
   },
   pricing: {
@@ -145,21 +200,7 @@ export const moneyRooms: RoomTable = {
     render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <Pricing portal={portal} merchantId={merchantId} />}</WithAccount>,
   },
   limits: {
-    header: () => ({ title: t('pageLimits'), purpose: t('purposeLimits') }),
-    render: (_route, { portal }) => (
-      <WithAccount>{({ merchantId, record }) => <Limits portal={portal} merchantId={merchantId} merchant={record} />}</WithAccount>
-    ),
+    header: () => ({ title: t('pageLimits'), purpose: t('purposeLimits'), action: go('/pay/limits#request', t('actRequestIncrease'), true) }),
+    render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <Limits portal={portal} merchantId={merchantId} />}</WithAccount>,
   },
-  'payout-new': comingSoonRoom(
-    () => ({ title: moneyCopy.t('payoutNewTitle'), purpose: moneyCopy.t('payoutNewPurpose'), body: moneyCopy.t('payoutNewSoon') }),
-    '/pay/payouts',
-  ),
-  'payout-destinations': comingSoonRoom(
-    () => ({
-      title: moneyCopy.t('destinationsTitle'),
-      purpose: moneyCopy.t('destinationsPurpose'),
-      body: moneyCopy.t('destinationsSoon'),
-    }),
-    '/pay/payouts/destinations',
-  ),
 };

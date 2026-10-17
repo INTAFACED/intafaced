@@ -1,361 +1,273 @@
-import { formatAmount as fromScaled, parseAmount as toScaled } from '../../../../shared/money';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { useId } from 'react';
-import { Button, DataTable, EmptyState, Field, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui';
-import { PayTime, PaySection } from '../../components';
-import {
-  AsOf,
-  BackLink,
-  Chip,
-  ComingSoon,
-  Facts,
-  Gate,
-  HaltBanner,
-  Kpi,
-  KpiGrid,
-  Money,
-  MoneyLines,
-  NotConfigured,
-  PortalFailure,
-  PortalLoading,
-  ReadAt,
-  TestTag,
-  Timeline,
-} from '../components';
-import { ApprovalDecision, CancelRequest, payoutHref } from './Approvals';
-import { settlementHref } from './Settlements';
-import { portalCopy } from './copy';
+import { Button, EmptyState } from '@intafaced/ui';
+import { PaySection } from '../../components';
+import { Gate, HaltBanner, Money, PortalFailure, PortalLoading, SpanText } from '../components';
+import { isComingSoon, portalRefusal } from '../refusal';
+import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
-import { useMemberNames, useNow, useReadAt, useUrlParam } from '../hooks';
-import { assetsIn, isUuid, matchesSearch, shortId } from '../model';
+import { useMemberNames, useNow, useReadAt } from '../hooks';
+import { isUuid } from '../model';
+import type { Approval, Settlement, Usage } from '../schemas';
+import { AuditPanel } from '../ui/AuditPanel';
+import { CopyReference } from '../ui/CopyReference';
+import { DateTime } from '../ui/DateTime';
+import { DetailHeader } from '../ui/DetailHeader';
+import { FilterRow, useListFilters } from '../ui/FilterRow';
+import { Freshness } from '../ui/Freshness';
+import { KpiStrip } from '../ui/Kpi';
+import { MoneyText } from '../ui/MoneyText';
+import { RelatedLinks } from '../ui/RelatedLinks';
+import { StatusChip } from '../ui/StatusChip';
+import { uiCopy } from '../ui/copy';
+import { useServerList } from '../ui/useServerList';
+import { ApprovalDecision, CancelRequest, useApprovalDestination } from './Approvals';
+import { ExportButton, LinkButton, ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
+import { mc } from './copy';
+import { describeDestination } from './destination';
 import {
-  actorName,
-  isCheckedPending,
-  freshnessAt,
+  approvalsBySettlement,
   latestApproval,
   limitRows,
-  payoutRows,
+  payoutHeadroom,
+  payoutRowState,
   payoutState,
-  payoutStates,
-  type PayoutRow,
+  waitingFrom,
   type RoleLike,
 } from './model';
-import { portalRefusal } from '../refusal';
-import type { PortalApi } from '../api';
-import type { Approval, HaltStatus, MerchantRecord, Settlement, Usage } from '../schemas';
+import { settlementHref } from './Settlements';
+import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
+import type { Lifecycle, PayoutItem } from './schemas';
+import { Facts, NotConfigured, UsageBar } from '../components';
+import type { PayoutState } from '../model';
 
-/** `/pay/payouts`: money leaving your balance for your payout destination, with where each one is in approval. */
+const PAYOUT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
+const stateOfStatus = { pending: 'not_ready', posted: 'ready', paid_out: 'paid_out', failed: 'failed' } as const;
+
+/** `/pay/payouts`: money leaving your balance, and where each payout is in approval. */
 export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
-  const [state, setState] = useUrlParam('state', '');
-  const [asset, setAsset] = useUrlParam('asset', '');
-  const [q, setQ] = useUrlParam('q', '');
-  const settlements = useResource((s) => portal.settlements(merchantId, '', 200, s), `portal:payouts-settlements:${merchantId}`);
-  const approvals = useResource((s) => portal.approvals(merchantId, '', s), `portal:payouts-approvals:${merchantId}`);
-  const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
-  const loadedAt = useReadAt(settlements.resource.status === 'ready', settlements.resource);
-  return (
-    <PayoutsView
-      settlements={settlements.resource}
-      approvals={approvals.resource}
-      halts={halts.resource}
-      loadedAt={loadedAt}
-      state={state}
-      setState={setState}
-      asset={asset}
-      setAsset={setAsset}
-      q={q}
-      setQ={setQ}
-      retry={() => {
-        settlements.reload();
-        approvals.reload();
-        halts.reload();
-      }}
-    />
+  const { t } = mc.useCopy();
+  const locale = uiCopy.useCopy().requestedLocale;
+  const test = useTestMode();
+  const filters = useListFilters();
+  const query = useListQuery(filters);
+  const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
+  const pending = useResource((s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s), `money:approvals-pending:${merchantId}`);
+  const counts = useResource(async (s) => {
+    const reads = await Promise.all(PAYOUT_STATUSES.map((status) => portal.payoutPage({ status }, undefined, s, 25)));
+    const bad = reads.find((r) => !r.ok);
+    if (bad && !bad.ok) return bad;
+    const n = (i: number) => {
+      const r = reads[i]!;
+      if (!r.ok) return { n: 0, more: false };
+      const page = 'items' in r.data ? r.data : { items: r.data, nextCursor: null };
+      return { n: page.items.length, more: page.nextCursor !== null };
+    };
+    return { ok: true as const, data: { pending: n(0), posted: n(1), paid_out: n(2), failed: n(3) } };
+  }, `money:payout-counts:${merchantId}`);
+  // Where the payouts list is not released, the page falls back to settlements that are no longer pending, headed "Newest".
+  const list = useServerList(
+    async (f, cursor, signal) => {
+      const direct = await portal.payoutPage(
+        { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search },
+        cursor,
+        signal,
+      );
+      if (direct.ok || !isComingSoon(direct)) return direct;
+      const derived = await portal.settlementPage(merchantId, { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search }, cursor, signal);
+      if (!derived.ok) return derived;
+      return {
+        ok: true as const,
+        data: {
+          items: derived.data.items.map(
+            (s): PayoutItem => ({
+              id: s.id,
+              window: s.window,
+              assetId: s.assetId,
+              gross: s.gross,
+              fees: s.fees,
+              net: s.net,
+              status: s.status,
+              payoutMethod: s.payoutMethod,
+              payoutReference: s.payoutRef,
+              createdAt: s.createdAt ?? new Date(0).toISOString(),
+            }),
+          ),
+          nextCursor: derived.data.nextCursor,
+        },
+      };
+    },
+    { status: query.status ?? '', assetId: query.assetId ?? '', from: query.from ?? '', to: query.to ?? '', search: query.search ?? '' },
+    (p: PayoutItem) => p.id,
   );
-}
-
-export function PayoutsView({
-  settlements,
-  approvals,
-  halts,
-  loadedAt,
-  state,
-  setState,
-  asset,
-  setAsset,
-  q,
-  setQ,
-  retry,
-}: {
-  settlements: Resource<Settlement[]>;
-  approvals: Resource<Approval[]>;
-  halts: Resource<HaltStatus>;
-  loadedAt: string | null;
-  state: string;
-  setState: (value: string) => void;
-  asset: string;
-  setAsset: (value: string) => void;
-  q: string;
-  setQ: (value: string) => void;
-  retry: () => void;
-}) {
-  const { t } = portalCopy.useCopy();
-  const searchHintId = useId();
-  // A payout's approval state comes from a second read. If that read fails the payouts still show, with a note, rather than being hidden.
-  const all: PayoutRow[] =
-    settlements.status === 'ready' ? payoutRows(settlements.data, approvals.status === 'ready' ? approvals.data : null) : [];
-  const rows = all.filter(
-    (r) =>
-      (!state || r.state === state) &&
-      (!asset || r.assetId === asset) &&
-      matchesSearch([r.settlementId, r.window, r.payoutRef, r.payoutMethod], q),
-  );
-  const paid = all.filter((r) => r.state === 'paid_out');
-  const waiting = all.filter((r) => r.state === 'awaiting_approval');
-  const failed = all.filter((r) => r.state === 'failed');
-  const clear = () => {
-    setState('');
-    setAsset('');
-    setQ('');
-  };
-  const exportCsv = () =>
-    downloadText(
-      'payouts.csv',
-      buildCsv(
-        ['payout_id', 'window', 'asset', 'amount', 'state', 'payout_method', 'transaction_reference'],
-        rows.map((r) => [r.settlementId, r.window, r.assetId, r.amount, r.state, r.payoutMethod ?? '', r.payoutRef ?? '']),
-        { generatedAt: new Date().toISOString(), asOf: loadedAt ?? '' },
-      ),
-    );
+  const readAt = useReadAt(list.state.status === 'ready', list.state);
+  const rows = list.state.status === 'ready' ? list.state.items : [];
+  const assets = [...new Set(rows.map((r) => r.assetId))].sort();
+  const p = pending.resource.status === 'ready' ? pending.resource.data : null;
+  const approvals = p ? approvalsBySettlement('items' in p ? p.items : p) : null;
+  const c = counts.resource.status === 'ready' ? counts.resource.data : undefined;
+  const count = (x: { n: number; more: boolean } | undefined) => (x ? (x.more ? t('countNewest', { n: x.n }) : String(x.n)) : '—');
+  const waitingN = p ? ('items' in p ? p.items : p).length : null;
   return (
     <div className="stack">
-      <HaltBanner resource={halts} scopes={['payout']} />
-      <PaySection title={t('payoutsKpiTitle')} description={t('payoutsKpiBody')}>
-        {settlements.status === 'loading' ? (
-          <PortalLoading rows={2} />
-        ) : settlements.status === 'failed' ? (
-          <PortalFailure result={settlements.failure} retry={retry} />
-        ) : (
-          <>
-            <ReadAt at={loadedAt} />
-            <KpiGrid label={t('payoutsKpiTitle')}>
-              <Kpi label={t('kpiPaidOut')} value={paid.length} note={t('kpiPaidOutNote')} href="/pay/payouts?state=paid_out" />
-              <Kpi
-                label={t('kpiInApproval')}
-                value={approvals.status === 'ready' ? waiting.length : '—'}
-                note={approvals.status === 'ready' ? undefined : t('kpiApprovalUnknown')}
-                tone={waiting.length > 0 ? 'attention' : undefined}
-                href="/pay/approvals"
-              />
-              <Kpi
-                label={t('kpiFailedPayouts')}
-                value={failed.length}
-                tone={failed.length > 0 ? 'attention' : undefined}
-                href="/pay/payouts?state=failed"
-              />
-              <Kpi label={t('kpiInTransit')} value="—" note={t('kpiInTransitSoon')} />
-              <Kpi
-                label={t('kpiPaidOutAmount')}
-                value={<MoneyLines items={sumByAsset(paid)} />}
-                note={t('kpiLoadedNote', { count: all.length })}
-              />
-            </KpiGrid>
-          </>
-        )}
-      </PaySection>
-
-      <PaySection title={t('payoutsTitle')} description={t('payoutsBody')}>
-        <div className="pp-filter-row pp-payout-filters" role="search" aria-label={t('payoutsFilters')}>
-          <PayoutFilter
-            label={t('filterState')}
-            value={state}
-            onChange={setState}
-            options={[['', t('filterAll')], ...payoutStates.map((s) => [s, t(`chipPayout_${s}` as 'chipPayout_ready')] as const)]}
-          />
-          <PayoutFilter
-            label={t('filterAsset')}
-            value={asset}
-            onChange={setAsset}
-            options={[['', t('filterAll')], ...assetsIn(all.map((r) => ({ assetId: r.assetId }))).map((a) => [a, a] as const)]}
-          />
-          <Field
-            label={t('searchPayouts')}
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            maxLength={200}
-            aria-describedby={searchHintId}
-          />
-          <Button variant="secondary" onClick={exportCsv} disabled={rows.length === 0}>
-            {t('downloadCsv')}
+      <HaltBanner resource={halts.resource} scopes={['payout']} />
+      <TestBanner />
+      <Freshness asOf={readAt} />
+      <KpiStrip
+        label={t('payTiles')}
+        tiles={[
+          { label: t('payReady'), period: t('periodNow'), href: '/pay/payouts?status=posted', value: count(c?.posted) },
+          {
+            label: t('payWaiting'),
+            period: t('periodNow'),
+            href: '/pay/approvals?status=pending',
+            value: waitingN === null ? '—' : String(waitingN),
+            tone: waitingN ? 'attention' : undefined,
+          },
+          { label: t('payPaid'), period: t('periodNewest'), href: '/pay/payouts?status=paid_out', value: count(c?.paid_out) },
+          {
+            label: t('payFailed'),
+            period: t('periodNow'),
+            href: '/pay/payouts?status=failed',
+            value: count(c?.failed),
+            tone: c && c.failed.n > 0 ? 'attention' : undefined,
+          },
+          { label: t('payNotReady'), period: t('periodNow'), href: '/pay/payouts?status=pending', value: count(c?.pending) },
+        ]}
+      />
+      <FilterRow
+        filters={filters}
+        label={t('payFilters')}
+        statuses={PAYOUT_STATUSES.map((s) => [s, t(`chipPayout_${stateOfStatus[s]}` as 'chipPayout_ready')] as const)}
+        assets={assets}
+        shown={rows.length}
+        hasMore={list.state.status === 'ready' && list.state.hasMore}
+      />
+      <ExportButton
+        portal={portal}
+        kind="payouts"
+        query={query}
+        fallback={
+          <Button
+            variant="secondary"
+            disabled={rows.length === 0}
+            onClick={() =>
+              downloadText(
+                'payouts-this-page.csv',
+                buildCsv(
+                  ['settlement_id', 'created', 'asset', 'net_paid', 'status', 'payout_method', 'payout_reference'],
+                  rows.map((r) => [r.id, r.createdAt, r.assetId, r.net, r.status, r.payoutMethod ?? '', r.payoutReference ?? '']),
+                  { generatedAt: new Date().toISOString(), asOf: readAt ?? '' },
+                ),
+              )
+            }
+          >
+            {t('exportThisPage')}
           </Button>
-        </div>
-        <p id={searchHintId} className="muted pp-note">
-          {t('searchPayoutsHint')}
-        </p>
-        <p className="muted pp-note">{t('payoutsDestinationSoon')}</p>
-        {approvals.status === 'failed' && (
-          <div className="pp-callout" role="status">
-            {t('payoutsApprovalsUnavailable')}
-          </div>
-        )}
-        {settlements.status === 'ready' &&
-          (all.length === 0 ? (
-            <EmptyState
-              title={t('payoutsEmptyTitle')}
-              action={
-                <a className="text-link" href="/pay/settlements">
-                  {t('seeSettlements')}
-                </a>
-              }
-            >
-              {t('payoutsEmptyBody')}
-            </EmptyState>
-          ) : rows.length === 0 ? (
-            <EmptyState
-              title={t('payoutsNoMatchTitle')}
-              action={
-                <Button variant="secondary" onClick={clear}>
-                  {t('clearFilters')}
-                </Button>
-              }
-            >
-              {t('payoutsNoMatchBody', { count: all.length })}
-            </EmptyState>
-          ) : (
-            <>
-              <DataTable
-                label={t('payoutsTitle')}
-                headers={[t('colPayout'), t('colAsset'), t('colAmount'), t('colStatus'), t('colTransaction'), t('colMethod')]}
-              >
-                {rows.map((r) => (
-                  <tr key={r.settlementId}>
-                    <th scope="row">
-                      <a className="text-link" href={payoutHref(r.settlementId)} aria-label={t('openPayoutAria', { window: r.window })}>
-                        {r.window}
-                      </a>
-                      <small className="pay-cell-note pp-mono">{shortId(r.settlementId)}</small>
-                    </th>
-                    <td>{r.assetId}</td>
-                    <td>
-                      <Money value={r.amount} asset={r.assetId} />
-                    </td>
-                    <td>
-                      <Chip kind="payout" value={r.state} />
-                      {r.state === 'awaiting_approval' && (
-                        <small className="pay-cell-note">
-                          {r.approval && isCheckedPending(r.approval) ? t('waitingFromIntafaced') : t('waitingFromRoles')}
-                        </small>
-                      )}
-                      {r.state === 'failed' && <small className="pay-cell-note">{t('failedNextStep')}</small>}
-                    </td>
-                    <td>
-                      {r.payoutRef ? <span className="pp-mono">{r.payoutRef}</span> : <span className="muted">{t('notPaidYet')}</span>}
-                    </td>
-                    <td>{r.payoutMethod ?? '—'}</td>
-                  </tr>
-                ))}
-              </DataTable>
-              <div className="pp-more">
-                <p className="muted" role="status">
-                  {rows.length === all.length
-                    ? t('rowsAll', { count: all.length })
-                    : t('payoutsNarrowed', { shown: rows.length, loaded: all.length })}
-                </p>
-                {settlements.data.length >= 200 && (
-                  <a className="text-link" href="/pay/exports">
-                    {t('olderInExports', { max: 200 })}
-                  </a>
-                )}
-              </div>
-            </>
-          ))}
-      </PaySection>
+        }
+      />
+      <ListBody
+        state={list.state}
+        retry={() => list.reload()}
+        onMore={list.loadMore}
+        filtered={{
+          active: Boolean(filters.search || filters.status || filters.date || filters.asset),
+          clear: () => {
+            filters.setSearch('');
+            filters.setStatus('');
+            filters.setDate('');
+            filters.setAsset('');
+          },
+        }}
+        empty={{
+          title: t('payEmptyTitle'),
+          body: t('payEmptyBody'),
+          action: <LinkButton href="/pay/settlements">{t('payEmptyAction')}</LinkButton>,
+        }}
+        label={t('payTable')}
+        rowKey={(r) => r.id}
+        href={(r) => `/pay/payouts/${encodeURIComponent(r.id)}`}
+        columns={[
+          { header: t('colPayout'), cell: (r) => payoutName(t, locale, r, approvals?.get(r.id)) },
+          { header: t('colAmount'), cell: (r) => <MoneyText value={r.net} asset={r.assetId} test={test} /> },
+          {
+            header: t('colStatus'),
+            cell: (r) => {
+              const a = approvals?.get(r.id);
+              const w = a ? waitingFrom(a) : null;
+              return (
+                <>
+                  <StatusChip entity="payout" value={payoutRowState(r, approvals)} />
+                  {w && r.status === 'posted' && <small className="pay-cell-note">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small>}
+                </>
+              );
+            },
+          },
+          { header: t('colCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
+          { header: t('colTransaction'), cell: (r) => (r.payoutReference ? <span className="pp-mono">{r.payoutReference}</span> : <span className="muted">{t('notPaidYet')}</span>) },
+        ]}
+        card={(r) => ({
+          title: payoutName(t, locale, r, approvals?.get(r.id)),
+          time: <DateTime value={r.createdAt} />,
+          amount: <MoneyText value={r.net} asset={r.assetId} test={test} />,
+          status: <StatusChip entity="payout" value={payoutRowState(r, approvals)} />,
+        })}
+      />
     </div>
   );
 }
 
-/** Match the redesign Field label, gap and 40px control height. */
-function PayoutFilter({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: ReadonlyArray<readonly [string, string]>;
-}) {
-  const labelId = useId();
-  return (
-    <div data-slot="field" className="flex min-w-0 flex-col gap-2 text-sm text-fg-2">
-      <span id={labelId}>{label}</span>
-      <Select items={Object.fromEntries(options)} value={value} onValueChange={(next) => onChange(next ?? '')}>
-        <SelectTrigger aria-labelledby={labelId} className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map(([key, text]) => (
-            <SelectItem key={key} value={key}>
-              {text}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-/** Per-asset totals of the payouts shown, by exact integer arithmetic. Two assets are never added together. */
-function sumByAsset(rows: readonly PayoutRow[]) {
-  const by = new Map<string, bigint>();
-  for (const r of rows) by.set(r.assetId, (by.get(r.assetId) ?? 0n) + toScaled(r.amount));
-  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([assetCode, v]) => ({ assetCode, amount: fromScaled(v) }));
-}
 // ---- detail ---------------------------------------------------------------------------------------------
 
+/** `/pay/payouts/:id` (the id is the settlement's): who asked, who approved, your limit, and what happened to the money. */
 export function PayoutDetailPage({
   portal,
   merchantId,
   payoutId,
   role,
-  merchant,
 }: {
   portal: PortalApi;
   merchantId: string;
   payoutId: string;
   role: RoleLike;
-  merchant: MerchantRecord | null;
 }) {
   const valid = isUuid(payoutId);
   const settlement = useResource(
     (s) => (valid ? portal.settlement(payoutId, s) : Promise.resolve(portalRefusal('rPayoutNotFound'))),
-    `portal:payout:${payoutId}`,
+    `money:payout:${payoutId}`,
   );
-  const approvals = useResource((s) => portal.approvals(merchantId, '', s), `portal:payout-approvals:${merchantId}`);
-  const usage = useResource((s) => portal.usage(merchantId, s), `portal:usage:${merchantId}`);
-  const halts = useResource((s) => portal.haltStatus(merchantId, s), `portal:halts:${merchantId}`);
+  const lifecycle = useResource(
+    (s) => (valid ? portal.settlementLifecycle(payoutId, s) : Promise.resolve(portalRefusal('rPayoutNotFound'))),
+    `money:payout-lifecycle:${payoutId}`,
+  );
+  const approvals = useResource(async (s) => {
+    const page = await portal.approvalPage(merchantId, {}, undefined, s);
+    return page.ok ? { ok: true as const, data: ('items' in page.data ? page.data.items : page.data).filter((a) => a.settlementId === payoutId) } : page;
+  }, `money:payout-approvals:${payoutId}`);
+  const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
+  const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   const now = useNow();
   const names = useMemberNames(portal);
+  const readAt = useReadAt(settlement.resource.status === 'ready', settlement.resource);
+  const reload = () => {
+    settlement.reload();
+    lifecycle.reload();
+    approvals.reload();
+    usage.reload();
+    halts.reload();
+  };
   return (
     <PayoutDetailView
       portal={portal}
       settlement={settlement.resource}
+      lifecycle={lifecycle.resource}
       approvals={approvals.resource}
       usage={usage.resource}
       halts={halts.resource}
-      me={portal.userId}
       role={role}
       now={now}
       names={names}
-      testValues={merchant === null || merchant.kybStatus !== 'approved'}
-      reload={() => {
-        settlement.reload();
-        approvals.reload();
-        usage.reload();
-        halts.reload();
-      }}
+      readAt={readAt}
+      reload={reload}
     />
   );
 }
@@ -363,134 +275,137 @@ export function PayoutDetailPage({
 export function PayoutDetailView({
   portal,
   settlement,
+  lifecycle,
   approvals,
   usage,
   halts,
-  me,
   role,
   now,
-  names = new Map(),
-  testValues,
+  names,
+  readAt,
   reload,
 }: {
   portal: PortalApi;
   settlement: Resource<Settlement>;
+  lifecycle: Resource<Lifecycle>;
   approvals: Resource<Approval[]>;
   usage: Resource<Usage>;
-  halts: Resource<HaltStatus>;
-  me: string | null;
+  halts: Resource<import('../schemas').HaltStatus>;
   role: RoleLike;
   now: number;
-  names?: ReadonlyMap<string, string>;
-  testValues: boolean;
+  names: ReadonlyMap<string, string>;
+  readAt: string | null;
   reload: () => void;
 }) {
-  const { t } = portalCopy.useCopy();
+  const { t } = mc.useCopy();
+  const locale = uiCopy.useCopy().requestedLocale;
+  const test = useTestMode();
+  const me = portal.userId;
+  const destination = useApprovalDestination();
   return (
     <div className="stack">
-      <BackLink href="/pay/payouts">{t('backToPayouts')}</BackLink>
       <HaltBanner resource={halts} scopes={['payout']} />
       <Gate resource={settlement} retry={reload} rows={5}>
         {(s) => {
-          const trail = (approvals.status === 'ready' ? approvals.data : [])
-            .filter((a) => a.settlementId === s.id)
-            .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+          const trail = approvals.status === 'ready' ? [...approvals.data].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)) : [];
           const latest = approvals.status === 'ready' ? latestApproval(approvals.data, s.id) : null;
-          const state = payoutState(s, latest, approvals.status === 'ready');
-          const events = trail.flatMap((a) => approvalEvents(a, t, names));
+          const state: PayoutState = payoutState(s, latest, approvals.status === 'ready');
+          const lc = lifecycle.status === 'ready' ? lifecycle.data : null;
+          const dest = lc?.destination
+            ? describeDestination(t, lc.destination.kind, lc.destination.destinationMasked, lc.destination.railId)
+            : latest
+              ? destination(latest)
+              : null;
+          const action =
+            state === 'ready' ? (
+              <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
+                {t('pdoRequest')}
+              </LinkButton>
+            ) : state === 'awaiting_approval' ? (
+              <LinkButton variant="primary" href="/pay/approvals?status=pending">
+                {t('pdoReview')}
+              </LinkButton>
+            ) : undefined;
           return (
             <>
+              <DetailHeader
+                back={{ href: '/pay/payouts', label: t('backPayouts') }}
+                title={<Money value={s.net} asset={s.assetId} />}
+                status={<StatusChip entity="payout" value={state} />}
+                subtitle={payoutName(t, locale, { createdAt: s.createdAt ?? s.settledAt ?? s.sentAt ?? new Date(0).toISOString() }, latest)}
+                action={action}
+              />
+              <TestBanner />
+              <Freshness asOf={readAt} />
               {latest?.status === 'voided' && (
                 <p className="pp-callout pp-callout--warn" role="alert">
                   {t('voidBanner')}
                 </p>
               )}
-              <PaySection title={t('keyFacts')} description={t('payoutFactsBody')}>
+              {state === 'failed' && (
+                <p className="pp-callout pp-callout--warn" role="alert">
+                  {lc?.failure?.message ?? s.failure?.message ?? t('payoutFailedBody')}
+                </p>
+              )}
+              {state === 'not_ready' && <p className="pp-callout">{t('payoutNotReadyBody')}</p>}
+
+              <PaySection title={t('pdoFactsTitle')}>
                 <Facts
                   items={[
-                    [t('colPayout'), <span className="pp-mono pp-copy">{s.id}</span>],
-                    [t('colStatus'), <Chip kind="payout" value={state} />],
-                    [t('colAmount'), <Money value={s.net} asset={s.assetId} />],
-                    [t('colWindow'), s.window],
+                    [t('colStatus'), <StatusChip entity="payout" value={state} />],
+                    [t('colAmount'), <MoneyText value={s.net} asset={s.assetId} test={test} />],
+                    [t('apvTo'), dest ?? <span className="muted">{t('apvToUnknown')}</span>],
+                    ...(lc?.fee != null ? ([[t('pdoFee'), <MoneyText value={lc.fee} asset={s.assetId} test={test} />]] as const) : []),
+                    [t('pdoScreening'), <NotConfigured>{t('pdoScreeningNone')}</NotConfigured>],
                     [t('payoutMethod'), s.payoutMethod ?? <span className="muted">{t('notPaidYet')}</span>],
                     [
                       t('colTransaction'),
-                      s.payoutRef ? (
-                        <span className="pp-mono pp-copy">{s.payoutRef}</span>
-                      ) : (
-                        <span className="muted">{t('notPaidYet')}</span>
-                      ),
+                      s.payoutRef ? <CopyReference value={s.payoutRef} what={t('colTransaction')} /> : <span className="muted">{t('notPaidYet')}</span>,
                     ],
-                    [
-                      t('colSettlement'),
-                      <a className="text-link" href={settlementHref(s.id)}>
-                        {t('openStatement')}
-                      </a>,
-                    ],
+                    [t('stlId'), <CopyReference value={s.id} what={t('stlId')} />],
                   ]}
                 />
-                {state === 'failed' && (
-                  <p className="pp-callout pp-callout--warn" role="alert">
-                    {t('payoutFailedBody')}{' '}
-                    <a className="text-link" href="/pay/notifications">
-                      {t('navNotifications')}
-                    </a>
-                  </p>
-                )}
-                {state === 'not_ready' && <p className="pp-callout">{t('payoutNotReadyBody')}</p>}
               </PaySection>
 
-              <PaySection title={t('payoutTimelineTitle')} description={t('payoutTimelineBody')}>
-                {approvals.status === 'loading' ? (
+              <PaySection title={t('pdoTimelineTitle')} description={t('pdoTimelineBody')}>
+                {lifecycle.status === 'loading' || approvals.status === 'loading' ? (
                   <PortalLoading rows={3} />
-                ) : approvals.status === 'failed' ? (
+                ) : lifecycle.status === 'ready' ? (
+                  <LifecycleTrail lifecycle={lifecycle.data} approvals={trail} me={me} names={names} />
+                ) : approvals.status === 'failed' && !isComingSoon(approvals.failure) ? (
                   <PortalFailure result={approvals.failure} retry={reload} />
-                ) : events.length === 0 ? (
-                  <p className="muted">{t('noApprovalYet')}</p>
                 ) : (
-                  <Timeline label={t('payoutTimelineTitle')} items={events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))} />
+                  <Trail events={fallbackEvents(t, s, trail, me, names)} />
                 )}
               </PaySection>
 
-              <PaySection title={t('trailTitle')} description={t('trailBody')}>
-                {approvals.status === 'ready' && trail.length > 0 ? (
-                  <DataTable
-                    label={t('trailTitle')}
-                    headers={[
-                      t('colStatus'),
-                      t('requestedBy'),
-                      t('decidedBy'),
-                      t('colRequested'),
-                      t('colDecided'),
-                      t('colExpires'),
-                      t('fingerprint'),
-                    ]}
-                  >
+              <PaySection title={t('pdoAttemptsTitle')} description={t('pdoAttemptsBody')}>
+                {approvals.status === 'ready' && trail.length === 0 && <p className="muted">{t('noApprovalYet')}</p>}
+                {approvals.status === 'ready' && trail.length > 0 && (
+                  <ul className="pp-approvals" aria-label={t('pdoAttemptsTitle')}>
                     {trail.map((a) => (
-                      <tr key={a.approvalId}>
-                        <th scope="row">
-                          <Chip kind="approval" value={a.status} />
-                        </th>
-                        <td className="pp-mono">{a.makerUserId === me ? t('you') : actorName(a.makerUserId, names)}</td>
-                        <td className="pp-mono">
-                          {a.checkerUserId ? (a.checkerUserId === me ? t('you') : actorName(a.checkerUserId, names)) : '—'}
-                        </td>
-                        <td>
-                          <PayTime value={a.createdAt} />
-                        </td>
-                        <td>{a.decidedAt ? <PayTime value={a.decidedAt} /> : '—'}</td>
-                        <td>
-                          <PayTime value={a.expiresAt} />
-                        </td>
-                        <td className="pp-mono" title={a.payloadHash}>
+                      <li key={a.approvalId} className="pp-approval">
+                        <div className="pp-approval-head">
+                          <strong className="pp-approval-amount">
+                            <MoneyText value={a.amount} asset={a.assetCode} test={test} />
+                          </strong>
+                          <StatusChip entity="approval" value={a.status} />
+                          <small className="muted">
+                            {t('requestedBy')} {whoIs(a.makerUserId, me, names, t('you'))} · <DateTime value={a.createdAt} />
+                          </small>
+                          {a.status === 'pending' && (
+                            <span className="pp-agechip">
+                              {t('expiresIn')} <SpanText ms={Date.parse(a.expiresAt) - now} />
+                            </span>
+                          )}
+                        </div>
+                        <small className="pp-mono" title={a.payloadHash}>
                           {a.payloadHash.slice(0, 19)}…
-                        </td>
-                      </tr>
+                        </small>
+                      </li>
                     ))}
-                  </DataTable>
-                ) : approvals.status === 'ready' ? (
-                  <p className="muted">{t('noApprovalYet')}</p>
-                ) : null}
+                  </ul>
+                )}
                 {latest?.status === 'pending' && (
                   <>
                     <h3 className="pp-sub">{t('decideTitle')}</h3>
@@ -502,10 +417,20 @@ export function PayoutDetailView({
               </PaySection>
 
               <PaySection title={t('capTitle')} description={t('capBody')}>
-                <PayoutCap usage={usage} assetId={s.assetId} testValues={testValues} now={now} retry={reload} />
+                <PayoutCap usage={usage} assetId={s.assetId} test={test} retry={reload} />
               </PaySection>
 
-              <ComingSoon title={t('screeningSoonTitle')}>{t('screeningSoonBody')}</ComingSoon>
+              <RelatedLinks
+                links={[
+                  { href: settlementHref(s.id), label: t('relSettlement') },
+                  { href: '/pay/approvals', label: t('relApprovals') },
+                  { href: '/pay/payouts/destinations', label: t('relDestinations') },
+                ]}
+              />
+              <AuditPanel
+                who={latest?.checkerUserId ? whoIs(latest.checkerUserId, me, names, t('you')) : latest ? whoIs(latest.makerUserId, me, names, t('you')) : null}
+                at={latest?.decidedAt ?? latest?.createdAt ?? null}
+              />
             </>
           );
         }}
@@ -514,74 +439,30 @@ export function PayoutDetailView({
   );
 }
 
-type T = ReturnType<typeof portalCopy.useCopy>['t'];
-function approvalEvents(a: Approval, t: T, names: ReadonlyMap<string, string>) {
-  const out: Array<{ at: string; title: string; detail?: string }> = [
-    { at: a.createdAt, title: t('evRequested'), detail: t('byActor', { actor: actorName(a.makerUserId, names) }) },
-  ];
-  if (a.status === 'approved' || a.status === 'consumed')
-    out.push({
-      at: a.decidedAt ?? a.createdAt,
-      title: t('evApproved'),
-      ...(a.checkerUserId ? { detail: t('byActor', { actor: actorName(a.checkerUserId, names) }) } : {}),
-    });
-  if (a.status === 'pending' && a.checkerUserId)
-    out.push({
-      at: a.decidedAt ?? a.createdAt,
-      title: t('evCheckedWaiting'),
-      detail: t('byActor', { actor: actorName(a.checkerUserId, names) }),
-    });
-  if (a.status === 'rejected')
-    out.push({
-      at: a.decidedAt ?? a.createdAt,
-      title: t('evRejected'),
-      ...(a.checkerUserId ? { detail: t('byActor', { actor: actorName(a.checkerUserId, names) }) } : {}),
-    });
-  if (a.status === 'voided') out.push({ at: a.decidedAt ?? a.expiresAt, title: t('evVoided') });
-  if (a.status === 'expired') out.push({ at: a.expiresAt, title: t('evExpired') });
-  return out;
-}
-
-function PayoutCap({
-  usage,
-  assetId,
-  testValues,
-  now,
-  retry,
-}: {
-  usage: Resource<Usage>;
-  assetId: string;
-  testValues: boolean;
-  now: number;
-  retry: () => void;
-}) {
-  const { t } = portalCopy.useCopy();
+function PayoutCap({ usage, assetId, test, retry }: { usage: Resource<Usage>; assetId: string; test: boolean; retry: () => void }) {
+  const { t } = mc.useCopy();
   if (usage.status === 'loading') return <PortalLoading rows={2} />;
   if (usage.status === 'failed') return <PortalFailure result={usage.failure} retry={retry} />;
-  const rows = limitRows(usage.data, null).filter((r) => r.kind === 'daily_payout' && (r.assetCode === assetId || !r.configured));
-  const row = rows[0];
+  const row = limitRows(usage.data, null).find((r) => r.kind === 'daily_payout' && r.assetCode === assetId && r.configured);
+  if (!row) {
+    return (
+      <p>
+        <NotConfigured /> {t('capNotConfigured')}
+      </p>
+    );
+  }
   return (
     <>
-      <AsOf freshness={freshnessAt(usage.data.asOf, now)} />
-      {!row || !row.configured ? (
-        <p>
-          <NotConfigured /> {t('capNotConfigured')}
-        </p>
-      ) : (
-        <Facts
-          items={[
-            [
-              t('capDailyPayout'),
-              <>
-                {row.limit && <Money value={row.limit} asset={assetId} />} {testValues && <TestTag />}
-              </>,
-            ],
-            [t('capUsed'), row.used ? <Money value={row.used} asset={assetId} /> : '—'],
-            [t('capRemaining'), row.remaining ? <Money value={row.remaining} asset={assetId} /> : '—'],
-            [t('capResets'), row.resetsAt ? <PayTime value={row.resetsAt} /> : '—'],
-          ]}
-        />
-      )}
+      {row.pct !== null && <UsageBar pct={row.pct} label={t('capDailyPayout')} />}
+      <Facts
+        items={[
+          [t('capDailyPayout'), row.limit ? <MoneyText value={row.limit} asset={assetId} test={test} /> : '—'],
+          [t('capUsed'), row.used ? <MoneyText value={row.used} asset={assetId} test={test} /> : '—'],
+          [t('capRemaining'), row.remaining ? <MoneyText value={row.remaining} asset={assetId} test={test} /> : '—'],
+          [t('capResets'), row.resetsAt ? <DateTime value={row.resetsAt} /> : '—'],
+        ]}
+      />
     </>
   );
 }
+export { payoutHeadroom, EmptyState };

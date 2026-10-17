@@ -372,3 +372,6 @@ export const portalCopy = mergeCopy(sharedPortalCopy, moneyCopy, en);
 export const w3cCopy = mergeCopy(sharedW3cCopy, moneyCopy, en);
 export const extensionCopy = mergeCopy(sharedExtensionCopy, moneyCopy, en);
 export const layoutCopy = mergeCopy(sharedLayoutCopy, moneyCopy, en);
+
+/** What the money pages read their words from: the shared portal words plus this package's own. */
+export const mc = portalCopy;
