@@ -2,6 +2,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
+import { createMoneyClient } from '../money/client';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import {
@@ -323,6 +324,17 @@ function sendContextChanged() {
 }
 
 const isNotFound = (result: { reason: string; code?: string }) => result.reason === 'not_mounted' || result.code === 'p2p.trade_not_found';
+/** Only the service's own "no such order" answer. A bare 404 (a route that is not mounted) proves nothing about the order. */
+const isTradeAbsent = (result: { code?: string }) => result.code === 'p2p.trade_not_found';
+
+const placedUnderHeld = new WeakSet<object>();
+/**
+ * True for an order that a resend placed for the first time under the reference held from the earlier attempt, as
+ * opposed to one the service already had. The screen tells the two apart in words.
+ */
+export function wasPlacedUnderHeldReference(trade: object): boolean {
+  return placedUnderHeld.has(trade);
+}
 
 /** A refusal this module makes itself. The screen picks the words from `code`; this text is only a fallback. */
 function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false }>['reason']): Extract<ApiResult<never>, { ok: false }> {
@@ -469,6 +481,18 @@ export function createPersonalPayApi(
       )
         return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
       return result;
+    },
+    /**
+     * What the person can use of one asset right now: the `free` quantity from the same balance read Money shows. An
+     * asset the read does not list is held in no quantity, so it is "0". A failed read is returned as the failure.
+     */
+    availableBalance: async (asset: string, signal?: AbortSignal): Promise<ApiResult<string>> => {
+      const denied = signedIn();
+      if (denied) return denied;
+      const result = await createMoneyClient(api).balances(signal);
+      if (!result.ok) return result;
+      const key = Object.keys(result.data.balances).find((name) => name.toLowerCase() === asset.toLowerCase());
+      return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
@@ -729,7 +753,7 @@ export function createPersonalPayApi(
           if (refusal.reason === 'aborted') return refusal;
           const again = await readOrder(heldId, null);
           if (again.ok) return again;
-          if (isNotFound(again)) {
+          if (isTradeAbsent(again)) {
             proven = true;
             return refusal;
           }
@@ -740,11 +764,15 @@ export function createPersonalPayApi(
           async () => {
             const existing = await readOrder(heldId, null);
             if (existing.ok) return existing;
-            if (!isNotFound(existing)) return takeRefusal('pay.take_unconfirmed', 'uncertain');
+            if (!isTradeAbsent(existing)) return takeRefusal('pay.take_unconfirmed', 'uncertain');
             const refused = await preflight();
             if (refused) return afterRefusal(refused);
             const replayed = await place(heldId);
-            if (replayed.ok) return replayed;
+            if (replayed.ok) {
+              // The look-up just before proved there was no such order, so this one was placed by this resend.
+              placedUnderHeld.add(replayed.data);
+              return replayed;
+            }
             return takeRefusalIsDefinite(replayed) ? afterRefusal(replayed) : replayed;
           },
           current,

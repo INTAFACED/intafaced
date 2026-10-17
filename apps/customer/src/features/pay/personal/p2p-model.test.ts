@@ -3,6 +3,7 @@ import type { Offer, Trade } from '../schemas';
 import {
   checkOfferForm,
   checkTake,
+  exceedsAvailable,
   feePercent,
   isOwnOffer,
   makerSummary,
@@ -23,6 +24,7 @@ import {
   filterOrders,
   offerChanges,
   offerMethodIds,
+  placedNotice,
   offerToForm,
   orderBucket,
   orderCounts,
@@ -393,5 +395,35 @@ describe('who is on the other side', () => {
     expect(splitDuration(45)).toEqual({ unit: 'seconds', major: 45, minor: null });
     expect(splitDuration(190)).toEqual({ unit: 'minutes', major: 3, minor: 10 });
     expect(splitDuration(7500)).toEqual({ unit: 'hours', major: 2, minor: 5 });
+  });
+});
+
+describe('exceedsAvailable', () => {
+  it('compares exact decimals and only judges a complete quantity', () => {
+    expect(exceedsAvailable('530.152143', '530.152142')).toBe(true);
+    expect(exceedsAvailable('530.152142', '530.152142')).toBe(false);
+    expect(exceedsAvailable('12.5', '530.152142')).toBe(false);
+    expect(exceedsAvailable('1000000000000000000', '999999999999999999.999999999999999999')).toBe(true);
+    expect(exceedsAvailable('', '5')).toBe(false);
+    expect(exceedsAvailable('abc', '5')).toBe(false);
+    expect(exceedsAvailable('0', '0')).toBe(false);
+    expect(exceedsAvailable('1', '0')).toBe(true);
+  });
+});
+
+describe('placedNotice', () => {
+  const trade = { id: 'AAAA', price: '0.92', fiatAmount: '92' };
+  const quote = { price: '0.92', fiatAmount: '92' };
+  it('opens a new order straight away', () => {
+    expect(placedNotice({ heldReference: null, trade, quote, placedNow: false })).toBe(null);
+  });
+  it('says an order the service already had is the earlier one', () => {
+    expect(placedNotice({ heldReference: 'aaaa', trade, quote, placedNow: false })).toBe('earlier');
+  });
+  it('says a resend placed it under the earlier reference', () => {
+    expect(placedNotice({ heldReference: 'aaaa', trade, quote, placedNow: true })).toBe('resent');
+  });
+  it('puts a moved price first when a resend placed it at another price', () => {
+    expect(placedNotice({ heldReference: 'aaaa', trade: { ...trade, price: '0.93' }, quote, placedNow: true })).toBe('moved');
   });
 });

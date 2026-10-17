@@ -90,6 +90,12 @@ const en = {
   takePlacing: 'Placing your order…',
   takeBack: 'Go back',
   takeFound: 'We found your earlier order. Its details may differ from the figures you just reviewed, so check them.',
+  takeResent: 'Your order was placed under the earlier reference.',
+  takeAvailable: 'Available {amount} {asset}',
+  takeAvailableOff: 'We couldn’t read your available balance, so this quantity isn’t checked against it here.',
+  takeAboveAvailable: 'More than you have available',
+  takeSellerLabel: 'Seller',
+  takeBuyerLabel: 'Buyer',
   takeOpenOrder: 'Open your order',
   takePriceMoved:
     'Your order was placed, but the price moved after your review. It is at {price} {fiat} per {asset}, {total} {fiat} in all. You reviewed {reviewed} {fiat} per {asset}. Open it to check the details.',
@@ -298,6 +304,12 @@ const es = {
   takePlacing: 'Haciendo tu pedido…',
   takeBack: 'Volver',
   takeFound: 'Encontramos tu pedido anterior. Sus detalles pueden diferir de las cifras que acabas de revisar, así que compruébalos.',
+  takeResent: 'Tu pedido se hizo con la referencia anterior.',
+  takeAvailable: 'Disponible {amount} {asset}',
+  takeAvailableOff: 'No pudimos leer tu saldo disponible, así que aquí no se comprueba esta cantidad con él.',
+  takeAboveAvailable: 'Más de lo que tienes disponible',
+  takeSellerLabel: 'Vendedor',
+  takeBuyerLabel: 'Comprador',
   takeOpenOrder: 'Abrir tu pedido',
   takePriceMoved:
     'Tu pedido se hizo, pero el precio cambió después de tu revisión. Está a {price} {fiat} por {asset}, {total} {fiat} en total. Revisaste {reviewed} {fiat} por {asset}. Ábrelo para comprobar los detalles.',
@@ -506,6 +518,12 @@ const fr = {
   takeBack: 'Retour',
   takeFound:
     'Nous avons retrouvé votre commande précédente. Ses détails peuvent différer des chiffres que vous venez de vérifier : contrôlez-les.',
+  takeResent: 'Votre commande a été passée avec la référence précédente.',
+  takeAvailable: 'Disponible {amount} {asset}',
+  takeAvailableOff: 'Nous n’avons pas pu lire votre solde disponible ; cette quantité n’est donc pas vérifiée ici par rapport à lui.',
+  takeAboveAvailable: 'Plus que ce dont vous disposez',
+  takeSellerLabel: 'Vendeur',
+  takeBuyerLabel: 'Acheteur',
   takeOpenOrder: 'Ouvrir votre commande',
   takePriceMoved:
     'Votre commande a été passée, mais le prix a changé après votre vérification. Elle est à {price} {fiat} par {asset}, soit {total} {fiat} au total. Vous aviez vérifié {reviewed} {fiat} par {asset}. Ouvrez-la pour contrôler les détails.',

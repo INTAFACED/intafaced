@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../../shared/api';
-import { createPayMutationGuard, createPersonalPayApi } from '../pay-api';
+import { createPayMutationGuard, createPersonalPayApi, wasPlacedUnderHeldReference } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { takeRequest } from './p2p-model';
 
@@ -423,5 +423,120 @@ describe('verification and region refusals', () => {
       expect(svc.posts()).toHaveLength(0);
       expect(guard.status(journalKey)).toBe(null);
     }
+  });
+});
+
+describe('a resend under the held reference', () => {
+  const bare404 = () => new Response('', { status: 404 });
+  it('clears the stored id only on the service’s own “no such order” answer; a bare 404 is unconfirmed', async () => {
+    let posts = 0;
+    let gets = 0;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': () => (++posts === 1 ? refusal(503, 'gateway.timeout') : refusal(400, 'p2p.insufficient_offer_liquidity')),
+      // The first look-up is the service's answer; the look-up after the refusal is a bare 404 with no code.
+      'trades.get': () => (++gets <= 1 ? refusal(404, 'p2p.trade_not_found') : bare404()),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: false, reason: 'uncertain', code: 'pay.take_unconfirmed' });
+    expect(guard.status(journalKey)).toBe('uncertain');
+  });
+  it('does not resend at all when the first look-up is a bare 404', async () => {
+    let posts = 0;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': () => (++posts === 1 ? refusal(503, 'gateway.timeout') : ok(trade('x'))),
+      'trades.get': () => bare404(),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: false, reason: 'uncertain', code: 'pay.take_unconfirmed' });
+    expect(svc.posts()).toHaveLength(1);
+    expect(guard.status(journalKey)).toBe('uncertain');
+  });
+  it('marks an order that the resend placed for the first time, and not one the service already had', async () => {
+    let posts = 0;
+    let placedId: string | null = null;
+    let down = true;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': (call) => {
+        if (++posts === 1) return refusal(503, 'gateway.timeout');
+        placedId = String(call.body!.tradeId);
+        return ok(trade(placedId));
+      },
+      'trades.get': (call) =>
+        down
+          ? refusal(503, 'gateway.timeout')
+          : placedId === String(call.input!.tradeId)
+            ? ok(trade(placedId))
+            : refusal(404, 'p2p.trade_not_found'),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    down = false;
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: true });
+    if (again.ok) expect(wasPlacedUnderHeldReference(again.data)).toBe(true);
+
+    // The first attempt did land: the resend finds it and places nothing.
+    const landed = (() => {
+      let id = '';
+      let n = 0;
+      return service({
+        'offers.get': () => ok(offer()),
+        'trades.quote': () => ok(quote()),
+        'trades.take': (call) => {
+          if (++n === 1) id = String(call.body!.tradeId);
+          return refusal(503, 'gateway.timeout');
+        },
+        'trades.get': (call) => (n > 0 && String(call.input!.tradeId) === id && !down2() ? ok(trade(id)) : refusal(503, 'gateway.timeout')),
+      });
+    })();
+    let isDown = true;
+    function down2() {
+      return isDown;
+    }
+    const second = fresh();
+    const pay2 = createPersonalPayApi(landed.api, ME, second.guard);
+    await pay2.takeOffer(offer(), asked(), reviewed());
+    isDown = false;
+    const found = await pay2.takeOffer(offer(), asked(), reviewed());
+    expect(found).toMatchObject({ ok: true });
+    if (found.ok) expect(wasPlacedUnderHeldReference(found.data)).toBe(false);
+  });
+});
+
+describe('the seller’s available balance', () => {
+  const balance = (balances: Record<string, { free: string; used: string; total: string }>) =>
+    service({ balance: () => new Response(JSON.stringify({ timestamp: 1, datetime: '2026-10-18T10:00:00.000Z', balances })) });
+  it('reads the free quantity of the asset from the account balance read', async () => {
+    const svc = balance({ USDT: { free: '530.152142', used: '10', total: '540.152142' } });
+    const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
+    expect(await pay.availableBalance('USDT')).toEqual({ ok: true, data: '530.152142' });
+  });
+  it('treats an asset the read does not list as none held', async () => {
+    const svc = balance({ BTC: { free: '1', used: '0', total: '1' } });
+    const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
+    expect(await pay.availableBalance('USDT')).toEqual({ ok: true, data: '0' });
+  });
+  it('returns the failure when the read fails, and reads nothing when signed out', async () => {
+    const down = service({ balance: () => new Response('', { status: 503 }) });
+    expect(await createPersonalPayApi(down.api, ME, fresh().guard).availableBalance('USDT')).toMatchObject({ ok: false });
+    const out = service({});
+    expect(await createPersonalPayApi(out.api, null, fresh().guard).availableBalance('USDT')).toMatchObject({
+      ok: false,
+      reason: 'unauthorized',
+    });
+    expect(out.calls).toHaveLength(0);
   });
 });

@@ -9,7 +9,8 @@ import type { Offer, TakeQuote, Trade } from '../schemas';
 import { createPayMutationGuard, createPersonalPayApi, type PersonalPayApi } from '../pay-api';
 import { OfferForm } from './OfferForm';
 import { DisputeProgress, EscrowPath, OfferTabs, OrderChat, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
-import { TakeFailureNote, TakeQuoteDetails } from './TakeOffer';
+import { TakeAvailable, TakeFailureNote, TakeQuoteDetails, TakeReviewDetails } from './TakeOffer';
+import { CounterpartyMetrics, CounterpartyName } from '../P2PCounterparty';
 import { TraderName, TraderSummary } from './Trader';
 
 const BUYER = 'b0000000-0000-4000-8000-000000000001';
@@ -256,4 +257,92 @@ it('loads the live offer before showing the edit form', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="edit" offerId="a0000000-0000-4000-8000-000000000009" />);
   expect(out).toContain('Editing a published offer is off');
   expect(out).not.toContain('data-testid="offer-submit"');
+});
+
+const reputation = (over: Partial<import('../schemas').Reputation> = {}): import('../schemas').Reputation => ({
+  tradesTotal: 0,
+  completed: 0,
+  cancelled: 0,
+  disputed: 0,
+  disputesLost: 0,
+  completionRate: 0,
+  avgReleaseSecs: 0,
+  badges: [],
+  merchant: null,
+  handle: null,
+  memberSince: null,
+  ...over,
+});
+
+it('shows a dash and “No trades yet” for a trader with no history, never 0% or 0s', () => {
+  const out = renderToString(<CounterpartyMetrics data={reputation()} />);
+  expect(out).toContain('—');
+  expect(out).toContain('No trades yet');
+  expect(out).not.toContain('0%');
+  expect(out).not.toMatch(/>0<|0\s*s</);
+  expect(out).not.toContain('shows zero');
+});
+
+it('shows the real rate and release time once there are completed trades, and a dash for release when none completed', () => {
+  const record = renderToString(
+    <CounterpartyMetrics data={reputation({ tradesTotal: 10, completed: 8, cancelled: 2, completionRate: 0.8, avgReleaseSecs: 190 })} />,
+  );
+  expect(record).toContain('80%');
+  expect(record).toContain('190');
+  expect(record).toContain('8 of 10');
+  const cancelledOnly = renderToString(
+    <CounterpartyMetrics data={reputation({ tradesTotal: 2, completed: 0, cancelled: 2, completionRate: 0 })} />,
+  );
+  expect(cancelledOnly).toContain('0%');
+  expect(cancelledOnly).toContain('No completed trades yet');
+});
+
+it('names the counterparty by handle, or “Member”, and never by account id', () => {
+  const named = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ handle: 'test_friend' }) }} />);
+  expect(named).toContain('@test_friend');
+  const unnamed = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation() }} />);
+  expect(unnamed).toContain('Member');
+  const failed = renderToString(
+    <CounterpartyName resource={{ status: 'failed', failure: { ok: false, reason: 'error', message: 'x' } }} />,
+  );
+  expect(failed).toContain('Member');
+  expect(renderToString(<CounterpartyName resource={{ status: 'loading' }} />)).toBe('');
+});
+
+it('puts the payment method and the counterparty in the order review, on both sides', () => {
+  const buying = renderToString(
+    <TakeReviewDetails offer={offer} quote={quote} methodLabel="SEPA bank transfer" counterparty={<TraderName record={null} />} />,
+  );
+  expect(buying).toContain('Seller');
+  expect(buying).toContain('Member');
+  expect(buying).toContain('Payment method');
+  expect(buying).toContain('SEPA bank transfer');
+  expect(buying).toContain('99.7 USDT');
+  const selling = renderToString(
+    <TakeReviewDetails
+      offer={{ ...offer, side: 'buy' }}
+      quote={quote}
+      methodLabel="Wise"
+      counterparty={<TraderName record={{ ok: true, data: reputation({ handle: 'test_friend' }) }} />}
+    />,
+  );
+  expect(selling).toContain('Buyer');
+  expect(selling).toContain('@test_friend');
+  expect(selling).toContain('Wise');
+});
+
+it('shows the seller’s available balance, or says it could not be read', () => {
+  expect(renderToString(<TakeAvailable state={{ ok: true, data: '530.152142' }} asset="USDT" />)).toContain('Available 530.152142 USDT');
+  expect(renderToString(<TakeAvailable state={{ ok: false, reason: 'error', message: 'x' }} asset="USDT" />)).toContain(
+    'couldn’t read your available balance',
+  );
+  expect(renderToString(<TakeAvailable state="loading" asset="USDT" />)).toBe('');
+  expect(renderToString(<TakeAvailable state={null} asset="USDT" />)).toBe('');
+});
+
+it('shows the available line only on the selling side of the order form', () => {
+  const selling = renderToString(<TakeOfferPanel offer={{ ...offer, side: 'buy' }} pay={payFor(BUYER)} userId={BUYER} />);
+  expect(selling).toContain('Quantity in USDT');
+  const buying = renderToString(<TakeOfferPanel offer={offer} pay={payFor(BUYER)} userId={BUYER} />);
+  expect(buying).not.toContain('take-available');
 });
