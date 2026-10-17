@@ -6,8 +6,9 @@ vi.mock('../../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
+import { plainCode } from './plain-code';
 import { PortalFailure } from '../components';
-import { isComingSoon, knownRefusalCodes, refusalText, registerNotLive, registerRefusals } from '../refusal';
+import { isNotLive, knownRefusalCodes, refusalText, registerNotLive, registerRefusals } from '../refusal';
 import { AuditPanel } from './AuditPanel';
 import { CopyReference } from './CopyReference';
 import { DateTime, formatDateTime } from './DateTime';
@@ -188,10 +189,22 @@ describe('failures and refusals', () => {
     expect(() => registerRefusals({ 'pay.dispute_closed': () => 'again' })).toThrow(/twice/);
     expect(new Set(knownRefusalCodes()).size).toBe(knownRefusalCodes().length);
   });
-  it('treats a switched-off feature as Coming soon', () => {
-    registerNotLive(['pay.test_feature_off']);
-    expect(isComingSoon(failure({ code: 'pay.test_feature_off' }))).toBe(true);
-    expect(isComingSoon(failure({ code: 'pay.dispute_closed' }))).toBe(false);
-    expect(renderToString(<PortalFailure result={failure({ code: 'pay.test_feature_off' })} />)).toContain('Coming soon');
+  it('shows a switched-off feature as a card that names what it is waiting for', () => {
+    registerNotLive({ 'pay.test_feature_off': () => 'Waiting for the TEST thing' });
+    expect(isNotLive(failure({ code: 'pay.test_feature_off' }))).toBe(true);
+    expect(isNotLive(failure({ code: 'pay.dispute_closed' }))).toBe(false);
+    expect(renderToString(<PortalFailure result={failure({ code: 'pay.test_feature_off' })} />)).toContain('Waiting for the TEST thing');
+    expect(renderToString(<PortalFailure result={failure({ code: 'pay.test_feature_off' })} notLive="Page-specific reason" />)).toContain(
+      'Page-specific reason',
+    );
+    expect(renderToString(<PortalFailure result={failure({ code: 'pay.not_built' })} />)).toContain('INTAFACED hasn’t switched this on');
+  });
+});
+
+describe('plainCode', () => {
+  it('says a code as words, and leaves a scheme number alone', () => {
+    expect(plainCode('product_not_received')).toBe('Product not received');
+    expect(plainCode('4853')).toBe('4853');
+    expect(plainCode('fraudulent')).toBe('fraudulent');
   });
 });

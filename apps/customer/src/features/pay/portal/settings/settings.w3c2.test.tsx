@@ -6,6 +6,7 @@ vi.mock('../../../../shared/preferences', async (original) => {
 });
 import { Settings } from './Settings';
 import { parsePortalRoute } from '../routes';
+import { notLiveWords } from '../ui/test-words';
 it('registers profile, security and notification settings routes', () => {
   expect(parsePortalRoute('/pay/settings')).toEqual({ room: 'settings' });
   expect(parsePortalRoute('/pay/settings/profile')).toEqual({ room: 'settings' });
@@ -17,7 +18,7 @@ it('registers profile, security and notification settings routes', () => {
 it('does not substitute checkout configuration for a business identity update', () => {
   const out = renderToString(<Settings merchant={null} />);
   expect(out).toContain('update your business name');
-  expect(out).toContain('Coming soon');
+  expect(out).toMatch(notLiveWords);
   expect(out).toMatch(/<button[^>]*disabled/);
   expect(out).not.toContain('<input');
 });

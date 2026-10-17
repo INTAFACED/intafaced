@@ -11,6 +11,7 @@ import type { Resource } from '../../../../shared/resource';
 import { PaymentDetailView, PaymentsView } from './Payments';
 import { portalRefusal } from '../refusal';
 import * as p from '../schemas';
+import { notLiveWords } from '../ui/test-words';
 const html = (node: ReactElement) => renderToString(node);
 const loading = { status: 'loading' } as const;
 const ready = <T,>(data: T): Resource<T> => ({ status: 'ready', data });
@@ -150,7 +151,7 @@ describe('payments list (P06)', () => {
     const refused = view({ list: forbidden, snapshot: forbidden });
     expect(refused).toContain('Your account does not have access to this.');
     expectPlain(refused);
-    expect(view({ snapshot: soon })).toContain('Coming soon');
+    expect(view({ snapshot: soon })).toMatch(notLiveWords);
   });
   it('says it could not check when the pause read fails, is refused, or is unavailable, and never reads that as "nothing paused"', () => {
     for (const halts of [down, forbidden, soon, failed('pay.merchant_ops_unavailable', 503, 'unreachable')]) {
@@ -222,7 +223,7 @@ describe('payment detail (P07)', () => {
   it('says what is not built: fee, net and the pricing rule that applied', () => {
     const out = view();
     expect(out).toContain('Fee, net and the price that applied');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
     expect(out).toContain('href="/pay/pricing"');
   });
   it('shows a dispute card with a link, and says when a disputed payment has no linked dispute', () => {

@@ -1,5 +1,6 @@
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button } from '@intafaced/ui';
+import { reason } from '../chrome/copy';
 import { PayDetails, PaySection } from '../../components';
 import { HaltBanner } from '../components';
 import { Arrives, CopyReference, PortalBack } from '../ExtensionTools';
@@ -68,7 +69,7 @@ export function ConversionView({
       </PaySection>
       {room === 'conversion-new' ? (
         <>
-          <Arrives>{c.t('conversionNewGap')}</Arrives>
+          <Arrives reason={reason('reasonActions')}>{c.t('conversionNewGap')}</Arrives>
           <PaySection title={c.t('quoteTerms')}>
             <PayDetails
               values={[
@@ -90,13 +91,13 @@ export function ConversionView({
           <PaySection title={c.t('reference')}>
             <CopyReference value={orderId ?? ''} />
           </PaySection>
-          <Arrives>{c.t('conversionDetailGap')}</Arrives>
+          <Arrives reason={reason('reasonDetail')}>{c.t('conversionDetailGap')}</Arrives>
         </>
       ) : (
         <>
-          <Arrives>{c.t('conversionGap')}</Arrives>
+          <Arrives reason={reason('reasonActions')}>{c.t('conversionGap')}</Arrives>
           <PaySection title={c.t('conversionPreference')}>
-            <Arrives>{c.t('conversionPreferenceGap')}</Arrives>
+            <Arrives reason={reason('reasonActions')}>{c.t('conversionPreferenceGap')}</Arrives>
           </PaySection>
           <a className="text-link" href="/pay/conversion/new">
             {c.t('quoteTerms')}

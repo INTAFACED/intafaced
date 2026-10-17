@@ -1,18 +1,7 @@
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PayTime, PaySection } from '../../components';
-import {
-  AsOf,
-  ComingSoon,
-  Facts,
-  Kpi,
-  KpiGrid,
-  Money,
-  NotConfigured,
-  PortalFailure,
-  PortalLoading,
-  TestTag,
-  UsageBar,
-} from '../components';
+import { reason } from '../chrome/copy';
+import { AsOf, NotLive, Facts, Kpi, KpiGrid, Money, NotConfigured, PortalFailure, PortalLoading, TestTag, UsageBar } from '../components';
 import { portalCopy } from './copy';
 import { capKinds, type ControlProfile, type MerchantRecord, type Usage } from '../schemas';
 import { closestToLimit, freshnessAt, limitRows, type LimitRow } from './model';
@@ -106,8 +95,12 @@ export function LimitsView({
         <p className="muted pp-note">{t('usageHow')}</p>
       </PaySection>
 
-      <ComingSoon title={t('tierLadderSoonTitle')}>{t('tierLadderSoonBody')}</ComingSoon>
-      <ComingSoon title={t('increaseSoonTitle')}>{t('increaseSoonBody')}</ComingSoon>
+      <NotLive reason={reason('reasonLimits')} title={t('tierLadderSoonTitle')}>
+        {t('tierLadderSoonBody')}
+      </NotLive>
+      <NotLive reason={reason('reasonLimits')} title={t('increaseSoonTitle')}>
+        {t('increaseSoonBody')}
+      </NotLive>
     </div>
   );
 }

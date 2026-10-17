@@ -11,7 +11,7 @@ import { Disputes, DisputeDetailPage } from './Disputes';
 import { Invoices } from './Invoices';
 import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
-import { comingSoonRoom } from '../ui/comingSoonRoom';
+import { notLiveRoom } from '../ui/notLiveRoom';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
@@ -149,20 +149,24 @@ export const paymentsRooms: RoomTable = {
       </WithAccount>
     ),
   },
-  'invoice-new': comingSoonRoom(
+  'invoice-new': notLiveRoom(
     () => ({
       title: paymentsCopy.t('invoiceNewTitle'),
       purpose: paymentsCopy.t('invoiceNewPurpose'),
       body: paymentsCopy.t('invoiceNewSoon'),
     }),
+    'reasonActions',
     '/pay/invoices',
+    'the create form (Package 2); merchantOps.invoices.create is on main',
   ),
-  'checkout-settings': comingSoonRoom(
+  'checkout-settings': notLiveRoom(
     () => ({
       title: paymentsCopy.t('checkoutSettingsTitle'),
       purpose: paymentsCopy.t('checkoutSettingsPurpose'),
       body: paymentsCopy.t('checkoutSettingsSoon'),
     }),
+    'reasonLists',
     '/pay/checkout',
+    'a read of the current checkout settings',
   ),
 };

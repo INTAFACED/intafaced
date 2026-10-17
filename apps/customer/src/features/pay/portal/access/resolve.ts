@@ -1,6 +1,6 @@
 import type { ApiResult } from '../../../../shared/api';
 import type { Resource } from '../../../../shared/resource';
-import { isComingSoon } from '../refusal';
+import { isNotLive } from '../refusal';
 import type { MemberRole, MerchantRecord } from '../schemas';
 import type { Capability, Need } from './capabilities';
 import { memberFromTeam, ownerFromRecord } from './fallback';
@@ -66,7 +66,7 @@ export function resolveAccess({ sessionUserId, myAccess, merchant, team }: Acces
     const first = myAccess.data.memberships[0];
     return first ? toReady(first) : { status: 'none' };
   }
-  if (myAccess.status === 'failed' && !isComingSoon(myAccess.failure)) return { status: 'failed', failure: myAccess.failure };
+  if (myAccess.status === 'failed' && !isNotLive(myAccess.failure)) return { status: 'failed', failure: myAccess.failure };
   if (myAccess.status === 'loading' || merchant.status === 'loading') return { status: 'loading' };
   // From here `merchant.myAccess` is not live: work it out from the two reads that are.
   const owner = merchant.status === 'ready' ? ownerFromRecord(merchant.data, sessionUserId) : null;

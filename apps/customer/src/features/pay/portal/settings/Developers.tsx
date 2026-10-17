@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { z } from 'zod';
+import { reason } from '../chrome/copy';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
@@ -73,7 +74,7 @@ export function Developers({ route, authority }: { route: PortalRoute; authority
       <PortalBack />
       <DeveloperNav room={route.room} />
       {route.room === 'developer-signing' ? (
-        <Arrives>{c.t('signingGap')}</Arrives>
+        <Arrives reason={reason('reasonDeveloper')}>{c.t('signingGap')}</Arrives>
       ) : !authority ? (
         <DeveloperUnavailable room={route.room} />
       ) : route.room === 'developer-webhooks' || route.room === 'developer-endpoint' ? (
@@ -94,7 +95,7 @@ export function DeveloperUnavailable({ room }: { room: string }) {
           {c.t('authorityGap')}
         </p>
       </PaySection>
-      <Arrives>
+      <Arrives reason={reason('reasonDeveloper')}>
         {c.t(
           room === 'developer-deliveries'
             ? 'deliveryGap'
@@ -220,7 +221,7 @@ export function KeysView({ resource, pay, reload }: { resource: Resource<Key[]>;
           }}
         </Gate>
       </PaySection>
-      <Arrives>{c.t('keysGap')}</Arrives>
+      <Arrives reason={reason('reasonDeveloper')}>{c.t('keysGap')}</Arrives>
       <div id="key-create">
         <SandboxKeys pay={pay} formOnly />
       </div>
@@ -298,7 +299,7 @@ export function EndpointsView({
                     ]}
                   />
                   <WebhookToggle endpoint={row} pay={pay} reload={reload} />
-                  <Arrives>
+                  <Arrives reason={reason('reasonDeveloper')}>
                     {c.t('endpointGap')} {c.t('signatureGap')}
                   </Arrives>
                   <PaySection title={c.t('deliveriesTitle')}>
@@ -395,7 +396,7 @@ export function EndpointsView({
           }}
         </Gate>
       </PaySection>
-      <Arrives>
+      <Arrives reason={reason('reasonDeveloper')}>
         {c.t('endpointGap')} {c.t('secretGap')}
       </Arrives>
       {!endpointId && (
@@ -576,7 +577,7 @@ export function DeliveryRows({
           );
         }}
       </Gate>
-      <Arrives>{c.t('deliveryGap')}</Arrives>
+      <Arrives reason={reason('reasonDeveloper')}>{c.t('deliveryGap')}</Arrives>
     </div>
   );
 }

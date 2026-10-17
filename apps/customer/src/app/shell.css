@@ -455,7 +455,8 @@
     border-color: var(--tb-lime);
     color: var(--tb-lime);
   }
-  .tb-tag--hidden {
+  .tb-tag--hidden,
+  .tb-tag--blocked {
     color: var(--tb-fg-2);
   }
 

@@ -29,7 +29,7 @@ it.each(['business', 'verification', 'go-live'] as const)('routes the %s step di
 });
 it('refuses account creation without a published starting fee and discloses draft persistence', () => {
   const out = renderToString(<OnboardingView {...base} step="business" />);
-  expect(out).toContain('open your business account here soon');
+  expect(out).toContain('can be opened once INTAFACED publishes its starting fee');
   expect(out).toContain('save your business details and finish setting up later');
   expect(out).toMatch(/disabled=""[^>]*>Create my account/);
 });

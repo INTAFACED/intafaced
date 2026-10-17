@@ -40,6 +40,8 @@ const banned: Array<[name: string, pattern: RegExp]> = [
   ['"projection"', /\bprojections?\b/i],
   ['"fixture"', /\bfixtures?\b/i],
   ['"arrives"', /\barrives?\b/i],
+  ['"coming soon"', /\bcoming soon\b/i],
+  ['"soon" as a promise', /\b(?:available|here|open|live) soon\b/i],
   ['a snake_case word', /\b[a-z]+(?:_[a-z0-9]+)+\b/],
   ['a service code', /\bpay\.[a-z_]+/],
 ];

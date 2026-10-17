@@ -423,6 +423,51 @@ class PaymentPageTest(unittest.TestCase):
             pay.get_payments()
         self.assertIn("pay.merchant_forbidden", str(raised.exception))
 
+    def test_get_payment_links_returns_a_page(self) -> None:
+        def transport(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 200, json.dumps(
+                {
+                    "items": [
+                        {
+                            "id": "66666666-6666-4666-8666-666666666666",
+                            "prefix": "pl_test",
+                            "label": "Invoice",
+                            "amount": "10.00",
+                            "currency": "USDT",
+                            "active": True,
+                            "expiresAt": "2026-11-01T00:00:00.000Z",
+                            "maxUses": 3,
+                            "uses": 1,
+                            "createdAt": "2026-10-16T00:00:00.000Z",
+                        }
+                    ],
+                    "nextCursor": None,
+                }
+            )
+
+        _client, pay = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=transport,
+        )
+        page = pay.get_payment_links(query={"merchantId": "22222222-2222-4222-8222-222222222222"})
+        self.assertIsNone(page["nextCursor"])
+        self.assertEqual(page["items"][0]["amount"], "10.00")
+
+        def bare(method: str, url: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
+            return 200, json.dumps([])
+
+        _client, array_pay = create_pay_client(
+            base_url="https://pay.example/api/pay/v1",
+            api_key="ifc_test_x",
+            max_retries=0,
+            transport=bare,
+        )
+        with self.assertRaises(ValueError) as raised:
+            array_pay.get_payment_links()
+        self.assertIn("{ items, nextCursor }", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
