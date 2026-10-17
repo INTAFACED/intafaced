@@ -121,18 +121,21 @@ function CardConfiguration({ card, expanded = false }: { card: CardRecord; expan
 
 export function CardActions({
   card,
-  changeable,
+  programme,
   disabled,
   open,
 }: {
   card: CardRecord;
-  /** True when the card programme answered and is not "none": a live issuer or the labelled simulation both take a status change. */
-  changeable: boolean;
+  /** What the card service says its programme is. Only a card that belongs to that programme can be frozen or closed. */
+  programme: { id: string; simulated: boolean } | null | undefined;
   disabled?: boolean;
   open: (spec: ActionSpec) => void;
 }) {
   const current = useBankView();
   const { Copy, t } = cardCopy.useCopy();
+  // A card from another issuer (or a live card under the simulation label) is never changed from here: the programme
+  // would only update this record while the real issuer keeps approving payments.
+  const changeable = !!programme && programme.id !== 'none' && card.issuer === programme.id && card.simulated === programme.simulated;
   const protect = (spec: ActionSpec) => {
     if (!disabled && changeable && card.status !== 'closed' && current() && !document.querySelector('[role="dialog"]')) open(spec);
   };
@@ -315,13 +318,13 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
 
 function CardRead({
   card,
-  changeable,
+  programme,
   open,
   refreshCards,
   orderBlocked,
 }: {
   card: CardRecord;
-  changeable: boolean;
+  programme: { id: string; simulated: boolean } | null | undefined;
   orderBlocked: OrderBlock;
   open: (spec: ActionSpec) => void;
   refreshCards: () => void;
@@ -448,7 +451,7 @@ function CardRead({
       {showFacts && (
         <>
           <CardConfiguration card={card} expanded />
-          <CardActions card={card} changeable={changeable} open={open} />
+          <CardActions card={card} programme={programme} open={open} />
           <CardControlPanels card={card} orderBlock={orderBlocked} />
         </>
       )}
@@ -478,7 +481,6 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const card = selected ? currentOwnerRecord(rows, selected.id) : undefined;
   const other = card ? rows.filter((row) => row.id !== card.id) : rows;
-  const changeable = programme.resource.status === 'ready' && programme.resource.data.id !== 'none';
   const refresh = () => {
     if (current()) query.reload();
   };
@@ -541,7 +543,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                 <CardRead
                   key={JSON.stringify([card.id, card.assetId, card.settlementAssetId, selected.serial])}
                   card={card}
-                  changeable={changeable}
+                  programme={orderProgramme}
                   open={open}
                   refreshCards={refresh}
                   orderBlocked={ordering}
@@ -597,7 +599,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                       >
                         <Text k="rooms.decisions.and.declines" />
                       </Button>
-                      <CardActions card={row} changeable={changeable} disabled={!currentOwnerRecord(rows, row.id)} open={open} />
+                      <CardActions card={row} programme={orderProgramme} disabled={!currentOwnerRecord(rows, row.id)} open={open} />
                     </div>
                     <CardConfiguration card={row} />
                   </article>

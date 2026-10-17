@@ -104,6 +104,7 @@ export function Answer<T>({
   return <>{children(resource.data)}</>;
 }
 
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
@@ -118,9 +119,11 @@ function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[];
           const found = blockersFor(action, snapshot);
           const first = found[0] as Blocker;
           const reason = t(first.key, first.params);
+          // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
+          const standalone = capital(reason);
           return (
             <li key={action} data-action={action}>
-              <Button variant="secondary" disabled aria-disabled="true" title={reason}>
+              <Button variant="secondary" disabled aria-disabled="true" title={standalone}>
                 {t(`act_${action}`)}
               </Button>
               <p className="protocol-actions__reason" role="note">
@@ -131,7 +134,7 @@ function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[];
                   <summary>{t('allBlockers')}</summary>
                   <ol>
                     {found.map((entry) => (
-                      <li key={entry.code}>{t(entry.key, entry.params)}</li>
+                      <li key={`${entry.code}:${entry.params.source ?? ''}`}>{capital(t(entry.key, entry.params))}</li>
                     ))}
                   </ol>
                 </details>

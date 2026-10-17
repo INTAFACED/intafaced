@@ -26,7 +26,7 @@ const card = {
   perAuthorizationLimit: '250.5',
 };
 const render = (props: Partial<Parameters<typeof CardActions>[0]>) =>
-  renderToStaticMarkup(<CardActions card={card} changeable open={() => undefined} {...props} />);
+  renderToStaticMarkup(<CardActions card={card} programme={{ id: 'card-sim', simulated: true }} open={() => undefined} {...props} />);
 
 describe('freeze and close on a card', () => {
   it('are offered on the labelled simulation record, so the page can keep its promise', () => {
@@ -43,9 +43,19 @@ describe('freeze and close on a card', () => {
     expect(html).toContain('A closed card cannot be reopened');
   });
   it('are not offered when no card programme is connected, and say so', () => {
-    const html = render({ changeable: false });
+    const html = render({ programme: { id: 'none', simulated: false } });
     expect(html).not.toContain('<button');
     expect(html).toContain('needs a card programme, and none is connected here');
+  });
+});
+
+describe('a card from another issuer', () => {
+  it('is never frozen or closed under the simulation programme', () => {
+    const html = render({ card: { ...card, simulated: false, issuer: 'live-x' } });
+    expect(html).not.toContain('<button');
+  });
+  it('is never offered while the programme is still loading', () => {
+    expect(render({ programme: undefined })).not.toContain('<button');
   });
 });
 
