@@ -83,6 +83,7 @@ import { presentInsuranceListingPolicy } from './futures/insurance-listing-gate.
 import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
 import { resolveFundingMaxAbsRateForBoot } from './futures/funding-rate-bound.js';
@@ -697,11 +698,17 @@ registerSpotOrderPreviewRest(app, {
   feeSchedule,
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
+const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   publishFundingRate: (entry) => futuresJobs.publishFundingRate(entry),
+  recordFundingHistory: (row) => fundingHistory.record(row),
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
+});
+registerFundingHistory(app, {
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  historyForMarket: async (marketId) => fundingHistory.list(marketId),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

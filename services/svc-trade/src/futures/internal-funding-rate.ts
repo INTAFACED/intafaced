@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';
+import type { FundingHistoryRow } from './funding-history.js';
 
 /** Clock-skew allowance on a publisher's `asOfMs`. Anything beyond is refused. */
 const FUTURE_SKEW_MS = 60_000;
@@ -23,6 +24,11 @@ export interface InternalFundingRateDeps {
   /** Optional clock for asOf default. */
   now?: () => number;
   /**
+   * Append-only history. Called once, after two distinct operator approvals,
+   * and not on a replay of the same market, period and rate.
+   */
+  recordFundingHistory?: (row: FundingHistoryRow) => void;
+  /**
    * Isolated tests install retention. Production index already called
    * `retainRawBody` on the same Fastify instance.
    */
@@ -34,8 +40,18 @@ export interface InternalFundingRateDeps {
  * Body: { marketId, rate, periodId?, asOfMs? }
  * Auth: service headers (INTERNAL_SERVICE_SECRET).
  */
+function publishKey(marketId: string, periodId: string, rate: string): string {
+  return `${marketId}\n${periodId}\n${rate}`;
+}
+
+function positiveDecimal(value: string): boolean {
+  return /^\d+(\.\d+)?$/.test(value) && /[1-9]/.test(value);
+}
+
 export function registerInternalFundingRate(app: FastifyInstance, deps: InternalFundingRateDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
+  const firstApproval = new Map<string, string>();
+  const published = new Map<string, { entry: FundingRateEntry; markPrice: string | null }>();
 
   app.post<{
     Body: {
@@ -45,6 +61,8 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       asOfMs?: number;
       periodStartIso?: string;
       periodEndIso?: string;
+      operatorId?: string;
+      markPrice?: string;
     };
   }>('/internal/futures/funding-rate', async (req, reply) => {
     if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
@@ -184,8 +202,66 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       periodEndIso = new Date(parsedEnd).toISOString();
     }
 
+    const rawMark = req.body?.markPrice?.trim();
+    let markPrice: string | null = null;
+    if (rawMark) {
+      if (!positiveDecimal(rawMark)) {
+        return reply.code(400).send({
+          error: 'trade.funding_rate_publish_invalid',
+          message: 'markPrice must be a positive decimal string when it is sent — a missing mark stays absent',
+        });
+      }
+      markPrice = rawMark;
+    }
+
     const entry: FundingRateEntry = { marketId, rate, periodId, asOfMs, ...(periodEndIso ? { periodEndIso } : {}) };
+    const key = publishKey(marketId, periodId, rate);
+    const already = published.get(key);
+    if (already) {
+      return reply.code(200).send({
+        ok: true,
+        duplicate: true,
+        marketId,
+        periodId,
+        rate,
+        asOfMs: already.entry.asOfMs,
+        ...(already.entry.periodEndIso ? { periodEndIso: already.entry.periodEndIso } : {}),
+      });
+    }
+
+    // The service secret authenticates the caller. It is not an operator approval.
+    const operatorId = req.body?.operatorId?.trim().toLowerCase() ?? '';
+    if (!operatorId) {
+      return reply.code(403).send({
+        error: 'trade.funding_rate_publish_invalid',
+        message: 'a service secret is not an operator approval — the rate is not stored',
+      });
+    }
+    const prior = firstApproval.get(key);
+    if (!prior) {
+      firstApproval.set(key, operatorId);
+      return reply.code(403).send({
+        error: 'trade.funding_rate_publish_invalid',
+        message: 'funding rate publish is refused until a second distinct operator approval is recorded',
+      });
+    }
+    if (prior === operatorId) {
+      return reply.code(403).send({
+        error: 'trade.funding_rate_publish_invalid',
+        message: 'the second approval must be a different operator — one operator cannot approve their own publish',
+      });
+    }
+
+    published.set(key, { entry, markPrice });
+    firstApproval.delete(key);
     deps.publishFundingRate(entry);
+    deps.recordFundingHistory?.({
+      marketId,
+      periodId,
+      periodTimestamp: asOfMs,
+      fundingRate: rate,
+      markPrice,
+    });
     return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, ...(periodEndIso ? { periodEndIso } : {}) });
   });
 }

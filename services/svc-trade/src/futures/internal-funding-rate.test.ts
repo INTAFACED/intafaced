@@ -18,6 +18,22 @@ function signed(payload: unknown): { headers: Record<string, string>; payload: s
   };
 }
 
+async function withTwoOperators(
+  app: {
+    inject: (opts: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      payload: string;
+    }) => Promise<{ statusCode: number; json: () => { periodEndIso?: string } }>;
+  },
+  payload: Record<string, unknown>,
+) {
+  const first = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, operatorId: 'operator-a' }) });
+  const second = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, operatorId: 'operator-b' }) });
+  return { first, second };
+}
+
 async function build(publish: (e: FundingRateEntry) => void, maxAbsRate: string | null = FIXTURE_FUNDING_MAX_ABS) {
   const app = Fastify();
   registerInternalFundingRate(app, {
@@ -69,15 +85,11 @@ describe('POST /internal/futures/funding-rate', () => {
   it('canonicalises and preserves a publisher-supplied period end', async () => {
     const published: FundingRateEntry[] = [];
     const app = await build((entry) => published.push(entry));
-    const res = await app.inject({
-      method: 'POST',
-      url: PATH,
-      ...signed({
-        marketId: 'm1',
-        rate: '0.0001',
-        periodId: 'm1:p0',
-        periodEndIso: '2026-08-23T19:00:00+02:00',
-      }),
+    const { second: res } = await withTwoOperators(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p0',
+      periodEndIso: '2026-08-23T19:00:00+02:00',
     });
 
     expect(res.statusCode).toBe(200);
@@ -132,16 +144,19 @@ describe('POST /internal/futures/funding-rate', () => {
     // ids and three full charges — an oracle changing its date library, or a
     // second publisher with a different one, double-charged with nobody
     // changing a period.
-    for (const iso of ['2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00Z', '2026-08-08T02:00:00+02:00']) {
+    const spellings = ['2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00Z', '2026-08-08T02:00:00+02:00'];
+    const first = await withTwoOperators(app, { ...base, periodStartIso: spellings[0] });
+    expect(first.second.statusCode).toBe(200);
+    for (const iso of spellings.slice(1)) {
       const res = await app.inject({
         method: 'POST',
         url: PATH,
-        ...signed({ ...base, periodStartIso: iso }),
+        ...signed({ ...base, periodStartIso: iso, operatorId: 'operator-c' }),
       });
       expect(res.statusCode).toBe(200);
     }
 
-    expect(published).toHaveLength(3);
+    expect(published).toHaveLength(1);
     expect(new Set(published.map((p) => p.periodId)).size).toBe(1);
     expect(published[0]!.periodId).toBe('m1:2026-08-08T00:00:00.000Z');
     await app.close();
@@ -199,23 +214,20 @@ describe('POST /internal/futures/funding-rate', () => {
     expect(published).toEqual([]);
 
     // A minute of clock skew is still accepted — publishers are not atomic.
-    const ok = await app.inject({
-      method: 'POST',
-      url: PATH,
-      ...signed({ marketId: 'm1', rate: '0.0001', periodId: 'm1:p0', asOfMs: 1_700_000_000_000 + 30_000 }),
+    const ok = await withTwoOperators(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p0',
+      asOfMs: 1_700_000_000_000 + 30_000,
     });
-    expect(ok.statusCode).toBe(200);
+    expect(ok.second.statusCode).toBe(200);
     await app.close();
   });
 
   it('publishes rate when service-auth + body valid', async () => {
     const published: FundingRateEntry[] = [];
     const app = await build((e) => published.push(e));
-    const res = await app.inject({
-      method: 'POST',
-      url: PATH,
-      ...signed({ marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' }),
-    });
+    const { second: res } = await withTwoOperators(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' });
     expect(published).toHaveLength(1);
