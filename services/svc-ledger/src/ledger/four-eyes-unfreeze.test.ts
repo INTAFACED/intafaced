@@ -2,11 +2,7 @@ import { issueAccessToken } from '@intafaced/auth';
 import { LedgerError } from '@intafaced/ledger-client';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import {
-  ActionApprovalConsumeError,
-  stubApprovalConsumer,
-  type ActionApprovalConsumer,
-} from './action-approval-consume.js';
+import { ActionApprovalConsumeError, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { DualControlError } from './dual-control.js';
 import { frozenMessage, MemoryPostingFreeze } from './freeze.js';
 import { registerOperatorHttp } from '../operator-http.js';

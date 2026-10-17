@@ -128,10 +128,7 @@ export function unfreezeRefusal(
   return null;
 }
 
-export async function writeFreeze(
-  sql: Sql,
-  next: FreezeCommand,
-): Promise<{ state: FreezeState; switched: boolean }> {
+export async function writeFreeze(sql: Sql, next: FreezeCommand): Promise<{ state: FreezeState; switched: boolean }> {
   return sql.begin(async (tx) => writeFreezeInTransaction(tx, next));
 }
 
