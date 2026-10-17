@@ -63,7 +63,7 @@ export async function payWindow(sql: Sql, ledger: Pick<LedgerClient, 'post'>, wi
         return { shareId: s.share_id, minerId: s.miner_id, weight: BigInt(s.weight) };
       }),
     });
-    await tx`UPDATE mining_pool.windows SET status = 'paid' WHERE window_id = ${window.window_id}`;
+    await tx`UPDATE mining_pool.windows SET status = 'paid', paid_at = now() WHERE window_id = ${window.window_id}`;
   });
 }
 
