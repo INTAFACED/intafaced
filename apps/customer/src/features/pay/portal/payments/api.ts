@@ -2,11 +2,18 @@ import { z } from 'zod';
 import * as p from '../schemas';
 import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, linkSchema } from '../../schemas';
 import { cycleSchema } from './billing-schemas';
+import * as pay from './schemas';
+import { tolerantList, unwrapList } from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 
 export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query('subscription.list', { merchantId, limit }, z.array(subscriptionSchema.refine((row) => row.merchantId === merchantId)), signal),
+    query(
+      'subscription.list',
+      { merchantId, limit },
+      tolerantList(subscriptionSchema.refine((row) => row.merchantId === merchantId)),
+      signal,
+    ).then(unwrapList),
   subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
     query(
       'subscription.get',
@@ -15,7 +22,12 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   mandates: (merchantId: string, signal?: AbortSignal) =>
-    query('mandate.list', { merchantId, limit: 200 }, z.array(mandateSchema.refine((row) => row.merchantId === merchantId)), signal),
+    query(
+      'mandate.list',
+      { merchantId, limit: 200 },
+      tolerantList(mandateSchema.refine((row) => row.merchantId === merchantId)),
+      signal,
+    ).then(unwrapList),
   mandate: (merchantId: string, mandateId: string, signal?: AbortSignal) =>
     query(
       'mandate.get',
@@ -39,7 +51,7 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   links: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query('merchant.listLinks', { merchantId, limit }, z.array(linkSchema), signal),
+    query('merchant.listLinks', { merchantId, limit }, tolerantList(linkSchema), signal).then(unwrapList),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
     list('merchantOps.disputes.list', p.disputeSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),
@@ -65,6 +77,42 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
     const page = await query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.paymentSchema), signal);
     return page.ok ? { ok: true as const, data: page.data.items } : page;
   },
+  paymentPage: (
+    merchantId: string,
+    filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
+    cursor: string | undefined,
+    signal?: AbortSignal,
+  ) =>
+    list(
+      'payment.list',
+      p.paymentSchema,
+      {
+        merchantId,
+        ...(cursor ? { cursor } : {}),
+        ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)),
+      },
+      signal,
+    ),
+  invoices: (
+    filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
+    cursor: string | undefined,
+    signal?: AbortSignal,
+  ) =>
+    list(
+      'merchantOps.invoices.list',
+      pay.invoiceSchema,
+      { ...(cursor ? { cursor } : {}), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) },
+      signal,
+    ),
+  invoice: (invoiceId: string, signal?: AbortSignal) => query('merchantOps.invoices.get', { invoiceId }, pay.invoiceSchema, signal),
+  createInvoice: (input: { requestId: string; assetId: string; amount: string; customerRef?: string; description?: string }) =>
+    mutate('merchantOps.invoices.create', input, pay.invoiceSchema),
+  sendInvoice: (input: { requestId: string; invoiceId: string }) => mutate('merchantOps.invoices.send', input, pay.invoiceSentSchema),
+  reissueInvoiceLink: (input: { requestId: string; invoiceId: string }) =>
+    mutate('merchantOps.invoices.reissueLink', input, pay.invoiceSentSchema),
+  voidInvoice: (input: { requestId: string; invoiceId: string }) => mutate('merchantOps.invoices.void', input, pay.invoiceSchema),
+  markInvoicePaid: (input: { requestId: string; invoiceId: string; paymentId: string }) =>
+    mutate('merchantOps.invoices.markPaidByPayment', input, pay.invoiceSchema),
   payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
   paymentHistory: (paymentId: string, signal?: AbortSignal) =>
     query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),

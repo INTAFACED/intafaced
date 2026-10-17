@@ -6,6 +6,27 @@ export const paymentsContract: ContractPart = {
     { method: 'payments', run: (p) => p.payments(merchant, '', 25) },
     { method: 'payment', run: (p) => p.payment('aa000003-0000-4000-8000-000000000003') },
     { method: 'paymentHistory', run: (p) => p.paymentHistory('aa000003-0000-4000-8000-000000000003') },
+    { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { assetId: 'USDT' }, undefined) },
+    { method: 'invoices', run: (p) => p.invoices({ status: 'sent' }, undefined) },
+    { method: 'invoice', run: (p) => p.invoice('1a000002-0000-4000-8000-000000000002') },
+    {
+      method: 'createInvoice',
+      run: (p) =>
+        p.createInvoice({
+          requestId: '5e000001-0000-4000-8000-000000000001',
+          assetId: 'USDT',
+          amount: '12.345678',
+          customerRef: 'TEST-cust-001',
+        }),
+    },
+    {
+      method: 'sendInvoice',
+      run: (p) => p.sendInvoice({ requestId: '5e000002-0000-4000-8000-000000000002', invoiceId: '1a000001-0000-4000-8000-000000000001' }),
+    },
+    {
+      method: 'voidInvoice',
+      run: (p) => p.voidInvoice({ requestId: '5e000003-0000-4000-8000-000000000003', invoiceId: '1a000002-0000-4000-8000-000000000002' }),
+    },
     { method: 'disputeSummary', run: (p) => p.disputeSummary() },
     { method: 'disputes', run: (p) => p.disputes(undefined, '') },
     { method: 'dispute', run: (p) => p.dispute('d0000001-0000-4000-8000-000000000001') },
@@ -22,6 +43,8 @@ export const paymentsContract: ContractPart = {
     subscriptionExecutions: 'Package 2 adds subscription fixtures',
     subscriptionCycles: 'Package 2 adds subscription fixtures',
     links: 'Package 2 adds link fixtures',
+    reissueInvoiceLink: 'a write: the stand-in answers it, and the unit tests exercise it',
+    markInvoicePaid: 'a write: the stand-in answers it, and the unit tests exercise it',
     addEvidence: 'a write: the stand-in answers it, and the Playwright run exercises it',
     respond: 'a write: the stand-in answers it, and the Playwright run exercises it',
   },

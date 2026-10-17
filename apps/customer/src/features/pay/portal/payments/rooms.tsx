@@ -36,13 +36,26 @@ const subscriptions: RoomDef = {
   ),
 };
 const invoices: RoomDef = {
-  header: (route) => ({
-    title: extensionCopy.t(route.room === 'invoice' ? 'invoiceTitle' : 'invoicesTitle'),
-    purpose: extensionCopy.t('invoicesPurpose'),
-    action: link('/pay/subscriptions', extensionCopy.t('openSubscriptions')),
-  }),
+  header: (route) =>
+    route.room === 'invoices'
+      ? {
+          title: paymentsCopy.t('invoicesTitle'),
+          purpose: paymentsCopy.t('invoicesPurpose'),
+          action: link('/pay/invoices/new', paymentsCopy.t('inv_create'), 'primary'),
+        }
+      : route.room === 'invoice-new'
+        ? { title: paymentsCopy.t('inv_createTitle'), purpose: paymentsCopy.t('invoiceNewPurpose') }
+        : { title: paymentsCopy.t('invoiceTitle'), purpose: paymentsCopy.t('invoicePurpose') },
   here: '/pay/invoices',
-  render: (route, {}) => <WithAccount>{() => <Invoices invoiceId={route.param} />}</WithAccount>,
+  render: (route, { portal }) => (
+    <WithAccount>
+      {({ merchantId }) => (
+        <Requires need={route.room === 'invoice-new' ? 'invoices.write' : 'invoices.read'}>
+          <Invoices portal={portal} route={route} merchantId={merchantId} />
+        </Requires>
+      )}
+    </WithAccount>
+  ),
 };
 const links: RoomDef = {
   header: (route) =>
@@ -149,14 +162,7 @@ export const paymentsRooms: RoomTable = {
       </WithAccount>
     ),
   },
-  'invoice-new': comingSoonRoom(
-    () => ({
-      title: paymentsCopy.t('invoiceNewTitle'),
-      purpose: paymentsCopy.t('invoiceNewPurpose'),
-      body: paymentsCopy.t('invoiceNewSoon'),
-    }),
-    '/pay/invoices',
-  ),
+  'invoice-new': invoices,
   'checkout-settings': comingSoonRoom(
     () => ({
       title: paymentsCopy.t('checkoutSettingsTitle'),
