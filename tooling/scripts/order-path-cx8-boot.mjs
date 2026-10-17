@@ -168,8 +168,6 @@ async function main() {
     MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
     // Matching consumes the two-person approval that opens a market at identity.
     IDENTITY_URL: 'http://127.0.0.1:4002',
-    // Owner-published, no default: blank refuses boot (services/svc-matching/src/env.ts).
-    MATCHING_SNAPSHOT_EVERY: '500', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
   });
 
   start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
@@ -180,10 +178,6 @@ async function main() {
     HTTP_PORT: '4001',
     DATABASE_URL: ledgerUrl,
     LEDGER_POSTING_ENABLED: 'true',
-    // Owner-published integers with no default: blank refuses boot (schemas in
-    // packages/config/src/env.ts and services/svc-ledger/src/env.ts).
-    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
-    RECONCILE_CRON_MINUTES: '60', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
   });
 
   start('identity', 'node', ['services/svc-identity/dist/index.js'], {
@@ -193,7 +187,6 @@ async function main() {
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4002',
     DATABASE_URL: identityUrl,
-    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
     // Action approval (opening a market takes a proposer and a different, MFA-verified approver).
     // Blank lifetime refuses every propose (action_approval.ttl_unset).
     IDENTITY_TRADE_ADMISSION_SECRET: ADMISSION_SECRET,
@@ -218,7 +211,6 @@ async function main() {
     HTTP_HOST: '127.0.0.1',
     HTTP_PORT: '4004',
     DATABASE_URL: tradeUrl,
-    DATABASE_POOL_MAX: '10', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
     LEDGER_URL: 'http://127.0.0.1:4001',
     MATCHING_URL: 'http://127.0.0.1:4005',
     IDENTITY_URL: 'http://127.0.0.1:4002',
