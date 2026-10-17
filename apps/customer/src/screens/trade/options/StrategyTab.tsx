@@ -116,7 +116,15 @@ export function StrategyTab({
   };
 
   const payoffColumns: TableColumn<PayoffRow>[] = [
-    { id: 'spot', header: t('Price at expiry'), numeric: true, value: (r) => r.spot, cell: (r) => fmtAmount(r.spot, { places }) },
+    {
+      id: 'spot',
+      header: t('Price at expiry'),
+      width: 160,
+      pin: 'start',
+      numeric: true,
+      value: (r) => r.spot,
+      cell: (r) => fmtAmount(r.spot, { places }),
+    },
     {
       id: 'pnl',
       header: t('Result'),
@@ -265,7 +273,14 @@ export function StrategyTab({
             lowLabel={t('Price {value}', { value: money(analysis.rows[0]!.spot) })}
             highLabel={t('Price {value}', { value: money(analysis.rows[analysis.rows.length - 1]!.spot) })}
           />
-          <Table label={t('Result at expiry')} density="dense" columns={payoffColumns} rows={analysis.rows} getRowId={(r) => r.spot} />
+          <Table
+            label={t('Result at expiry')}
+            minWidth={480}
+            density="dense"
+            columns={payoffColumns}
+            rows={analysis.rows}
+            getRowId={(r) => r.spot}
+          />
           <p className="m-0 text-xs text-fg-2">{t('Margin blocker')}</p>
         </section>
       ) : null}
@@ -273,7 +288,7 @@ export function StrategyTab({
       <section aria-label={t('Greeks')} className="flex flex-col gap-3">
         <h3 className="m-0 text-md font-medium text-fg">{t('Greeks')}</h3>
         <p className="m-0 text-sm text-fg-2">{t('Greeks intro')}</p>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <Field density="dense" label={t('Contract size')} hint={t('Contract size hint')}>
             <Input kind="decimal" precision={8} value={multiplier} onValueChange={setMultiplier} className="w-24" />
           </Field>
@@ -325,6 +340,7 @@ export function StrategyTab({
           <Button
             variant="secondary"
             size={32}
+            className="mt-[22px]"
             loading={asking}
             disabled={analysis === null || !inputsReady}
             onClick={() => void askGreeks()}

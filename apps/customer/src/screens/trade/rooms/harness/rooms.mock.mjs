@@ -99,7 +99,8 @@ function optionPreview(draft, market) {
   const amount = scaled(draft.amount);
   const size = scaled(market.contractSize ?? '1');
   const premium = mul(mul(price, amount), size);
-  const hold = draft.side === 'buy' ? premium : mul(mul(scaled(market.strike), amount), size);
+  // The service holds nothing for a paper order (svc-trade order-preview-rest.ts: holdAmount is 0 for paper markets).
+  const hold = market.paper ? 0n : draft.side === 'buy' ? premium : mul(mul(scaled(market.strike), amount), size);
   return {
     symbol: draft.symbol,
     side: draft.side,

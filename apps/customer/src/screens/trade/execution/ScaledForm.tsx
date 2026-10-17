@@ -36,11 +36,14 @@ export function ScaledForm({
   markets,
   freeOf,
   writer,
+  unconfirmed = false,
   onRun,
 }: {
   markets: readonly ExecMarket[];
   freeOf: (asset: string) => string | null;
   writer: RoomWriter;
+  /** True while an order of the last ladder is neither confirmed nor ruled out by a status check. */
+  unconfirmed?: boolean;
   onRun: (run: ScaledRun | null) => void;
 }) {
   const { t } = execCopy.useCopy();
@@ -85,13 +88,15 @@ export function ScaledForm({
   const tooSmall = ladder?.rows.some((r) => r.belowMin) ?? false;
   const blocker = !writer.signedIn
     ? t('Sign in to place')
-    : !market?.open
-      ? t('Market closed block')
-      : tooSmall
-        ? t('Below minimum block')
-        : ladder?.short
-          ? t('Not enough free block', { asset: holdAsset })
-          : null;
+    : unconfirmed
+      ? t('Review blocked unconfirmed')
+      : !market?.open
+        ? t('Market closed block')
+        : tooSmall
+          ? t('Below minimum block')
+          : ladder?.short
+            ? t('Not enough free block', { asset: holdAsset })
+            : null;
   const canReview = ladder !== null && blocker === null && !writer.busy && writer.note.state === 'none';
   const word = (p: LadderProblem) => t(`Ladder problem ${p}`, { min: String(MIN_ORDERS), max: String(MAX_ORDERS) });
   const first = problems[0];
@@ -119,7 +124,7 @@ export function ScaledForm({
   }
 
   const columns: TableColumn<LadderRow>[] = [
-    { id: 'n', header: '#', value: (r) => String(r.index) },
+    { id: 'n', header: '#', pin: 'start', value: (r) => String(r.index) },
     { id: 'price', header: t('Price'), numeric: true, value: (r) => r.price, cell: (r) => fmtPrice(r.price, market?.tickSize) },
     { id: 'size', header: t('Size'), numeric: true, value: (r) => r.size, cell: (r) => fmtAmount(r.size, { places: lotPlaces }) },
     { id: 'notional', header: t('Value'), numeric: true, value: (r) => r.notional, cell: (r) => fmtAmount(r.notional, { places: 4 }) },
@@ -250,6 +255,11 @@ export function ScaledForm({
         <Field label={t('Post only')} orientation="horizontal" hint={t('Post only hint')}>
           <Switch aria-label={t('Post only')} checked={postOnly} onCheckedChange={setPostOnly} />
         </Field>
+        {market ? (
+          <p className="m-0 text-sm text-fg-2">
+            {t('Free {asset} {amount}', { asset: holdAsset, amount: fmtAmount(freeOf(holdAsset), { places: 6 }) })}
+          </p>
+        ) : null}
         {first === 'samePrices' || first === 'tooSmall' ? <Why>{word(first)}</Why> : null}
         {blocker ? <Why>{blocker}</Why> : null}
         <Button size={40} fullWidth disabled={!canReview} onClick={() => setReview(true)}>
@@ -269,6 +279,7 @@ export function ScaledForm({
           density="dense"
           columns={columns}
           rows={ladder?.rows ?? []}
+          minWidth={720}
           getRowId={(r) => String(r.index)}
           emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('Fill the form to see the ladder')}</p>}
         />

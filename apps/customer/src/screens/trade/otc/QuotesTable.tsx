@@ -5,7 +5,7 @@ import { Refusal } from '../rooms/RoomNotices';
 import { Button, Field, Input, Table, fmtAmount, fmtPrice, sortRows, type SortState, type TableColumn } from '../rooms/ui';
 import type { Words } from '../rooms/refusals';
 import type { QuoteEntry } from './data';
-import { atOf, lifecycleOf, phaseOf } from './model';
+import { atOf, chipOf, lifecycleOf } from './model';
 import { otcCopy } from './copy';
 import { LifecycleChip } from './QuoteCard';
 
@@ -24,6 +24,7 @@ export function QuotesTable({
   entries,
   selected,
   now,
+  pendingId,
   onSelect,
   onOpenById,
   onForget,
@@ -33,6 +34,8 @@ export function QuotesTable({
   entries: Readonly<Record<string, QuoteEntry>>;
   selected: string | null;
   now: number;
+  /** Id of the quote a request on this device is still unconfirmed for, if any. */
+  pendingId: string | null;
   onSelect: (id: string) => void;
   onOpenById: (id: string) => Promise<{ ok: true } | { ok: false; words: Words }>;
   onForget: (id: string) => void;
@@ -74,6 +77,7 @@ export function QuotesTable({
         id: 'id',
         header: t('Quote id'),
         pin: 'start',
+        width: 140,
         value: (r) => r.id,
         cell: (r) => (
           <span className="font-mono" title={r.id}>
@@ -83,24 +87,42 @@ export function QuotesTable({
         sortable: true,
         sortType: 'text',
       },
-      { id: 'pair', header: t('Pair'), value: (r) => (q(r) ? `${q(r)?.baseAsset}/${q(r)?.quoteAsset}` : null), sortable: true },
+      { id: 'pair', header: t('Pair'), width: 110, value: (r) => (q(r) ? `${q(r)?.baseAsset}/${q(r)?.quoteAsset}` : null), sortable: true },
       {
         id: 'side',
         header: t('Side'),
+        width: 70,
         value: (r) => q(r)?.side ?? null,
         cell: (r) => (q(r) ? (q(r)?.side === 'buy' ? t('Buy') : t('Sell')) : '—'),
       },
       {
         id: 'qty',
         header: t('Quantity'),
+        width: 100,
         numeric: true,
         value: (r) => q(r)?.qty ?? null,
         cell: (r) => fmtAmount(q(r)?.qty),
         sortable: true,
       },
       {
+        id: 'life',
+        header: t('Status'),
+        width: 210,
+        value: (r) => {
+          const quote = q(r);
+          return quote ? lifecycleOf(quote) : null;
+        },
+        cell: (r) => {
+          const quote = q(r);
+          if (!quote) return r.entry.status === 'loading' ? t('Reading') : r.entry.status === 'refused' ? t('Not found') : t('Unreadable');
+          return <LifecycleChip lifecycle={chipOf(quote, now, pendingId)} />;
+        },
+        sortable: true,
+      },
+      {
         id: 'price',
         header: t('Quoted price'),
+        width: 110,
         numeric: true,
         value: (r) => q(r)?.quotedPrice ?? null,
         cell: (r) => fmtPrice(q(r)?.quotedPrice, null),
@@ -109,16 +131,17 @@ export function QuotesTable({
       {
         id: 'value',
         header: t('Value'),
+        width: 110,
         numeric: true,
         value: (r) => q(r)?.userNotional ?? null,
         cell: (r) => fmtAmount(q(r)?.userNotional),
         sortable: true,
       },
-      { id: 'cp', header: t('Counterparty'), value: (r) => q(r)?.counterparty ?? null },
+      { id: 'cp', header: t('Counterparty'), width: 130, value: (r) => q(r)?.counterparty ?? null },
       {
         id: 'when',
         header: t('Expires or settled'),
-        width: 190,
+        width: 170,
         value: (r) => {
           const quote = q(r);
           if (!quote) return null;
@@ -126,29 +149,15 @@ export function QuotesTable({
         },
       },
       {
-        id: 'life',
-        header: t('Status'),
-        value: (r) => {
-          const quote = q(r);
-          return quote ? lifecycleOf(quote) : null;
-        },
-        cell: (r) => {
-          const quote = q(r);
-          if (!quote) return r.entry.status === 'loading' ? t('Reading') : r.entry.status === 'refused' ? t('Not found') : t('Unreadable');
-          const phase = phaseOf(quote, now);
-          return phase === 'open-late' ? t('Re-read first') : <LifecycleChip lifecycle={lifecycleOf(quote)} />;
-        },
-        sortable: true,
-      },
-      {
         id: 'actions',
         header: t('Actions'),
         headerLabel: t('Actions'),
+        width: 150,
         align: 'end',
         cell: (r) => (
           <span className="inline-flex gap-1">
             <Button variant="ghost" size={28} onClick={() => onSelect(r.id)} aria-label={t('Open quote', { id: shortId(r.id) })}>
-              {t('Open')}
+              {t('View')}
             </Button>
             {r.entry.status === 'error' ? (
               <Button variant="ghost" size={28} onClick={() => onRetry(r.id)}>
@@ -187,6 +196,7 @@ export function QuotesTable({
       <Table
         label={t('Quotes table')}
         density="dense"
+        minWidth={1300}
         columns={cols}
         rows={sorted}
         getRowId={(r) => r.id}

@@ -59,6 +59,7 @@ function Section({
         onRetry={load.status === 'error' ? load.retry : undefined}
         errorState={<EmptyState variant="refused" title={title} reason={emptyText} />}
         emptyState={<EmptyState title={emptyText} />}
+        minWidth={1100}
         maxHeight={320}
       />
     </section>
@@ -83,6 +84,9 @@ export function OrdersTab({
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
+  const [batch, setBatch] = useState<{ total: number; rows: Array<{ id: string; symbol: string; ok: boolean; text: string }> } | null>(
+    null,
+  );
 
   const note = (id: string, text: string) => setRowNote((prev) => ({ ...prev, [id]: text }));
 
@@ -97,15 +101,23 @@ export function OrdersTab({
   async function cancelAll() {
     setCancellingAll(false);
     if (open.status !== 'ready') return;
-    for (const order of open.data) {
+    const targets = [...open.data];
+    const rows: Array<{ id: string; symbol: string; ok: boolean; text: string }> = [];
+    setBatch({ total: targets.length, rows });
+    const record = (order: Order, ok: boolean, text: string) => {
+      note(order.id, text);
+      rows.push({ id: order.id, symbol: order.symbol, ok, text });
+      setBatch({ total: targets.length, rows: [...rows] });
+    };
+    for (const order of targets) {
       const outcome = await writer.run({ kind: 'cancel', id: order.id, symbol: order.symbol, call: () => api.cancel(order) });
-      if (outcome.kind === 'done') note(order.id, t('Cancelled row'));
-      else if (outcome.kind === 'refused') note(order.id, outcome.words.body);
+      if (outcome.kind === 'done') record(order, true, t('Cancelled row'));
+      else if (outcome.kind === 'refused') record(order, false, outcome.words.body);
       else if (outcome.kind === 'blocked') {
-        note(order.id, t('Cancel blocked'));
+        record(order, false, t('Cancel blocked'));
         break;
       } else {
-        if (outcome.kind === 'uncertain') note(order.id, outcome.words.body);
+        if (outcome.kind === 'uncertain') record(order, false, outcome.words.body);
         break;
       }
     }
@@ -133,20 +145,35 @@ export function OrdersTab({
   };
 
   const base: TableColumn<Order>[] = [
-    { id: 'symbol', header: t('Contract'), value: (o) => o.symbol, cell: (o) => <span className="font-mono">{o.symbol}</span> },
-    { id: 'side', header: t('Side'), cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), cell: () => t('Limit') },
+    {
+      id: 'symbol',
+      header: t('Contract'),
+      width: 220,
+      pin: 'start',
+      value: (o) => o.symbol,
+      cell: (o) => <span className="font-mono">{o.symbol}</span>,
+    },
+    { id: 'side', header: t('Side'), width: 64, cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'type', header: t('Type'), width: 70, cell: () => t('Limit') },
     {
       id: 'price',
       header: t('Price'),
+      width: 100,
       numeric: true,
       value: (o) => o.price,
       cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price),
     },
-    { id: 'size', header: t('Size'), numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
-    { id: 'filled', header: t('Filled'), numeric: true, value: (o) => o.filled, cell: (o) => fmtAmount(o.filled, { places: 8 }) },
-    { id: 'state', header: t('State'), cell: stateOf },
-    { id: 'created', header: t('Created'), cell: (o) => formatAsOf(o.timestamp) },
+    { id: 'size', header: t('Size'), width: 90, numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
+    {
+      id: 'filled',
+      header: t('Filled'),
+      width: 90,
+      numeric: true,
+      value: (o) => o.filled,
+      cell: (o) => fmtAmount(o.filled, { places: 8 }),
+    },
+    { id: 'state', header: t('State'), width: 120, cell: stateOf },
+    { id: 'created', header: t('Created'), width: 130, cell: (o) => formatAsOf(o.timestamp) },
   ];
   const openColumns: TableColumn<Order>[] = [
     ...base,
@@ -154,6 +181,7 @@ export function OrdersTab({
       id: 'actions',
       header: t('Actions'),
       headerLabel: t('Actions'),
+      width: 260,
       align: 'end',
       cell: (o) => (
         <span className="inline-flex items-center gap-2">
@@ -187,6 +215,30 @@ export function OrdersTab({
             {t('Cancel all orders')}
           </Button>
         </div>
+      ) : null}
+      {batch ? (
+        <section
+          aria-label={t('Cancel all result title')}
+          aria-live="polite"
+          className="flex flex-col gap-1 rounded-sm border border-line bg-panel p-3"
+        >
+          <h3 className="m-0 text-base font-medium text-fg">{t('Cancel all result title')}</h3>
+          <p className="m-0 text-sm text-fg">
+            {t('Cancel all result summary', {
+              cancelled: String(batch.rows.filter((r) => r.ok).length),
+              refused: String(batch.rows.filter((r) => !r.ok).length),
+              untried: String(batch.total - batch.rows.length),
+              total: String(batch.total),
+            })}
+          </p>
+          <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-fg-2">
+            {batch.rows.map((r) => (
+              <li key={r.id}>
+                <span className="font-mono text-fg">{r.symbol}</span> {r.ok ? t('Cancelled row') : r.text}
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
       <Section title={t('Open orders')} load={open} rows={rowsOf(open)} columns={openColumns} emptyText={t('No open option orders')} />
       <Section title={t('Order history')} load={closed} rows={rowsOf(closed)} columns={base} emptyText={t('No closed option orders')} />

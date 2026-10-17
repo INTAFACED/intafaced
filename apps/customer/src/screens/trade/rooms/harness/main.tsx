@@ -58,6 +58,9 @@ function Page() {
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
         <div className="if-app" onClick={follow}>
+          <div className="harness-test" role="status">
+            TEST DATA — not real money. Every figure here is a labelled stand-in.
+          </div>
           <nav className="harness-bar" aria-label="Harness stand-in for the top bar">
             <a href="/home">intafaced</a>
             <a href="/home">Home</a>
@@ -67,9 +70,6 @@ function Page() {
             </a>
             <a href="/pay">Pay</a>
             <a href="/more">More</a>
-            <span className="harness-test" role="status">
-              TEST DATA — not real money. Every figure here is a labelled stand-in.
-            </span>
             <span>harness stand-in for the top bar</span>
           </nav>
           <main id="main">
