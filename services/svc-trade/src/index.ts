@@ -112,6 +112,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -270,6 +271,7 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
   store: copyStore,
+  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
