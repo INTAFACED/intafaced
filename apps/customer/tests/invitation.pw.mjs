@@ -59,6 +59,14 @@ async function network(context, options = {}) {
       url = new URL(request.url()),
       procedure = decodeURIComponent(url.pathname.split('/').at(-1));
     const input = request.method() === 'POST' ? request.postDataJSON() : JSON.parse(url.searchParams.get('input') || 'null');
+    // Models the HttpOnly `ifc_rt` cookie: sign-in sets it, logout clears it, and a bare refresh without it is session_invalid.
+    if (procedure === 'auth.refresh' && !state.cookie)
+      return route.fulfill({
+        status: 401,
+        json: { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } },
+      });
+    if (procedure === 'auth.login') state.cookie = true;
+    if (procedure === 'auth.logout') state.cookie = false;
     if (procedure === 'auth.login' || procedure === 'auth.refresh') {
       const accessToken = 'isolated-invitation-session-' + ++state.sequence;
       sessions.set(accessToken, state.owner);

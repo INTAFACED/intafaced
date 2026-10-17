@@ -8,7 +8,7 @@ import {
   moduleForPage,
   normalise,
 } from '@/lib/modules';
-import { contentSecurityPolicy, createNonce } from '@/lib/security-headers.mjs';
+import { contentSecurityPolicy, createNonce, hstsHeaderValue } from '@/lib/security-headers.mjs';
 
 /**
  * ADMIN_MODULES gate (see `lib/modules.ts`). A disabled module's API routes get
@@ -64,6 +64,11 @@ function gate(request: NextRequest, forwarded: Headers) {
  * Every response this middleware produces (pass-through, redirect or 404) carries the page Content-Security-Policy. The
  * nonce is also put on the forwarded REQUEST, as `x-nonce` and as the CSP itself: Next reads the nonce from the request's
  * policy and stamps it on its own inline bootstrap and chunk scripts, which is what lets `script-src` drop 'unsafe-inline'.
+ * Strict-Transport-Security is set here too, from the RUNTIME environment (`hstsHeaderValue(process.env)`), not from `headers()`
+ * in `next.config.mjs`: that is baked into the build, so one image could only ever carry one HSTS stage. The value is already
+ * validated at boot (`instrumentation.ts`), so this only formats it and cannot throw. It is sent whatever the scheme or port: TLS
+ * ends in front of this process and browsers ignore the header over plain http. The matcher skips `/_next/` and files with an
+ * extension, so those responses no longer carry it; any page or API response records the policy for the host.
  * The other security headers do not vary per request and come from `headers()` in `next.config.mjs`.
  */
 export function middleware(request: NextRequest) {
@@ -75,6 +80,7 @@ export function middleware(request: NextRequest) {
   const response = gate(request, forwarded);
   response.headers.set('content-security-policy', policy);
   response.headers.set('cache-control', 'no-store');
+  response.headers.set('strict-transport-security', hstsHeaderValue(process.env));
   return response;
 }
 

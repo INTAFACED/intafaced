@@ -77,6 +77,7 @@ export const PAYFAC_SURFACE_AREAS = {
   'trpc.merchant.submitKyb': 'kyb',
   'trpc.merchant.decideKybStub': 'kyb',
   'trpc.merchant.profile': 'checkout.profile',
+  'trpc.merchant.checkoutSettings.get': 'checkout.profile',
   'trpc.merchant.createLink': 'payment.link',
   'trpc.merchant.listLinks': 'payment.link',
   'trpc.merchant.deactivateLink': 'payment.link',

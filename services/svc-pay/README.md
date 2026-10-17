@@ -255,6 +255,7 @@ Every value movement is a recipe. This service holds no balance of any kind (Doc
 | `withdrawSettle`       | `withdraw.settled`        | hold → rail boundary (completed)                                       |
 | `withdrawReverse`      | `withdraw.reversed`       | hold → available (refused)                                             |
 | `deposit`              | `deposit.credited`        | rail boundary → user available                                         |
+| `depositReverse`       | `deposit.reversed`        | user available → rail boundary (rewritten deposit block)               |
 
 The three `withdraw*` recipes serve **both** outbound paths — a merchant payout keyed on `<settlementId>:<attempt>`, and a user withdrawal keyed on `<withdrawalId>:<attempt>`. Same shape, same reasoning, one set of recipes.
 
@@ -279,6 +280,7 @@ can complete the same recipe plan against a real chain.
 | `withdraw.hold\|settle\|reverse:<settlementId>:<attempt>` | One merchant payout attempt.                                                                                                                                                                                                                    |
 | `withdraw.hold\|settle\|reverse:<withdrawalId>:<attempt>` | One user withdrawal attempt.                                                                                                                                                                                                                    |
 | `deposit:<rail>:<railRef>`                                | A rail reference is credited once, however often it is redelivered.                                                                                                                                                                             |
+| `deposit.reverse:<depositId>`                             | A rewritten block reverses that deposit once. A second report returns the first row.                                                                                                                                                            |
 
 > **Why the asset is in the settlement key.** §6.1's settlement is keyed on merchant and window. A merchant taking USDT and BTC on the same day has two settlements, and without the asset in the key the second would find the first's transaction, return it, and strand a whole currency's takings in clearing. The `settlements` table carries an `asset_id` column for the same reason: `gross`/`fees`/`net` are meaningless without one.
 

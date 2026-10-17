@@ -10,8 +10,10 @@ export {
   AlertDialogTitle,
   Amount,
   AmountInput,
+  Badge,
   Button,
   CoinIcon,
+  KeyValue,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -27,12 +29,17 @@ export {
   SelectValue,
   Skeleton,
   StateBlock,
+  StatusChip,
+  Table,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   useHideBalances,
   HIDDEN_MASK,
 } from '@intafaced/ui';
+export type { KeyValueItem, TableColumn } from '@intafaced/ui';
+// The desk's own order reads (open and closed), so this screen and the desk share one poll and one set of rows.
+export { useClosedOrders, useOpenOrders, useRefreshPrivate } from '../desk/data';
 
 export {
   classifyRefusal,

@@ -1971,6 +1971,12 @@ services:
       ANALYTICS_REPLICA_IDENTITY_URL:
       ANALYTICS_REPLICA_CONFIGURED:
       ANALYTICS_REPLICA_LAG_SECONDS:
+      # HSTS stage, read per request (not baked into the image) and validated at boot (`config.hsts_invalid`): max-age seconds
+      # 0..63072000 and includeSubDomains true|false. Default is the gentle one day, host-only. Above one day needs
+      # production posture; includeSubDomains is refused on the registrable domain. There is no preload setting by design:
+      # docs/adr/2026-10-14-hsts-staged-ramp-no-preload.md.
+      HSTS_MAX_AGE_SECONDS: ${ADMIN_HSTS_MAX_AGE_SECONDS:-86400}
+      HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
     ports: ['3100:3100']
     healthcheck: *healthcheck
 

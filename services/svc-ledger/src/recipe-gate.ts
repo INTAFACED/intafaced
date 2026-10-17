@@ -209,6 +209,17 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
 
   return [
     { name: 'deposit', post: recipes.deposit({ userId: U, assetId: 'USDT', amount: AMT, rail: 'crypto-native', railRef: 'tx1' }) },
+    {
+      name: 'depositReverse',
+      post: recipes.depositReverse({
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        railRef: 'tx1',
+        depositId: 'dep1',
+      }),
+    },
     { name: 'marketMakerSeedFund', post: recipes.marketMakerSeedFund({ assetId: 'USDT', amount: AMT, seedId: 'seed1' }) },
     { name: 'withdrawHold', post: recipes.withdrawHold(withdraw) },
     { name: 'withdrawSettle', post: recipes.withdrawSettle(withdraw) },
