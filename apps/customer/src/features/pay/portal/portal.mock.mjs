@@ -19,6 +19,8 @@ export { USER_ID };
  */
 export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'off', role = 'owner' } = {}) {
   const calls = [];
+  /** Procedures nothing answered, so the review board can list what a not-live card is waiting for. */
+  const unmounted = [];
   const ctx = mockContext(scenario, now, { myAccess, role });
   const parts = [createCoreMock(ctx), createMoneyMock(ctx), createPaymentsMock(ctx), createSettingsMock(ctx)];
 
@@ -41,10 +43,12 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
       const answered = await part.handle(procedure, input, route);
       if (answered !== NOT_MINE) return answered;
     }
+    unmounted.push(procedure);
     return refuse(route, 404, '', `No procedure ${procedure}`);
   }
   return {
     calls,
+    unmounted,
     state: ctx.state,
     /** Answer one request directly. Used by the contract test, which has no browser. */
     handle,

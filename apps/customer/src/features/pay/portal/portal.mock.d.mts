@@ -4,6 +4,7 @@ export function createPortalMock(
   options?: { now?: number; myAccess?: string; role?: string },
 ): {
   calls: { procedure: string; method: string; input: any }[];
+  unmounted: string[];
   state: Record<string, any>;
   handle(route: unknown): Promise<unknown>;
   install(page: unknown): Promise<void>;
