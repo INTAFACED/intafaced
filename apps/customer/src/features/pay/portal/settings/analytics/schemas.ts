@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { decimalSchema } from '../../../../../shared/money';
+import { effectiveRateSchema } from '../../money/fee-rate-schema';
 
 // mirrors origin/feat/pay-portal-be-profile-analytics:packages/contracts/src/merchant-portal.ts; import from @intafaced/contracts after merge
 // Parsed tolerantly: unknown keys are ignored.
@@ -37,6 +38,8 @@ export const feesSchema = z.object({
   // Null until the service aggregates the pricing rules it stored with each fee. The browser never works one out.
   effectiveRate: z.unknown().nullable().optional(),
   effectiveRateReason: z.string().optional(),
+  // The rate per asset over the whole window, worked out by the service (fees ÷ gross). Absent on an older service.
+  rates: z.array(effectiveRateSchema).optional(),
   conversionCost: z.unknown().nullable().optional(),
 });
 export type FeesPage = z.infer<typeof feesSchema>;

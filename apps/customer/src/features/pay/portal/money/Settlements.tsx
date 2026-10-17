@@ -23,7 +23,8 @@ import { useServerList } from '../ui/useServerList';
 import { uiCopy } from '../ui/copy';
 import { ExportButton, ListBody, shortDay, TestBanner, useListQuery, useTestMode } from './common';
 import { mc } from './copy';
-import { bpsPercent, statementTies } from './model';
+import { bpsPercent, latestApproval, payoutRowState, payoutState, statementTies } from './model';
+import { pictureCount, usePayoutPicture } from './payout-picture';
 import { railWords } from './destination';
 import { LifecycleTrail } from './Trail';
 import type { Settlement, SettlementStatus } from '../schemas';
@@ -46,18 +47,8 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
   const query = useListQuery(filters);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   const snapshot = useResource((s) => portal.snapshot(merchantId, 'rolling_30d', s), `money:settle-snapshot:${merchantId}`);
-  const counts = useResource(async (s) => {
-    const reads = await Promise.all(
-      (['posted', 'pending', 'failed'] as const).map((status) => portal.settlementPage(merchantId, { status }, undefined, s)),
-    );
-    const bad = reads.find((r) => !r.ok);
-    if (bad && !bad.ok) return bad;
-    const pick = (i: number) => {
-      const r = reads[i]!;
-      return r.ok ? { n: r.data.items.length, more: r.data.nextCursor !== null } : { n: 0, more: false };
-    };
-    return { ok: true as const, data: { posted: pick(0), pending: pick(1), failed: pick(2) } };
-  }, `money:settle-counts:${merchantId}`);
+  // The counts and the state on each row come from the one payout derivation (Payouts and Balances use it too).
+  const picture = usePayoutPicture(portal, merchantId);
   const list = useServerList(
     (f, cursor, signal) =>
       portal.settlementPage(merchantId, { status: f.status, assetId: f.assetId, from: f.from, to: f.to, search: f.search }, cursor, signal),
@@ -67,8 +58,20 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   const items = list.state.status === 'ready' ? list.state.items : [];
   const assets = [...new Set(items.map((s) => s.assetId))].sort();
-  const count = (c: { n: number; more: boolean } | undefined) => (c ? (c.more ? t('mnCountNewest', { n: c.n }) : String(c.n)) : '—');
-  const c = counts.resource.status === 'ready' ? counts.resource.data : undefined;
+  const pic = picture.resource.status === 'ready' ? picture.resource.data : null;
+  const approvals = pic?.approvals ?? null;
+  const count = (state: 'ready' | 'not_ready' | 'failed') => {
+    if (!pic) return '—';
+    const c = pictureCount(pic, state);
+    return c.newest ? t('mnCountNewest', { n: c.n }) : String(c.n);
+  };
+  /** A finalised settlement is shown by where its payout stands; every other settlement by its own status. */
+  const statusOf = (s: Settlement) =>
+    s.status === 'posted' && pic ? (
+      <StatusChip entity="payout" value={payoutRowState(s, approvals)} />
+    ) : (
+      <StatusChip entity="settlement" value={s.status} />
+    );
   const snap = snapshot.resource.status === 'ready' ? snapshot.resource.data : null;
   return (
     <div className="stack">
@@ -118,21 +121,23 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
               '—'
             ),
           },
-          { label: t('settleReady'), period: t('mnPeriodNow'), href: '/pay/settlements?status=posted', value: count(c?.posted) },
-          { label: t('settlePending'), period: t('mnPeriodNow'), href: '/pay/settlements?status=pending', value: count(c?.pending) },
+          { label: t('settleReady'), period: t('mnPeriodNow'), href: '/pay/settlements?status=posted', value: count('ready') },
+          { label: t('settlePending'), period: t('mnPeriodNow'), href: '/pay/settlements?status=pending', value: count('not_ready') },
           {
             label: t('settleFailed'),
             period: t('mnPeriodNow'),
             href: '/pay/settlements?status=failed',
-            value: count(c?.failed),
-            tone: c && c.failed.n > 0 ? 'attention' : undefined,
+            value: count('failed'),
+            tone: pic && pic.tally.failed > 0 ? 'attention' : undefined,
           },
         ]}
       />
       <FilterRow
         filters={filters}
         label={t('settleFilters')}
-        statuses={settlementStatuses.map((s) => [s, t(`chipSettlement_${s}` as 'chipSettlement_posted')] as const)}
+        statuses={settlementStatuses.map(
+          (s) => [s, s === 'posted' ? t('payFilterPosted') : t(`chipSettlement_${s}` as 'chipSettlement_posted')] as const,
+        )}
         assets={assets}
         shown={items.length}
         hasMore={list.state.status === 'ready' && list.state.hasMore}
@@ -200,13 +205,13 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
           { header: t('colNet'), cell: (s) => <MoneyText value={s.net} asset={s.assetId} test={test} /> },
           { header: t('colGross'), cell: (s) => <MoneyText value={s.gross} asset={s.assetId} test={test} /> },
           { header: t('colFees'), cell: (s) => <MoneyText value={s.fees} asset={s.assetId} test={test} sign="minus" /> },
-          { header: t('colStatus'), cell: (s) => <StatusChip entity="settlement" value={s.status} /> },
+          { header: t('colStatus'), cell: statusOf },
         ]}
         card={(s) => ({
           title: settlementName(t, locale, s),
           time: s.createdAt ? <DateTime value={s.createdAt} /> : undefined,
           amount: <MoneyText value={s.net} asset={s.assetId} test={test} />,
-          status: <StatusChip entity="settlement" value={s.status} />,
+          status: statusOf(s),
         })}
       />
     </div>
@@ -240,6 +245,13 @@ export function SettlementDetailPage({
     `money:lifecycle:${settlementId}`,
   );
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
+  // A finalised settlement is "ready" only if nobody has asked for, or been given, an approval on it.
+  const approvals = useResource(async (s) => {
+    const read = await portal.approvalPage(merchantId, {}, undefined, s);
+    return read.ok
+      ? { ok: true as const, data: ('items' in read.data ? read.data.items : read.data).filter((a) => a.settlementId === settlementId) }
+      : read;
+  }, `money:settlement-approvals:${settlementId}`);
   const readAt = useReadAt(settlement.resource.status === 'ready', settlement.resource);
   const lines = useServerList(
     (_f, cursor, signal) =>
@@ -251,6 +263,7 @@ export function SettlementDetailPage({
     settlement.reload();
     lifecycle.reload();
     halts.reload();
+    approvals.reload();
     lines.reload();
   };
   return (
@@ -270,6 +283,12 @@ export function SettlementDetailPage({
             ...(s.failedAt ? [{ at: s.failedAt, title: t('stlEvFailed'), detail: s.failure?.message }] : []),
           ];
           const lc = lifecycle.resource;
+          const chip =
+            s.status === 'posted' && approvals.resource.status === 'ready' ? (
+              <StatusChip entity="payout" value={payoutState(s, latestApproval(approvals.resource.data, s.id))} />
+            ) : (
+              <StatusChip entity="settlement" value={s.status as SettlementStatus} />
+            );
           return (
             <>
               <DetailHeader
@@ -279,7 +298,7 @@ export function SettlementDetailPage({
                     <MoneyText value={s.net} asset={s.assetId} /> {t('mnNet')}
                   </>
                 }
-                status={<StatusChip entity="settlement" value={s.status} />}
+                status={chip}
                 subtitle={settlementName(t, locale, s)}
                 action={
                   <Button
@@ -309,9 +328,7 @@ export function SettlementDetailPage({
                 <dl className="pp-facts">
                   <div>
                     <dt>{t('colStatus')}</dt>
-                    <dd>
-                      <StatusChip entity="settlement" value={s.status as SettlementStatus} />
-                    </dd>
+                    <dd>{chip}</dd>
                   </div>
                   {s.createdAt && (
                     <div>
@@ -434,7 +451,7 @@ export function SettlementDetailPage({
                 {lc.status === 'loading' ? (
                   <PortalLoading rows={3} />
                 ) : lc.status === 'ready' ? (
-                  <LifecycleTrail lifecycle={lc.data} approvals={[]} me={portal.userId} names={new Map()} />
+                  <LifecycleTrail lifecycle={lc.data} approvals={[]} me={portal.userId} names={new Map()} settlement={s} />
                 ) : events.length > 0 ? (
                   <Timeline label={t('stlLifecycleTitle')} items={events} />
                 ) : (

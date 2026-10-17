@@ -44,11 +44,16 @@ export const destinationItemSchema = z.object({
   kind: z.string(),
   destinationMasked: z.string(),
   screeningState: z.string().optional(),
+  /** `default` only after the owner marked this row; everything else is `unset`. */
   defaultFlag: z.string().optional(),
   createdAt: timestamp,
   lastUsedAt: timestamp.nullable().optional(),
 });
 export type DestinationItem = z.infer<typeof destinationItemSchema>;
+/** What `merchant.payoutDestinations.remove` answers. */
+export const destinationRemovedSchema = z.object({ removed: z.literal(true) });
+/** True only for the row the owner marked. A missing flag is "not the default", never a guess. */
+export const isDefaultDestination = (d: Pick<DestinationItem, 'defaultFlag'>) => d.defaultFlag === 'default';
 
 // mirrors feat/pay-portal-be-reads-money:packages/contracts/src/pay-portal-reads.ts; import from @intafaced/contracts after merge
 export const refundStatuses = ['posted', 'settled', 'reversed'] as const;
@@ -160,11 +165,15 @@ export const limitOpenSchema = z.discriminatedUnion('status', [
 export type LimitOpen = z.infer<typeof limitOpenSchema>;
 export const limitIncreaseResultSchema = limitRequest.extend({ outcome: z.enum(['stored', 'already_open']) });
 export const limitWithdrawResultSchema = z.object({ requestId: z.string(), status: z.string() });
+/**
+ * The tier ladder (merchantControl.tiers.list, #4919): every tier INTAFACED shows merchants, with its commercial terms.
+ * `ownTierId` is null when this merchant is on none of the listed tiers.
+ */
 export const tierListSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_configured'), ownTierId: z.null() }),
   z.object({
     status: z.literal('configured'),
-    ownTierId: z.string(),
+    ownTierId: z.string().nullable(),
     tiers: z.array(
       z.object({
         id: z.string(),
@@ -178,6 +187,7 @@ export const tierListSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type TierList = z.infer<typeof tierListSchema>;
+export type TierSummary = Extract<TierList, { status: 'configured' }>['tiers'][number];
 const band = z.object({ fromAmount: amount, feeBps: z.number(), flatFee: amount.nullable().optional() });
 export const pricingHistorySchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_configured'), events: z.array(z.unknown()) }),

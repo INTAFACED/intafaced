@@ -16,8 +16,8 @@ import { LinkButton, MoneyFailure, TestBanner, payoutName, useTestMode } from '.
 import { mc } from './copy';
 import { amountFor, bpsPercent, hasHiddenDigits, roundedDecimal } from './model';
 import { statementCard, statementColumns } from './Statement';
-import { approvalsBySettlement, defaultStatementRange, payoutRowState } from './model';
-import type { PayoutItem } from './schemas';
+import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
+import { defaultStatementRange, payoutRowState } from './model';
 import type { Approval } from '../schemas';
 import { uiCopy } from '../ui/copy';
 
@@ -31,27 +31,13 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
   const snapshot = useResource((s) => portal.snapshot(merchantId, 'today', s), `money:snapshot:${merchantId}`);
   const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
-  const onTheWay = useResource(async (s) => {
-    const [posted, pending] = await Promise.all([
-      portal.payoutPage({ status: 'posted' }, undefined, s, 10),
-      portal.payoutPage({ status: 'pending' }, undefined, s, 10),
-    ]);
-    if (!posted.ok) return posted;
-    if (!pending.ok) return pending;
-    const a = 'items' in posted.data ? posted.data : { items: posted.data, nextCursor: null };
-    const b = 'items' in pending.data ? pending.data : { items: pending.data, nextCursor: null };
-    return {
-      ok: true as const,
-      data: { items: [...a.items, ...b.items], more: a.nextCursor !== null || b.nextCursor !== null },
-    };
-  }, `money:on-the-way:${merchantId}`);
-  const waiting = useResource((s) => portal.approvalPage(merchantId, { status: 'pending' }, undefined, s), `money:waiting:${merchantId}`);
+  // The same read Settlements and Payouts use, so "ready" and "waiting" are the same figures on every page.
+  const picture = usePayoutPicture(portal, merchantId);
   const reload = () => {
     snapshot.reload();
     control.reload();
     halts.reload();
-    onTheWay.reload();
-    waiting.reload();
+    picture.reload();
   };
   return (
     <div className="stack mn-page">
@@ -70,13 +56,13 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
           const places = moneyPlaces(asset);
           const balance = data.balances.find((b) => b.assetCode === asset)!;
           const q = `asset=${encodeURIComponent(asset)}`;
-          const posted = onTheWay.resource.status === 'ready' ? onTheWay.resource.data.items.filter((p) => p.status === 'posted') : null;
-          const pendingApprovals = waiting.resource.status === 'ready' ? waiting.resource.data : null;
-          const waitingCount = pendingApprovals ? ('items' in pendingApprovals ? pendingApprovals.items : pendingApprovals).length : null;
-          const approvalMap = pendingApprovals
-            ? approvalsBySettlement('items' in pendingApprovals ? pendingApprovals.items : pendingApprovals)
-            : null;
-          const waitingMore = pendingApprovals && 'items' in pendingApprovals ? pendingApprovals.nextCursor !== null : false;
+          const pic = picture.resource.status === 'ready' ? picture.resource.data : null;
+          const countOf = (state: 'ready' | 'awaiting_approval') => {
+            if (!pic) return '—';
+            const c = pictureCount(pic, state);
+            return c.newest ? t('mnCountNewest', { n: c.n }) : String(c.n);
+          };
+          const approvalMap = pic?.approvals ?? null;
           const reserveBps = control.resource.status === 'ready' ? (control.resource.data.reserve?.rollingReserveBps ?? null) : null;
           const reserveDays = control.resource.status === 'ready' ? (control.resource.data.reserve?.holdDays ?? null) : null;
           const capturedToday = amountFor(data.captured, asset);
@@ -145,18 +131,14 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                     label: t('balReady'),
                     period: t('mnPeriodNow'),
                     href: '/pay/payouts?status=posted',
-                    value: posted
-                      ? onTheWay.resource.status === 'ready' && onTheWay.resource.data.more
-                        ? t('mnCountNewest', { n: posted.length })
-                        : String(posted.length)
-                      : '—',
+                    value: countOf('ready'),
                   },
                   {
                     label: t('balWaiting'),
                     period: t('mnPeriodNow'),
                     href: '/pay/approvals?status=pending',
-                    value: waitingCount === null ? '—' : waitingMore ? t('mnCountNewest', { n: waitingCount }) : String(waitingCount),
-                    tone: waitingCount ? 'attention' : undefined,
+                    value: countOf('awaiting_approval'),
+                    tone: pic && pic.tally.awaiting_approval > 0 ? 'attention' : undefined,
                   },
                 ]}
               />
@@ -181,7 +163,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   })}
                 />
               </PaySection>
-              <OnTheWay result={onTheWay} approvals={approvalMap} retry={onTheWay.reload} test={test} />
+              <OnTheWay resource={picture.resource} approvals={approvalMap} retry={picture.reload} test={test} />
               <RecentMovements portal={portal} merchantId={merchantId} asset={asset} test={test} />
               <p className="muted pp-note">
                 <a className="text-link" href="/pay/conversion">
@@ -197,19 +179,20 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
 }
 
 function OnTheWay({
-  result,
+  resource,
   approvals,
   retry,
   test,
 }: {
-  result: { resource: Resource<{ items: PayoutItem[]; more: boolean }> };
+  resource: Resource<PayoutPicture>;
   approvals: ReadonlyMap<string, Approval> | null;
   retry: () => void;
   test: boolean;
 }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
-  const r = result.resource;
+  const r = resource;
+  const items = r.status === 'ready' ? r.data.items.filter((p) => p.status === 'posted' || p.status === 'pending') : [];
   return (
     <PaySection
       title={t('balOnTheWayTitle')}
@@ -224,12 +207,12 @@ function OnTheWay({
         <PortalLoading rows={2} />
       ) : r.status === 'failed' ? (
         <PortalFailure result={r.failure} retry={retry} />
-      ) : r.data.items.length === 0 ? (
+      ) : items.length === 0 ? (
         <p className="muted">{t('balOnTheWayNone')}</p>
       ) : (
         <EntityList
           label={t('balOnTheWayTitle')}
-          rows={[...r.data.items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))}
+          rows={[...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))}
           rowKey={(p) => p.id}
           href={(p) => `/pay/payouts/${encodeURIComponent(p.id)}`}
           columns={[

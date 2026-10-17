@@ -17,9 +17,10 @@ import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
 import { PortalReview } from '../ui/PortalReview';
 import { NamedBlocker, TestBanner, useTestMode } from './common';
+import { formatMoney } from '../ui/format';
 import { mc } from './copy';
-import { closestToLimit, limitRows, type LimitRow } from './model';
-import type { Cap, LimitOpen, LimitRequest, TierList } from './schemas';
+import { bpsPercent, closestToLimit, limitRows, type LimitRow } from './model';
+import type { Cap, LimitOpen, LimitRequest, TierList, TierSummary } from './schemas';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const kindName = (t: Words, kind: string) => t(`limitKind_${kind}` as 'limitKind_daily_intake');
@@ -106,9 +107,7 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         <p className="muted pp-note">{t('usageHow')}</p>
       </PaySection>
 
-      <NamedBlocker title={t('tierLadderTitle')} why="reasonLimits" needs="tier ladder (only your own tier is readable)">
-        {t('tierLadderBody')}
-      </NamedBlocker>
+      <TierLadder tiers={tiers.resource} retry={tiers.reload} test={test} />
 
       <RequestIncrease
         portal={portal}
@@ -120,6 +119,83 @@ export function Limits({ portal, merchantId }: { portal: PortalApi; merchantId: 
         test={test}
       />
     </div>
+  );
+}
+
+/** The tiers INTAFACED shows merchants, each with its limits and reserve. The merchant's own tier is marked. */
+export function TierLadder({ tiers, retry, test }: { tiers: Resource<TierList>; retry: () => void; test: boolean }) {
+  const { t } = mc.useCopy();
+  return (
+    <PaySection title={t('tierLadderTitle')} description={t('tierLadderBody')}>
+      {tiers.status === 'loading' ? (
+        <PortalLoading rows={2} />
+      ) : tiers.status === 'failed' ? (
+        isNotLive(tiers.failure) ? (
+          <NamedBlocker title={t('tierLadderTitle')} why="reasonLists" needs="merchantControl.tiers.list">
+            {t('tierLadderNone')}
+          </NamedBlocker>
+        ) : (
+          <PortalFailure result={tiers.failure} retry={retry} />
+        )
+      ) : tiers.data.status === 'not_configured' ? (
+        <p className="muted">{t('tierLadderNone')}</p>
+      ) : (
+        <>
+          <ul className="pp-limits" aria-label={t('tierLadderTitle')}>
+            {tiers.data.tiers.map((tier) => (
+              <TierItem key={tier.id} tier={tier} yours={tier.id === tiers.data.ownTierId} test={test} />
+            ))}
+          </ul>
+          {tiers.data.ownTierId === null && <p className="muted pp-note">{t('tierLadderNoneYours')}</p>}
+          {tiers.data.tiers.length === 1 && tiers.data.ownTierId !== null && <p className="muted pp-note">{t('tierLadderOne')}</p>}
+        </>
+      )}
+    </PaySection>
+  );
+}
+
+function TierItem({ tier, yours, test }: { tier: TierSummary; yours: boolean; test: boolean }) {
+  const { t } = mc.useCopy();
+  const caps = capKinds.flatMap((kind) => tier.caps.filter((c) => c.kind === kind));
+  return (
+    <li className="pp-limit">
+      <div className="pp-limit-head">
+        <h3>{tier.name}</h3>
+        {yours && <strong>{t('tierLadderYours')}</strong>}
+      </div>
+      <Facts
+        items={[
+          [
+            t('tierLadderCaps'),
+            caps.length === 0 ? (
+              <span className="muted">{t('tierLadderNoCaps')}</span>
+            ) : (
+              <span className="pp-stack">
+                {caps.map((cap) => (
+                  <span key={`${cap.kind}:${'assetCode' in cap ? cap.assetCode : ''}`}>
+                    {kindName(t, cap.kind)}:{' '}
+                    {'assetCode' in cap ? <MoneyText value={cap.limit} asset={cap.assetCode} test={test} /> : String(cap.limit)}
+                  </span>
+                ))}
+              </span>
+            ),
+          ],
+          [
+            t('tierLadderReserve'),
+            tier.reserve && tier.reserve.rollingReserveBps !== null ? (
+              <>
+                {bpsPercent(tier.reserve.rollingReserveBps)}
+                {tier.reserve.holdDays !== null && tier.reserve.holdDays !== undefined
+                  ? ` · ${t('balReserveDays', { days: tier.reserve.holdDays })}`
+                  : ''}
+              </>
+            ) : (
+              <span className="muted">{t('tierLadderNoReserve')}</span>
+            ),
+          ],
+        ]}
+      />
+    </li>
   );
 }
 
@@ -255,7 +331,7 @@ function RequestIncrease({
             rows.map((row) => (
               <Field
                 key={keyOf(row)}
-                label={`${row.assetCode ? `${kindName(t, row.kind)} (${row.assetCode})` : kindName(t, row.kind)} — ${t('lrNow', { limit: row.limit ?? '' })}`}
+                label={`${row.assetCode ? `${kindName(t, row.kind)} (${row.assetCode})` : kindName(t, row.kind)} — ${t('lrNow', { limit: row.assetCode && row.limit ? `${formatMoney(row.limit, row.assetCode)} ${row.assetCode}` : (row.limit ?? '') })}`}
                 inputMode="decimal"
                 value={typed[keyOf(row)] ?? ''}
                 onChange={(e) => setTyped({ ...typed, [keyOf(row)]: e.target.value })}

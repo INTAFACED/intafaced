@@ -17,6 +17,7 @@ import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
 import { NamedBlocker, TestBanner } from './common';
 import { bpsPercent, isCalcAmount, pricingAssets } from './model';
+import { EffectiveFeeView, useEffectiveFeeRates } from './fee-rate';
 import type { PortalApi } from '../api';
 import type { ControlProfile, PricingRule, Quote } from '../schemas';
 import type { PricingHistory as History } from './schemas';
@@ -28,6 +29,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
   const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
   const tiers = useResource((s) => portal.tiersList(merchantId, s), `money:tiers:${merchantId}`);
   const history = useResource((s) => portal.pricingHistory(merchantId, s), `money:pricing-history:${merchantId}`);
+  const rates = useEffectiveFeeRates(portal, merchantId);
   const readAt = useReadAt(control.resource.status === 'ready', control.resource);
   // Viewers and developers see the fee that was charged and nothing about the spread or which rule produced it.
   const feeOnly = access.status === 'ready' && access.pricingVisibility === 'fee_only';
@@ -130,6 +132,14 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
               {rules.map((rule) => (
                 <RuleTable key={`${rule.layer}:${rule.scopeId ?? ''}:${rule.assetCode}`} rule={rule} feeOnly={feeOnly} />
               ))}
+
+              <PaySection title={t('priceActualTitle')} description={t('priceActualBody')}>
+                <EffectiveFeeView
+                  resource={rates.resource}
+                  fallback={<p className="muted">{t('rateUnavailable')}</p>}
+                  note={t('rateWindow30')}
+                />
+              </PaySection>
 
               <FeeCalculator portal={portal} merchantId={merchantId} assets={assets} feeOnly={feeOnly} />
 

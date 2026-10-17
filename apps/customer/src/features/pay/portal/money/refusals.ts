@@ -38,6 +38,8 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.conversion_forbidden': 'rConvForbidden',
   'pay.conversion_not_found': 'rConvNotFound',
   'pay.statement_busy': 'rStatementBusy',
+  'pay.payout_destination_in_flight': 'rDestInFlight',
+  'pay.payout_destination_not_found': 'rDestNotFound',
 };
 const known = new Set(knownRefusalCodes());
 registerRefusals(

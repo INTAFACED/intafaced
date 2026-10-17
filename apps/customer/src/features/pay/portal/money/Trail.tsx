@@ -1,6 +1,5 @@
 import type { Approval, Settlement } from '../schemas';
 import { DateTime } from '../ui/DateTime';
-import { StatusChip } from '../ui/StatusChip';
 import { mc } from './copy';
 import { whoIs } from './common';
 import { describeDestination } from './destination';
@@ -34,6 +33,8 @@ export function lifecycleEvents(
   approvals: readonly Approval[],
   me: string | null,
   names: ReadonlyMap<string, string>,
+  /** The settlement's own end times, used only when the trail has no closing step of its own. */
+  settlement?: Pick<Settlement, 'sentAt' | 'settledAt' | 'failedAt' | 'failure'>,
 ): TrailEvent[] {
   const byId = new Map(approvals.map((a) => [a.approvalId, a]));
   const you = t('mnMe');
@@ -55,6 +56,22 @@ export function lifecycleEvents(
       terminal: TERMINAL.has(e.kind),
     };
   });
+  // A finished payout always ends on its closing step. If the read left it out, the settlement's own time stands in.
+  if (settlement && !events.some((e) => e.terminal)) {
+    if (lifecycle.status === 'failed' && settlement.failedAt) {
+      if (settlement.sentAt && !events.some((e) => e.kind === 'rail.sent'))
+        events.push({ key: 'closing-sent', at: settlement.sentAt, kind: 'rail.sent' });
+      events.push({
+        key: 'closing-failed',
+        at: settlement.failedAt,
+        kind: 'rail.refused',
+        failure: lifecycle.failure?.message ?? settlement.failure?.message ?? null,
+        terminal: true,
+      });
+    } else if (lifecycle.status === 'paid_out' && settlement.settledAt) {
+      events.push({ key: 'closing-paid', at: settlement.settledAt, kind: 'rail.confirmed', terminal: true });
+    }
+  }
   return orderTrail(events, lifecycle.status === 'paid_out' ? 'paid_out' : lifecycle.status === 'failed' ? 'failed' : 'other');
 }
 
@@ -136,18 +153,17 @@ export function LifecycleTrail({
   approvals,
   me,
   names,
+  settlement,
 }: {
   lifecycle: Lifecycle;
   approvals: readonly Approval[];
   me: string | null;
   names: ReadonlyMap<string, string>;
+  settlement?: Pick<Settlement, 'sentAt' | 'settledAt' | 'failedAt' | 'failure'>;
 }) {
   const { t } = mc.useCopy();
   return (
     <>
-      <p>
-        <StatusChip entity="settlement" value={lifecycle.status} />
-      </p>
       {lifecycle.failure && (
         <p className="pp-callout pp-callout--warn" role="alert">
           {lifecycle.failure.message}
@@ -156,7 +172,7 @@ export function LifecycleTrail({
       {lifecycle.events.length === 0 ? (
         <p className="muted">{t('trailNone')}</p>
       ) : (
-        <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names)} />
+        <Trail events={lifecycleEvents(t, lifecycle, approvals, me, names, settlement)} />
       )}
     </>
   );

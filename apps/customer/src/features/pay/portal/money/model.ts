@@ -275,6 +275,44 @@ export function payoutRowState(item: PayoutLike, approvals: ReadonlyMap<string, 
   return payoutState({ status: item.status }, approvals?.get(item.id) ?? null, approvals !== null);
 }
 
+/**
+ * How many payouts are in each state, by the one derivation every page uses (`payoutState`). A settlement with an open
+ * approval is counted where that approval puts it ("waiting" or "approved"), never also as "ready". `approvals` is null
+ * when they could not be read, which turns every finalised settlement into "unknown" rather than a confident "ready".
+ */
+export type PayoutTally = Record<PayoutState, number>;
+export function tallyPayouts(items: readonly PayoutLike[], approvals: ReadonlyMap<string, Approval> | null): PayoutTally {
+  const tally: PayoutTally = {
+    not_ready: 0,
+    unknown: 0,
+    ready: 0,
+    awaiting_approval: 0,
+    approved: 0,
+    rejected: 0,
+    paid_out: 0,
+    failed: 0,
+  };
+  for (const item of items) tally[payoutRowState(item, approvals)] += 1;
+  return tally;
+}
+
+/** An approval that has been decided and not yet used: the payout it allows still has to be sent. */
+export const isApprovedToSend = (approval: Pick<Approval, 'status'> | null | undefined): boolean => approval?.status === 'approved';
+
+/** The destination the owner marked as the default, if any. */
+export function defaultDestination<D extends { defaultFlag?: string }>(list: readonly D[] | null): D | null {
+  return list?.find((d) => d.defaultFlag === 'default') ?? null;
+}
+
+/** The saved destination an approval was made for (same network and same masked number), or null if it is gone. */
+export function destinationOfApproval<D extends { railId: string; destinationMasked: string }>(
+  list: readonly D[] | null,
+  approval: Pick<Approval, 'railId' | 'destinationMasked'> | null,
+): D | null {
+  if (!list || !approval?.railId || !approval.destinationMasked) return null;
+  return list.find((d) => d.railId === approval.railId && d.destinationMasked === approval.destinationMasked) ?? null;
+}
+
 // ---- approvals ---------------------------------------------------------------------------------------
 
 export const ageOf = (a: Pick<Approval, 'createdAt'>, now: number) => Math.max(0, now - Date.parse(a.createdAt));
@@ -289,20 +327,26 @@ export const waitingFrom = (a: Pick<Approval, 'status' | 'checkerUserId'>): 'tea
 
 // ---- the statement -----------------------------------------------------------------------------------
 
-export type RunningView = { shown: true } | { shown: false; reason: 'no_opening' | 'order_ambiguous' | 'none' };
+export type RunningView = { shown: true } | { shown: false; reason: 'no_opening' | 'order_ambiguous' | 'none' | 'unavailable' };
 /**
  * A running balance is drawn only when every line in view followed ledger order. One ambiguous or opening-less line
- * hides the column for the whole range, and the reason is said in words.
+ * hides the column for the whole range, and the reason is said in words. Only lines on the two accounts that carry a
+ * running balance count: a fee line on the fees account never has one. When a counted line has no figure and the
+ * service gave no reason, the column is hidden without inventing one ("we don't have your opening balance" would
+ * contradict an opening balance the page shows).
  */
 export function runningView(
-  lines: readonly Pick<StatementLine, 'runningOrder' | 'runningReason' | 'runningClearing' | 'runningProceeds'>[],
+  lines: readonly (Pick<StatementLine, 'runningOrder' | 'runningReason' | 'runningClearing' | 'runningProceeds'> &
+    Partial<Pick<StatementLine, 'account'>>)[],
 ): RunningView {
   if (lines.length === 0) return { shown: false, reason: 'none' };
   const bad = lines.find((l) => l.runningOrder !== 'clear' || l.runningReason);
   if (bad) return { shown: false, reason: bad.runningReason === 'no_opening' ? 'no_opening' : 'order_ambiguous' };
-  return lines.every((l) => l.runningClearing != null || l.runningProceeds != null)
+  const counted = lines.filter((l) => l.account === undefined || l.account === 'clearing' || l.account === 'proceeds');
+  if (counted.length === 0) return { shown: false, reason: 'unavailable' };
+  return counted.every((l) => l.runningClearing != null || l.runningProceeds != null)
     ? { shown: true }
-    : { shown: false, reason: 'no_opening' };
+    : { shown: false, reason: 'unavailable' };
 }
 
 /**

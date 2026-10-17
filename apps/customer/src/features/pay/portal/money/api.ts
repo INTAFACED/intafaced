@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import { pageOrArray } from '../ui/page';
+import { feeRatesReadSchema } from './fee-rate-schema';
 import * as m from './schemas';
 
 /** The filters a list sends to the service. A blank one is left out, never sent empty. */
@@ -55,6 +56,12 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
       p.page(m.destinationItemSchema),
       signal,
     ),
+  /** Owner only. Marks one saved destination as the default; the previous mark is cleared by the service. */
+  destinationSetDefault: (input: { merchantId: string; destinationId: string }) =>
+    mutate('merchant.payoutDestinations.setDefault', input, m.destinationItemSchema),
+  /** Owner only. Refuses with `pay.payout_destination_in_flight` while a payout to it is waiting or on its way. */
+  destinationRemove: (input: { merchantId: string; destinationId: string }) =>
+    mutate('merchant.payoutDestinations.remove', input, m.destinationRemovedSchema),
   approvalPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal) =>
     query(
       'merchantControl.approvals.list',
@@ -82,6 +89,10 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
   tiersList: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, m.tierListSchema, signal),
   pricingHistory: (merchantId: string, signal?: AbortSignal) =>
     query('merchantControl.pricing.history', { merchantId, limit: 50 }, m.pricingHistorySchema, signal),
+
+  /** The effective fee rate per asset over a window (fees ÷ gross, by INTAFACED). One small page: only `rates` is read. */
+  feeRates: (input: { merchantId: string; from: string; to: string; assetId?: string }, signal?: AbortSignal) =>
+    query('merchantAnalytics.fees', { ...input, bucket: 'day', limit: 1 }, feeRatesReadSchema, signal),
 
   // ---- conversion (sandbox) ------------------------------------------------------------------------
   conversionList: (merchantId: string, signal?: AbortSignal) =>

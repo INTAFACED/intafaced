@@ -254,15 +254,20 @@ export function whoIs(id: string, me: string | null, names: ReadonlyMap<string, 
   return names.get(id) ?? `${id.slice(0, 8)}…`;
 }
 
-/** "Payout to ••4421 · Oct 15": named by where it went and when, never by a week code or an id. */
+/**
+ * "Payout to ••4421 · Oct 15": named by where it went and the day its settlement was finalised, on every page. With no
+ * date to hand the name drops it ("Payout to ••4421") rather than borrowing a different day, such as the day it was asked for.
+ */
 export function payoutName(
   t: ReturnType<typeof mc.useCopy>['t'],
   locale: string,
-  row: { createdAt: string },
+  row: { createdAt?: string | null },
   approval?: { destinationMasked?: string } | null,
 ): string {
+  const to = approval?.destinationMasked;
+  if (!row.createdAt) return to ? t('payoutNameToBare', { to }) : t('payoutNameBare');
   const when = shortDay(row.createdAt, locale);
-  return approval?.destinationMasked ? t('payoutNameTo', { to: approval.destinationMasked, when }) : t('payoutNamePlain', { when });
+  return to ? t('payoutNameTo', { to, when }) : t('payoutNamePlain', { when });
 }
 
 /** "Oct 15, 2026", in the browser's time zone (the same day the list shows for this row). */

@@ -4,7 +4,11 @@ import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 import { referenceProblem } from './Destinations';
 import {
   approvalsBySettlement,
+  defaultDestination,
   defaultStatementRange,
+  destinationOfApproval,
+  isApprovedToSend,
+  tallyPayouts,
   expiresToday,
   hasHiddenDigits,
   orderTrail,
@@ -27,6 +31,8 @@ import {
 } from './model';
 import type { Approval } from '../schemas';
 import type { StatementPage } from './schemas';
+import { ratePercent } from './fee-rate';
+import { pictureCount } from './payout-picture';
 
 // TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const line = (patch: Partial<Parameters<typeof runningView>[0][number]> = {}) => ({
@@ -55,6 +61,13 @@ describe('statement running balance', () => {
   });
   it('has nothing to show for no lines', () => {
     expect(runningView([])).toEqual({ shown: false, reason: 'none' });
+  });
+  it('does not blame a missing opening balance for a fee line, which never carries a running balance', () => {
+    const fee = line({ account: 'houseFees', runningClearing: null, runningProceeds: null });
+    expect(runningView([line({ account: 'clearing' }), fee])).toEqual({ shown: true });
+    // a clearing line with no figure and no stated reason is unavailable, not "we don't have your opening balance"
+    expect(runningView([line({ account: 'clearing', runningClearing: null })])).toEqual({ shown: false, reason: 'unavailable' });
+    expect(runningView([fee])).toEqual({ shown: false, reason: 'unavailable' });
   });
 });
 
@@ -287,5 +300,89 @@ describe('statement line signs', () => {
     expect(lineSign({ account: 'houseFees', direction: 'credit', kind: 'fee' })).toBe(-1);
     expect(lineSign({ account: 'houseFees', direction: 'debit', kind: 'other' })).toBe(0);
     expect(lineSign({ account: 'clearing', direction: 'debit' })).toBe(1);
+  });
+});
+
+describe('one derivation for the payout counts', () => {
+  const a = (settlementId: string, patch: Partial<Approval> = {}): Approval => ({
+    approvalId: `cc${settlementId.slice(2, 8)}-0000-4000-8000-000000000001`,
+    merchantId: 'm',
+    settlementId,
+    amount: '1',
+    assetCode: 'USDT',
+    payloadHash: `sha256:${'a'.repeat(64)}`,
+    status: 'pending',
+    makerUserId: 'u1',
+    checkerUserId: null,
+    createdAt: '2026-10-15T09:00:00.000Z',
+    decidedAt: null,
+    expiresAt: '2026-10-16T09:00:00.000Z',
+    ...patch,
+  });
+  const ids = ['bb000003', 'bb000004', 'bb000006'].map((x) => `${x}-0000-4000-8000-000000000001`);
+  const posted = ids.map((id) => ({ id, status: 'posted' as const }));
+  it('counts a finalised settlement with an open request as waiting, never also as ready', () => {
+    // three finalised settlements, two with a request waiting: one is ready, two are waiting, none is counted twice
+    const map = approvalsBySettlement([a(ids[0]!), a(ids[1]!)]);
+    const tally = tallyPayouts(posted, map);
+    expect(tally.ready).toBe(1);
+    expect(tally.awaiting_approval).toBe(2);
+    expect(Object.values(tally).reduce((x, y) => x + y, 0)).toBe(3);
+  });
+  it('counts an approved, not yet sent, payout apart from ready and waiting', () => {
+    const map = approvalsBySettlement([a(ids[0]!, { status: 'approved', checkerUserId: 'u2' }), a(ids[1]!)]);
+    const tally = tallyPayouts(posted, map);
+    expect(tally).toMatchObject({ ready: 1, awaiting_approval: 1, approved: 1 });
+  });
+  it('puts a voided or expired request back to ready, and keeps a rejected one as rejected', () => {
+    const map = approvalsBySettlement([
+      a(ids[0]!, { status: 'voided' }),
+      a(ids[1]!, { status: 'expired' }),
+      a(ids[2]!, { status: 'rejected' }),
+    ]);
+    expect(tallyPayouts(posted, map)).toMatchObject({ ready: 2, rejected: 1 });
+  });
+  it('calls every finalised settlement unknown when the requests could not be read, never ready', () => {
+    expect(tallyPayouts(posted, null)).toMatchObject({ unknown: 3, ready: 0 });
+  });
+  it('says a count is "newest" when older rows were not read', () => {
+    const tally = tallyPayouts(posted, approvalsBySettlement([]));
+    const more = { pending: false, posted: false, paid_out: false, failed: false };
+    expect(pictureCount({ tally, more, approvalsMore: false }, 'ready')).toEqual({ n: 3, newest: false });
+    expect(pictureCount({ tally, more, approvalsMore: true }, 'ready')).toEqual({ n: 3, newest: true });
+    expect(pictureCount({ tally, more: { ...more, posted: true }, approvalsMore: false }, 'awaiting_approval').newest).toBe(true);
+    expect(pictureCount({ tally, more: { ...more, failed: true }, approvalsMore: false }, 'paid_out').newest).toBe(false);
+  });
+  it('tells an approval that still has to be sent from one already used', () => {
+    expect(isApprovedToSend(a(ids[0]!, { status: 'approved' }))).toBe(true);
+    expect(isApprovedToSend(a(ids[0]!, { status: 'consumed' }))).toBe(false);
+    expect(isApprovedToSend(null)).toBe(false);
+  });
+});
+
+describe('saved destinations', () => {
+  const wallet = { id: 'd1', railId: 'crypto-native', destinationMasked: '0x7a3f…4421', defaultFlag: 'unset' };
+  const bank = { id: 'd2', railId: 'card-sandbox', destinationMasked: '••••8821', defaultFlag: 'default' };
+  it('finds the default only when the owner marked one', () => {
+    expect(defaultDestination([wallet, bank])).toBe(bank);
+    expect(defaultDestination([wallet])).toBeNull();
+    expect(defaultDestination(null)).toBeNull();
+  });
+  it('finds the destination an approval was made for, and nothing when it has been removed', () => {
+    expect(destinationOfApproval([wallet, bank], { railId: 'crypto-native', destinationMasked: '0x7a3f…4421' })).toBe(wallet);
+    expect(destinationOfApproval([bank], { railId: 'crypto-native', destinationMasked: '0x7a3f…4421' })).toBeNull();
+    expect(destinationOfApproval([wallet], {})).toBeNull();
+  });
+});
+
+describe('a fee rate as a percentage', () => {
+  it('shifts the service’s fraction two places by string arithmetic, with at least two decimals', () => {
+    expect(ratePercent('0.015')).toBe('1.50%');
+    expect(ratePercent('0.0159')).toBe('1.59%');
+    expect(ratePercent('0.015873')).toBe('1.5873%');
+    expect(ratePercent('0')).toBe('0.00%');
+    expect(ratePercent('1')).toBe('100.00%');
+    expect(ratePercent('0.000001')).toBe('0.0001%');
+    expect(ratePercent('0.1')).toBe('10.00%');
   });
 });
