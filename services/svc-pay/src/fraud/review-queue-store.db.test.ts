@@ -193,5 +193,6 @@ describe('fraud review cases persist and one payment has one case', () => {
     const restarted = new PostgresFraudReviewQueue(sql);
     expect((await restarted.get(opened.id))?.status).toBe('allowed');
     await expect(sql`UPDATE pay.fraud_review_decisions SET note = 'rewrite' WHERE case_id = ${opened.id}`).rejects.toThrow(/append-only/);
+    await expect(sql`TRUNCATE pay.fraud_review_decisions`).rejects.toThrow(/TRUNCATE is not permitted/);
   });
 });
