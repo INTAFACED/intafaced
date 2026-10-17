@@ -8,6 +8,8 @@ import { AuthService } from './auth/auth-service.js';
 import { openIdentityMail } from './auth/local-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
+import { onboardingUserFromRow } from './auth/onboarding-user.js';
+import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -202,6 +204,20 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
 );
+if (env.PAY_URL) {
+  const payUrl = env.PAY_URL;
+  auth.useOwnerPayScopeSource(async (userId) => {
+    const rows = await sql<Array<{ status: string; email: string; totp_secret: string | null; webauthn_creds: unknown }>>`
+      SELECT status, email::text AS email, totp_secret, webauthn_creds FROM users WHERE id = ${userId} LIMIT 1`;
+    const user = rows[0] ? onboardingUserFromRow(rows[0]) : null;
+    return fetchOwnerPayScopes({
+      payUrl,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      userId,
+      ...(user ? { user } : {}),
+    });
+  });
+}
 // Lifetime can be published without a mail port. With either one missing, every
 // reset request refuses auth.reset_unwired. The only transport this process
 // can install is the local-outbox file, and only when APP_ENV is exactly dev

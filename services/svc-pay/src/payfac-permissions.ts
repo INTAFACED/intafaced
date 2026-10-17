@@ -88,6 +88,8 @@ export const PAYFAC_SURFACE_AREAS = {
   'trpc.merchant.payoutDestinations.setDefault': 'settlement.payout',
   'trpc.merchant.payoutDestinations.remove': 'settlement.payout',
   'trpc.payment.create': 'payment',
+  'trpc.fraud.enqueueReview': 'payment',
+  'trpc.fraud.getDispute': 'payment',
   'trpc.payment.authorize': 'payment',
   'trpc.payment.capture': 'payment',
   'trpc.payment.refund': 'payment.refund',

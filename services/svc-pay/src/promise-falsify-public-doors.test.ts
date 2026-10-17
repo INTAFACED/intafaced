@@ -603,7 +603,7 @@ describe('D26-P2-01b public doors — dispute refuse invent reverse-money', () =
 });
 
 describe('D26-P2-01b public doors — grant refuse invent authority', () => {
-  it('submerchantPermission.grant refuses self-grant over the wire', async () => {
+  it('submerchantPermission.grant stays closed until the named account consents', async () => {
     const grantPermission = vi.fn(async (input: { actorMerchantId: string }) => {
       void input;
       throw new SubMerchantError('A merchant already holds every area over its own node', 'pay.submerchant_grant_self');
@@ -617,17 +617,13 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
       reason: 'self grant probe must refuse',
     });
 
-    expect(statusCode).toBe(400);
-    expect(body.error!.message).toMatch(/own node|grant to itself|pay\.submerchant_grant_self/i);
-    expect(grantPermission).toHaveBeenCalled();
-    const first = grantPermission.mock.calls.at(0);
-    expect(first).toBeDefined();
-    // Actor node came from the signed principal's merchant — never forged on the body.
-    expect(first![0].actorMerchantId).toBe(MERCHANT);
+    expect(statusCode).toBe(403);
+    expect(body.error!.message).toMatch(/pay\.submerchant_consent_required/);
+    expect(grantPermission).not.toHaveBeenCalled();
     await app.close();
   });
 
-  it('submerchantPermission.grant refuses lateral invent over the wire', async () => {
+  it('submerchantPermission.grant does not reach a lateral journal write', async () => {
     const grantPermission = vi.fn(async () => {
       throw new SubMerchantError('Authority does not flow sideways between siblings', 'pay.submerchant_grant_lateral');
     });
@@ -641,7 +637,8 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
     });
 
     expect(statusCode).toBe(403);
-    expect(body.error!.message).toMatch(/sideways|lateral|pay\.submerchant_grant_lateral/i);
+    expect(body.error!.message).toMatch(/pay\.submerchant_consent_required/);
+    expect(grantPermission).not.toHaveBeenCalled();
     await app.close();
   });
 

@@ -149,6 +149,11 @@ export type PayErrorCode =
   | 'pay.merchant_not_found'
   /** The principal does not own this merchant. One rule, in merchant-ownership.ts. */
   | 'pay.merchant_forbidden'
+  /** Opening an account must not return a row that already has a parent. */
+  | 'pay.merchant_parent_present'
+  /** `PAY_MERCHANT_STARTER_FEE_BPS` is unset. Blank is not a fee. */
+  | 'pay.starter_fee_unpublished'
+  | 'pay.dispute_not_found'
   /**
    * Principal is in the subject's PayFac tree but lacks the named permission area.
    * Distinct from merchant_forbidden so a parent that was never granted refund
@@ -1313,12 +1318,18 @@ export class PayService {
       ON CONFLICT (user_id) DO NOTHING
     `;
 
-    const rows = await this.sql<MerchantRow[]>`
-      SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+    const rows = await this.sql<Array<MerchantRow & { parent_merchant_id: string | null }>>`
+      SELECT id, user_id, parent_merchant_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
         FROM pay.merchants WHERE user_id = ${input.userId}
     `;
     const row = rows[0];
     if (!row) throw new PayError(`Merchant for user ${input.userId} not found after insert`, 'pay.merchant_not_found');
+    if (row.parent_merchant_id) {
+      throw new PayError(
+        'This account already belongs to another merchant. Opening an account does not adopt that row.',
+        'pay.merchant_parent_present',
+      );
+    }
     return toMerchant(row);
   }
 
@@ -2570,6 +2581,14 @@ export class PayService {
     // Resolved now so an unknown or incapable rail fails before a payment row
     // exists, rather than at authorize time with a buyer watching.
     this.rails.require(input.railAdapter, 'authorize');
+
+    if (input.profileId) {
+      const profiles = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.payment_profiles
+         WHERE id = ${input.profileId} AND merchant_id = ${input.merchantId}
+      `;
+      if (!profiles[0]) throw new PayError('payment profile not found for merchant', 'pay.profile_not_found');
+    }
 
     const paymentId = input.requestId?.toLowerCase() ?? randomUUID();
     if (input.requestId) await this.existingPaymentCreation(this.sql, input, paymentId);
