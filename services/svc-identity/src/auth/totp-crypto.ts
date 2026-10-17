@@ -117,3 +117,42 @@ export function materializeTotpSecret(key: Buffer | null, stored: string): strin
   }
   return decryptTotpSecret(key, stored);
 }
+
+/**
+ * Same enc:v1 AES-256-GCM envelope as TOTP, for api_keys.request_signing_secret.
+ * Own key: API_KEY_SIGNING_ENC_KEY. Missing key refuses the write. Prod and
+ * staging refuse to boot without it. Plaintext is never written and never logged.
+ */
+export function encryptAtRest(key: Buffer, plaintext: string): string {
+  if (key.length !== 32) throw new Error('at-rest key must be 32 bytes');
+  if (!plaintext) throw new Error('at-rest plaintext empty');
+  const nonce = randomBytes(NONCE_LEN);
+  const cipher = createCipheriv(ALGO, key, nonce);
+  const encrypted = Buffer.concat([cipher.update(Buffer.from(plaintext, 'utf8')), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${TOTP_SECRET_ENC_PREFIX}${Buffer.concat([nonce, encrypted, tag]).toString('base64')}`;
+}
+
+export function decryptAtRest(key: Buffer, sealed: string): string {
+  if (key.length !== 32) throw new Error('at-rest key must be 32 bytes');
+  if (!sealed.startsWith(TOTP_SECRET_ENC_PREFIX)) throw new Error('at-rest value is not enc:v1 ciphertext');
+  const packed = Buffer.from(sealed.slice(TOTP_SECRET_ENC_PREFIX.length), 'base64');
+  if (packed.length < NONCE_LEN + 1 + TAG_LEN) throw new Error('at-rest ciphertext too short');
+  const nonce = packed.subarray(0, NONCE_LEN);
+  const tag = packed.subarray(packed.length - TAG_LEN);
+  const data = packed.subarray(NONCE_LEN, packed.length - TAG_LEN);
+  const decipher = createDecipheriv(ALGO, key, nonce);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+}
+
+export const SIGNING_ENC_KEY_REQUIRED =
+  'API_KEY_SIGNING_ENC_KEY is required in prod and staging (32-byte AES key as base64 or 64-char hex)';
+
+/** Prod and staging boot: a signing secret must not sit plaintext. Dev and test may boot without the key; opt-in still refuses. */
+export function assertSigningEncKey(env: { APP_ENV?: string; API_KEY_SIGNING_ENC_KEY?: string | null }): void {
+  if (env.APP_ENV !== 'prod' && env.APP_ENV !== 'staging') return;
+  if (!parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY)) {
+    throw new Error(SIGNING_ENC_KEY_REQUIRED);
+  }
+}

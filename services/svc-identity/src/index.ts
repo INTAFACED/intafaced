@@ -8,7 +8,7 @@ import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
-import { assertProdTotpKey } from './auth/totp-crypto.js';
+import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
@@ -48,6 +48,8 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -93,6 +95,9 @@ if (env.APP_ENV === 'prod') {
   // TOTP secrets must not sit base32-plaintext in prod; refuse boot without key.
   assertProdTotpKey(env);
 }
+// Request-signing secrets must not sit plaintext in prod or staging.
+assertSigningEncKey(env);
+const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -115,6 +120,11 @@ await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
 await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
+  );
+});
+await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
   );
 });
 
@@ -209,9 +219,13 @@ installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 installFourEyes();
 installApiKeyAttribution(auth);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey);
 
 const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
   ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+  // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
+  // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
+  founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
 });
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
@@ -235,9 +249,10 @@ export const appRouter = mergeRouters(
     privilegedUserIds: founderPair ?? [],
   }),
   createApiKeyIpRouter(sql, auth),
+  createApiKeyRequestSignRouter(sql, signingEncKey),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
-  createApiKeyRotateRouter(sql, auth),
+  createApiKeyRotateRouter(sql, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -266,7 +281,13 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
-  createActionApprovalRouter(actionApprovals),
+  createActionApprovalRouter(actionApprovals, {
+    privilegedUserIds: founderPair ?? [],
+    // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
+    verifyFactor: async (input) => {
+      await auth.stepUp(input);
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 

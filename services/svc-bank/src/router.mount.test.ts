@@ -493,7 +493,7 @@ describe('svc-bank mount — treasury value mutates identity consume', () => {
         },
         abandonPending: async () => {
           calls.push('abandon');
-          return { released: parseAmount('1'), ledgerTxId: 'tx-abandon' };
+          return { released: parseAmount('1'), ledgerTxId: 'tx-abandon', adopted: false, drawLedgerTxId: null };
         },
       },
       cards: {
@@ -569,6 +569,8 @@ describe('svc-bank mount — treasury value mutates identity consume', () => {
     await expect(caller.ops.abandonPendingLoan({ loanId: LOAN, confirmOperatorId: CONFIRM, ...APPROVAL })).resolves.toEqual({
       released: '1',
       ledgerTxId: 'tx-abandon',
+      adopted: false,
+      drawLedgerTxId: null,
       confirmOperatorId: CONFIRM,
     });
     await expect(

@@ -7,6 +7,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
 import { runScheduledReconciliation, type ReconciliationReport } from './reconcile.js';
+import { truncateBook } from '../db/journal-guards.testkit.js';
 
 /**
  * A balance snapshot names the chain tip it locked.
@@ -100,9 +101,7 @@ describe('balance snapshot names the chain tip it locked', () => {
   let engine: PostgresLedger;
 
   const reset = async () => {
-    await db!.sql`
-      TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE
-    `;
+    await truncateBook(db!.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await db!.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
   };
 
