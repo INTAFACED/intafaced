@@ -96,7 +96,13 @@ function MoreRooms({ path }: { path: string }) {
           ? copyText('moreroutes.quant.studio')
           : copyText('moreroutes.backtest');
     description = copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence');
-    content = <Quant key={p} paper={paper} mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'} />;
+    content = (
+      <Quant
+        key={`${p}:${userId}`}
+        paper={paper}
+        mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'}
+      />
+    );
   } else if (p === '/support') {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');

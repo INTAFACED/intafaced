@@ -51,6 +51,14 @@ async function network(context, options = {}) {
     const procedure = decodeURIComponent(url.pathname.split('/').at(-1));
     const input = request.method() === 'GET' ? JSON.parse(url.searchParams.get('input') || 'null') : request.postDataJSON();
     const reply = (data) => route.fulfill({ status: 200, json: { result: { data } } });
+    // Models the HttpOnly `ifc_rt` cookie: sign-in sets it, logout clears it, and a bare refresh without it is session_invalid.
+    if (procedure === 'auth.refresh' && !state.cookie)
+      return route.fulfill({
+        status: 401,
+        json: { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } },
+      });
+    if (procedure === 'auth.login') state.cookie = true;
+    if (procedure === 'auth.logout') state.cookie = false;
     if (procedure === 'auth.login' || procedure === 'auth.refresh') {
       const token = 'isolated-memory-' + ++state.sequence;
       tokens.set(token, state.owner);
@@ -116,8 +124,8 @@ const keys = (page) => page.getByRole('region', { name: 'Passkeys', exact: true 
 const auth = (page) => page.getByRole('region', { name: 'Authenticator app', exact: true });
 const seats = (page) => page.getByRole('region', { name: 'Where you’re signed in', exact: true });
 const unknown = (page) => page.getByRole('region', { name: 'Confirmation not received', exact: true });
-const prepUnknown = (page) => page.getByRole('region', { name: 'Setup response not received', exact: true });
-const receipt = (page) => page.getByRole('region', { name: 'Original security response', exact: true });
+const prepUnknown = (page) => page.getByRole('region', { name: 'Setup result not received', exact: true });
+const receipt = (page) => page.getByRole('region', { name: 'Security action result', exact: true });
 const fail = (route, status = 503, message = 'Isolated response lost', code = 'ISOLATED_REFUSAL') =>
   route.fulfill({ status, json: { error: { message, data: { cause: { code } } } } });
 const writeCount = (state, procedure) => state.writes.filter((row) => row.procedure === procedure).length;

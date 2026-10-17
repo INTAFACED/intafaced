@@ -102,8 +102,8 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
       {partial && open.status === 'ready' ? <Why>{t('History partly unread')}</Why> : null}
       {groups.length > 0 ? (
         <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-sm text-fg-2" aria-label={t('Scaled groups')}>
-          {groups.map(([prefix, n], i) => (
-            <li key={prefix}>{t('Ladder {i}: {n} orders shown', { i: String(i + 1), n: String(n) })}</li>
+          {groups.map(([prefix, n]) => (
+            <li key={prefix}>{t('Ladder {prefix}: {n} orders shown', { prefix, n: String(n) })}</li>
           ))}
         </ul>
       ) : null}

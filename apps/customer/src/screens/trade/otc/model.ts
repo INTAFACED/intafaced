@@ -60,22 +60,6 @@ export function phaseOf(quote: Pick<RfqQuote, 'lifecycle' | 'status' | 'expiresA
   return countdownOf(quote.expiresAt, now).state === 'firm' ? 'open' : 'open-late';
 }
 
-/**
- * What the status chip says. `unconfirmed` = this device holds a note that a request on this very quote got no
- * verified answer, so "Open" would be a guess. `time-up` = open by the last answer but past its time by the clock.
- */
-export type Chip = Lifecycle | 'unconfirmed' | 'time-up';
-
-export function chipOf(
-  quote: Pick<RfqQuote, 'quoteId' | 'lifecycle' | 'status' | 'expiresAt'>,
-  now: number,
-  pendingId: string | null,
-): Chip {
-  if (pendingId !== null && pendingId === quote.quoteId) return 'unconfirmed';
-  const phase = phaseOf(quote, now);
-  return phase === 'open-late' ? 'time-up' : phase;
-}
-
 /** What the buttons may do in each phase. `check` is always allowed: it only reads. */
 export function allowedActions(phase: Phase): readonly Action[] {
   switch (phase) {

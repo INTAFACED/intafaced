@@ -63,7 +63,7 @@ const messages = {
   'Quoted price': 'Quoted price',
   'Mid price': 'Mid price',
   Spread: 'Spread',
-  'Spread notional': 'Spread charged',
+  'Spread notional': 'Spread amount (returned)',
   'You pay': 'You pay',
   'You receive': 'You receive',
   'Value spread included': 'Value, spread included',
@@ -97,11 +97,6 @@ const messages = {
   'Life settled': 'Settled',
   'Life expired': 'Expired',
   'Life unknown': 'Unknown stage',
-  'Life unconfirmed': 'Unconfirmed: check status',
-  'Life time-up': 'Time up: re-read',
-  'Phase unconfirmed':
-    'The last request on this quote got no confirmed answer, so its stage is not known. Check status before doing anything else.',
-  'Time unconfirmed': 'not known until checked',
 
   // Confirm dialog
   'Keep as is': 'Keep as is',
@@ -134,14 +129,14 @@ const messages = {
   'Open by id': 'Open by id',
   'Open by id hint': 'Paste a quote id to look it up. Only your own quotes open.',
   'Open quote button': 'Open quote',
-  View: 'View',
-  'Open quote': 'View quote {id}',
+  'Open quote': 'Open quote {id}',
   'Forget quote': 'Forget quote {id} on this device',
   Forget: 'Forget',
   Value: 'Value',
   'Expires or settled': 'Expires / accepted',
   Status: 'Status',
   Actions: 'Actions',
+  'Re-read first': 'Re-read first',
   Reading: 'Reading…',
   'Not found': 'Not found',
   Unreadable: 'Unreadable',
@@ -159,10 +154,11 @@ const messages = {
   'Export count': '{count} quotes read in this browser.',
 
   // Allocation and give-up
-  'Allocation intro': 'Neither is offered yet. The desk refuses both by name; each reason is below.',
+  'Allocation intro':
+    'Splitting a quote across accounts, or passing it to a carrying account, is not offered yet. The desk refuses both by name.',
   Allocation: 'Allocation',
   'Give-up': 'Give-up',
-  'Allocation code': 'Code:',
+  'Allocation law': 'Refused until an owner-published rule names the accounts. Code:',
 
   // Rules
   'Rule principal': 'Principal or routed',

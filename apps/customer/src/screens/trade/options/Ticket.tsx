@@ -18,22 +18,19 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
-  dec,
   fmtAmount,
-  formatAsOf,
   type Loadable,
 } from '../rooms/ui';
 import type { ListedMarket, OptionsPolicy } from '../rooms/api';
 import { roomWords, type Words } from '../rooms/refusals';
 import { Refusal } from '../rooms/RoomNotices';
-import { useNow } from '../rooms/read';
 import type { RoomWriter } from '../rooms/write';
 import { draftSchema, type Draft, type Preview } from '../../../features/trade/trade-api';
 import { useDeskApi, useRefreshPrivate } from '../desk/data';
 import { placesOf } from '../desk/text';
 import { optionsCopy } from './copy';
 import { isComplete, isOpen } from './ChainTab';
-import { ticketBlock, ticketCost, timeLeft, type Side } from './model';
+import { ticketBlock, ticketCost, type Side } from './model';
 
 type Tif = 'GTC' | 'IOC' | 'FOK';
 interface Review {
@@ -43,7 +40,6 @@ interface Review {
 
 export function Ticket({ market, policy, writer }: { market: ListedMarket | null; policy: Loadable<OptionsPolicy>; writer: RoomWriter }) {
   const { t } = optionsCopy.useCopy();
-  const now = useNow(30_000);
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
   const [side, setSide] = useState<Side>('buy');
@@ -154,35 +150,21 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
   const quote = market?.quote ?? '';
   const reviewCost = review ? cost(review.preview) : null;
   const money = (a: { amount: string; asset: string }) => `${fmtAmount(a.amount, { places: 8 })} ${a.asset}`;
-  // The service records a paper order with no hold (svc-trade preview returns holdAmount 0 for paper). Only then is
-  // "nothing is held" true; any other figure the service sends is shown as it is.
-  const heldAmount = review?.preview.holdAmount ?? null;
-  const paperNothingHeld = Boolean(market?.paper) && heldAmount !== null && dec(heldAmount) === 0n;
   const rows = reviewCost
-    ? paperNothingHeld
-      ? [
-          { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
-          { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
-          { label: t('Held by the service'), value: t('Paper nothing held') },
-        ]
-      : [
-          { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
-          { label: t('Collateral held, estimate'), value: reviewCost.collateral ? money(reviewCost.collateral) : t('None for a buy') },
-          { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
-          {
-            label: t('Held by the service'),
-            value:
-              review?.preview.holdAmount && review.preview.holdAsset
-                ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}`
-                : null,
-          },
-          { label: t('Total to commit'), value: money(reviewCost.total) },
-        ]
+    ? [
+        { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
+        { label: t('Collateral held, estimate'), value: reviewCost.collateral ? money(reviewCost.collateral) : t('None for a buy') },
+        { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
+        {
+          label: t('Held by the service'),
+          value:
+            review?.preview.holdAmount && review.preview.holdAsset
+              ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}`
+              : null,
+        },
+        { label: t('Total to commit'), value: money(reviewCost.total) },
+      ]
     : [];
-  const expiryAt = market?.expiryDatetime ? Date.parse(market.expiryDatetime) : Number.NaN;
-  const expiresText = Number.isNaN(expiryAt)
-    ? (market?.expiryDatetime ?? null)
-    : `${formatAsOf(expiryAt, { now })} ${timeLeft(market?.expiryDatetime, now) ? t('in {time}', { time: timeLeft(market?.expiryDatetime, now)! }) : t('Expired')}`;
 
   return (
     <section aria-label={t('Order ticket')} className="flex flex-col gap-3 rounded-sm border border-line bg-panel p-4">
@@ -194,7 +176,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
             { label: t('Contract'), value: market.symbol, mono: true },
             { label: t('Call or put'), value: market.optionType ? (market.optionType === 'call' ? t('Call') : t('Put')) : null },
             { label: t('Strike'), value: market.strike ? fmtAmount(market.strike, { places: 8 }) : null },
-            { label: t('Expires'), value: expiresText },
+            { label: t('Expires'), value: market.expiryDatetime ?? null },
             { label: t('Settles in'), value: market.settle },
             { label: t('Kind'), value: market.paper ? t('Paper') : t('Live') },
           ]}
@@ -270,7 +252,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
         <div className="flex flex-col gap-2">
           <h3 className="m-0 text-base font-medium text-fg">{t('Cost before you confirm')}</h3>
           <KeyValue density="dense" items={rows} />
-          <p className="m-0 text-xs text-fg-2">{paperNothingHeld ? t('Paper cost note') : t('Cost note')}</p>
+          <p className="m-0 text-xs text-fg-2">{t('Cost note')}</p>
         </div>
       ) : null}
 
@@ -303,7 +285,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
               <AlertDialogTitle>{t('Confirm order title')}</AlertDialogTitle>
               <AlertDialogDescription>
                 {review && reviewCost
-                  ? t(paperNothingHeld ? 'Confirm paper body' : 'Confirm order body', {
+                  ? t('Confirm order body', {
                       side: side === 'buy' ? t('Buy') : t('Sell'),
                       size: fmtAmount(review.draft.amount, { places: 8 }),
                       contract: review.draft.symbol,

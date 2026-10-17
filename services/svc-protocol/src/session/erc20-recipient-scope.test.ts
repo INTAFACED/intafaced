@@ -36,6 +36,7 @@ import {
   createSessionSpec,
   evaluateSessionCall,
   FORBIDDEN_SIGNATURES,
+  readSwapExactInCall,
   isOutboundTransferSelector,
   RECIPIENT_OFFSETS,
   RECIPIENT_SCOPED_CALLS,
@@ -62,13 +63,28 @@ function specFor(selectors: Hex[], target: Address = POOL, extraTargets: Address
 /** Router calls need the pool they name in the session's targets; direct pool calls do not. */
 function decide(data: Hex, target: Address = POOL, account: Address = ACCOUNT, extraTargets: Address[] = target === ROUTER ? [POOL] : []) {
   const selector = data.slice(0, 10) as Hex;
-  return evaluateSessionCall({ spec: specFor([selector], target, extraTargets), account, target, value: 0n, data, spentWei: 0n, now: NOW });
+  // Recipient tests are not slippage tests. A positive minAmountOut is placed
+  // exactly on a zero-tolerance floor so the swap is bounded; minAmountOut 0
+  // stays unbounded and is refused by the spec.
+  const parsed = readSwapExactInCall(data);
+  const swapBound =
+    parsed && parsed !== 'truncated' && parsed.minAmountOut > 0n ? { quoteOut: parsed.minAmountOut, slippageBps: 0 } : undefined;
+  return evaluateSessionCall({
+    spec: specFor([selector], target, extraTargets),
+    account,
+    target,
+    value: 0n,
+    data,
+    spentWei: 0n,
+    now: NOW,
+    ...(swapBound ? { swapBound } : {}),
+  });
 }
 
-function routerSwap(to: Address): Hex {
+function routerSwap(to: Address, minAmountOut = 1n): Hex {
   return encodeFunctionData({
     abi: [parseAbiItem('function swapExactIn(address pool, address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)')],
-    args: [POOL, TOKEN, 1_000_000_000n, 0n, to],
+    args: [POOL, TOKEN, 1_000_000_000n, minAmountOut, to],
   });
 }
 
@@ -89,7 +105,7 @@ describe('session scope for pool swaps', () => {
   });
 
   it('allows a swap whose output comes back to the account', () => {
-    const call = buildSwapExactIn(POOL, TOKEN, 1_000_000_000n, 0n, ACCOUNT);
+    const call = buildSwapExactIn(POOL, TOKEN, 1_000_000_000n, 1n, ACCOUNT);
     const decision = decide(call.data);
     expect(decision.allowed).toBe(true);
     expect(decision.code).toBe('allowed');
@@ -97,7 +113,7 @@ describe('session scope for pool swaps', () => {
 
   it('matches the account regardless of address casing', () => {
     const account = getAddress('0xabcdef0123456789abcdef0123456789abcdef01');
-    const call = buildSwapExactIn(POOL, TOKEN, 1n, 0n, account);
+    const call = buildSwapExactIn(POOL, TOKEN, 1n, 1n, account);
     expect(decide(call.data, POOL, account).allowed).toBe(true);
     expect(decide(call.data, POOL, account.toLowerCase() as Address).allowed).toBe(true);
     expect(decide(call.data, POOL, `0x${account.slice(2).toUpperCase()}` as Address).allowed).toBe(true);
@@ -154,7 +170,7 @@ describe('the router only routes through pools the session may call', () => {
     for (const pool of [ROUTER, '0x0000000000000000000000000000000000000000'] as Address[]) {
       const data = encodeFunctionData({
         abi: [parseAbiItem('function swapExactIn(address pool, address tokenIn, uint256 amountIn, uint256 minAmountOut, address to)')],
-        args: [pool, TOKEN, 1n, 0n, ACCOUNT],
+        args: [pool, TOKEN, 1n, 1n, ACCOUNT],
       });
       // ROUTER is the session target, so it is allowed as the pool arg; zero is not.
       expect(decide(data, ROUTER).code).toBe(pool === ROUTER ? 'allowed' : 'session.target_arg_not_allowed');
@@ -300,6 +316,8 @@ describe('every function with an address input in the compiled contracts is clas
     'RwaRegistry.register(address,bytes32)': 'registry entry keyed by msg.sender as issuer; moves no asset',
     'RwaRegistry.unlist(address)': 'issuer-only registry entry; moves no asset',
     'ScopedPaymaster.setAllowlisted(address,bool)': 'operator-gated paymaster policy; moves no funds',
+    'ScopedPaymaster.validatePaymasterUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)':
+      'EntryPoint-only; reserves the paymaster float and does not pay the userOp sender',
     'SmartAccount.initialize(address)': 'one-shot initializer; the account is never a session target (self-target is forbidden)',
     'SmartAccount.proposeOwner(address)': 'owner-only on the account; unreachable by a session (self-target is forbidden)',
     'SmartAccount.revokeSession(address)': 'account-only; unreachable by a session (self-target is forbidden)',

@@ -19,11 +19,11 @@ const en = {
   step_issuance: 'Issue the asset',
   step_issuance_body: 'Deploy the asset so it exists on the platform.',
   step_issuance_reason:
-    'Blocked: issuance is held. The issuance template has not been audited, and no customer deployment procedure exists. This room calls no deployment or chain procedure.',
+    'Blocked: issuance is on hold. The issuance template has not been audited, and customers can’t deploy yet. This room starts no deployment or chain action.',
   step_compliance: 'Compliance review',
   step_compliance_body: 'Staff review the issuer and the asset before it can be listed or sold.',
   step_compliance_reason:
-    'Blocked: no customer procedure submits an asset for review. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.',
+    'Blocked: customers can’t submit an asset for review yet. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.',
   step_listing: 'List on a trading market',
   step_listing_body: 'Request a market for the asset so people can trade it.',
   step_listing_reason:
@@ -110,11 +110,11 @@ const es = {
   step_issuance: 'Emitir el activo',
   step_issuance_body: 'Despliega el activo para que exista en la plataforma.',
   step_issuance_reason:
-    'Bloqueado: la emisión está retenida. La plantilla de emisión no se ha auditado y no existe ningún procedimiento de despliegue para clientes. Esta sala no invoca ningún procedimiento de despliegue ni de cadena.',
+    'Bloqueado: la emisión está en pausa. La plantilla de emisión no ha sido auditada y los clientes aún no pueden desplegar. Esta sala no inicia ningún despliegue ni acción en la cadena.',
   step_compliance: 'Revisión de cumplimiento',
   step_compliance_body: 'El personal revisa al emisor y el activo antes de poder listarlo o venderlo.',
   step_compliance_reason:
-    'Bloqueado: ningún procedimiento para clientes envía un activo a revisión. El agente de Riesgo y Cumplimiento solo redacta apoyo de verificación para el personal y nunca aprueba a un emisor.',
+    'Bloqueado: los clientes aún no pueden enviar un activo a revisión. El agente de Riesgo y Cumplimiento solo prepara apoyo de revisión para el personal y nunca aprueba a un emisor.',
   step_listing: 'Listar en un mercado de negociación',
   step_listing_body: 'Solicita un mercado para el activo para que se pueda negociar.',
   step_listing_reason:
@@ -203,11 +203,11 @@ const fr = {
   step_issuance: 'Émettre l’actif',
   step_issuance_body: 'Déploie l’actif pour qu’il existe sur la plateforme.',
   step_issuance_reason:
-    'Bloqué : l’émission est suspendue. Le modèle d’émission n’a pas été audité et aucune procédure de déploiement client n’existe. Cette salle n’appelle aucune procédure de déploiement ou de chaîne.',
+    'Bloqué : l’émission est en pause. Le modèle d’émission n’a pas été audité et les clients ne peuvent pas encore déployer. Cette salle ne lance aucun déploiement ni action sur la chaîne.',
   step_compliance: 'Revue de conformité',
   step_compliance_body: 'L’équipe examine l’émetteur et l’actif avant toute cotation ou vente.',
   step_compliance_reason:
-    'Bloqué : aucune procédure client ne soumet un actif à la revue. L’agent Risque et Conformité ne rédige que des aides au filtrage pour l’équipe et n’approuve jamais un émetteur.',
+    'Bloqué : les clients ne peuvent pas encore soumettre un actif à examen. L’agent Risque et Conformité ne prépare qu’un appui de contrôle pour l’équipe et n’approuve jamais un émetteur.',
   step_listing: 'Coter sur un marché de négociation',
   step_listing_body: 'Demande un marché pour l’actif afin qu’il puisse être négocié.',
   step_listing_reason:

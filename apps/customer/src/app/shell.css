@@ -367,6 +367,10 @@
     font-size: 14px;
     font-weight: 500;
   }
+  .tb-restoring {
+    display: inline-block;
+    min-width: 140px;
+  }
   .tb-note {
     margin: 0;
     padding: 12px 24px;

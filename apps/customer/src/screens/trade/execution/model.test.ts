@@ -19,8 +19,8 @@ import {
   type PlanDraft,
 } from './model';
 import { blotterCsv, buildBlotter, filterBlotter, inAlgoWindow } from './blotter';
-import { roomWords } from '../rooms/refusals';
 import { TEST_BATCH, TEST_ORDERS, TEST_WINDOWS } from './fixtures';
+import { roomWords } from '../rooms/refusals';
 
 const draft: PlanDraft = {
   kind: 'twap',

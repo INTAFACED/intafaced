@@ -235,12 +235,8 @@ describe('svc-trade option-amend-price-place (H8a PG-hard)', () => {
         clientOrderId: 'gtc-qty-up',
       });
       const outcome = await trade.amendOrder(principalFor(ALICE), original.id, { qty: amt('3') });
-      expect(outcome).toMatchObject({ accepted: true, code: 'AMENDED' });
-      expect(matching.amended).toHaveLength(1);
-      const req = matching.amended[0]?.request as { strike?: string | null; expiry?: string | null };
-      expect(req.strike).toBeUndefined();
-      expect(req.expiry).toBeUndefined();
-      expect(matching.amended[0]?.request.qty).toBe('3');
+      expect(outcome).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
+      expect(matching.amended).toHaveLength(0);
     });
   });
 });

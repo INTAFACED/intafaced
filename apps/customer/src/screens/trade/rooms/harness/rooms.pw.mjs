@@ -111,8 +111,7 @@ test.describe('Options', () => {
     await ticket.getByLabel('Limit price').fill('500');
     await ticket.getByRole('button', { name: 'Review order' }).click();
     await expect(ticket.getByText('Cost before you confirm')).toBeVisible();
-    await expect(ticket.getByText('Paper: nothing is held')).toBeVisible();
-    await expect(ticket.getByText('Total to commit')).toHaveCount(0);
+    await expect(ticket.getByText('Total to commit')).toBeVisible();
     await shot(page, 'options-02-ticket-review');
     await ticket.getByRole('button', { name: 'Place order' }).click();
     await expect(dialog(page)).toBeVisible();
@@ -321,13 +320,12 @@ test.describe('Execution', () => {
     await shot(page, 'exec-11-scaled-confirm');
     await dialog(page).getByRole('button', { name: 'Place orders' }).click();
     const result = page.getByRole('region', { name: 'Ladder result' });
-    // The lost answer is read back from the book at once: the order is there, so the room says so and counts it placed.
-    await expect(result.getByText('3 of 4 placed, 1 refused')).toBeVisible();
+    await expect(result.getByText('2 of 4 placed, 1 refused, 1 not confirmed')).toBeVisible();
     await expect(result.getByText('Refused').first()).toBeVisible();
-    await expect(result.getByText('Placed, found on the book')).toBeVisible();
+    await expect(result.getByText('Not confirmed').first()).toBeVisible();
     await shot(page, 'exec-12-scaled-result');
     await result.getByRole('button', { name: 'Check status' }).click();
-    await expect(result.getByRole('columnheader', { name: 'On the book' })).toBeVisible();
+    await expect(result.getByText('On the book')).toBeVisible();
     await expect(result.getByText('Not found').first()).toBeVisible();
     await shot(page, 'exec-13-scaled-checked');
 

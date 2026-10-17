@@ -613,11 +613,17 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
   },
+  bestBid: async (marketId) => {
+    const depth = await matching.depth(marketId, 1);
+    const best = depth.bids[0];
+    return best ? parseAmount(best[0]) : null;
+  },
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   feeSchedule,
+  feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -717,6 +723,8 @@ registerPrivateRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketById: (marketId) => trade.marketById(marketId),
   markets: (limit) => trade.markets(limit),
+  feeSchedule,
+  now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
   listPositions: (principal, symbol) => positions.listOpen(principal.userId, symbol),

@@ -24,6 +24,19 @@ describe('feature registry (UI-SPEC 3.4)', () => {
     for (const feature of features) expect(['live', 'blocked'], feature.id).toContain(feature.status);
     for (const feature of features.filter((row) => row.paths.length > 0)) expect(feature.status === 'hidden', feature.id).toBe(false);
   });
+  it('keeps copy trading blocked with its real blocker, and bots live with evidence', () => {
+    const rowFor = (path: string) => features.find((feature) => feature.paths.some((pattern) => matchPath(pattern, path)));
+    const copy = rowFor('/trade/copy');
+    expect(copy?.id).toBe('copy');
+    expect(copy?.status).toBe('blocked');
+    expect(copy?.reason).toMatch(/fee share/);
+    expect(copy?.reason).toMatch(/countries/);
+    const bots = rowFor('/trade/bots');
+    expect(bots?.id).toBe('bots');
+    expect(bots?.status).toBe('live');
+    expect(bots?.checked).toMatch(/TRCOPY/);
+    expect(rowFor('/otc/tradeInfo')?.status).toBe('blocked');
+  });
   it('keeps the old dead ends and the live rooms reachable, never hidden', () => {
     for (const path of [
       '/uc/recharge',
@@ -34,6 +47,7 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/bank/earn',
       '/trade/margin',
       '/trade/copy',
+      '/otc',
       '/otc/tradeInfo',
       '/pay/request',
       '/p2p',

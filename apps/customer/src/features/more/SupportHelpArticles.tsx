@@ -4,13 +4,14 @@ import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
-import { useApi } from '../session/session';
+import { useApi, useSession } from '../session/session';
 import { helpHref } from '../public/help-guards';
 import { t as legacyText } from './copy';
-import { Read } from './common';
+import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import { kbSchema, type KbArticle } from './support-schemas';
+import { readRelated, sendArticleFeedback } from './support-calls';
 
 /** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
 const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
@@ -25,7 +26,7 @@ const CATEGORY_KEY = {
 } as const satisfies Record<KbCategory, Parameters<typeof deskCopy.t>[0]>;
 
 /** The published help library: server search, topic chips, the full text of each answer, and a link to its own page. */
-export function SupportHelpArticles({ onStartRequest }: { onStartRequest: () => void }) {
+export function SupportHelpArticles({ action, onStartRequest }: { action: ReturnType<typeof useAction>; onStartRequest: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi();
   const depositsHidden = isHiddenPath('/uc/recharge');
@@ -92,7 +93,7 @@ export function SupportHelpArticles({ onStartRequest }: { onStartRequest: () => 
               </p>
               <div className="more-articles">
                 {shown.map((row) => (
-                  <Article key={row.id} row={row} />
+                  <Article key={row.id} row={row} action={action} hiddenIds={depositsHidden ? HIDDEN_FEATURE_ARTICLES : EMPTY} />
                 ))}
               </div>
               <Button variant="ghost" onClick={onStartRequest}>
@@ -106,18 +107,97 @@ export function SupportHelpArticles({ onStartRequest }: { onStartRequest: () => 
   );
 }
 
-function Article({ row }: { row: KbArticle }) {
+const EMPTY: ReadonlySet<string> = new Set();
+function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnType<typeof useAction>; hiddenIds: ReadonlySet<string> }) {
   const copy = deskCopy.useCopy();
+  const [opened, setOpened] = useState(false);
   const missing = (key: string) => legacyText('support.published.article.text.is.unavailable.for', { value1: key });
   const title = publishedCopy(row.titleKey) ?? missing(row.titleKey);
   const body = publishedCopy(row.bodyKey);
   return (
-    <details>
+    <details onToggle={(event) => event.currentTarget.open && setOpened(true)}>
       <summary lang={publishedLanguageFor(row.titleKey) ?? 'und'}>{title}</summary>
       {body ? <p lang={publishedLanguageFor(row.bodyKey) ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
       <a className="text-link" href={helpHref(row.id, row.version)}>
         {copy.t('readArticle')} →
       </a>
+      <ArticleFeedback row={row} title={title} action={action} />
+      {opened && <RelatedArticles id={row.id} hiddenIds={hiddenIds} />}
     </details>
+  );
+}
+
+/** "Did this answer help?" One answer per account for each version, so a repeat is answered with the first one. */
+function ArticleFeedback({ row, title, action }: { row: KbArticle; title: string; action: ReturnType<typeof useAction> }) {
+  const copy = deskCopy.useCopy();
+  const api = useApi(),
+    { userId } = useSession();
+  const send = (helpful: boolean) => {
+    // One id per decision: the service answers a repeat of this id with the first result.
+    const clientRequestId = `kb-feedback:${crypto.randomUUID()}`;
+    let kept: boolean | null = null;
+    action.stage({
+      title: () => deskCopy.t('feedbackTitle'),
+      reference: row.id,
+      confirm: () => deskCopy.t('feedbackConfirm'),
+      success: () => deskCopy.t(kept === false ? 'feedbackKept' : 'feedbackThanks'),
+      content: () => (
+        <Details
+          items={[
+            [deskCopy.t('feedbackRowArticle'), <span lang="und">{title}</span>],
+            [deskCopy.t('feedbackRowAnswer'), deskCopy.t(helpful ? 'feedbackYes' : 'feedbackNo')],
+          ]}
+        />
+      ),
+      run: async () => {
+        const result = await sendArticleFeedback(api, { articleId: row.id, userId, helpful, clientRequestId });
+        // A repeat returns the first vote. Say so when it is not the answer just given.
+        if (result.ok) kept = result.data.helpful === helpful;
+        return result;
+      },
+    });
+  };
+  return (
+    <div className="support-feedback" role="group" aria-label={copy.t('feedbackQuestion')}>
+      <small>{copy.t('feedbackQuestion')}</small>
+      <Button variant="secondary" disabled={action.disabled} onClick={() => send(true)}>
+        {copy.t('feedbackYes')}
+      </Button>
+      <Button variant="secondary" disabled={action.disabled} onClick={() => send(false)}>
+        {copy.t('feedbackNo')}
+      </Button>
+      <small className="muted">{copy.t('feedbackOne')}</small>
+    </div>
+  );
+}
+
+/** Published articles that share a topic or tag with this one. Read only when the article is opened. */
+function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet<string> }) {
+  const copy = deskCopy.useCopy();
+  const api = useApi();
+  const related = useResource((signal) => readRelated(api, id, signal), `kb-related:${id}`);
+  return (
+    <div className="support-related">
+      <h4>{copy.t('relatedHeading')}</h4>
+      <Read resource={related.resource} retry={related.reload}>
+        {(rows) => {
+          const visible = rows.filter((row) => row.id !== id && row.published !== false && !hiddenIds.has(row.id));
+          return visible.length === 0 ? (
+            <p className="muted">{copy.t('relatedNone')}</p>
+          ) : (
+            <ul>
+              {visible.map((row) => (
+                <li key={row.id}>
+                  <a className="text-link" lang={publishedLanguageFor(row.titleKey) ?? 'und'} href={helpHref(row.id, row.version)}>
+                    {publishedCopy(row.titleKey) ??
+                      legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          );
+        }}
+      </Read>
+    </div>
   );
 }

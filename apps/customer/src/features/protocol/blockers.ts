@@ -9,12 +9,12 @@ import type { AuditStatus, ChainStatus, DexHealth, IndexerStatus, ProtocolHealth
  */
 
 /**
- * Whether Nitro has recorded a GO on INTACHAIN P1. FALSE.
- * Source of truth is a document, not a service: docs/adr/2026-09-03-protocol-rails-until-intachain.md
- * ("Until Nitro says GO again on P1 ... INTACHAIN P1 implement is parked"; unpark needs a written GO, the S-D2
- * module map, and any testnet labelled not mainnet). Flip this only when that ADR records the GO.
+ * Whether Nitro has recorded a GO on INTACHAIN P1. TRUE since the GO was recorded (decision D-134, merged as #4640).
+ * Source of truth is a document, not a service: docs/adr/2026-09-03-protocol-rails-until-intachain.md, entry
+ * "2026-10-13 (later) — P1 GO". The GO clears only the P1 blocker: bridge, stake and unstake still stop at the
+ * missing chain and bridge services, every action stays not audited, and no testnet is labelled mainnet.
  */
-export const INTACHAIN_P1_GO: boolean = false;
+export const INTACHAIN_P1_GO: boolean = true;
 
 /**
  * Network labels by chain id. Source: services/svc-protocol/deployments/base-sepolia.json
@@ -83,12 +83,13 @@ export interface Blocker {
 }
 
 const blocker = (code: BlockerCode, params: Record<string, string> = {}): Blocker => ({ code, key: `blk_${code}`, params });
+/** How a source is named to a customer. Never a procedure name. */
 const sourceName = {
-  chain: 'protocol.chainStatus',
-  audit: 'protocol.auditStatus',
-  indexer: 'indexer.status',
-  dex: 'dex.health',
-  health: 'protocol.health',
+  chain: 'network status',
+  audit: 'audit status',
+  indexer: 'indexer status',
+  dex: 'DEX status',
+  health: 'service health',
 };
 
 type Check = (snap: ProtocolSnapshot, p1Go: boolean) => Blocker | null;

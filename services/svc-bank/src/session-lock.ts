@@ -46,8 +46,8 @@ import type { Sql } from 'postgres';
  *
  * MUST NOT NEST. A body that takes a second lock through this helper holds one
  * slot while queueing for another; with every slot doing that, none ever frees.
- * Nothing nests today (the repay lock and the liquidation lock are taken one
- * after the other, never inside each other).
+ * Loan repay and liquidation take both historical keys in one call on one
+ * connection. They are not nested.
  */
 
 type Gate = { capacity: number; active: number; waiting: Array<() => void> };
@@ -97,23 +97,79 @@ function leave(gate: Gate): void {
  * on a reserved connection of `sql`. Exclusive across every replica.
  */
 export async function withSessionAdvisoryLock<T>(sql: Sql, namespace: string, key: string, body: () => Promise<T>): Promise<T> {
+  return withSessionAdvisoryLocks(sql, [namespace], key, body);
+}
+
+/**
+ * Hold each namespace on one reserved connection, in sorted order, for one gate
+ * slot. Sorted order is what keeps two keys from deadlocking. An old replica
+ * that still locks only one of those keys collides with this caller on that key.
+ */
+export async function withSessionAdvisoryLocks<T>(
+  sql: Sql,
+  namespaces: readonly string[],
+  key: string,
+  body: () => Promise<T>,
+): Promise<T> {
+  const ordered = [...new Set(namespaces)].sort();
+  if (ordered.length === 0) throw new Error('A session advisory lock needs a namespace');
   const gate = gateFor(sql);
   if (gate) await enter(gate);
   try {
     const reserved = await sql.reserve();
-    let locked = false;
+    const held: string[] = [];
     try {
-      await reserved`SELECT pg_advisory_lock(hashtext(${namespace}), hashtext(${key}))`;
-      locked = true;
+      for (const namespace of ordered) {
+        await reserved`SELECT pg_advisory_lock(hashtext(${namespace}), hashtext(${key}))`;
+        held.push(namespace);
+      }
       return await body();
     } finally {
       try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext(${namespace}), hashtext(${key}))`;
+        for (let i = held.length - 1; i >= 0; i--) {
+          const namespace = held[i]!;
+          await reserved`SELECT pg_advisory_unlock(hashtext(${namespace}), hashtext(${key}))`;
+        }
       } finally {
         reserved.release();
       }
     }
   } finally {
     if (gate) leave(gate);
+  }
+}
+
+/**
+ * Try `pg_try_advisory_lock(hashtext(namespace), hashtext(key))`. Another
+ * session already holding it returns `{ acquired: false }` without waiting,
+ * so a second replica skips the pass instead of running it later.
+ *
+ * This does not take a gate slot. The recovery pass holds the lock on its own
+ * one-connection client while the job bodies take loan locks on the main pool.
+ * Putting both on the gate would nest: the pass would occupy a slot and then
+ * wait for another, and a full gate would never free (the note at the top).
+ */
+export async function trySessionAdvisoryLock<T>(
+  sql: Sql,
+  namespace: string,
+  key: string,
+  body: () => Promise<T>,
+): Promise<{ acquired: true; value: T } | { acquired: false }> {
+  if (namespace.trim() === '') throw new Error('A session advisory lock needs a namespace');
+  const reserved = await sql.reserve();
+  let held = false;
+  try {
+    const [row] = await reserved<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_lock(hashtext(${namespace}), hashtext(${key})) AS locked
+    `;
+    if (row?.locked !== true) return { acquired: false };
+    held = true;
+    return { acquired: true, value: await body() };
+  } finally {
+    try {
+      if (held) await reserved`SELECT pg_advisory_unlock(hashtext(${namespace}), hashtext(${key}))`;
+    } finally {
+      reserved.release();
+    }
   }
 }

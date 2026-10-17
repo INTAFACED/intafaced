@@ -82,7 +82,7 @@ describe('checkInsuranceFundedForListing', () => {
     expect(check.code).toBe(INSURANCE_FUND_EMPTY);
     expect(check.available).toBe(0n);
     expect(check.reason).toContain(formatAccountRef(insuranceFund('USDT')));
-    expect(check.reason).toContain('DIRECTION:33');
+    expect(check.reason).toContain('positive balance');
   });
 
   it('passes when the fund holds any positive balance — no invented target size', async () => {

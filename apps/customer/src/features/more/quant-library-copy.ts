@@ -1,9 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
   title: 'Strategy library',
-  memoryTitle: 'Held in memory only',
+  memoryTitle: 'Shared library',
   memoryBody:
-    'These strategies live in the quant service’s memory. They are shared by everyone using this service, not private to your account, and a service restart erases them. Nothing here is a durable record.',
+    'Everyone using this service sees the same strategies, so this library is not private to your account. A restart erases them, and there is no version history. Saving to it is switched off; your own drafts stay on this device.',
   paperLabel: 'Simulated. Not live trading and not a forecast.',
   search: 'Search name, id or symbol',
   environment: 'Environment',
@@ -38,9 +38,9 @@ const en = {
 } as const;
 const es = {
   title: 'Biblioteca de estrategias',
-  memoryTitle: 'Solo en memoria',
+  memoryTitle: 'Biblioteca compartida',
   memoryBody:
-    'Estas estrategias viven en la memoria del servicio de quant. Las comparten todas las personas que usan este servicio, no son privadas de tu cuenta, y un reinicio del servicio las borra. Nada de esto es un registro duradero.',
+    'Todas las personas que usan este servicio ven las mismas estrategias, así que esta biblioteca no es privada de tu cuenta. Un reinicio las borra y no hay historial de versiones. Guardar en ella está desactivado; tus borradores se quedan en este dispositivo.',
   paperLabel: 'Simulado. No es negociación en vivo ni una previsión.',
   search: 'Buscar nombre, id o símbolo',
   environment: 'Entorno',
@@ -75,9 +75,9 @@ const es = {
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   title: 'Bibliothèque de stratégies',
-  memoryTitle: 'En mémoire seulement',
+  memoryTitle: 'Bibliothèque partagée',
   memoryBody:
-    'Ces stratégies vivent dans la mémoire du service quant. Elles sont partagées par toutes les personnes qui utilisent ce service, ne sont pas privées à ton compte, et un redémarrage du service les efface. Rien ici n’est un enregistrement durable.',
+    'Toutes les personnes qui utilisent ce service voient les mêmes stratégies : cette bibliothèque n’est donc pas privée à ton compte. Un redémarrage les efface et il n’y a pas d’historique des versions. L’enregistrement y est désactivé ; tes brouillons restent sur cet appareil.',
   paperLabel: 'Simulé. Ni trading réel ni prévision.',
   search: 'Rechercher un nom, un id ou un symbole',
   environment: 'Environnement',

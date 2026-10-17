@@ -9,6 +9,14 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import type { RefreshCookieBag } from './auth/refresh-cookie.js';
+
+declare module '@intafaced/contracts' {
+  interface Context {
+    /** Set by svc-identity's request hook. Absent in callers that do not install it. */
+    refreshCookie?: RefreshCookieBag | null;
+  }
+}
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
@@ -327,7 +335,12 @@ function toTrpcError(err: unknown): TRPCError {
 
 const sessionOutput = z.object({
   accessToken: z.string(),
-  refreshToken: z.string(),
+  /**
+   * Present for a native or API client (no Origin). Omitted when the
+   * request is a browser session: the refresh token is only in the
+   * httpOnly `ifc_rt` cookie. Optional so both shapes parse.
+   */
+  refreshToken: z.string().optional(),
   expiresAt: z.string(),
   userId: z.string().uuid(),
 });
@@ -461,6 +474,27 @@ export function createIdentityRouter(
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
+
+  const sessionWire = (
+    ctx: { refreshCookie?: RefreshCookieBag | null },
+    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string },
+  ) => {
+    const bag = ctx.refreshCookie;
+    bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
+    const wire = {
+      accessToken: session.accessToken,
+      expiresAt: session.expiresAt.toISOString(),
+      userId: session.userId,
+    };
+    if (bag?.browser) return wire;
+    return { ...wire, refreshToken: session.refreshToken };
+  };
+
+  const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {
+    const token = body ?? ctx.refreshCookie?.presented ?? '';
+    if (!token) throw new AuthError('Session not found', 'auth.session_invalid');
+    return token;
+  };
   const founderInvites = options.founderEnrolment?.invites;
   const founderNow = options.founderEnrolment?.now ?? (() => new Date());
   const privilegedUserIds = options.privilegedUserIds ?? [];
@@ -647,7 +681,7 @@ export function createIdentityRouter(
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
-            return { ...session, expiresAt: session.expiresAt.toISOString() };
+            return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -685,10 +719,10 @@ export function createIdentityRouter(
           }),
         )
         .output(sessionOutput)
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           try {
             const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
-            return { ...session, expiresAt: session.expiresAt.toISOString() };
+            return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -697,32 +731,41 @@ export function createIdentityRouter(
       login: publicProcedure
         .input(z.object({ identifier: z.string().min(1), password: z.string().min(1), totpCode: z.string().optional() }))
         .output(sessionOutput)
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           try {
             const session = await auth.login(input);
-            return { ...session, expiresAt: session.expiresAt.toISOString() };
+            return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1) }))
+        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
         .output(sessionOutput)
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(input.refreshToken);
-            return { ...session, expiresAt: session.expiresAt.toISOString() };
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            return sessionWire(ctx, session);
           } catch (err) {
+            if (
+              !input?.refreshToken &&
+              err instanceof AuthError &&
+              (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid')
+            ) {
+              ctx.refreshCookie?.clear();
+            }
             throw toTrpcError(err);
           }
         }),
 
       logout: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1) }))
+        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
         .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ input }) => {
-          await auth.logout(input.refreshToken);
+        .mutation(async ({ input, ctx }) => {
+          const token = input?.refreshToken ?? ctx.refreshCookie?.presented ?? '';
+          if (token) await auth.logout(token);
+          ctx.refreshCookie?.clear();
           return { ok: true as const };
         }),
 
@@ -962,11 +1005,11 @@ export function createIdentityRouter(
           }),
         )
         .output(sessionOutput)
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
             const session = await auth.confirmWebauthnAuthentication(input.identifier, input.credential);
-            return { ...session, expiresAt: session.expiresAt.toISOString() };
+            return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
           }

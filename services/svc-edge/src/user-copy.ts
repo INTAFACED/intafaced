@@ -23,6 +23,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.s2s_not_proxied': 'error.notFound',
   'edge.unresolvable_path': 'error.notFound',
   'edge.origin_not_allowed': 'error.forbidden',
+  'auth.csrf_origin_required': 'error.forbidden',
   'edge.rate_limited': 'error.rateLimited',
   'edge.upstream_unavailable': 'error.network',
   'edge.upstream_unwired': 'error.network',

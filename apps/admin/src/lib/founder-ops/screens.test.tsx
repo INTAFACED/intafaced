@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { founderCookie, sealFounderSession, type FounderSession } from '@/lib/founder-session';
 import { moduleForPage } from '@/lib/modules';
 import { SCREENS, DRILLDOWN, drilldownScreen, resolveScreen } from './screens';
+import { SCREEN_SECTIONS } from './read-model';
 import { parseFraud } from './loaders';
 import { FounderScreenView } from '@/components/founder-ops/screens';
 let incoming = new Headers();
@@ -35,6 +36,8 @@ const sample = {
   createdAt: now.toISOString(),
   reasons: [{ ruleId: 'velocity', detail: 'Review requested' }],
 };
+/** Pages whose lists now come from the founder reads (#4870). With the reads off they show a named failure, never "arrives". */
+const WIRED = new Set(['F02', 'F03', 'F05', 'F32', 'F37']);
 const pathOf = (route: string) => route.replace(':id', 'review-1');
 const run = (route: string) =>
   FounderOpsPage({ params: Promise.resolve({ founderPath: pathOf(route).slice(1).split('/') }), searchParams: Promise.resolve({}) });
@@ -93,7 +96,10 @@ describe('new founder route inventory', () => {
     services(true);
     const html = renderToStaticMarkup(await run(s.route));
     expect(html).toContain(s.title);
-    expect(html).toContain('Arrives with the next backend update');
+    if (WIRED.has(s.id)) {
+      expect(html).not.toContain('Arrives with the next backend update');
+      expect(html).toContain('Not built yet');
+    } else expect(html).toContain('Arrives with the next backend update');
     expect(html).not.toContain('NaN');
     expect(moduleForPage(pathOf(s.route))).toBe('merchants');
   });
@@ -112,7 +118,13 @@ describe('new founder route inventory', () => {
     const html = renderToStaticMarkup(await call());
     expect(html).toContain(`data-screen="${id}"`);
     expect(html).toContain('not visible to merchant');
-    expect(html).toContain('Arrives with the next backend update');
+    expect(html).not.toContain('Arrives with the next backend update');
+    expect(html).not.toContain('merchant drilldown procedure is still unimplemented');
+    if (SCREEN_SECTIONS[section]) {
+      // Reads are off in this stub, so every list says so by name instead of showing an empty table.
+      expect(html).toContain('Not built yet');
+      expect(html).toContain('founderAdmin.merchants.section');
+    }
   });
   it('rejects unregistered paths, malformed merchant ids and nested drilldown paths', async () => {
     cookie();

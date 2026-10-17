@@ -188,10 +188,6 @@ const messages = {
     'Premium is price x size x contract size. Full collateral: a sold call holds the underlying, a sold put holds strike x size. A dash means the service did not say.',
   'Confirm order title': 'Place this order?',
   'Confirm order body': '{kind} order: {side} {size} of {contract} at {price}. Total to commit {total}.',
-  'Confirm paper body': '{kind} order: {side} {size} of {contract} at {price}. Paper: nothing is held.',
-  'Paper nothing held': 'Paper: nothing is held',
-  'Paper cost note':
-    'Premium is price x size x contract size, shown so you can see the size of the practice trade. A paper order takes no hold and never touches your real balance.',
   'Go back': 'Go back',
   'Numbers changed': 'The numbers changed since your review. Nothing was sent. Check the new cost and place it again.',
 
@@ -216,8 +212,6 @@ const messages = {
     'Cancels {count} open option orders, one at a time. Each row shows its own answer. Anything already filled stays filled.',
   'Cancel all go': 'Cancel {count} orders',
   'Cancelled row': 'Cancelled',
-  'Cancel all result title': 'Cancel all: result',
-  'Cancel all result summary': '{cancelled} of {total} cancelled, {refused} refused, {untried} not tried.',
   'Cancel blocked': 'Another request is in progress. Try again after it finishes.',
   'Checked order': 'Checked with the service: the order is {status}.',
   'Still recovering': 'The service is still recovering this order. Check again in a moment.',
@@ -258,8 +252,7 @@ const messages = {
   'Rule collateral':
     'Selling needs full collateral: a sold call holds the underlying, a sold put holds the strike times the size. There is no margin loan.',
   'Rule fees': 'The fee for an order is estimated in the cost block and shown again before you confirm.',
-  'Rule paper':
-    'A paper contract is a practice market. The service records a paper order with no hold at all, so it never touches your real balance. Live orders do hold funds.',
+  'Rule paper': 'A paper contract is a practice market. Orders take no hold and never touch your real balance.',
   'Rule live blocked': 'Live option orders are blocked until the settlement asset rule and the settlement price source are published.',
   'Go to Futures': 'Go to Futures',
   'Go to Execution': 'Go to Execution',

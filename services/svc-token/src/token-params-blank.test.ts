@@ -73,7 +73,10 @@ describe('undecided token schedule stays blank', () => {
 
   it('refuses accessOf when the fee schedule is blank', async () => {
     const token = service(BLANK_ROW);
-    await expect(token.accessOf(USER)).rejects.toMatchObject({ code: 'token.params_invalid' });
+    await expect(token.accessOf(USER)).rejects.toMatchObject({
+      code: 'token.params_unset',
+      config: 'token_params.fee_discount_schedule',
+    });
   });
 
   it('refuses mintEpoch when the supply is blank', async () => {
@@ -82,11 +85,17 @@ describe('undecided token schedule stays blank', () => {
       emission_curve: { initialEpochReward: '1' },
       halving_interval: 1,
     });
-    await expect(token.mintEpoch(0)).rejects.toMatchObject({ code: 'token.params_invalid' });
+    await expect(token.mintEpoch(0)).rejects.toMatchObject({
+      code: 'token.params_unset',
+      config: 'token_params.total_supply',
+    });
   });
 
   it('refuses buybackParams when the split is blank', async () => {
     const token = service(BLANK_ROW);
-    await expect(token.buybackParams()).rejects.toMatchObject({ code: 'token.params_invalid' });
+    await expect(token.buybackParams()).rejects.toMatchObject({
+      code: 'token.params_unset',
+      config: 'token_params.buyback_bps',
+    });
   });
 });

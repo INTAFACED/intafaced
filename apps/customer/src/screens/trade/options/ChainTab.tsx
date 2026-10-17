@@ -56,6 +56,9 @@ function Filter({
   );
 }
 
+/** Sum of the column widths: a narrow screen scrolls the table sideways (Contract stays in view) instead of squeezing every column to nothing. */
+const CHAIN_MIN_WIDTH = 1370;
+
 export function ChainTab({
   markets,
   policy,
@@ -82,7 +85,7 @@ export function ChainTab({
     {
       id: 'symbol',
       header: t('Contract'),
-      width: 200,
+      width: 220,
       value: (m) => m.symbol,
       sortable: true,
       pin: 'start',
@@ -91,7 +94,7 @@ export function ChainTab({
     {
       id: 'right',
       header: t('Call or put'),
-      width: 90,
+      width: 110,
       value: (m) => m.optionType ?? null,
       sortable: true,
       cell: (m) => (m.optionType ? <Badge>{m.optionType === 'call' ? t('Call') : t('Put')}</Badge> : null),
@@ -99,7 +102,7 @@ export function ChainTab({
     {
       id: 'strike',
       header: t('Strike'),
-      width: 90,
+      width: 100,
       numeric: true,
       sortable: true,
       value: (m) => m.strike ?? null,
@@ -123,9 +126,18 @@ export function ChainTab({
       },
     },
     {
+      id: 'size',
+      header: t('Contract size'),
+      width: 120,
+      numeric: true,
+      value: (m) => m.contractSize ?? null,
+      cell: (m) => (m.contractSize ? fmtAmount(m.contractSize, { places: 8 }) : null),
+    },
+    { id: 'settle', header: t('Settles in'), width: 100, value: (m) => m.settle ?? null },
+    {
       id: 'status',
       header: t('Status'),
-      width: 180,
+      width: 190,
       cell: (m) => (
         <span className="inline-flex flex-wrap gap-1 whitespace-nowrap">
           <Badge variant="outline">{m.paper ? t('Paper') : t('Live')}</Badge>
@@ -137,20 +149,11 @@ export function ChainTab({
         </span>
       ),
     },
-    {
-      id: 'size',
-      header: t('Contract size'),
-      width: 100,
-      numeric: true,
-      value: (m) => m.contractSize ?? null,
-      cell: (m) => (m.contractSize ? fmtAmount(m.contractSize, { places: 8 }) : null),
-    },
-    { id: 'settle', header: t('Settles in'), width: 80, value: (m) => m.settle ?? null },
     ...(['Bid', 'Ask', 'IV', 'Delta'] as const).map((name): TableColumn<ListedMarket> => ({
       id: name.toLowerCase(),
       header: <span title={t('No quote feed hint')}>{t(name)}</span>,
       headerLabel: t(name),
-      width: 56,
+      width: 80,
       numeric: true,
       value: () => null,
     })),
@@ -228,10 +231,10 @@ export function ChainTab({
           emptyState={none}
           sort={sort}
           onSortChange={(next) => setSort(next)}
-          minWidth={1100}
           selection="single"
           selectedIds={new Set(selected ? [selected] : [])}
           onRowActivate={(m) => onSelect(m.symbol)}
+          minWidth={CHAIN_MIN_WIDTH}
           maxHeight={480}
         />
       )}

@@ -10,7 +10,6 @@ import {
   noteSymbol,
   operationOf,
   phaseOf,
-  chipOf,
   requestBlock,
   verdictOf,
   type RequestDraft,
@@ -40,20 +39,6 @@ describe('lifecycle and phase', () => {
     expect(allowedActions('open-late')).toEqual(['check']);
     // A bound quote is settled whatever the clock says: the hold is already placed.
     expect(phaseOf(TEST_QUOTES.bound, late)).toBe('bound');
-  });
-});
-
-describe('status chip', () => {
-  it('says unconfirmed when a lost request names this quote, whatever its stage', () => {
-    expect(chipOf(TEST_QUOTES.open, TEST_NOW, TEST_QUOTES.open.quoteId)).toBe('unconfirmed');
-    expect(chipOf(TEST_QUOTES.bound, TEST_NOW, TEST_QUOTES.bound.quoteId)).toBe('unconfirmed');
-    expect(chipOf(TEST_QUOTES.open, TEST_NOW, 'some-other-quote')).toBe('open');
-  });
-  it('says time-up for an open quote past its clock, and leaves other stages alone', () => {
-    const late = TEST_NOW + 31_000;
-    expect(chipOf(TEST_QUOTES.open, late, null)).toBe('time-up');
-    expect(chipOf(TEST_QUOTES.bound, late, null)).toBe('bound');
-    expect(chipOf(TEST_QUOTES.expired, late, null)).toBe('expired');
   });
 });
 

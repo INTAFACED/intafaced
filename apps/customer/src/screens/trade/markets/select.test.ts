@@ -3,12 +3,15 @@ import type { MarketData, TickerRow } from './deps';
 import {
   anyListed,
   entriesFor,
+  isPaused,
   marketTarget,
   matchesQuery,
   nextSort,
   priceText,
   quotesOf,
   rangePosition,
+  spreadRatio,
+  spreadText,
   topCards,
   visibleEntries,
   volumeText,
@@ -215,5 +218,32 @@ describe('text helpers', () => {
   });
   it('lists USDT and USDC first', () => {
     expect(quotesOf([market('A', 'EUR'), market('B', 'USDC'), market('C', 'USDT')])).toEqual(['USDT', 'USDC', 'EUR']);
+  });
+});
+
+describe('paused markets', () => {
+  it('are left out by default and listed, marked paused, when asked for', () => {
+    expect(entriesFor(markets, tickers).some((entry) => entry.market.base === 'SIM')).toBe(false);
+    const all = entriesFor(markets, tickers, { includePaused: true });
+    expect(all.filter(isPaused).map((entry) => entry.market.base)).toEqual(['SIM']);
+    expect(all).toHaveLength(markets.length);
+  });
+});
+
+describe('spread', () => {
+  const book = (bid: string | null, ask: string | null) => ticker('BTC-USDT', '100', null, null, { bid, ask });
+  it('is exact: (ask - bid) over the midpoint', () => {
+    expect(spreadRatio(book('99', '101'))).toBe('0.02');
+    expect(spreadText(book('99', '101'))).toBe('2.000%');
+    expect(spreadRatio(book('0.000000000000000001', '0.000000000000000003'))).toBe('1');
+  });
+  it('is zero for a locked book', () => {
+    expect(spreadRatio(book('100', '100'))).toBe('0');
+  });
+  it('is unknown, never zero, when a side is missing, not above zero, or the book is crossed', () => {
+    for (const t of [book(null, '101'), book('99', null), book('0', '101'), book('101', '99'), undefined]) {
+      expect(spreadRatio(t)).toBeNull();
+      expect(spreadText(t)).toBe('—');
+    }
   });
 });

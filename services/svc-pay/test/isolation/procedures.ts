@@ -134,6 +134,12 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
   'founderAdmin.merchants.drilldown': (w) => ({ merchantId: w.e.A.merchantId, window }),
+  'founderAdmin.merchants.section': (w) => ({ merchantId: w.e.A.merchantId, section: 'profile', limit: 10 }),
+  'founderAdmin.merchants.recent': () => ({ limit: 10 }),
+  'founderAdmin.payouts.list': () => ({ limit: 10 }),
+  'founderAdmin.disputes.list': () => ({ limit: 10 }),
+  'founderAdmin.live.summary': () => ({}),
+  'founderAdmin.risk.summary': () => ({ topN: 5 }),
   'founderAdmin.metrics.global': () => ({ window }),
   // A real merchant: founder authority replaces ownership, so the founder gets A's figures.
   'founderAdmin.metrics.merchant': (w) => ({ merchantId: w.e.A.merchantId, window }),
@@ -367,6 +373,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, decision: 'approved' }),
   },
   { path: 'merchant.profile', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.checkoutSettings.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchant.createLink', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId, label: 'probe' }) },
   { path: 'merchant.listLinks', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   {
@@ -1039,6 +1046,7 @@ export const TREE_PROCS: TreeProc[] = [
     input: (i) => ({ merchantId: i.merchantId, ...series, limit: 20 }),
   },
   { path: 'merchant.businessProfile.get', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchant.checkoutSettings.get', area: 'checkout.profile', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchant.businessProfile.history', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
   { path: 'merchant.onboarding.progress', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId }) },
 ];

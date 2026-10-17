@@ -70,17 +70,33 @@ export function replyReopens(status: TicketStatus): boolean {
 }
 
 /**
- * What the support service can do for the signed-in person today. The service has procedures to create a request, read it,
- * read its conversation and history, and reply. It has none to close, rate or attach a file, so those three stay visible and
- * switched off with the reason, instead of being left out or pretending.
+ * What the person can do to a request right now, from its status. The support service has procedures for all three
+ * (close, rate, attach), so each control is real. When one does not apply to this status, it stays on the page,
+ * switched off, with the reason beside it (`reason` names a line in the desk copy).
+ *
+ * The service is the judge of the rules it enforces. These checks only keep the person from sending a request that the
+ * service would refuse for a reason this page already knows.
  */
-export const REQUEST_ACTIONS = {
-  reply: { available: true },
-  close: { available: false, reason: 'noCloseProcedure' },
-  rate: { available: false, reason: 'noRateProcedure' },
-  attach: { available: false, reason: 'noAttachProcedure' },
-} as const;
-export type RequestActionId = keyof typeof REQUEST_ACTIONS;
+export type ActionReason = 'closeAlreadyClosed' | 'rateNotYet' | 'rateDone' | 'attachClosed';
+export type ActionState = { readonly available: true } | { readonly available: false; readonly reason: ActionReason };
+
+export function requestActionStates(status: TicketStatus, rated: boolean): Record<'close' | 'rate' | 'attach', ActionState> {
+  return {
+    close: status === 'closed' ? { available: false, reason: 'closeAlreadyClosed' } : { available: true },
+    rate:
+      status !== 'resolved' && status !== 'closed'
+        ? { available: false, reason: 'rateNotYet' }
+        : rated
+          ? { available: false, reason: 'rateDone' }
+          : { available: true },
+    attach: status === 'closed' ? { available: false, reason: 'attachClosed' } : { available: true },
+  };
+}
+export type RequestActionId = 'close' | 'rate' | 'attach';
+
+/** The rating scale the service accepts: whole numbers 1 to 5. */
+export const RATING_SCORES = [5, 4, 3, 2, 1] as const;
+export const RATING_NOTE_MAX = 500;
 
 /**
  * Help-article groups. Articles carry an id and two text keys but no category field, so the group comes from the id the desk

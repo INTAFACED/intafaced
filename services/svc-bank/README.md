@@ -212,16 +212,16 @@ These jobs are deliberately **not user-callable**: a user who can trigger "run e
 
 HTTP, for the external scheduler (service credentials required; each money job has its own kill-switch where relevant):
 
-| Route                                         | What it runs                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /internal/jobs/run-due-transfers`       | standing orders                                                                 |
-| `POST /internal/jobs/accrue-interest`         | earn pool daily interest                                                        |
-| `POST /internal/jobs/accrue-loan-interest`    | loan interest capitalisation                                                    |
-| `POST /internal/jobs/run-risk-sweep`          | mark / call / liquidate (default **off**)                                       |
-| `POST /internal/jobs/resume-pending-loans`    | crash recovery for pending loan opens                                           |
-| `POST /internal/jobs/recover-loan-repayments` | re-drive repayments/releases with an unknown ledger outcome; close repaid loans |
-| `POST /internal/jobs/resume-pending-earn`     | crash recovery for pending earn deposits                                        |
-| `POST /internal/jobs/run-auto-invest`         | auto-invest threshold sweeps / due DCA                                          |
+| Route                                         | What it runs                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------- |
+| `POST /internal/jobs/run-due-transfers`       | standing orders                                                  |
+| `POST /internal/jobs/accrue-interest`         | earn pool daily interest                                         |
+| `POST /internal/jobs/accrue-loan-interest`    | loan interest capitalisation                                     |
+| `POST /internal/jobs/run-risk-sweep`          | mark / call / liquidate (default **off**)                        |
+| `POST /internal/jobs/resume-pending-loans`    | crash recovery for pending loan opens; also ticked in-process    |
+| `POST /internal/jobs/recover-loan-repayments` | re-drive unknown repayments/releases; also ticked in-process     |
+| `POST /internal/jobs/resume-pending-earn`     | crash recovery for pending earn deposits; also ticked in-process |
+| `POST /internal/jobs/run-auto-invest`         | auto-invest threshold sweeps / due DCA                           |
 
 Plus `/health` and `/ready`. Card settlement resume is tRPC-only (`ops.cardResumeSettlement`) — no HTTP twin yet.
 
@@ -439,6 +439,8 @@ Editing a standing order cancels it and writes a new one, so the history of what
 | `BANK_LOANS_ENABLED`                            | Module kill for loans (`FLAG_REGISTRY` bank.loans) — OFF refuses new opens                                         |
 | `BANK_CARDS_ENABLED`                            | Module kill for cards ledger half (`bank.cards`) — OFF refuses issue and authorise                                 |
 | `TRANSFER_BATCH_SIZE` / `LOAN_SWEEP_BATCH_SIZE` | Bounds the blast radius of a single bad pass                                                                       |
+| `BANK_RECOVERY_JOBS_INTERVAL_MS`                | Recovery timer. Default 60000. Blank disables it and logs a startup warning                                        |
+| `BANK_RECOVERY_JOBS_BATCH_LIMIT`                | Recovery pass cap. Default 50. Blank disables the timer the same way                                               |
 
 Each env job flag gates **both** the HTTP `/internal/jobs/*` endpoint **and** the matching `ops.*` tRPC mutation (same 503 / named code). tRPC is not a back door past an emergency stop.
 
@@ -448,7 +450,9 @@ Each env job flag gates **both** the HTTP `/internal/jobs/*` endpoint **and** th
 | `bank.cards`                              | **Enforced** — `service-env` → `BANK_CARDS_ENABLED` on svc-bank. OFF refuses **issue and authorise** (`bank.cards_disabled`). Issuer setting still names the programme when the module is on. |
 | `bank.sovereignCard`, `bank.cardWaitlist` | **Named only** — `NOT_ENFORCED`. Sovereign card is §13 / Shehzad; waitlist has no money path.                                                                                                 |
 
-The scheduler is external (an endpoint, not a `setInterval`) so it can be paused, inspected and re-run by an operator. Duplicate firing is safe — that is the whole point of the idempotency work — but "safe when it happens" is not a reason to make it happen on every deploy.
+Standing orders, accrual, the risk sweep and auto-invest stay external endpoints, not a `setInterval`, so an operator can pause, inspect and re-run them. Duplicate firing is safe — that is the point of the idempotency work — but "safe when it happens" is not a reason to make it happen on every deploy.
+
+The three recovery jobs also run on a timer. A lost ledger acknowledgement leaves a loan open, a repayment, or an earn deposit `pending`, and no caller was hitting the endpoints, so the row stayed pending. `BANK_RECOVERY_JOBS_INTERVAL_MS` defaults to 60000 (the trade hold-unknown sweep). `BANK_RECOVERY_JOBS_BATCH_LIMIT` defaults to 50 (that sweep's batch). A blank value disables the timer and logs a startup warning. One session advisory lock (`bank.recovery.jobs`) so two replicas do not run the pass together. A tick that throws backs off; the next tick still runs. The job functions are unchanged: unknown stays unknown until the ledger answers.
 
 ---
 

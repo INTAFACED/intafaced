@@ -58,7 +58,6 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
         markets={markets}
         freeOf={freeOf}
         writer={writer}
-        unconfirmed={found === null && (run?.results?.some((r) => r.status === 'unknown') ?? false)}
         onRun={(next) => {
           setRun(next);
           setFound(null);

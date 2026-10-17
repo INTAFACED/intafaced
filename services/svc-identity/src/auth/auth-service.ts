@@ -47,6 +47,8 @@ import {
   syncNavigatorSessionOpen,
   syncNavigatorSessionsClosedForUser,
 } from '../agents/navigator-session-projection-sync.js';
+import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS } from './refresh-cookie.js';
+import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import type { RankService } from '../rank/rank-service.js';
 
 /**
@@ -332,6 +334,8 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  /** How long a just-rotated refresh token may be presented again by a second tab. */
+  private readonly reuseGraceMs: number;
   /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
@@ -347,6 +351,7 @@ export class AuthService {
     challenges?: ChallengeStorePort,
     pendingTotp?: PendingTotpEnrolmentStore,
     maxSubAccounts?: number,
+    reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
   ) {
     this.webauthn = webauthn;
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
@@ -354,6 +359,13 @@ export class AuthService {
     this.pendingTotp = pendingTotp ?? new SqlPendingTotpEnrolmentStore(sql);
     this.maxSubAccounts =
       maxSubAccounts !== undefined && Number.isFinite(maxSubAccounts) && maxSubAccounts >= 1 ? Math.floor(maxSubAccounts) : undefined;
+    const grace = Number.isFinite(reuseGraceSeconds) ? Math.floor(reuseGraceSeconds) : DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
+    this.reuseGraceMs = Math.min(120, Math.max(0, grace)) * 1000;
+  }
+
+  /** Cookie Max-Age. Same number as the refresh-token row lifetime. */
+  refreshLifetimeSeconds(): number {
+    return this.tokens.refreshTtlSeconds;
   }
 
   /** Structured warn sink. Defaults to one JSON line on stderr; index.ts swaps in the Fastify logger. */
@@ -637,18 +649,50 @@ export class AuthService {
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
+    type RefreshRow = {
+      id: string;
+      user_id: string;
+      revoked: boolean;
+      mfa: boolean;
+      expires_at: Date;
+      user_status: string;
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+    };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
+      | { kind: 'grace'; tokens: SessionTokens }
       | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
-        Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date; user_status: string }>
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+        RefreshRow[]
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
-      if (session.revoked) return { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      if (session.revoked) {
+        // disable-user freezes the account and leaves sessions live, so the
+        // successor of a rotation inside the grace window is still usable.
+        // Refuse before any token is minted, and revoke that successor here.
+        if (session.user_status !== 'active') {
+          if (session.successor_id) {
+            await tx`UPDATE sessions SET revoked = true WHERE id = ${session.successor_id}`;
+          }
+          return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
+        }
+        const grace = await this.graceTokens(tx, session);
+        if (grace) return { kind: 'grace', tokens: grace };
+        // A rotation stamps the predecessor. Presenting that token again,
+        // outside the grace window, is reuse and burns every live session.
+        // Logout and other explicit revokes leave no stamp: the token is
+        // dead, and saying so must not sign the person out elsewhere.
+        if (!session.rotated_at && !session.successor_id) {
+          throw new AuthError('Session not found', 'auth.session_invalid');
+        }
+        return { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      }
       if (session.expires_at.getTime() < Date.now()) {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'expired', sessionId: session.id };
@@ -657,13 +701,15 @@ export class AuthService {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
       }
-      await tx`UPDATE sessions SET revoked = true, last_used_at = now() WHERE id = ${session.id}`;
+      const rotatedAt = new Date();
+      await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
         Array<{ id: string }>
       >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
+      await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes: this.defaultScopes(), tier, mfa: session.mfa },
@@ -682,6 +728,7 @@ export class AuthService {
         },
       };
     });
+    if (result.kind === 'grace') return result.tokens;
     if (result.kind === 'reuse') {
       await this.sql`UPDATE sessions SET revoked = true, reuse_detected_at = now() WHERE user_id = ${result.userId} AND revoked = false`;
       await this.sql`UPDATE sessions SET reuse_detected_at = now() WHERE id = ${result.sessionId}`;
@@ -702,12 +749,65 @@ export class AuthService {
     return result.tokens;
   }
 
+  /**
+   * Second tab, same cookie, inside the grace window. The row lock on the
+   * predecessor serialises two refreshes: the loser sees the successor the
+   * winner committed and returns that refresh token plus a new access token
+   * for the same successor session. Outside the window, or if the successor
+   * is already dead, the caller burns the family.
+   */
+  private async graceTokens(
+    tx: Sql,
+    session: {
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      user_id: string;
+    },
+  ): Promise<SessionTokens | null> {
+    if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
+    if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
+    const nextToken = openRefreshToken(this.tokens.secret, session.successor_refresh);
+    if (!nextToken) return null;
+    const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
+      SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    `;
+    const successor = rows[0];
+    if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
+    const tier = await this.kycTier(successor.user_id, tx);
+    const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
+      { userId: successor.user_id, sessionId: successor.id, scopes: this.defaultScopes(), tier, mfa: successor.mfa },
+      this.tokens,
+    );
+    return {
+      accessToken,
+      refreshToken: nextToken,
+      expiresAt: accessExpiresAt,
+      sessionId: successor.id,
+      userId: successor.user_id,
+      mfaRequired: false,
+    };
+  }
+
   async logout(refreshToken: string): Promise<void> {
     const hash = hashToken(refreshToken);
-    const rows = await this.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`;
-    await this.sql`UPDATE sessions SET revoked = true WHERE refresh_hash = ${hash}`;
-    const sessionId = rows[0]?.id;
-    if (sessionId) await syncNavigatorSessionClosed(this.sql, sessionId);
+    const rows = await this.sql<Array<{ id: string; successor_id: string | null }>>`
+      SELECT id, successor_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1
+    `;
+    const root = rows[0];
+    if (!root) return;
+    await this.sql`
+      WITH RECURSIVE chain AS (
+        SELECT id, successor_id FROM sessions WHERE id = ${root.id}
+        UNION ALL
+        SELECT s.id, s.successor_id FROM sessions s
+        INNER JOIN chain c ON s.id = c.successor_id
+        WHERE c.successor_id IS NOT NULL
+      )
+      UPDATE sessions SET revoked = true WHERE id IN (SELECT id FROM chain)
+    `;
+    await syncNavigatorSessionClosed(this.sql, root.id);
+    if (root.successor_id) await syncNavigatorSessionClosed(this.sql, root.successor_id);
   }
 
   async logoutAll(userId: string): Promise<number> {
@@ -1413,6 +1513,85 @@ export class AuthService {
       action: 'identity.kyc.approved',
       xpDelta: 200,
       idempotencyKey: `identity.kyc.approved:${record.userId}:${record.tier}`,
+    });
+  }
+
+  /**
+   * What the customer step-up sheet can ask for. A passkey challenge issued here
+   * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
+   * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
+   */
+  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+    const rows = await this.sql<
+      Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const credentials = asCredentialList(user.webauthn_creds);
+    const totpEnrolled = typeof user.totp_secret === 'string' && user.totp_secret.length > 0;
+    if (!totpEnrolled && credentials.length === 0) {
+      throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+    }
+    return { totp: totpEnrolled, credentials };
+  }
+
+  passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * Prove a fresh factor for a customer step-up. Does not mint a token.
+   * A recovery code is refused and is not spent. The passkey challenge must be
+   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   */
+  async proveFreshFactor(input: {
+    userId: string;
+    sessionId: string;
+    totpCode?: string;
+    webauthn?: AuthenticationResponseJSON;
+    webauthnChallenge?: string;
+  }): Promise<void> {
+    const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
+    if (hasTotp === hasWebauthn) {
+      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    }
+    const users = await this.sql<
+      Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
+    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const user = users[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const sessions = await this.sql<
+      Array<{ id: string }>
+    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasTotp) {
+      if (!/^\d{6}$/.test(input.totpCode!)) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      if (!user.totp_secret) {
+        throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+      }
+      await this.reserve(input.userId, 'mfa');
+      const secret = this.tryOpenTotpSecret(input.userId, user.totp_secret);
+      if (secret === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.consumeTotpCode(input.userId, secret, input.totpCode!);
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
+    const expected = input.webauthnChallenge;
+    if (!expected) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    if (asCredentialList(user.webauthn_creds).length === 0) {
+      throw new AuthError('Enrol a security key before confirming with a passkey', 'auth.webauthn_not_enrolled');
+    }
+    const clientChallenge = readClientChallenge(input.webauthn!.response.clientDataJSON);
+    if (!clientChallenge || clientChallenge !== expected) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
     });
   }
 

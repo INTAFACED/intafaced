@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Hourglass, TriangleAlert } from 'lucide-react';
+import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Hourglass } from 'lucide-react';
 import { usePreferences } from '../../../shared/preferences';
 import { dayTime } from '../desk/time';
 import type { RoomApi, RfqQuote } from '../rooms/api';
@@ -13,29 +13,26 @@ import { ConfirmDialog, type Confirming } from './ConfirmDialog';
 import {
   allowedActions,
   atOf,
-  chipOf,
   costOf,
   countdownOf,
   lifecycleOf,
   noteSymbol,
   phaseOf,
   sameQuote,
-  type Chip,
+  type Lifecycle,
   type Phase,
 } from './model';
 
-const LIFE_LOOK: Record<Chip, { tone: BadgeTone; icon: typeof CircleCheck }> = {
+const LIFE_LOOK: Record<Lifecycle, { tone: BadgeTone; icon: typeof CircleCheck }> = {
   open: { tone: 'lime', icon: CircleDashed },
   bound: { tone: 'warn', icon: Hourglass },
   settled: { tone: 'up', icon: CircleCheck },
   expired: { tone: 'neutral', icon: CircleSlash },
   unknown: { tone: 'neutral', icon: CircleHelp },
-  unconfirmed: { tone: 'warn', icon: TriangleAlert },
-  'time-up': { tone: 'warn', icon: Hourglass },
 };
 
 /** The lifecycle as a shape and a word, the same chip in the table and on the card. */
-export function LifecycleChip({ lifecycle }: { lifecycle: Chip }) {
+export function LifecycleChip({ lifecycle }: { lifecycle: Lifecycle }) {
   const { t } = otcCopy.useCopy();
   const { tone, icon: Icon } = LIFE_LOOK[lifecycle];
   return (
@@ -45,17 +42,13 @@ export function LifecycleChip({ lifecycle }: { lifecycle: Chip }) {
   );
 }
 
-const PHASE_LINE: Record<
-  Phase | 'unconfirmed',
-  'Phase unconfirmed' | 'Phase open' | 'Phase open-late' | 'Phase bound' | 'Phase settled' | 'Phase expired' | 'Phase unknown'
-> = {
+const PHASE_LINE: Record<Phase, 'Phase open' | 'Phase open-late' | 'Phase bound' | 'Phase settled' | 'Phase expired' | 'Phase unknown'> = {
   open: 'Phase open',
   'open-late': 'Phase open-late',
   bound: 'Phase bound',
   settled: 'Phase settled',
   expired: 'Phase expired',
   unknown: 'Phase unknown',
-  unconfirmed: 'Phase unconfirmed',
 };
 
 interface Props {
@@ -78,7 +71,6 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
   const [checking, setChecking] = useState(false);
   const life = lifecycleOf(quote);
   const phase = phaseOf(quote, now);
-  const chip = chipOf(quote, now, writer.note.state === 'pending' ? writer.note.pending.id : null);
   const allowed = allowedActions(phase);
   const countdown = countdownOf(quote.expiresAt, now);
   const cost = costOf(quote);
@@ -118,13 +110,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
       label: t('Expires'),
       value:
         life === 'open'
-          ? `${expiresText} · ${
-              chip === 'unconfirmed'
-                ? t('Time unconfirmed')
-                : countdown.state === 'firm'
-                  ? t('Time left', { time: countdown.text })
-                  : t('Time is up')
-            }`
+          ? `${expiresText} · ${countdown.state === 'firm' ? t('Time left', { time: countdown.text }) : t('Time is up')}`
           : expiresText,
     },
     ...(quote.acceptedAt || quote.fillPrice
@@ -156,11 +142,11 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
     <section aria-label={t('Quote')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
       <header className="flex flex-wrap items-center gap-3">
         <h3 className="m-0 text-md font-medium text-fg">{t('Quote title', { pair })}</h3>
-        <LifecycleChip lifecycle={chip} />
+        <LifecycleChip lifecycle={life} />
         <Freshness asOf={readAt} now={now} />
       </header>
       <p className="m-0 text-sm text-fg" role="status" data-testid="phase-line">
-        {t(PHASE_LINE[chip === 'unconfirmed' ? 'unconfirmed' : phase])}
+        {t(PHASE_LINE[phase])}
       </p>
       {life === 'expired' ? <Refusal words={roomWords({ code: 'trade.otc_quote_expired' })} size="inline" /> : null}
       <KeyValue density="dense" items={items} now={now} />
