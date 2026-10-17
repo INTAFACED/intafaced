@@ -61,11 +61,12 @@ const shot = async (page, name, { full = false } = {}) => {
   await page.waitForTimeout(350); // let dialogs and fades finish
   await page.screenshot({ path: join(shots, `${name}.png`), fullPage: full });
 };
-/** Both sizes the desk is checked at: 1440x900 and 1280x800. */
+/** Every size the desk is checked at: 1440x900, 1280x800 and the narrow phone width 390x844. */
 const shotBoth = async (page, name, options) => {
   for (const [width, height] of [
     [1440, 900],
     [1280, 800],
+    [390, 844],
   ]) {
     await page.setViewportSize({ width, height });
     await shot(page, `${name}-${width}`, options);
@@ -259,7 +260,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(buyButton(page)).toBeDisabled();
   await expect(dialog).toHaveCount(0);
   await expect(buyForm(page)).toContainText('Your buy order is in');
-  await expect(page.getByText('We haven’t found it.')).toHaveCount(0); // no lookup ran for an order still in flight
+  await expect(page.getByText('We haven’t found it. It may still arrive: check again in a moment.')).toHaveCount(0); // no lookup ran for an order still in flight
   expect(m.requests('POST', 'orders')).toHaveLength(1);
   const sent = m.requests('POST', 'orders')[0].body;
   expect(sent).toMatchObject({
@@ -378,6 +379,11 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   await shotBoth(page, 'desk-checking', { full: true });
   await page.waitForTimeout(1500);
   expect(m.requests('POST', 'orders')).toHaveLength(1); // never retried
+  // The service still hides the order: the check says it was not found, and that it may still arrive.
+  await notice.getByRole('button', { name: 'Check order' }).click();
+  await expect(page.locator('.dk-note--warn')).toContainText('It may still arrive');
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+  await shotBoth(page, 'desk-checking-not-found', { full: true });
   // The service shows the order; the check finds it and the desk is free again.
   exchange.opts.hideOrders = false;
   await notice.getByRole('button', { name: 'Check order' }).click();
@@ -544,6 +550,7 @@ test('market sell is off with a true reason; limit sell stays on', async ({ page
   await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
   await expect(sellForm(page)).toContainText('Market sells are off. Use a limit order.');
   await expect(page.locator('body')).not.toContainText('This can’t be done right now');
+  await shotBoth(page, 'desk-market-sell-off');
   await page.getByRole('tab', { name: 'Limit' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Price' }).fill('66000');
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');

@@ -158,7 +158,7 @@ const messages = {
   'Checking your order': 'Checking your order…',
   'Checking your order body':
     'We couldn’t confirm whether this order went through. Check Open orders and Order history. You can’t place another order until this is settled.',
-  'Still checking': 'We haven’t found it.',
+  'Still checking': 'We haven’t found it. It may still arrive: check again in a moment.',
   'Settled filled': 'Checked: your order is {status}. Filled {filled} of {amount} {asset}.',
 
   // Order types the market does not take, and time in force
