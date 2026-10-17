@@ -16,7 +16,7 @@ const session = {
 };
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
 
-async function setup(page, scenario = 'active') {
+async function setup(page, scenario = 'active', options = {}) {
   const seen = [];
   page.on('request', (request) => request.url().includes('/api/') && seen.push(request.url()));
   await page.route('**/api/**', (route) =>
@@ -28,7 +28,7 @@ async function setup(page, scenario = 'active') {
   );
   await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, session));
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
-  const mock = createPortalMock(scenario);
+  const mock = createPortalMock(scenario, options);
   await mock.install(page);
   return { mock, seen };
 }
@@ -88,23 +88,27 @@ const axe = async (page) => {
   expect(audit.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
 };
 
-test('dashboard: KPI tiles, daily chart, status mix, balances, as-of; phone width', async ({ page }) => {
+test('dashboard: Home-style figures, daily chart, retained insights and phone width', async ({ page }) => {
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'Merchant dashboard', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Totals for Today' })).toBeVisible();
-  await expect(page.getByText('As of').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Business overview', level: 1 })).toHaveCount(1);
+  await expect(page.locator('.plo-kpi-strip')).toBeVisible();
   await expect(page.getByText('4 s behind').first()).toBeVisible();
-  await expect(page.getByRole('img', { name: /Bar chart of daily volume in USDT/ })).toBeVisible();
-  await expect(page.getByRole('cell', { name: /8,123\.456789 USDT/ })).toBeVisible();
-  await expect(page.getByText('Limits, approvals and operator pauses')).toBeVisible();
-  await page.getByRole('button', { name: 'Last 30 days', exact: true }).first().click();
-  await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();
-  await snap(page, '01-dashboard-desktop');
-  await page.getByRole('button', { name: 'Show as a table' }).click();
-  await expect(page.getByRole('region', { name: 'Daily volume in USDT' })).toBeVisible();
-  await axe(page);
+  // the big number is the USDT balance you can pay out, worked out from the settlements
+  await expect(page.locator('.plo-number')).toHaveText(
+    (Number(mock.world.balance('USDT').proceeds) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  );
+  await page.getByRole('button', { name: '30 days', exact: true }).first().click();
   expect(mock.calls.some((c) => c.procedure === 'merchantMetrics.snapshot' && c.input.window.preset === 'rolling_30d')).toBe(true);
+  // the daily chart is open when the page opens: no click needed
+  await expect(page.locator('.plo-volume')).toBeVisible();
+  // two assets are paid in, so the chart offers both; this check follows USDT
+  await page.locator('.plo-volume').getByRole('group', { name: 'Asset' }).getByRole('button', { name: 'USDT', exact: true }).click();
+  await expect(page.getByRole('img', { name: /Payment volume · USDT/ })).toBeVisible();
+  await page.getByRole('button', { name: 'View data table', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Payment volume USDT', exact: true })).toBeVisible();
+  await snap(page, '01-dashboard-desktop');
+  await axe(page);
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await noSideScroll(page);
@@ -114,27 +118,27 @@ test('dashboard: KPI tiles, daily chart, status mix, balances, as-of; phone widt
 test('dashboard: a new merchant sees how the first payment appears, not a wall of zeros', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Continue setup' })).toHaveAttribute('href', '/pay/onboarding');
-  await expect(page.getByText('Not published')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByText('No balance to show yet')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Set up your account/ })).toHaveAttribute('href', '/pay/onboarding');
   await snap(page, '03-dashboard-empty');
 });
 
-test('dashboard: no merchant yet leads to setup; operations not switched on says "arrives soon"', async ({ page }) => {
+test('dashboard: no merchant yet leads to setup; operations not switched on says "not connected yet"', async ({ page }) => {
   await setup(page, 'new');
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'Set up your merchant account' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No business account yet' })).toBeVisible();
   await snap(page, '04-dashboard-no-merchant');
   const soon = await page.context().newPage();
   await setup(soon, 'soon');
   await signIn(soon, '/pay/merchant');
-  await expect(soon.getByText('Arrives soon').first()).toBeVisible();
+  await expect(soon.getByText('Not connected here').first()).toBeVisible();
   await snap(soon, '05-dashboard-arrives-soon');
 });
 
-test('onboarding: verification then payout destination, ending in a live-in-sandbox summary', async ({ page }) => {
+test('onboarding: verification then payout destination, with activation explicitly unconfirmed', async ({ page }) => {
   const { mock } = await setup(page, 'quiet');
-  await signIn(page, '/pay/onboarding');
+  await signIn(page, '/pay/onboarding/verification');
   await expect(page.getByText('Step 2 of 3: Verification').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send for review' })).toBeDisabled();
   await page.getByLabel('Verification file reference *').fill('TEST-dossier-777');
@@ -142,10 +146,10 @@ test('onboarding: verification then payout destination, ending in a live-in-sand
   await page.getByRole('button', { name: 'Send for review' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Send for review' });
   await expect(dialog.getByText('TEST-dossier-777')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchant.submitKyb')).toHaveLength(1);
-  await page.getByRole('button', { name: /Step 3 of 3/ }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Step 3 of 3' }).getByRole('link', { name: 'Continue' }).click();
   const address = page.getByLabel('Wallet address *');
   await address.fill('0x123');
   await expect(page.getByText('This is not a valid address')).toBeVisible();
@@ -153,24 +157,22 @@ test('onboarding: verification then payout destination, ending in a live-in-sand
   await address.fill(`0x${'ab'.repeat(20)}`);
   await snap(page, '07-onboarding-payout');
   await page.getByRole('button', { name: 'Save destination' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
-  await expect(page.getByRole('heading', { name: 'You are live in sandbox' })).toBeVisible();
-  await expect(page.getByText('Waiting for verification to be approved')).toBeVisible();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByText('Destination saved.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Waiting for your verification to be approved')).toBeVisible();
+  await expect(page.getByText(/Saving a destination does not activate payments/).first()).toBeVisible();
   await snap(page, '08-onboarding-sandbox-summary');
 });
 
 test('onboarding: step 1 refuses to open an account while no starting fee is published', async ({ page }) => {
   await setup(page, 'new');
-  await signIn(page, '/pay/onboarding');
+  await signIn(page, '/pay/onboarding/business');
   await expect(page.getByText('Step 1 of 3: Business details').first()).toBeVisible();
   await page.getByLabel('Legal business name *').fill('TEST Trading Ltd');
   await page.getByLabel('Country code *').fill('gb');
   await page.getByLabel('Type of business *').fill('Online shop');
   await page.getByLabel('Contact email *').fill('ops@test.invalid');
-  await expect(page.getByText('Accounts cannot be opened yet')).toBeVisible();
+  await expect(page.getByText('Opening new accounts isn’t possible here')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create my account' })).toBeDisabled();
   await snap(page, '09-onboarding-business');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -182,15 +184,18 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   await signIn(page, '/pay/team');
   await expect(page.getByText('verified with two-step sign-in (MFA)')).toBeVisible();
   const members = page.getByRole('region', { name: 'Members' });
-  await expect(members.getByRole('row', { name: /TEST-user-finance/ })).toBeVisible();
+  await expect(members.getByRole('row', { name: /TEST Accounts/ })).toBeVisible();
   await snap(page, '10-team');
-  const row = members.getByRole('row', { name: /TEST-user-dev/ });
-  await row.getByLabel('New role').selectOption('viewer');
-  await row.getByRole('button', { name: 'Change role', exact: true }).click();
+  await members
+    .getByRole('row', { name: /TEST Dev/ })
+    .getByRole('link', { name: 'Open' })
+    .click();
+  await page.getByLabel('New role').selectOption('viewer');
+  await page.getByRole('button', { name: 'Change role', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Change role' });
-  await expect(dialog.getByText(/TEST-user-dev changes from Developer to Viewer/)).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
-  await expect(page.getByText('TEST-user-dev changed from Developer to Viewer')).toBeVisible();
+  await expect(dialog.getByText(/TEST Dev changes from Developer to Viewer/)).toBeVisible();
+  await dialog.locator('.form-stack > button').last().click();
+  await expect(page.getByText('TEST Dev changed from Developer to Viewer')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.changeRole').input).toMatchObject({ role: 'viewer' });
   // A refusal from the service: words, not a code.
   await page.route('**/api/pay/trpc/merchantOps.team.invite', (route) =>
@@ -202,10 +207,7 @@ test('team: change a role, invite, and a refused change reads in plain words', a
   );
   await page.getByLabel('Account ID *').fill('TEST-user-new');
   await page.getByRole('button', { name: 'Send invitation' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/Team changes need a session verified with two-step sign-in/).first()).toBeVisible();
   await expect(page.getByText('pay.team_interactive_only')).toHaveCount(0);
   await axe(page);
@@ -217,24 +219,21 @@ test('team: pending invitations can be accepted or declined', async ({ page }) =
   await expect(page.getByText('Invitation to join a team as Developer')).toBeVisible();
   await snap(page, '11-team-invitation');
   await page.getByRole('button', { name: 'Accept', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('Invitation to join a team as Developer')).toHaveCount(0);
 });
 
-test('disputes: filter in the URL, open one, add evidence metadata, then contest', async ({ page }) => {
+test('disputes: filter in the URL, open one, upload evidence, then contest', async ({ page }) => {
   const { mock } = await setup(page);
   await signIn(page, '/pay/disputes');
-  await expect(page.getByRole('region', { name: 'All disputes' }).getByRole('row')).toHaveCount(4);
-  await expect(page.getByText('No deadline has been published')).toBeVisible();
+  await expect(page.locator('.pe-table tbody tr')).toHaveCount(3);
+  await expect(page.getByText('No deadline').first()).toBeVisible();
   await snap(page, '12-disputes');
   await page.getByLabel('Status').selectOption('won');
   await expect(page).toHaveURL(/status=won/);
-  await expect(page.getByRole('region', { name: 'All disputes' }).getByRole('row')).toHaveCount(2);
+  await expect(page.locator('.pe-table tbody tr')).toHaveCount(1);
   await page.getByLabel('Status').selectOption('');
-  await page.getByRole('link', { name: /Open dispute d0000001/ }).click();
+  await page.locator('.pe-table').getByRole('link', { name: 'Open', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Dispute', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Contest the dispute' })).toBeDisabled();
   await expect(page.getByText('Add at least one piece of evidence to contest.')).toBeVisible();
@@ -242,20 +241,14 @@ test('disputes: filter in the URL, open one, add evidence metadata, then contest
   await page.getByLabel('File *').setInputFiles({ name: 'TEST-receipt.txt', mimeType: 'text/plain', buffer: content });
   await expect(page.getByText(/TEST-receipt\.txt · 21 B · ready/)).toBeVisible();
   await page.getByRole('button', { name: 'Add evidence', exact: true }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
-  await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ })).toBeVisible();
-  const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.addEvidence').input;
-  expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', sizeBytes: 21 });
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ }).first()).toBeVisible();
+  const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.uploadEvidence').input;
+  expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', contentBase64: content.toString('base64') });
   expect(sent.sha256).toBe(createHash('sha256').update(content).digest('hex'));
   await snap(page, '13-dispute-detail');
   await page.getByRole('button', { name: 'Contest the dispute' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('You contested the dispute')).toBeVisible();
   const decision = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.respond').input;
   expect(decision.requestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -298,14 +291,14 @@ test('customers: search, cursor pagination, and a customer detail', async ({ pag
 
 test('exports: request, watch it build, download it', async ({ page }) => {
   const { mock } = await setup(page);
-  await signIn(page, '/pay/exports');
+  await signIn(page, '/pay/reports/exports');
   await snap(page, '16-exports');
-  await page.getByLabel('Kind *').selectOption('settlements');
-  await page.getByRole('button', { name: 'Request export' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Review: Request export' });
+  await page.locator('#request select').first().selectOption('settlements');
+  await page.getByRole('button', { name: 'Request a report', exact: true }).last().click();
+  const dialog = page.getByRole('dialog', { name: 'Review: Request a report' });
   await expect(dialog.getByText('Settlements')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
-  const jobs = page.getByRole('region', { name: 'Your exports' });
+  await dialog.locator('.form-stack > button').last().click();
+  const jobs = page.getByRole('region', { name: 'Your report files' });
   await expect(jobs.getByRole('row', { name: /Settlements.*(Waiting|Building)/ })).toBeVisible();
   const request = mock.calls.find((c) => c.procedure === 'merchantOps.exports.create').input;
   expect(request.requestId).toMatch(/^[0-9a-f-]{36}$/);
@@ -316,7 +309,7 @@ test('exports: request, watch it build, download it', async ({ page }) => {
     .getByRole('row', { name: /Settlements.*Ready/ })
     .getByRole('button', { name: /Download/ })
     .click();
-  expect((await download).suggestedFilename()).toBe('payments.csv');
+  expect((await download).suggestedFilename()).toBe('settlements.csv');
   await snap(page, '17-exports-ready');
 });
 
@@ -335,7 +328,7 @@ test('notifications: mark read, preferences with a threshold that has no default
   await expect(page.getByText('Use digits only')).toBeVisible();
   await threshold.fill('250.5');
   await page.getByRole('listitem').filter({ hasText: 'Limit nearly reached' }).getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Saved')).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantOps.notifications.preferences.set').input).toMatchObject({
     kind: 'limit_threshold',
     threshold: '250.5',
@@ -362,44 +355,42 @@ const PAY_REFUNDED = 'aa000003-0000-4000-8000-000000000003';
 const PAY_DISPUTED = 'aa000008-0000-4000-8000-000000000008';
 const STL_PAID = 'bb000002-0000-4000-8000-000000000002';
 const STL_WAITING = 'bb000003-0000-4000-8000-000000000003';
-const STL_OWN = 'bb000006-0000-4000-8000-000000000006';
+// the newest settlement (the one whose fee record is kept), and the one this person asked to pay out
+const STL_NEWEST = 'bb000006-0000-4000-8000-000000000006';
+const STL_OWN = 'bb000004-0000-4000-8000-000000000004';
 const STL_FAILED = 'bb000005-0000-4000-8000-000000000005';
 
-test('payments: KPI strip, filters in the URL, search, load more, CSV with its times, and a phone layout', async ({ page }) => {
+test('payments: totals with their period, filters the service applies, load more, export, and a phone layout', async ({ page }) => {
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/payments');
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();
-  await expect(page.getByText('4 s behind').first()).toBeVisible();
-  const table = page.getByRole('region', { name: 'All payments' });
-  await expect(table.getByRole('row')).toHaveCount(26);
-  await expect(page.getByText('25 shown so far. More are available.')).toBeVisible();
+  const totals = page.getByRole('group', { name: 'Totals for Last 30 days' });
+  await expect(totals).toBeVisible();
+  await expect(totals.getByRole('link', { name: /Failed/ })).toHaveAttribute('href', /status=failed&date=30d/);
+  await expect(page.getByText('Updated just now').first()).toBeVisible();
+  const rows = page.locator('.pe-table tbody tr');
+  await expect(rows).toHaveCount(25);
+  await expect(page.getByText('25 shown · Load more')).toBeVisible();
   await snap(page, '20-payments-desktop');
   await page.getByRole('button', { name: 'Load more' }).click();
-  await expect(table.getByRole('row')).toHaveCount(51);
-  await expect(page).toHaveURL(/limit=50/);
-  expect(mock.calls.filter((c) => c.procedure === 'payment.list').map((c) => c.input.limit)).toEqual(expect.arrayContaining([25, 50]));
-  // status asks the service; the other filters narrow what is loaded
+  await expect(rows).toHaveCount(50);
+  expect(mock.calls.filter((c) => c.procedure === 'payment.list').some((c) => c.input.cursor)).toBe(true);
+  // every filter is asked of the service and lives in the address
   await page.getByLabel('Status').selectOption('failed');
   await expect(page).toHaveURL(/status=failed/);
   await expect.poll(() => mock.calls.some((c) => c.procedure === 'payment.list' && c.input.status === 'failed')).toBe(true);
   await page.getByLabel('Status').selectOption('');
-  await page.getByLabel('Search', { exact: true }).fill('TEST-rail-0010');
-  await expect(page).toHaveURL(/q=TEST-rail-0010/);
-  await expect(table.getByRole('row')).toHaveCount(2);
-  await expect(page.getByText(/1 of the \d+ loaded payments match\./)).toBeVisible();
+  await page.getByLabel('Search', { exact: true }).fill('TEST-cust-001');
+  await expect(page).toHaveURL(/q=TEST-cust-001/);
+  await expect.poll(() => mock.calls.some((c) => c.procedure === 'payment.list' && c.input.search === 'TEST-cust-001')).toBe(true);
   await page.getByLabel('Search', { exact: true }).fill('no-such-thing');
-  await expect(page.getByRole('heading', { name: 'No loaded payment matches' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No payments match these filters' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await expect(table.getByRole('row')).not.toHaveCount(2);
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download CSV' }).click();
-  const file = await download;
-  expect(file.suggestedFilename()).toBe('payments.csv');
-  const { readFile } = await import('node:fs/promises');
-  const csv = await readFile(await file.path(), 'utf8');
-  expect(csv.split('\r\n')[0]).toContain('"generated_at","as_of"');
-  expect(csv).not.toMatch(/founder|operator/i);
+  await expect(rows.first()).toBeVisible();
+  await page.getByLabel('Search', { exact: true }).fill('TEST-cust-001');
+  await page.getByRole('button', { name: 'Export these results' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Search text isn’t part of an export');
+  await page.keyboard.press('Escape');
   await axe(page);
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -410,28 +401,25 @@ test('payments: KPI strip, filters in the URL, search, load more, CSV with its t
 test('payments: an empty account explains how the first payment appears', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/payments');
-  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create a payment link' }).last()).toHaveAttribute('href', '/pay/links');
+  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create payment link' }).last()).toHaveAttribute('href', '/pay/links/new');
   await snap(page, '22-payments-empty');
 });
 
 test('payment detail: facts, amounts, timeline, refunds, dispute card; never the payer instrument', async ({ page }) => {
-  await setup(page);
+  const { mock } = await setup(page);
   await signIn(page, `/pay/payments/${PAY_REFUNDED}`);
-  await expect(page.getByRole('heading', { name: 'Payment', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2 }).first()).toContainText('Refunded');
   await expect(page.getByText('Still refundable')).toBeVisible();
-  await expect(page.getByText('Fee, net and the price that applied')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Refunds' }).getByRole('row')).toHaveCount(2);
-  await expect(page.getByText('Completed')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Refund or capture this payment' }).first()).toHaveAttribute(
-    'href',
-    new RegExp(`payment=${PAY_REFUNDED}`),
-  );
+  await expect(page.getByRole('heading', { name: 'Summary' })).toBeVisible();
+  await expect(page.getByText('Fee rule')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Refunds' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText('tok_TEST_must_never_show');
   await expect(page.locator('body')).not.toContainText('rail internals');
   await snap(page, '23-payment-detail');
   await go(page, `/pay/payments/${PAY_DISPUTED}`);
-  await expect(page.getByRole('heading', { name: 'Dispute', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dispute', level: 2 }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute(
     'href',
     '/pay/disputes/d0000001-0000-4000-8000-000000000001',
@@ -440,7 +428,7 @@ test('payment detail: facts, amounts, timeline, refunds, dispute card; never the
   await go(page, `/pay/payments/${PAY_SETTLED}`);
   await expect(page.getByRole('link', { name: 'The settlement this payment is in' })).toHaveAttribute(
     'href',
-    '/pay/settlements/bb000002-0000-4000-8000-000000000002',
+    `/pay/settlements/${mock.world.paymentById(PAY_SETTLED).settlementId}`,
   );
   await axe(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -457,49 +445,63 @@ test('payment detail: an unknown or foreign id reads as not found, never as a co
   await expect(page.getByText(/pay\.[a-z_]+/)).toHaveCount(0);
 });
 
-test('settlements: totals for the period, status words, and a statement that ties out', async ({ page }) => {
-  await setup(page);
+test('settlements: a tile strip, server filters in the address, status words, and a statement that ties out', async ({ page }) => {
+  const { mock } = await setup(page);
   await signIn(page, '/pay/settlements');
   await expect(page.getByRole('heading', { name: 'Settlements', level: 1 })).toBeVisible();
-  const table = page.getByRole('region', { name: 'All settlements' });
+  await expect(page.getByRole('group', { name: 'Settlements at a glance' })).toBeVisible();
+  const table = page.getByRole('region', { name: 'Settlements', exact: true });
   await expect(table.getByRole('row')).toHaveCount(7);
-  await expect(page.getByText('there is no date filter yet')).toBeVisible();
   await snap(page, '26-settlements');
   await page.getByLabel('Status').selectOption('failed');
+  await expect(page).toHaveURL(/status=failed/);
   await expect(table.getByRole('row')).toHaveCount(2);
+  await expect
+    .poll(() => mock.calls.some((c) => c.procedure === 'settlement.list' && c.input.status === 'failed' && c.input.limit === 25))
+    .toBe(true);
   await page.getByLabel('Status').selectOption('');
-  await page.getByRole('link', { name: /Open the settlement for window TEST-2026-W40$/ }).click();
-  await expect(page.getByRole('heading', { name: 'Settlement statement', level: 1 })).toBeVisible();
+  await go(page, `/pay/settlements/${STL_PAID}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Settlement statement' })).toBeVisible();
   await expect(page.getByText('Checked: gross minus fees equals net, to the last decimal.')).toBeVisible();
-  await expect(page.getByText('Your account holds back a rolling reserve of 5.00%.')).toBeVisible();
-  await expect(page.getByText('Fees by line and the price that applied')).toBeVisible();
+  await expect(page.getByText(/Fee details weren.t recorded for this settlement/)).toBeVisible();
   await expect(page.getByText('TEST-tx-0xabc123')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Payments in this settlement' })).toBeVisible();
   await snap(page, '27-settlement-statement');
+  await go(page, `/pay/settlements/${STL_NEWEST}`);
+  await expect(page.getByText('How the fee was worked out')).toBeVisible();
+  await expect(page.getByText('1.50%').first()).toBeVisible();
   await axe(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await noSideScroll(page);
   await snap(page, '28-settlement-statement-phone');
 });
 
-test('payouts: approval state on every row, an approval trail, and a cap with its time', async ({ page }) => {
+test('payouts: named by destination and date, a status on every row, and a timeline that ends on the final state', async ({ page }) => {
   await setup(page);
   await signIn(page, '/pay/payouts');
   await expect(page.getByRole('heading', { name: 'Payouts', level: 1 })).toBeVisible();
-  await expect(page.getByText('Waiting for approval from your owner, an admin or finance').first()).toBeVisible();
-  await expect(page.getByText('Arrives with the payout confirmation read')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Payouts at a glance' })).toBeVisible();
+  await expect(page.getByText(/Waiting for approval from your team/).first()).toBeVisible();
   await snap(page, '29-payouts');
-  await page.getByLabel('State').selectOption('paid_out');
-  await expect(page).toHaveURL(/state=paid_out/);
-  await expect(page.getByRole('region', { name: 'All payouts' }).getByRole('row')).toHaveCount(3);
+  await page.getByLabel('Status').selectOption('paid_out');
+  await expect(page).toHaveURL(/status=paid_out/);
+  await expect(page.getByRole('region', { name: 'Payouts', exact: true }).getByRole('row')).toHaveCount(3);
   await go(page, `/pay/payouts/${STL_PAID}`);
-  await expect(page.getByRole('heading', { name: 'Payout', level: 1 })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Approval trail' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /USDT/, level: 2 }).first()).toBeVisible();
   await expect(page.getByText('TEST-tx-0xabc123')).toBeVisible();
   await expect(page.getByText('Your daily payout limit')).toBeVisible();
+  // rejected once, approved later, paid: every attempt in order and the final state last
+  const trail = page.getByRole('list', { name: 'Payout history' }).getByRole('listitem');
+  await expect(trail).toHaveCount(7);
+  await expect(trail.nth(2)).toContainText('Rejected');
+  await expect(trail.last()).toContainText('Paid out');
   await snap(page, '30-payout-detail-paid');
   await go(page, `/pay/payouts/${STL_FAILED}`);
-  await expect(page.getByText('This payout did not complete. The reason is not shown here yet.')).toBeVisible();
-  await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
+  await expect(page.getByText('The payment network declined this payout.').first()).toBeVisible();
+  // one banner, not two that disagree: the failure, with retry paused and a way to reach support
+  await expect(page.getByText('The approval on this payout no longer counts')).toHaveCount(0);
+  await expect(page.getByText('Retrying is paused while we fix a safety issue.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Contact support' })).toBeVisible();
   await snap(page, '31-payout-detail-failed-voided');
   await axe(page);
 });
@@ -516,13 +518,21 @@ test('payout detail: the checker approves with a reason, the service gets the fi
   await expect(approve).toBeEnabled();
   await approve.click();
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
-  // the page must not promise a destination it does not show
+  // the review names where the money goes, masked, and the exact amount
+  await expect(dialog.getByText(/Wallet 0x7a3f…4421/)).toBeVisible();
+  // the amount is the settlement's net, worked out from its payments
   await expect(
-    dialog.getByText('The destination is not shown here yet. Confirm it with the person who asked before you approve.'),
+    dialog.getByText(
+      new RegExp(
+        mock.world
+          .settlementById(STL_WAITING)
+          .net.split('.')[0]
+          .replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+      ),
+    ),
   ).toBeVisible();
-  await expect(dialog).not.toContainText(/this destination/i);
   await expect(dialog.getByText('Checked the destination')).toBeVisible();
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(page.getByText('Approved').first()).toBeVisible();
   const sent = mock.calls.find((c) => c.procedure === 'merchantControl.approvals.decide').input;
   expect(sent).toEqual({
@@ -535,31 +545,60 @@ test('payout detail: the checker approves with a reason, the service gets the fi
 
 test('payout detail: the person who asked cannot approve, and can take the request back', async ({ page }) => {
   const { mock } = await setup(page);
+  // The seeded request on this payout was asked for by a teammate (so the owner can approve it); here it is the owner's own.
+  mock.state.approvals.find((a) => a.settlementId === STL_OWN).makerUserId = USER_ID;
   await signIn(page, `/pay/payouts/${STL_OWN}`);
   await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
   await expect(page.getByText('You asked for this payout, so someone else on your team has to decide it.')).toBeVisible();
   await page.getByLabel('Reason for cancelling *').fill('Wrong amount');
   await page.getByRole('button', { name: 'Cancel my request' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.approvals.cancel').input).toMatchObject({ reason: 'Wrong amount' });
 });
 
-test('approvals: the queue with ages and expiry, approve, reject, and a refusal in plain words', async ({ page }) => {
-  const { mock } = await setup(page);
+test('payout detail: an approved payout over what is left of today’s limit says so instead of offering to send it', async ({ page }) => {
+  await setup(page);
+  // Both seeded requests were asked for by a teammate, so the owner can approve them. This one is larger than what is left today.
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
+  await page.getByLabel('Your reason *').fill('Checked the destination');
+  await page.getByRole('button', { name: 'Approve payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByText('more than you have left of today’s payout limit, so it cannot be sent yet')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Send this payout' })).toHaveCount(0);
+  // The other one fits under the limit, so the owner can approve it and go on to send it.
+  await signIn(page, `/pay/payouts/${STL_OWN}`);
+  await page.getByLabel('Your reason *').fill('Checked the destination');
+  await page.getByRole('button', { name: 'Approve payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByRole('link', { name: 'Send this payout' }).first()).toBeVisible();
+});
+
+test('approvals: the queue with ages, where each payout goes, and a row that opens the request', async ({ page }) => {
+  await setup(page);
   await signIn(page, '/pay/approvals');
   await expect(page.getByRole('heading', { name: 'Payout approvals', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Waiting on your team' })).toBeVisible();
-  const items = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem');
-  await expect(items).toHaveCount(2);
-  await expect(items.first()).toContainText('965.55');
-  await expect(items.first()).toContainText('Expires in');
-  await expect(items.nth(1)).toContainText('You asked for this payout');
-  await expect(items.nth(1).getByRole('button', { name: 'Approve payout' })).toBeDisabled();
+  await expect(page.getByRole('group', { name: 'Approvals at a glance' })).toBeVisible();
+  const table = page.getByRole('region', { name: 'Payout approvals', exact: true });
+  await expect(table.getByRole('row')).toHaveCount(6);
+  await expect(table.getByText(/Wallet 0x7a3f…4421 · Crypto network/).first()).toBeVisible();
+  await expect(table.getByText(/Waiting/).first()).toBeVisible();
+  await expect(table.getByText('You').first()).toBeVisible();
   await snap(page, '33-approvals');
+  await page.getByLabel('Status').selectOption('pending');
+  await expect(page).toHaveURL(/status=pending/);
+  await expect(table.getByRole('row')).toHaveCount(3);
+  await table.getByRole('link', { name: 'Open' }).first().click();
+  await expect(page).toHaveURL(/\/pay\/payouts\/bb0000/);
+  await axe(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noSideScroll(page);
+  await snap(page, '36-approvals-phone');
+});
+
+test('payout detail: a refused decision is plain words, and a retry then goes through', async ({ page }) => {
+  const { mock } = await setup(page);
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
   // the service refuses because the payout changed after it was opened: words, not a code
   await page.route('**/api/pay/trpc/merchantControl.approvals.decide', (route) =>
     route.fulfill({
@@ -570,32 +609,18 @@ test('approvals: the queue with ages and expiry, approve, reject, and a refusal 
       }),
     }),
   );
-  await items.first().getByLabel('Your reason *').fill('Looks right');
-  await items.first().getByRole('button', { name: 'Reject payout' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
+  await page.getByLabel('Your reason *').fill('Looks right');
+  await page.getByRole('button', { name: 'Reject payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/The payout changed after you opened it, so your decision was not recorded/).first()).toBeVisible();
   await expect(page.getByText('pay.approval_payload_mismatch')).toHaveCount(0);
   await snap(page, '34-approvals-refused');
   await page.unroute('**/api/pay/trpc/merchantControl.approvals.decide');
   await page.keyboard.press('Escape');
-  await items.first().getByRole('button', { name: 'Reject payout' }).click();
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Confirm/ })
-    .click();
-  await expect(items).toHaveCount(1);
+  await page.getByRole('button', { name: 'Reject payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByText('Rejected').first()).toBeVisible();
   expect(mock.calls.filter((c) => c.procedure === 'merchantControl.approvals.decide').at(-1).input).toMatchObject({ decision: 'reject' });
-  await page.getByLabel('Status').selectOption('all');
-  await expect(page).toHaveURL(/status=all/);
-  await expect(page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem')).toHaveCount(5);
-  await snap(page, '35-approvals-all');
-  await axe(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await noSideScroll(page);
-  await snap(page, '36-approvals-phone');
 });
 
 test('pricing: the fee table, the calculator uses the live engine, and an unconfigured account shows no fee at all', async ({ page }) => {
@@ -604,16 +629,16 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
   await expect(page.getByRole('heading', { name: 'Pricing and fees', level: 1 })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Prices for USDT' })).toBeVisible();
   await expect(page.getByText('1.50%').first()).toBeVisible();
-  await expect(page.getByText('History of price changes')).toBeVisible();
+  await expect(page.getByText('Pricing history').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Work out the fee' })).toBeDisabled();
   await page.getByLabel('Payment amount *').fill('-5');
   await expect(page.getByText('Enter an amount greater than zero').first()).toBeVisible();
   await page.getByLabel('Asset').selectOption('USDT');
   await page.getByLabel('Payment amount *').fill('100');
   await page.getByRole('button', { name: 'Work out the fee' }).click();
-  await expect(page.getByRole('heading', { name: 'Result for 100 USDT' })).toBeVisible();
-  // 1.20% of 100 plus a flat 0.25, in the band that starts at 10,000 (the mock's month so far is 12,500)
-  await expect(page.getByText('1.45').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Result for 100.00 USDT' })).toBeVisible();
+  // 1.50% of 100 plus a flat 0.30: the one fee rule every payment in the stand-in follows
+  await expect(page.getByText('1.80').first()).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.pricing.preview').input).toEqual({
     merchantId: expect.any(String),
     assetCode: 'USDT',
@@ -636,7 +661,7 @@ test('pricing: not configured shows the words "not configured" and not one place
   await setup(page, 'quiet');
   await signIn(page, '/pay/pricing');
   await expect(page.getByText('INTAFACED has not published pricing for your account.')).toBeVisible();
-  await expect(page.getByText('No tier assigned')).toBeVisible();
+  await expect(page.getByText('No tier assigned').first()).toBeVisible();
   await expect(page.getByText('The calculator needs published pricing')).toBeVisible();
   await expect(page.getByText(/\d\.\d\d%/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download schedule (CSV)' })).toHaveCount(0);
@@ -644,12 +669,20 @@ test('pricing: not configured shows the words "not configured" and not one place
 });
 
 test('limits: usage bars with exact figures and reset times, and nothing invented for what is not set', async ({ page }) => {
-  await setup(page);
+  const { mock } = await setup(page);
   await signIn(page, '/pay/limits');
   await expect(page.getByRole('heading', { name: 'Limits and tier', level: 1 })).toBeVisible();
   await expect(page.getByRole('progressbar')).toHaveCount(4);
-  await expect(page.getByText('14,200.5').first()).toBeVisible();
-  await expect(page.getByText('Tiers and what unlocks next')).toBeVisible();
+  // today's intake is what the payments since midnight UTC add up to (the limit resets at midnight UTC)
+  const usedToday =
+    mock.world.figures(Math.floor(Date.now() / 86_400_000) * 86_400_000).captured.find((row) => row.assetCode === 'USDT')?.amount ?? '0';
+  const [whole, fraction = ''] = usedToday.split('.');
+  await expect(
+    page
+      .getByText(`${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction.replace(/0+$/, '') ? `.${fraction.replace(/0+$/, '')}` : ''}`)
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByText('What unlocks next')).toBeVisible();
   await expect(page.getByText('Ask for a higher limit')).toBeVisible();
   await expect(page.getByText('TEST VALUE')).toHaveCount(0);
   await snap(page, '40-limits');
@@ -694,17 +727,18 @@ test('a refusal on a W3b page is plain words with no code', async ({ page }) => 
   await snap(page, '44-payments-forbidden');
 });
 
-test('every W3b page says "arrives soon" when the control room is not switched on, and survives an unreachable service', async ({
+test('a page whose service is not switched on says what it is waiting for, and every money page survives an unreachable service', async ({
   page,
 }) => {
   await setup(page, 'soon');
   await signIn(page, '/pay/pricing');
-  await expect(page.getByText('Arrives soon').first()).toBeVisible();
+  await expect(page.locator('.pfo-soon').first()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(/coming soon|arrives soon/i);
   await go(page, '/pay/limits');
-  await expect(page.getByText('Arrives soon').first()).toBeVisible();
+  await expect(page.locator('.pfo-soon').first()).toBeVisible();
   await go(page, '/pay/approvals');
-  await expect(page.getByText('Arrives soon').first()).toBeVisible();
-  await snap(page, '45-approvals-arrives-soon');
+  await expect(page.locator('.pfo-soon').first()).toBeVisible();
+  await snap(page, '45-approvals-not-switched-on');
   const offline = await page.context().newPage();
   const { seen } = await setup(offline, 'down');
   await signIn(offline, '/pay/payments');
@@ -734,48 +768,43 @@ const json = (route, data, status = 200) =>
 test('approvals: names where the portal has them, short ids otherwise', async ({ page }) => {
   await setup(page);
   await signIn(page, '/pay/approvals');
-  const items = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem');
-  await expect(items.first()).toContainText('TEST Accounts');
+  await expect(page.getByRole('region', { name: 'Payout approvals', exact: true }).getByRole('row').nth(1)).toContainText('TEST Accounts');
 });
 
-test('approvals: a decision that was voided meanwhile is shown as refused, never as success', async ({ page }) => {
-  const { mock } = await setup(page);
-  await signIn(page, '/pay/approvals');
-  const items = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem');
+test('payout detail: a decision that was voided meanwhile is shown as refused, never as success', async ({ page }) => {
+  await setup(page);
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
   await page.route('**/api/pay/trpc/merchantControl.approvals.decide', (route) =>
-    json(
-      route,
-      { ...mock.state.approvalsForTest?.[0] } && {
-        approvalId: 'cc000001-0000-4000-8000-000000000001',
-        merchantId: '11111111-1111-4111-8111-111111111111',
-        settlementId: 'bb000003-0000-4000-8000-000000000003',
-        amount: '965.55',
-        assetCode: 'USDT',
-        payloadHash: `sha256:${'a'.repeat(64)}`,
-        status: 'voided',
-        makerUserId: 'TEST-user-finance',
-        checkerUserId: null,
-        createdAt: new Date().toISOString(),
-        decidedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-      },
-    ),
+    json(route, {
+      approvalId: 'cc000001-0000-4000-8000-000000000001',
+      merchantId: '11111111-1111-4111-8111-111111111111',
+      settlementId: 'bb000003-0000-4000-8000-000000000003',
+      amount: '965.55',
+      assetCode: 'USDT',
+      payloadHash: `sha256:${'a'.repeat(64)}`,
+      status: 'voided',
+      makerUserId: 'TEST-user-finance',
+      checkerUserId: null,
+      createdAt: new Date().toISOString(),
+      decidedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    }),
   );
-  await items.first().getByLabel('Your reason *').fill('Looks right');
-  await items.first().getByRole('button', { name: 'Approve payout' }).click();
+  await page.getByLabel('Your reason *').fill('Looks right');
+  await page.getByRole('button', { name: 'Approve payout' }).click();
   const dialog = page.getByRole('dialog', { name: 'Review: Approve payout' });
-  await dialog.getByRole('button', { name: /^Confirm/ }).click();
+  await dialog.locator('.form-stack > button').last().click();
   await expect(dialog.getByText('The request was voided because the payout changed, so your decision did not count.')).toBeVisible();
   await expect(page.getByText('The service confirmed the action')).toHaveCount(0);
   await snap(page, '46-approvals-voided-result');
 });
 
-test('approvals: a request a teammate already approved waits on INTAFACED, and cannot be decided again', async ({ page }) => {
+test('payout detail: a request a teammate already approved waits on INTAFACED, and cannot be decided again', async ({ page }) => {
   await setup(page);
   const row = {
     approvalId: 'cc000009-0000-4000-8000-000000000009',
     merchantId: '11111111-1111-4111-8111-111111111111',
-    settlementId: 'bb000003-0000-4000-8000-000000000003',
+    settlementId: STL_WAITING,
     amount: '965.55',
     assetCode: 'USDT',
     payloadHash: `sha256:${'a'.repeat(64)}`,
@@ -785,9 +814,12 @@ test('approvals: a request a teammate already approved waits on INTAFACED, and c
     createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
     decidedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
     expiresAt: new Date(Date.now() + 40 * 3600_000).toISOString(),
+    railId: 'crypto-native',
+    destinationKind: 'crypto',
+    destinationMasked: '0x7a3f…4421',
   };
   await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, { items: [row], nextCursor: null }));
-  await signIn(page, '/pay/approvals');
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
   await expect(page.getByText('Approved by TEST Accounts, waiting for INTAFACED’s sign-off.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Reject payout' })).toBeDisabled();
@@ -795,19 +827,17 @@ test('approvals: a request a teammate already approved waits on INTAFACED, and c
   await snap(page, '47-approvals-waiting-on-intafaced');
 });
 
-test('approvals: the clock ticks, so a request that expires while the page is open stops being decidable', async ({ page }) => {
+test('payout detail: the clock ticks, so a request that expires while the page is open stops being decidable', async ({ page }) => {
   // the fake clock must be in place before the page starts its own timer
   await page.clock.install({ time: Date.now() });
   await setup(page);
-  await signIn(page, '/pay/approvals');
-  const first = page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem').first();
-  await expect(first).toContainText('Expires in');
-  await page.getByRole('list', { name: 'Payout requests' }).getByRole('listitem').first().getByLabel('Your reason *').fill('Looks right');
-  await expect(first.getByRole('button', { name: 'Approve payout' })).toBeEnabled();
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
+  await expect(page.getByText('Expires in').first()).toBeVisible();
+  await page.getByLabel('Your reason *').fill('Looks right');
+  await expect(page.getByRole('button', { name: 'Approve payout' })).toBeEnabled();
   await page.clock.fastForward('50:00:00');
-  await expect(first).toContainText('Past its expiry');
-  await expect(first.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
-  await expect(first.getByText('This request has expired. Ask for the payout again.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
+  await expect(page.getByText('This request has expired. Ask for the payout again.').first()).toBeVisible();
 });
 
 test('a failed or refused pause read says it could not check, not "nothing is paused"', async ({ page }) => {
@@ -826,7 +856,6 @@ test('payouts: when approvals cannot be read, a payout shows "Approval unknown",
   await setup(page);
   await page.route('**/api/pay/trpc/merchantControl.approvals.list*', (route) => json(route, { message: 'x' }, 503));
   await signIn(page, '/pay/payouts');
-  await expect(page.getByText('Approval states could not be read')).toBeVisible();
   await expect(page.locator('.pp-chip', { hasText: 'Approval unknown' }).first()).toBeVisible();
   await expect(page.locator('.pp-chip', { hasText: 'Ready to pay out' })).toHaveCount(0);
   await snap(page, '49-payouts-approval-unknown');
@@ -835,28 +864,26 @@ test('payouts: when approvals cannot be read, a payout shows "Approval unknown",
   await expect(page.getByRole('button', { name: 'Approve payout' })).toHaveCount(0);
 });
 
-test('team members who are not the owner are told payments and statements are owner-only, and get no payout links', async ({ page }) => {
-  await setup(page);
+test('finance can read payments, settlements and approvals, and is told links are owner-only', async ({ page }) => {
+  // `myAccess: 'off'`: the service does not say what this member may do, so the portal works it out from the team read.
+  await setup(page, 'active', { myAccess: 'off' });
   await page.route('**/api/pay/trpc/merchant.me*', (route) => json(route, null));
   await page.route('**/api/pay/trpc/merchantOps.team.me*', (route) =>
     json(route, { merchantId: '11111111-1111-4111-8111-111111111111', userId: '22222222-2222-4222-8222-222222222222', role: 'finance' }),
   );
   await signIn(page, '/pay/payments');
-  await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
-  await snap(page, '50-payments-owner-only');
-  for (const path of [
-    '/pay/settlements',
-    '/pay/payouts',
-    `/pay/payments/${PAY_SETTLED}`,
-    `/pay/settlements/${STL_PAID}`,
-    `/pay/payouts/${STL_PAID}`,
-  ]) {
+  await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
+  await expect(page.getByText('Only the account owner can open this page.')).toHaveCount(0);
+  await snap(page, '50-payments-finance');
+  for (const path of ['/pay/settlements', `/pay/payments/${PAY_SETTLED}`, `/pay/settlements/${STL_PAID}`]) {
     await go(page, path);
-    await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
+    await expect(page.getByText('Only the account owner can open this page.')).toHaveCount(0);
   }
+  // Links are owner-only on the service, and the page says so up front.
+  await go(page, '/pay/links');
+  await expect(page.getByText('Only the account owner can open this page.')).toBeVisible();
   await go(page, '/pay/approvals');
-  await expect(page.getByRole('list', { name: 'Payout requests' })).toBeVisible();
-  await expect(page.locator('a[href^="/pay/payouts/"]')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Payout approvals', exact: true })).toBeVisible();
 });
 
 test('settlement statement CSV carries the time the data was read, not the time of the download', async ({ page }) => {

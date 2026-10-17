@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Field } from '../../../shared/ui';
-import { PayTime } from '../components';
+import { StatusTag, Button } from '@intafaced/ui';
+import { Field } from '../ui-kit';
+import { DateTime } from './ui/DateTime';
 import { useNow, useUrlParam } from './hooks';
 import { buildCsv, downloadText } from './csv';
-import { ComingSoon, SelectField } from './components';
+import { NotLive, SelectField } from './components';
 import { extensionCopy as c } from './extension-copy';
 
-export function Arrives({ children }: { children: ReactNode }) {
-  return <ComingSoon title={c.t('arrives')}>{children}</ComingSoon>;
+export function Arrives({ reason, children }: { reason: string; children: ReactNode }) {
+  return <NotLive reason={reason}>{children}</NotLive>;
 }
 export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
   return (
@@ -16,28 +17,7 @@ export function PortalBack({ href = '/pay/merchant', children }: { href?: string
     </a>
   );
 }
-export function CopyReference({ value }: { value: string }) {
-  const [state, setState] = useState<'copy' | 'copied' | 'copyFailed'>('copy');
-  return (
-    <div className="pp-actions">
-      <code className="pp-wrap">{value}</code>
-      <Button
-        variant="ghost"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            setState('copied');
-          } catch {
-            setState('copyFailed');
-          }
-        }}
-      >
-        {c.t('copy')}
-      </Button>
-      <span role="status">{state === 'copy' ? '' : c.t(state)}</span>
-    </div>
-  );
-}
+export { CopyReference } from './ui/CopyReference';
 
 // Keep list-window affordances shared across the extension pages.
 
@@ -47,7 +27,7 @@ export function ReadStamp({ at }: { at: string | null }) {
   return (
     <div className="pp-asof" role="status">
       <span>
-        {c.t('readAt')} <PayTime value={at} /> · {c.t('readLag')}
+        {c.t('readAt')} <DateTime value={at} />
       </span>
       {now - Date.parse(at) > 300_000 && <p className="pp-callout pp-callout--warn">{c.t('staleRead')}</p>}
     </div>
@@ -70,12 +50,11 @@ export const recordStates = ['active', 'revoked', 'disabled', 'pending', 'delive
 export type RecordStatus = (typeof recordStates)[number];
 export function RecordChip({ status }: { status: RecordStatus }) {
   return (
-    <span
-      className={`pp-chip${status === 'delivered' || status === 'active' ? ' pp-chip--good' : status === 'failed' || status === 'dead' ? ' pp-chip--bad' : ''}`}
+    <StatusTag
+      status={status === 'active' || status === 'delivered' ? 'filled' : status === 'failed' || status === 'dead' ? 'failed' : 'working'}
       title={c.t(`${status}Tip`)}
-    >
-      {c.t(status)}
-    </span>
+      label={c.t(status)}
+    />
   );
 }
 export function useWindowFilters() {

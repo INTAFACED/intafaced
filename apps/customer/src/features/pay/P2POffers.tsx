@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Field } from '../../shared/ui';
+import { Button } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import type { PersonalPayApi } from './pay-api';
 import { id, type Offer } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
@@ -521,7 +522,7 @@ function OfferInspector({
           {shortReference(offerId)}
         </span>
       </div>
-      {!locked && <MutationResult result={actionResult} />}
+      {!locked && <MutationResult result={actionResult} title={t('current')} />}
       {locked && (
         <section className="p2p-offer-original" aria-label={knownReply ? t('replyRetained') : payCopy.t('originalOfferActionIsUnresolved')}>
           <h3 tabIndex={-1} ref={originalHeading}>
@@ -541,11 +542,11 @@ function OfferInspector({
               <PayCopy k="deviceRecoveryStorageIsUnavailableEnableSession" />
             </PayNotice>
           )}
-          <MutationResult result={actionResult} />
+          <MutationResult result={actionResult} title={t('current')} />
           <Button variant="secondary" disabled={busy} onClick={() => void checkOriginal()}>
             {pay.guard.knownCleanup(key) ? payCopy.t('retryLocalCleanup') : payCopy.t('checkOriginalOfferAction')}
           </Button>
-          <MutationResult result={recovery} />
+          <MutationResult result={recovery} title={t('current')} />
         </section>
       )}
       {query.resource.status === 'failed' && (

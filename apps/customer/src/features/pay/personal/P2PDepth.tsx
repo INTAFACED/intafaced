@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { PayDetails, PaySection } from '../components';
 import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';

@@ -1,0 +1,233 @@
+// TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
+import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { createAccountMock } from './account/mock.mjs';
+
+/** Onboarding, verification and the team. Report files are answered by reports/mock.mjs. */
+export function createSettingsMock(ctx) {
+  const { scenario, now, state } = ctx;
+  Object.assign(state, {
+    members: [
+      {
+        memberId: null,
+        userId: USER_ID,
+        role: 'owner',
+        status: 'active',
+        label: null,
+        invitedBy: null,
+        createdAt: iso(now - 90 * DAY),
+        activatedAt: iso(now - 90 * DAY),
+        removedAt: null,
+        cursor: null,
+      },
+      {
+        memberId: TEAM.finance.memberId,
+        userId: TEAM.finance.userId,
+        role: 'finance',
+        status: 'active',
+        label: TEAM.finance.label,
+        invitedBy: USER_ID,
+        createdAt: iso(now - 40 * DAY),
+        activatedAt: iso(now - 39 * DAY),
+        removedAt: null,
+        cursor: 'c1',
+      },
+      {
+        memberId: TEAM.developer.memberId,
+        userId: TEAM.developer.userId,
+        role: 'developer',
+        status: 'active',
+        label: TEAM.developer.label,
+        invitedBy: USER_ID,
+        createdAt: iso(now - 20 * DAY),
+        activatedAt: iso(now - 20 * DAY),
+        removedAt: null,
+        cursor: 'c2',
+      },
+      {
+        memberId: TEAM.invited.memberId,
+        userId: TEAM.invited.userId,
+        role: 'viewer',
+        status: 'invited',
+        label: TEAM.invited.label,
+        invitedBy: USER_ID,
+        createdAt: iso(now - 1 * DAY),
+        activatedAt: null,
+        removedAt: null,
+        cursor: 'c3',
+      },
+    ],
+    teamHistory: [
+      {
+        seq: '3',
+        memberUserId: TEAM.invited.userId,
+        action: 'invited',
+        fromRole: null,
+        toRole: 'viewer',
+        actorId: USER_ID,
+        createdAt: iso(now - 1 * DAY),
+      },
+      {
+        seq: '2',
+        memberUserId: TEAM.developer.userId,
+        action: 'accepted',
+        fromRole: null,
+        toRole: 'developer',
+        actorId: TEAM.developer.userId,
+        createdAt: iso(now - 20 * DAY),
+      },
+      {
+        seq: '1',
+        memberUserId: TEAM.finance.userId,
+        action: 'role_changed',
+        fromRole: 'viewer',
+        toRole: 'finance',
+        actorId: USER_ID,
+        createdAt: iso(now - 38 * DAY),
+      },
+    ],
+    invitations:
+      scenario === 'new'
+        ? [
+            {
+              memberId: 'b1111111-1111-4111-8111-111111111111',
+              merchantId: '99999999-9999-4999-8999-999999999999',
+              role: 'developer',
+              invitedAt: iso(now - 2 * DAY),
+            },
+          ]
+        : [],
+    kyb: {
+      kybStatus: scenario === 'quiet' ? 'none' : 'approved',
+      kybRef: scenario === 'quiet' ? null : 'TEST-dossier-001',
+      mode: 'gateway',
+    },
+    kybHistory:
+      scenario === 'quiet'
+        ? []
+        : [
+            {
+              seq: '2',
+              fromStatus: 'pending',
+              toStatus: 'approved',
+              kybRef: 'TEST-dossier-001',
+              decidedBy: 'intafaced',
+              reason: null,
+              at: iso(now - 80 * DAY),
+            },
+            {
+              seq: '1',
+              fromStatus: 'none',
+              toStatus: 'pending',
+              kybRef: 'TEST-dossier-001',
+              decidedBy: 'merchant',
+              reason: null,
+              at: iso(now - 85 * DAY),
+            },
+          ],
+    destination: null,
+  });
+
+  const mine = state.members;
+  const account = createAccountMock(ctx);
+  return {
+    /** Returns NOT_MINE for a procedure this part does not own. */
+    async handle(procedure, input, route) {
+      const answered = await account.handle(procedure, input, route);
+      if (answered !== NOT_MINE) return answered;
+      switch (procedure) {
+        case 'merchant.create':
+          state.merchant = {
+            id: MERCHANT_ID,
+            userId: USER_ID,
+            mode: 'gateway',
+            status: 'pending',
+            kybStatus: 'none',
+            kybRef: null,
+            feeBps: input.pricing.feeBps,
+          };
+          state.kyb = { kybStatus: 'none', kybRef: null, mode: 'gateway' };
+          return ok(route, { id: MERCHANT_ID, userId: USER_ID, mode: 'gateway', feeBps: input.pricing.feeBps });
+        case 'merchant.submitKyb':
+          state.merchant = { ...state.merchant, kybStatus: 'pending', kybRef: input.kybRef };
+          state.kyb = { kybStatus: 'pending', kybRef: input.kybRef, mode: 'gateway' };
+          state.kybHistory.unshift({
+            seq: String(state.kybHistory.length + 1),
+            fromStatus: 'none',
+            toStatus: 'pending',
+            kybRef: input.kybRef,
+            decidedBy: 'merchant',
+            reason: null,
+            at: iso(Date.now()),
+          });
+          return ok(route, { id: MERCHANT_ID, kybStatus: 'pending', kybRef: input.kybRef });
+        case 'merchant.setPayoutDestination':
+          state.destination = { kind: input.kind, ref: input.ref, railId: input.railId };
+          return ok(route, state.destination);
+        case 'merchantOps.kyb.current':
+          return ok(route, state.kyb);
+        case 'merchantOps.kyb.history':
+          return ok(route, page(state.kybHistory, input));
+        case 'merchantOps.team.list':
+          return ok(route, page(input.status ? mine.filter((m) => m.status === input.status) : mine, input));
+        case 'merchantOps.team.history':
+          return ok(route, page(state.teamHistory, input));
+        case 'merchantOps.team.myInvitations':
+          return ok(route, state.invitations);
+        case 'merchantOps.team.invite': {
+          const row = {
+            memberId: `c${mine.length}000000-0000-4000-8000-000000000000`,
+            userId: input.userId,
+            role: input.role,
+            status: 'invited',
+            label: input.label ?? null,
+            invitedBy: USER_ID,
+            createdAt: iso(Date.now()),
+            activatedAt: null,
+            removedAt: null,
+            cursor: `c${mine.length}`,
+          };
+          mine.push(row);
+          state.teamHistory.unshift({
+            seq: String(state.teamHistory.length + 1),
+            memberUserId: input.userId,
+            action: 'invited',
+            fromRole: null,
+            toRole: input.role,
+            actorId: USER_ID,
+            createdAt: row.createdAt,
+          });
+          return ok(route, row);
+        }
+        case 'merchantOps.team.changeRole': {
+          const row = mine.find((m) => m.memberId === input.memberId);
+          if (!row) return refuse(route, 404, 'pay.team_member_not_found');
+          state.teamHistory.unshift({
+            seq: String(state.teamHistory.length + 1),
+            memberUserId: row.userId,
+            action: 'role_changed',
+            fromRole: row.role,
+            toRole: input.role,
+            actorId: USER_ID,
+            createdAt: iso(Date.now()),
+          });
+          row.role = input.role;
+          return ok(route, row);
+        }
+        case 'merchantOps.team.remove': {
+          const row = mine.find((m) => m.memberId === input.memberId);
+          if (!row) return refuse(route, 404, 'pay.team_member_not_found');
+          row.status = 'removed';
+          return ok(route, row);
+        }
+        case 'merchantOps.team.acceptInvite':
+          state.invitations = [];
+          return ok(route, { ...mine[1], status: 'active' });
+        case 'merchantOps.team.declineInvite':
+          state.invitations = [];
+          return ok(route, { declined: true });
+        default:
+          return NOT_MINE;
+      }
+    },
+  };
+}

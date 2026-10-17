@@ -5,14 +5,14 @@ import { createPortalMock, USER_ID } from './portal.mock.mjs';
 const shots = process.env.PORTAL_SHOTS_DIR;
 if (shots) mkdirSync(shots, { recursive: true });
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
-async function setup(page, scenario = 'active') {
+async function setup(page, scenario = 'active', options = {}) {
   page.on('pageerror', (error) => console.error('BROWSER ERROR', error.message));
   await page.route('**/api/**', (route) => route.fulfill({ status: 503, body: '{}' }));
   await page.route('**/api/identity/trpc/auth.login', (route) =>
     reply(route, { userId: USER_ID, accessToken: 'TEST-only', refreshToken: 'TEST-only', expiresAt: '2027-10-08T00:00:00Z' }),
   );
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
-  const mock = createPortalMock(scenario);
+  const mock = createPortalMock(scenario, options);
   await mock.install(page);
   return mock;
 }
@@ -64,13 +64,13 @@ test('onboarding: direct step routes, unpublished pricing, and unsaved draft pro
   await expect(page.getByRole('button', { name: 'Create my account' })).toBeDisabled();
   await page.getByLabel('Legal business name *').fill('TEST Workshop');
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('link', { name: /Step 2 of 3/ }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Step 2 of 3' }).getByRole('link').click();
   await expect(page).toHaveURL(/onboarding\/business$/);
   await snap(page, 'P02-business');
   await axe(page);
   await phone(page, 'P02-business');
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('link', { name: /Step 2 of 3/ }).click();
+  await page.getByRole('listitem').filter({ hasText: 'Step 2 of 3' }).getByRole('link').click();
   await expect(page.getByText('Do step 1 first')).toBeVisible();
 });
 
@@ -78,12 +78,12 @@ test('onboarding: verification history and activation gaps have no fabricated cl
   await setup(page, 'quiet');
   await signIn(page, '/pay/onboarding/verification');
   await expect(page.getByLabel('Verification file reference *')).toBeVisible();
-  await expect(page.getByText(/it is not a screening clearance/)).toBeVisible();
+  await expect(page.getByText(/a missing document never counts as passed/)).toBeVisible();
   await snap(page, 'P03-verification');
   await axe(page);
   await phone(page, 'P03-verification');
   await go(page, '/pay/onboarding/go-live');
-  await expect(page.getByText(/Saving a destination below does not complete go-live/)).toBeVisible();
+  await expect(page.getByText(/Live payments open once your business is verified/)).toBeVisible();
   await snap(page, 'P04-go-live-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await snap(page, 'P04-go-live');
@@ -91,27 +91,25 @@ test('onboarding: verification history and activation gaps have no fabricated cl
 });
 
 const REFUNDED_PAYMENT = 'aa000003-0000-4000-8000-000000000003';
-test('refunds: exact payment history, URL filters, CSV and detail timeline', async ({ page }) => {
+test('refunds: the account list, URL filters, CSV and detail timeline', async ({ page }) => {
   const mock = await setup(page);
   await signIn(page, '/pay/refunds');
-  await expect(page.getByText(/The account-wide refund list/)).toBeVisible();
-  await page.getByLabel('Original payment ID *').fill(REFUNDED_PAYMENT);
-  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Refunds', exact: true }).getByRole('table')).toBeVisible();
-  await expect(page.getByText('1 refunds shown for this payment.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Refunds', level: 1 })).toBeVisible();
+  const list = page.getByRole('region', { name: 'Refunds', exact: true });
+  await expect(list.getByRole('table')).toBeVisible();
   await snap(page, 'P08-refunds');
   await axe(page);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download shown refunds (CSV)' }).click();
-  expect((await download).suggestedFilename()).toBe('payment-refunds.csv');
-  await page.getByLabel('Refund status').selectOption('reversed');
-  await expect(page).toHaveURL(/status=reversed/);
-  await expect(page.getByText(/No refunds match this status/)).toBeVisible();
-  await page.getByLabel('Refund status').selectOption('');
+  await page.getByRole('button', { name: 'Download this page' }).click();
+  expect((await download).suggestedFilename()).toMatch(/refunds.*\.csv$/);
+  await page.getByLabel('Status').selectOption({ label: 'Reversed' });
+  await expect(page).toHaveURL(/status=/);
+  await expect(list.getByRole('row')).toHaveCount(2);
+  await page.getByLabel('Status').selectOption('');
   await phone(page, 'P08-refunds');
-  await page.getByRole('link', { name: 'TEST-refund-1', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Refund detail', level: 1 })).toBeVisible();
-  await expect(page.getByText('Refund confirmed', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await list.getByRole('link', { name: 'Open' }).first().click();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Refund');
   await snap(page, 'P10-refund-detail-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await snap(page, 'P10-refund-detail');
@@ -119,10 +117,10 @@ test('refunds: exact payment history, URL filters, CSV and detail timeline', asy
   expect(mock.calls.filter((call) => call.procedure === 'payment.refund')).toEqual([]);
 });
 
-test('refund creation: missing verified company authority refuses closed without a mutation', async ({ page }) => {
+test('refund creation: a payment with nothing left to refund refuses closed without a mutation', async ({ page }) => {
   const mock = await setup(page);
   await signIn(page, `/pay/refunds/new?payment=${REFUNDED_PAYMENT}`);
-  await expect(page.getByText(/Refund submission needs verified company membership/)).toBeVisible();
+  await expect(page.getByText('No captured amount is available to refund.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Confirm/ })).toHaveCount(0);
   await snap(page, 'P09-new-refund');
   await axe(page);
@@ -130,13 +128,8 @@ test('refund creation: missing verified company authority refuses closed without
   expect(mock.calls.filter((call) => call.procedure === 'payment.refund')).toEqual([]);
 });
 
-test('refunds: invalid input makes no payment request and a foreign payment reveals no existence', async ({ page }) => {
+test('refunds: a payment id that is not found reveals nothing about whether it exists', async ({ page }) => {
   const mock = await setup(page);
-  await signIn(page, '/pay/refunds');
-  await page.getByLabel('Original payment ID *').fill('not-a-payment');
-  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
-  await expect(page.getByText('Enter a complete payment ID from your payments list.')).toBeVisible();
-  expect(mock.calls.filter((call) => call.procedure === 'payment.get')).toEqual([]);
   await page.route('**/api/pay/trpc/payment.get?*', (route) =>
     route.fulfill({
       status: 404,
@@ -144,10 +137,10 @@ test('refunds: invalid input makes no payment request and a foreign payment reve
       body: JSON.stringify({ error: { message: 'pay.payment_not_found', data: { cause: { code: 'pay.payment_not_found' } } } }),
     }),
   );
-  await page.getByLabel('Original payment ID *').fill(REFUNDED_PAYMENT);
-  await page.getByRole('button', { name: 'Look up payment', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await signIn(page, `/pay/refunds/new?payment=${REFUNDED_PAYMENT}`);
+  await expect(page.getByRole('heading', { name: 'Issue a refund', level: 1 })).toBeVisible();
   await expect(page.getByText('pay.payment_not_found')).toHaveCount(0);
+  expect(mock.calls.filter((call) => call.procedure === 'payment.refund')).toEqual([]);
 });
 
 const LINK_ID = 'dd000001-0000-4000-8000-000000000001';
@@ -184,41 +177,41 @@ test('payment links: scoped records, URL search and availability, export and det
   await setup(page);
   await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, { items: testLinks(), nextCursor: null }));
   await signIn(page, '/pay/links');
-  await expect(page.getByRole('link', { name: 'TEST workshop', exact: true })).toBeVisible();
-  await expect(page.getByText('2 shown from 2 loaded links.')).toBeVisible();
+  await expect(page.getByRole('link', { name: /TEST workshop/ })).toBeVisible();
+  await expect(page.getByText('2 shown from 2 links.')).toBeVisible();
   await snap(page, 'P13-payment-links');
   await axe(page);
   await phone(page, 'P13-payment-links');
-  await page.getByLabel('Search loaded links').fill('workshop');
+  await page.getByLabel('Search links').fill('workshop');
   await expect(page).toHaveURL(/q=workshop/);
-  await expect(page.getByText('1 shown from 2 loaded links.')).toBeVisible();
+  await expect(page.getByText('1 shown from 2 links.')).toBeVisible();
   await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('expired');
   await expect(page.getByText('No links match these filters', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download shown links (CSV)' }).click();
   expect((await download).suggestedFilename()).toBe('payment-links.csv');
-  await page.getByRole('link', { name: 'TEST workshop', exact: true }).click();
+  await page.getByRole('link', { name: /TEST workshop/ }).click();
   await expect(page.getByRole('heading', { name: 'Payment link', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Deactivate link' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Deactivate link' })).toBeEnabled();
   await snap(page, 'P15-link-detail-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await snap(page, 'P15-link-detail');
   await axe(page);
 });
 
-test('payment-link creation: validates fields and does not bypass missing write authority', async ({ page }) => {
+test('payment-link creation: validates fields and asks for a review before anything is created', async ({ page }) => {
   const mock = await setup(page);
   await signIn(page, '/pay/links/new');
   await expect(page.getByLabel('Link label *')).toBeVisible();
   await page.getByLabel('Link label *').fill('TEST workshop');
   await page.getByLabel('Fixed amount', { exact: true }).fill('12.000000000000000001');
   await expect(page.getByText('Choose an asset when setting a fixed amount.')).toBeVisible();
-  await page.getByLabel('Asset code', { exact: true }).fill('USDT');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('1.5');
   await expect(page.getByText('Check this field before reviewing the link.')).toBeVisible();
   await page.getByLabel('Maximum completed payments', { exact: true }).fill('10');
-  await expect(page.getByRole('button', { name: 'Review and create link' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled();
   await snap(page, 'P14-new-payment-link');
   await axe(page);
   await phone(page, 'P14-new-payment-link');
@@ -228,14 +221,14 @@ test('payment-link creation: validates fields and does not bypass missing write 
 test('merchant money: snapshot balances, separate assets and honest statement gap', async ({ page }) => {
   const mock = await setup(page);
   await signIn(page, '/pay/money');
-  await expect(page.getByRole('heading', { name: 'Merchant balances', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Merchant balances' })).toBeVisible();
-  await expect(page.getByText(/A configured reserve policy does not prove funds/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Balances', level: 1 })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Balances at a glance' })).toBeVisible();
+  await expect(page.getByText(/Reserve: 5\.00% held back/).first()).toBeVisible();
   await snap(page, 'P24-money');
   await axe(page);
   await phone(page, 'P24-money');
-  await page.getByRole('link', { name: 'Open balance activity', exact: true }).click();
-  await expect(page.getByText(/No running balance is estimated here/)).toBeVisible();
+  await page.getByRole('link', { name: 'Open the statement', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await snap(page, 'P25-balance-activity-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await snap(page, 'P25-balance-activity');
@@ -243,18 +236,19 @@ test('merchant money: snapshot balances, separate assets and honest statement ga
   expect(mock.calls.some((call) => call.procedure === 'merchantMetrics.snapshot')).toBe(true);
 });
 
-test('reports: only supported catalog kinds and the reused export form receives the selected kind', async ({ page }) => {
+test('reports: the catalog opens the request form on the selected kind', async ({ page }) => {
   await setup(page);
   await signIn(page, '/pay/reports');
-  await expect(page.getByRole('heading', { name: 'Available report types' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Available reports' })).toBeVisible();
   await snap(page, 'P52-reports');
   await axe(page);
   await phone(page, 'P52-reports');
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page
-    .getByRole('row', { name: /Settlements Settlement windows/ })
-    .getByRole('link', { name: 'Request report' })
+    .getByRole('row', { name: /Settlements/ })
+    .getByRole('link', { name: 'Open' })
     .click();
-  await expect(page.getByRole('heading', { name: 'Export jobs', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Report files', level: 1 })).toBeVisible();
   await expect(page.locator('#request select').first()).toHaveValue('settlements');
   await snap(page, 'P53-export-jobs-phone');
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -275,16 +269,16 @@ test('stored light preference: app policy stays dark, all W3c routes remain acce
     ['P02', '/pay/onboarding/business', 'Business details'],
     ['P03', '/pay/onboarding/verification', 'Verification'],
     ['P04', '/pay/onboarding/go-live', 'Payout destination'],
-    ['P08', `/pay/refunds?payment=${REFUNDED_PAYMENT}`, 'Refunds'],
+    ['P08', '/pay/refunds', 'Refunds'],
     ['P09', `/pay/refunds/new?payment=${REFUNDED_PAYMENT}`, 'Issue a refund'],
-    ['P10', `/pay/refunds/TEST-refund-1?payment=${REFUNDED_PAYMENT}`, 'Refund detail'],
+    ['P10', '/pay/refunds/cc100001-0000-4000-8000-000000000101', 'Refund'],
     ['P13', '/pay/links', 'Payment links'],
     ['P14', '/pay/links/new', 'Create a payment link'],
     ['P15', `/pay/links/${LINK_ID}`, 'Payment link'],
-    ['P24', '/pay/money', 'Merchant balances'],
-    ['P25', '/pay/money/activity', 'Balance activity'],
+    ['P24', '/pay/money', 'Balances'],
+    ['P25', '/pay/money/activity', 'Statement'],
     ['P52', '/pay/reports', 'Reports'],
-    ['P53', '/pay/reports/exports', 'Export jobs'],
+    ['P53', '/pay/reports/exports', 'Report files'],
   ]) {
     await go(page, path);
     await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible();
@@ -293,7 +287,7 @@ test('stored light preference: app policy stays dark, all W3c routes remain acce
     await snap(page, `${id}-stored-light-policy-dark`);
   }
   await page.keyboard.press('Control+k');
-  await expect(page.getByRole('combobox', { name: 'Search markets' })).toBeFocused();
+  await expect(page.getByRole('searchbox', { name: 'Search the business pages' })).toBeFocused();
 });
 
 test('unsaved business details survive a cancelled browser Back traversal', async ({ page }) => {

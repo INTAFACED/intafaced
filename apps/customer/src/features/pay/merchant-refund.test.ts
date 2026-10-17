@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../shared/api';
 import { createBusinessPayApi, createPayMutationGuard } from './pay-api';
-import { refundCopy } from './merchant-refund-copy';
+import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import type { JournalLocks } from '../../shared/minimal-original-journal';
 
 const userId = '11111111-1111-4111-8111-111111111111';
@@ -385,5 +385,41 @@ describe('Original storage and asynchronous admission', () => {
   });
   it('all authored refund recovery copy is complete in EN/ES/FR', () => {
     for (const locale of ['en', 'es', 'fr'] as const) expect(refundCopy.coverage(locale).missing).toEqual([]);
+  });
+});
+
+describe('Refund failure wording', () => {
+  const base = { busy: false, referenceHeld: false };
+  it('never says the refund did not go through once a reference is held', () => {
+    for (const code of [undefined, 'network', 'pay.read_failed', 'unauthorized'])
+      expect(refundFailureKey({ ...base, code, referenceHeld: true })).toBe('notConfirmed');
+    expect(refundCopy.t('notConfirmed')).toBe('We couldn’t confirm this refund yet. Nothing new will be sent. Check again.');
+    expect(refundCopy.t('notConfirmed')).not.toMatch(/didn’t go through/);
+  });
+  it('says the read failed only when no refund was dispatched', () => {
+    expect(refundFailureKey({ ...base, code: undefined })).toBe('readFailed');
+    expect(refundFailureKey({ ...base, code: 'pay.some_other' })).toBe('readFailed');
+  });
+  for (const [code, key] of [
+    ['pay.business_permission_missing', 'permissionMissing'],
+    ['pay.business_authority_missing', 'permissionMissing'],
+    ['pay.business_merchant_inactive', 'merchantInactive'],
+    ['pay.business_merchant_mismatch', 'merchantInactive'],
+    ['pay.refund_amount_invalid', 'invalidAmount'],
+    ['pay.refund_input_invalid', 'invalidAmount'],
+    ['pay.refund_context_changed', 'contextChanged'],
+    ['pay.refund_recovery_unavailable', 'unavailableBody'],
+  ] as const)
+    for (const referenceHeld of [false, true])
+      it(`maps ${code} to its own message (reference held: ${referenceHeld})`, () => {
+        expect(refundFailureKey({ ...base, code, referenceHeld })).toBe(key);
+      });
+  it('another tab checking wins over every code', () => {
+    expect(refundFailureKey({ busy: true, referenceHeld: true, code: 'pay.refund_amount_invalid' })).toBe('busy');
+  });
+  it('states the oldest-first history window and only claims a cut-off at the cap', () => {
+    expect(HISTORY_WINDOW).toBe(200);
+    expect(refundCopy.t('historyWindow', { count: 200 })).toContain('first 200 recorded updates (oldest first)');
+    expect(refundCopy.t('historyAll', { count: 12 })).toBe('We checked all 12 recorded updates on this payment.');
   });
 });

@@ -1,0 +1,21 @@
+/* Analytics pages. Bars use a neutral tone from the kit, never an accent. */
+.pp-chart {
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.pp-chart svg {
+  width: 100%;
+  height: 8rem;
+  display: block;
+}
+.pp-bar {
+  fill: var(--fg-2, rgb(255 255 255 / 0.55));
+}
+.pp-bar:hover {
+  fill: var(--fg, rgb(255 255 255 / 0.9));
+}
+.pp-stack {
+  display: grid;
+  gap: 0.125rem;
+}
