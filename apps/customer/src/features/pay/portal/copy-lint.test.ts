@@ -116,8 +116,9 @@ describe('unused portal copy', () => {
     new RegExp(`['"\`]${key}['"\`]`).test(text) ||
     prefixes.some((prefix) => key.startsWith(prefix)) ||
     suffixes.some((suffix) => key.endsWith(suffix));
+  // Reads every portal source file, which takes longer than the default on a shared CI runner.
   it('has no key that nothing refers to', () => {
     const dead = entries.map(([id]) => id).filter((id) => !used(id.split('.').slice(-1)[0]!));
     expect(dead).toEqual([]);
-  });
+  }, 60_000);
 });

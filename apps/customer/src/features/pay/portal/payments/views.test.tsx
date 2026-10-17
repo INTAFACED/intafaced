@@ -317,8 +317,8 @@ describe('customers', () => {
     paymentCount: 3,
     subscriptionCount: 1,
     mandateCount: 0,
-    firstSeenAt: '2026-09-01T00:00:00.000Z',
-    lastSeenAt: '2026-10-14T00:00:00.000Z',
+    firstSeenAt: '2026-09-01T09:30:00.000Z',
+    lastSeenAt: '2026-10-14T10:05:00.000Z',
     totals: [{ assetId: 'USDT', capturedAmount: '300.5', refundedAmount: '0', paymentCount: 3 }],
     ...patch,
   });
@@ -363,7 +363,7 @@ describe('customers', () => {
           status: 'captured',
           assetId: 'USDT',
           amount: '100',
-          createdAt: '2026-10-14T00:00:00.000Z',
+          createdAt: '2026-10-14T10:05:00.000Z',
         },
       ],
     };

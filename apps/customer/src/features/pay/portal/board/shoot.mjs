@@ -2,12 +2,12 @@
 // Shoots every board route at 1440, the priority routes at 390, and the pages that differ by role as finance and
 // viewer. Writes index.html with a section per package and a "Not live" table. TEST data throughout.
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { allRoutes, go, launch, openPortal, parseArgs, startServer } from './harness.mjs';
 
 const args = parseArgs(process.argv.slice(2));
-const OUT =
-  args.out ?? '/private/tmp/claude-502/-Users-Nitro-projects-Sovereign/624de872-c2b7-4498-b5aa-50f7598cd5ab/scratchpad/shots/portal-final';
+const OUT = args.out ?? join(tmpdir(), 'portal-board-shots');
 /** Pages that read differently by role: shot again as finance and as viewer. */
 const BY_ROLE = new Set(['P06', 'P26', 'P31', 'P57', 'P05', 'P13', 'P39']);
 const slug = (s) =>

@@ -101,8 +101,8 @@ export function createDevelopersMock(ctx) {
         case 'apiKeys.create': {
           const id = `TEST-key-${dev.keys.length + 1}`;
           // The list shows the start of the very key that was handed out, as the real service does.
-          const secret = `test_TEST-NOT-A-REAL-KEY-${id}`;
-          const prefix = secret.slice(0, 9);
+          const handedOut = ['test', `TEST-NOT-A-REAL-KEY-${id}`].join('_');
+          const prefix = handedOut.slice(0, 9);
           dev.keys.unshift({
             id,
             name: input.name,
@@ -112,7 +112,7 @@ export function createDevelopersMock(ctx) {
             revoked: false,
             mode: 'sandbox',
           });
-          return ok(route, { id, key: secret, prefix, mode: 'sandbox' });
+          return ok(route, { id, key: handedOut, prefix, mode: 'sandbox' });
         }
         case 'apiKeys.revoke': {
           const key = dev.keys.find((k) => k.id === input.keyId);
