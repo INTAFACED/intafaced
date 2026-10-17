@@ -498,6 +498,18 @@ describe('payouts list (P28)', () => {
       }),
     });
     expect(out).toContain('Payouts are paused.');
+    expect(out).toContain('INTAFACED has paused this for every account');
+  });
+  it('a rail halt says payouts are paused on that rail', () => {
+    const out = view({
+      halts: ready<p.HaltStatus>({
+        readable: true,
+        states: [{ scope: 'payout', target: { level: 'rail', railId: 'crypto-native' }, halted: true, changedAt: null }],
+      }),
+    });
+    expect(out).toContain('Payouts are paused.');
+    expect(out).toContain('INTAFACED has paused payouts on the crypto-native rail');
+    expect(out).not.toContain('for every account');
   });
 });
 

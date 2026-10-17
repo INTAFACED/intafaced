@@ -27,12 +27,17 @@ export const MERCHANT_PERMISSIONS = [
   'team.manage',
   'disputes.read',
   'disputes.respond',
+  'invoices.read',
+  'invoices.write',
   'customers.read',
   'kyb.read',
   'exports.create',
   'exports.read',
   'notifications.read',
   'notifications.manage',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
   'payout.request',
   'payout.approve',
 ] as const;
@@ -41,10 +46,14 @@ export type MerchantPermission = (typeof MERCHANT_PERMISSIONS)[number];
 const READS: readonly MerchantPermission[] = [
   'team.read',
   'disputes.read',
+  'invoices.read',
   'customers.read',
   'kyb.read',
   'exports.read',
   'notifications.read',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
 ];
 
 const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = {
@@ -53,6 +62,7 @@ const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = 
   finance: new Set<MerchantPermission>([
     ...READS,
     'disputes.respond',
+    'invoices.write',
     'exports.create',
     'notifications.manage',
     'payout.request',

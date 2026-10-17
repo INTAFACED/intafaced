@@ -6,10 +6,22 @@ import {
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
   merchantControlApprovalDecideInputSchema,
+  merchantTierListInputSchema,
+  merchantTierListSchema,
+  merchantPricingHistoryInputSchema,
+  merchantPricingHistorySchema,
+  merchantLimitOpenInputSchema,
+  merchantLimitOpenSchema,
+  merchantLimitIncreaseInputSchema,
+  merchantLimitIncreaseResultSchema,
+  merchantLimitWithdrawInputSchema,
+  merchantLimitWithdrawResultSchema,
   payoutApprovalSchema,
 } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
+import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
+import { isInteractivePrincipal, type MerchantRole } from '../merchant-ops/roles.js';
 import { toContractApproval } from '../control/approvals.js';
 import {
   approvalCancelInputSchema,
@@ -34,6 +46,21 @@ import { notBuilt } from './errors.js';
  * The procedures work whatever `PAY_MERCHANT_CONTROLS` says; that switch only
  * decides whether the money-path guards enforce.
  */
+/** Who may file or withdraw a cap ask. Reads stay on the wider control-room door. */
+const LIMIT_ASK_ROLES = new Set<MerchantRole>(['owner', 'admin', 'finance']);
+
+/**
+ * Interactive session only: an API key (`kid`), a session without MFA, or a
+ * sub-account is refused before any merchant lookup, so the refusal does not
+ * say whether that merchant exists.
+ */
+async function assertLimitAsk(control: ControlService, principal: Principal, merchantId: string): Promise<void> {
+  if (!isInteractivePrincipal(principal)) throw new ControlError('pay.interactive_required');
+  await control.assertCanView(principal, merchantId);
+  const role = await control.roleOnMerchant(principal, merchantId);
+  if (role === null || !LIMIT_ASK_ROLES.has(role)) throw new ControlError('pay.merchant_not_found');
+}
+
 export function createMerchantControlRouter(control?: ControlService) {
   const read = scopedProcedure('pay:read', { module: 'pay' });
   const write = scopedProcedure('pay:write', { module: 'pay' });
@@ -82,6 +109,17 @@ export function createMerchantControlRouter(control?: ControlService) {
             return control.usage(input.merchantId);
           }),
         ),
+      tiers: router({
+        list: read
+          .input(merchantTierListInputSchema)
+          .output(merchantTierListSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.merchantTierList(input.merchantId);
+            }),
+          ),
+      }),
       pricing: router({
         preview: read
           .input(pricingPreviewInputSchema)
@@ -90,6 +128,46 @@ export function createMerchantControlRouter(control?: ControlService) {
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.previewPricing(input);
+            }),
+          ),
+        history: read
+          .input(merchantPricingHistoryInputSchema)
+          .output(merchantPricingHistorySchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.pricingHistory(input.merchantId, input.limit);
+            }),
+          ),
+      }),
+      limits: router({
+        open: read
+          .input(merchantLimitOpenInputSchema)
+          .output(merchantLimitOpenSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.openLimitRequest(input.merchantId);
+            }),
+          ),
+        requestIncrease: write
+          .input(merchantLimitIncreaseInputSchema)
+          .output(merchantLimitIncreaseResultSchema)
+          .mutation(({ ctx, input }) =>
+            guarded(async () => {
+              const principal = principalOf(ctx);
+              await assertLimitAsk(control, principal, input.merchantId);
+              return control.requestLimitIncrease(principal, input);
+            }),
+          ),
+        withdraw: write
+          .input(merchantLimitWithdrawInputSchema)
+          .output(merchantLimitWithdrawResultSchema)
+          .mutation(({ ctx, input }) =>
+            guarded(async () => {
+              const principal = principalOf(ctx);
+              await assertLimitAsk(control, principal, input.merchantId);
+              return control.withdrawLimitRequest(principal, input);
             }),
           ),
       }),

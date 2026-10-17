@@ -32,6 +32,8 @@ const migrations = [
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
+  '0079_pay_halt_autotrip_window.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -90,11 +92,12 @@ describe('payHalts.* with a real halt store', () => {
   let db: TestDatabase;
   let sql!: TestDatabase['sql'];
   let pay!: PayService;
-  const store = () => new PayHaltStore(sql, loadHaltAutoTripConfig({}));
-  const router = (fetcher: typeof fetch) =>
+  const store = (knownRails: { has(railId: string): boolean } = { has: () => false }) =>
+    new PayHaltStore(sql, loadHaltAutoTripConfig({}), knownRails);
+  const router = (fetcher: typeof fetch, knownRails?: { has(railId: string): boolean }) =>
     createPayNamespaces({
       founderAuthority: createFounderAuthority({ ...identity, fetcher }),
-      payHalts: { store: store(), merchants: pay },
+      payHalts: { store: knownRails ? store(knownRails) : store(), merchants: pay },
     });
 
   beforeAll(async () => {
@@ -109,7 +112,7 @@ describe('payHalts.* with a real halt store', () => {
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.halt_autotrip_window, pay.halt_autotrip_counted, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
     );
   });
 
@@ -189,6 +192,33 @@ describe('payHalts.* with a real halt store', () => {
       const operator = await a.payHalts.operatorStatus();
       expect(operator.autoTrip).toEqual({ enabled: false, consecutiveFailures: null });
       expect(operator.states.find((s) => s.scope === 'payout')).toMatchObject({ halted: false, version: '2' });
+    });
+
+    it('refuses a user or rail halt off payout, refuses an unknown rail, and accepts a payout rail', async () => {
+      const known = { has: (railId: string) => railId === 'crypto-native' };
+      const caller = router(fetcherFor([founderA]), known).createCaller(ctxOf(principalFor(founderA)));
+      const refused = async (body: Record<string, unknown>) =>
+        caller.payHalts.set(setBody(body) as never).then(
+          () => null,
+          (e: unknown) => e as { code: string; message: string },
+        );
+      const user = { level: 'user', userId: founderA };
+      for (const scope of ['intake', 'settlement', 'conversion'] as const) {
+        expect(await refused({ scope, target: user })).toMatchObject({ code: 'BAD_REQUEST', message: 'pay.halt_target_unsupported' });
+        expect(await refused({ scope, target: { level: 'rail', railId: 'crypto-native' } })).toMatchObject({
+          code: 'BAD_REQUEST',
+          message: 'pay.halt_target_unsupported',
+        });
+      }
+      expect(await refused({ scope: 'payout', target: { level: 'rail', railId: 'missing-rail' } })).toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'pay.halt_target_unknown_rail',
+      });
+      const set = await caller.payHalts.set(setBody({ scope: 'payout', target: { level: 'rail', railId: 'crypto-native' } }) as never);
+      expect(set).toMatchObject({ outcome: 'changed', state: { halted: true, target: { level: 'rail', railId: 'crypto-native' } } });
+      const userSet = await caller.payHalts.set(setBody({ scope: 'payout', target: user }) as never);
+      expect(userSet).toMatchObject({ outcome: 'changed', state: { halted: true, target: { level: 'user', userId: founderA } } });
+      expect(await sql`SELECT target FROM pay.halts WHERE scope <> 'payout'`).toHaveLength(0);
     });
 
     it('pendingClears names the founder who proposed, pages by request id, and drops a clear once it is confirmed or expired', async () => {

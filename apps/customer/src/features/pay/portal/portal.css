@@ -749,3 +749,9 @@
     background: var(--if-panel);
   }
 }
+
+/* Opaque references and receiver paths must wrap without widening the page on phones. */
+.pp .pp-wrap {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

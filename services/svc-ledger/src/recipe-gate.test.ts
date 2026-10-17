@@ -492,4 +492,45 @@ describe('recipe-gate', () => {
       expect.objectContaining({ code: RECIPE_REQUIRED_CODE }),
     );
   });
+
+  it('accepts an inventory late fill with no merchant credit and refuses one that pays the merchant', () => {
+    const inventory = recipes.fxConversionLateFill({
+      auditId: 'audit-gate-i',
+      conversionId: 'cv-gate-i',
+      merchantId: 'm1',
+      merchantUserId: USER,
+      venueId: 'binance-spot',
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: amt('10'),
+      toAmount: amt('7'),
+      feeAmount: amt('2'),
+      spreadAmount: amt('1'),
+      funding: 'inventory',
+    });
+    expect(inventory.entries.some((entry) => entry.account.ownerType === 'user' || entry.account.ownerId?.startsWith('fees:'))).toBe(false);
+    expect(() => assertKnownRecipePost(toWire(inventory))).not.toThrow();
+
+    const merchant = recipes.fxConversionLateFill({
+      auditId: 'audit-gate-m',
+      conversionId: 'cv-gate-m',
+      merchantId: 'm1',
+      merchantUserId: USER,
+      venueId: 'binance-spot',
+      fromAsset: 'USD',
+      toAsset: 'USDT',
+      fromAmount: amt('10'),
+      toAmount: amt('10'),
+      feeAmount: 0n,
+      spreadAmount: 0n,
+      funding: 'merchant',
+    });
+    expect(() =>
+      assertKnownRecipePost({
+        module: merchant.module,
+        reason: 'pay.conversion.late_shortfall',
+        entries: merchant.entries.map((entry) => ({ account: entry.account, direction: entry.direction })),
+      }),
+    ).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+  });
 });

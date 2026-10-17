@@ -353,6 +353,15 @@ export type PaymentStep = {
  * Only a fixed list of events is shown, and only a few named fields of each. The history also carries the payer's
  * instrument and rail internals; none of that reaches the screen. A failure shows no code, because a rail's code is not an explanation.
  */
+function historyPayload(event: PaymentEvent): Record<string, unknown> {
+  return 'payload' in event ? event.payload : {};
+}
+
+function historyAmount(event: PaymentEvent): string | null {
+  if ('amount' in event && !('payload' in event)) return money(event.amount);
+  return money(historyPayload(event).amount);
+}
+
 export function paymentSteps(events: readonly PaymentEvent[]): PaymentStep[] {
   const out: PaymentStep[] = [];
   for (const e of events) {
@@ -369,12 +378,13 @@ export function paymentSteps(events: readonly PaymentEvent[]): PaymentStep[] {
       } as const
     )[e.event as 'created'];
     if (!kind) continue;
+    const payload = historyPayload(e);
     out.push({
       at: e.ts,
       kind,
-      amount: money(e.payload.amount),
-      refundId: text(e.payload.refundId),
-      settlementId: text(e.payload.settlementId),
+      amount: historyAmount(e),
+      refundId: text(payload.refundId),
+      settlementId: text(payload.settlementId),
     });
   }
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -386,11 +396,12 @@ export function paymentRefunds(events: readonly PaymentEvent[]): PaymentRefund[]
   const byId = new Map<string, PaymentRefund>();
   for (const e of [...events].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts))) {
     if (e.event !== 'refund.posted' && e.event !== 'refunded' && e.event !== 'refund.reversed') continue;
-    const refundId = text(e.payload.refundId);
+    const payload = historyPayload(e);
+    const refundId = text(payload.refundId);
     if (!refundId) continue;
     const state = e.event === 'refunded' ? 'completed' : e.event === 'refund.reversed' ? 'reversed' : 'in_progress';
     const before = byId.get(refundId);
-    byId.set(refundId, { refundId, amount: money(e.payload.amount) ?? before?.amount ?? null, state, at: before?.at ?? e.ts });
+    byId.set(refundId, { refundId, amount: historyAmount(e) ?? before?.amount ?? null, state, at: before?.at ?? e.ts });
   }
   return [...byId.values()];
 }
@@ -400,10 +411,10 @@ export function paymentLinks(events: readonly PaymentEvent[]) {
   const find = (name: string) => events.find((e) => e.event === name);
   const settled = find('settled') ?? find('settlement.included');
   return {
-    customerRef: text(find('created')?.payload.customerRef),
-    ledgerTxId: text(find('captured')?.payload.ledgerTxId),
-    settlementId: text(settled?.payload.settlementId),
-    disputeId: text(find('disputed')?.payload.disputeId),
+    customerRef: text(find('created') ? historyPayload(find('created')!).customerRef : null),
+    ledgerTxId: text(find('captured') ? historyPayload(find('captured')!).ledgerTxId : null),
+    settlementId: text(settled ? historyPayload(settled).settlementId : null),
+    disputeId: text(find('disputed') ? historyPayload(find('disputed')!).disputeId : null),
   };
 }
 
@@ -606,7 +617,7 @@ export function pricingAssets(rules: readonly PricingRule[] | null): string[] {
 
 // ---- operation pauses (B11) ----------------------------------------------------------------------------
 
-export type ActiveHalt = { scope: HaltScope; level: 'global' | 'merchant'; changedAt: string | null };
+export type ActiveHalt = { scope: HaltScope; level: 'global' | 'merchant' | 'rail'; railId?: string; changedAt: string | null };
 /** Pauses that apply to the given operations. A store that could not be read counts as paused for all of them. */
 export function activeHalts(status: HaltStatus, scopes: readonly HaltScope[]): { unreadable: boolean; halts: ActiveHalt[] } {
   if (!status.readable) return { unreadable: true, halts: [] };
@@ -614,6 +625,10 @@ export function activeHalts(status: HaltStatus, scopes: readonly HaltScope[]): {
     unreadable: false,
     halts: status.states
       .filter((s) => s.halted && scopes.includes(s.scope))
-      .map((s) => ({ scope: s.scope, level: s.target.level, changedAt: s.changedAt })),
+      .map((s) => {
+        if (s.target.level === 'rail') return { scope: s.scope, level: 'rail' as const, railId: s.target.railId, changedAt: s.changedAt };
+        if (s.target.level === 'merchant') return { scope: s.scope, level: 'merchant' as const, changedAt: s.changedAt };
+        return { scope: s.scope, level: 'global' as const, changedAt: s.changedAt };
+      }),
   };
 }

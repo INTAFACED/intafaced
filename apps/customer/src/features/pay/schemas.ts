@@ -1,5 +1,11 @@
 import { z } from 'zod';
+import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
+
+/** A list procedure now returns `{ items, nextCursor }`. Callers that still render an array keep the items. */
+export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
+  return result.ok ? { ok: true, data: result.data.items } : result;
+}
 
 // Browser projections of the mounted service outputs. No service/server roots are imported.
 // Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.
@@ -227,13 +233,25 @@ export const paymentSchema = z.object({
   refundedAmount: amount,
   createdAt: z.string().datetime({ offset: true }),
 });
-export const paymentEventSchema = z.object({
+const paymentEventOwnerSchema = z.object({
   id,
   event: z.string(),
   payload: z.record(z.unknown()),
   railEventId: z.string().nullable(),
   ts: z.string().datetime({ offset: true }),
 });
+/** Team reads. Amount and a catalog failure. No raw payload. */
+const paymentEventTeamSchema = z
+  .object({
+    id,
+    event: z.string(),
+    ts: z.string().datetime({ offset: true }),
+    amount: amount.nullable(),
+    assetId: asset.nullable(),
+    failure: z.object({ code: z.string(), message: z.string() }).strict().nullable(),
+  })
+  .strict();
+export const paymentEventSchema = z.union([paymentEventOwnerSchema, paymentEventTeamSchema]);
 export const settlementSchema = z.object({
   id,
   merchantId: id,

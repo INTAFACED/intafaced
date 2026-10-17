@@ -400,6 +400,25 @@ describe('payout maker-checker', () => {
     ).toBe(0);
   });
 
+  it('an expired founder-queue approval is not revealed and writes no destination audit', async () => {
+    const cryptoSettlement = await settled(merchantId, ['80', '80'], 'w-reveal-expired');
+    const req = await approvals.request(maker(), { merchantId, settlementId: cryptoSettlement.id, railId: 'crypto-native' });
+    await approvals.decide(finance(), decideInput(req));
+    await sql`UPDATE pay.control_payout_approvals SET expires_at = now() - interval '1 second' WHERE id = ${req.approvalId}`;
+
+    await expect(approvals.founderDestination(FOUNDER_1, req.approvalId)).rejects.toMatchObject({ code: 'pay.approval_not_found' });
+    expect(
+      (await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payout.destination_read' AND scope_id = ${req.approvalId}`).length,
+    ).toBe(0);
+
+    await sql`UPDATE pay.control_payout_approvals SET expires_at = now() + interval '1 hour' WHERE id = ${req.approvalId}`;
+    const revealed = await approvals.founderDestination(FOUNDER_1, req.approvalId);
+    expect(revealed.destinationRef).toBe(DEST_A.ref);
+    expect(
+      (await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payout.destination_read' AND scope_id = ${req.approvalId}`).length,
+    ).toBe(1);
+  });
+
   it('the database refuses an approved founder-required row without two founders', async () => {
     const s = await settled(merchantId, ['80', '80'], 'w-db');
     const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });

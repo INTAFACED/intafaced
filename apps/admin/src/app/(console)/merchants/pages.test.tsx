@@ -508,6 +508,7 @@ describe('merchant drill-down', () => {
         merchantId: MID,
         displayName: 'Acme Shop',
         legalName: 'Acme Trading Ltd',
+        status: 'active',
         metrics: snapshot,
         control: {
           merchantId: MID,
@@ -521,6 +522,9 @@ describe('merchant drill-down', () => {
         },
         halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
         pendingApprovals: [],
+        pendingLimitRequests: [],
+        recentAudit: [],
+        auditTruncated: false,
         operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
       },
     });
@@ -529,6 +533,50 @@ describe('merchant drill-down', () => {
     expect(out).not.toContain('Stale Name');
     expect(out).toContain('Legal name');
     expect(out).toContain('Acme Trading Ltd');
+  });
+
+  it('shows caps unreadable for a pending ask whose caps are not a cap, and still shows the merchant', async () => {
+    services({
+      ...base,
+      'founderAdmin.merchants.list': listRow('Stale Name'),
+      'founderAdmin.merchants.drilldown': {
+        merchantId: MID,
+        displayName: 'Acme Shop',
+        legalName: 'Acme Trading Ltd',
+        status: 'active',
+        metrics: snapshot,
+        control: {
+          merchantId: MID,
+          tierId: null,
+          archetypeId: null,
+          caps: null,
+          pricing: null,
+          reserve: null,
+          version: '1',
+          updatedAt: null,
+        },
+        halts: { readable: true, autoTrip: { enabled: false, consecutiveFailures: null }, states: [] },
+        pendingApprovals: [],
+        pendingLimitRequests: [
+          {
+            requestId: '33333333-3333-4333-8333-333333333333',
+            merchantId: MID,
+            caps: { raw: [{ kind: 'not-a-cap', marker: 'raw-cap-marker' }], capsReadable: false },
+            reason: 'stored ask',
+            status: 'pending',
+            requestedBy: USER,
+            createdAt: '2026-10-16T00:00:00.000Z',
+          },
+        ],
+        recentAudit: [],
+        auditTruncated: false,
+        operator: { kybStatus: 'approved', openFraudReviews: 0, parentMerchantId: null },
+      },
+    });
+    const out = html(await page());
+    expect(out).toContain('caps unreadable');
+    expect(out).toContain('Acme Trading Ltd');
+    expect(out).not.toContain('raw-cap-marker');
   });
 
   it('payments and settlements tabs summarise from the same snapshot', async () => {

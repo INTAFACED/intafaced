@@ -16,6 +16,7 @@ describe('guard seams: defaults', () => {
     await expect(
       NOOP_GUARDS.beforeConversion({
         sql,
+        tx: sql,
         merchantId: 'm',
         settlementId: 's',
         fromAsset: 'USD',

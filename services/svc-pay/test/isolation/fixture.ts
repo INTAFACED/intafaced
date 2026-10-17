@@ -13,7 +13,7 @@
  * Later workstreams (W1 control room, W3/W4, W6) add their procedures
  * to the TABLES in `procedures.ts`. They never touch this file's seeding.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,12 +44,17 @@ import { CardSandboxAdapter } from '../../src/rails/card-sandbox.js';
 import { BankPayoutAbsentAdapter } from '../../src/rails/bank-payout.js';
 import { RailRegistry } from '../../src/rails/registry.js';
 import { registerPublicPayRest } from '../../src/public-rest.js';
+import { teamReadFromSql } from '../../src/merchant-team-read.js';
 import { createPayRouter } from '../../src/router.js';
 import { createSubMerchantRouter } from '../../src/submerchant-router.js';
 import { SubMerchantService } from '../../src/submerchants.js';
 import { unwiredApprovalConsumer } from '../../src/action-approval-consume.js';
 import { loadTreasuryLimits } from '../../src/treasury/config.js';
-import { UNWIRED_CONVERSION_INVENTORY } from '../../src/treasury/exposure.js';
+import { ConversionService } from '../../src/conversion/service.js';
+import { unconfiguredConversionVenue } from '../../src/conversion/venue.js';
+import { createConversionInventory } from '../../src/conversion/inventory.js';
+import { createRegistryReader } from '../../src/registries/read-api.js';
+import { buildPayGuards } from '../../src/seams/registry.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
 import { seedControl, type ControlSeed } from './control-seed.js';
 
@@ -98,6 +103,10 @@ export interface Entity {
   readonly inviteId: string;
   /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
   readonly approvalId: string;
+  /** Draft standalone invoice for `paymentId`'s amount and asset. */
+  readonly invoiceId: string;
+  /** Evidence bytes stored for `disputeId`. */
+  readonly evidenceId: string;
 }
 
 export type Entitlement = 'enabled' | 'revoked' | 'unconfigured' | 'not_operator';
@@ -226,11 +235,21 @@ function composeRouter(parts: {
   sql: TestDatabase['sql'];
   founderAuthority: FounderAuthority;
   metrics: MetricsRuntime;
+  conversion: ConversionService;
+  ledger: MemoryLedger;
 }) {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
   return mergeRouters(
-    createPayRouter(parts.pay, parts.rails, parts.userMoney, parts.subMerchants, parts.destinations, actionApprovals),
+    createPayRouter(
+      parts.pay,
+      parts.rails,
+      parts.userMoney,
+      parts.subMerchants,
+      parts.destinations,
+      actionApprovals,
+      teamReadFromSql(parts.sql),
+    ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
     createSubMerchantRouter(parts.subMerchants, parts.pay),
@@ -240,12 +259,18 @@ function composeRouter(parts: {
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
-      // EMPTY environment, as in an unconfigured deployment (no defaults); the conversion reader is the unwired one.
-      payHalts: { store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})), merchants: parts.pay },
-      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: UNWIRED_CONVERSION_INVENTORY },
+      // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
+      payHalts: {
+        store: new PayHaltStore(parts.sql, loadHaltAutoTripConfig({})),
+        merchants: parts.pay,
+        team: teamReadFromSql(parts.sql),
+      },
+      treasury: { sql: parts.sql, limits: loadTreasuryLimits({}), inventory: createConversionInventory(parts.sql, parts.ledger) },
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
+      conversion: parts.conversion,
     }),
   );
 }
@@ -293,10 +318,37 @@ export async function createWorld(): Promise<World> {
     fetcher: identity.fetcher,
   });
   const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
-  const appRouter = composeRouter({ pay, rails, userMoney, subMerchants, destinations, sql, founderAuthority, metrics });
+  const conversion = new ConversionService({
+    sql,
+    ledger,
+    guards: buildPayGuards({ sql, ledger }),
+    venue: unconfiguredConversionVenue(),
+    registries: createRegistryReader(sql),
+    slippageBps: null,
+    placingMaxAgeMs: null,
+  });
+  const appRouter = composeRouter({
+    pay,
+    rails,
+    userMoney,
+    subMerchants,
+    destinations,
+    sql,
+    founderAuthority,
+    metrics,
+    conversion,
+    ledger,
+  });
 
   const rest = Fastify();
-  await registerPublicPayRest(rest, { edgeSecret: EDGE_SECRET, serviceName: 'svc-pay', pay, webhooks, trees: subMerchants });
+  await registerPublicPayRest(rest, {
+    edgeSecret: EDGE_SECRET,
+    serviceName: 'svc-pay',
+    pay,
+    webhooks,
+    trees: subMerchants,
+    teamReads: teamReadFromSql(sql),
+  });
   await rest.ready();
 
   // ── seed ──
@@ -330,6 +382,20 @@ export async function createWorld(): Promise<World> {
     // (export, invitations), so seeding starts no background work.
     const disputeId = `dp-${tag}-${randomUUID()}`;
     defaultDisputeCaseStore.open({ disputeId, paymentId: first.id, merchantId, amount: '100', assetId: 'USDT', reasonCode: '4853' });
+    const evidenceBytes = Buffer.from('%PDF');
+    const evidenceSha = createHash('sha256').update(evidenceBytes).digest('hex');
+    const evidenceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_dispute_evidence (merchant_id, dispute_id, kind, file_name, content_type, size_bytes, sha256, added_by)
+      VALUES (${merchantId}, ${disputeId}, 'receipt', 'receipt.pdf', 'application/pdf', ${evidenceBytes.length}, ${evidenceSha}, ${userId})
+      RETURNING id`;
+    const evidenceId = evidenceRows[0]!.id;
+    await sql`
+      INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
+      VALUES (${evidenceId}, ${merchantId}, ${evidenceBytes})`;
+    const invoiceRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
+      VALUES (${merchantId}, 'draft', 'USDT', 100, ${customerRef}, 'isolation invoice', ${userId})
+      RETURNING id`;
     const exportRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
       VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
@@ -357,6 +423,8 @@ export async function createWorld(): Promise<World> {
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
       approvalId: '', // set by seedControl below, once every merchant has a tier
+      invoiceId: invoiceRows[0]!.id,
+      evidenceId,
     };
   }
 
@@ -455,6 +523,8 @@ export async function createWorld(): Promise<World> {
         x.memberId,
         x.inviteId,
         x.approvalId,
+        x.invoiceId,
+        x.evidenceId,
       ];
     },
     async stop() {
@@ -563,11 +633,17 @@ export async function snapshotMerchant(w: World, merchantId: string): Promise<st
     notifications: await q('merchant_notifications', 'merchant_id'),
     exportJobs: await q('merchant_export_jobs', 'merchant_id'),
     disputeEvidence: await q('merchant_dispute_evidence', 'merchant_id'),
+    disputeEvidenceContent: await q('merchant_dispute_evidence_content', 'merchant_id'),
+    disputeDeadlines: await q('dispute_response_deadlines', 'merchant_id'),
     disputeResponses: await q('merchant_dispute_responses', 'merchant_id'),
+    invoices: await q('merchant_invoices', 'merchant_id'),
+    invoiceActions: await q('merchant_invoice_actions', 'merchant_id'),
+    disputeCasesPg: await q('dispute_cases', 'merchant_id'),
     // W1
     controlProfile: await q('control_merchant_profiles', 'merchant_id'),
     controlApprovals: await q('control_payout_approvals', 'merchant_id'),
     controlAudit: await q('control_audit', 'merchant_id'),
+    limitRequests: await q('control_limit_requests', 'merchant_id'),
     disputeCases: defaultDisputeCaseStore.listForMerchant(merchantId),
   });
 }

@@ -563,3 +563,117 @@ test('subscription review fixes: uncertain pause checks recorded status and rele
   expect(await page.evaluate(() => window.__fixtureGuard.status(`TEST:subscription:${'66666666-6666-4666-8666-666666666666'}`))).toBeNull();
   expect(await page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
 });
+
+test('subscription recovery: reload locks the stored path and conflict clears the journal', async ({ page }) => {
+  async function mount() {
+    await page.evaluate(
+      async ({ mandate, D }) => {
+        const React = (await import('/node_modules/.vite/deps/react.js')).default;
+        const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
+        const { CreateSubscriptionView } = await import('/src/features/pay/portal/Subscriptions.tsx');
+        const { createApiClient } = await import('/src/shared/api.ts');
+        const { createBusinessPayApi, createPayMutationGuard } = await import('/src/features/pay/pay-api.ts');
+        await import('/src/features/pay/pay.css');
+        const ready = (data) => ({ status: 'ready', data });
+        const guard = createPayMutationGuard(localStorage);
+        window.__fixtureGuard = guard;
+        window.__fixtureCalls = [];
+        const api = createApiClient({
+          fetch: async (url, options) => {
+            if (String(url).includes('merchant.me'))
+              return new Response(
+                JSON.stringify({
+                  result: {
+                    data: {
+                      id: mandate.merchantId,
+                      userId: '22222222-2222-4222-8222-222222222222',
+                      mode: 'gateway',
+                      status: 'active',
+                      kybStatus: 'approved',
+                      kybRef: 'TEST-approved',
+                      feeBps: null,
+                    },
+                  },
+                }),
+              );
+            if (!String(url).includes('subscription.create')) throw new Error('Unexpected TEST request');
+            window.__fixtureCalls.push(JSON.parse(options.body));
+            if (!localStorage.getItem('TEST-response-lost')) {
+              localStorage.setItem('TEST-response-lost', 'yes');
+              throw new Error('TEST lost response');
+            }
+            return new Response(
+              JSON.stringify({
+                error: {
+                  message: 'Idempotency-Key was already used with a different request body',
+                  data: { code: 'pay.idempotency_conflict' },
+                },
+              }),
+              { status: 409 },
+            );
+          },
+        });
+        const pay = createBusinessPayApi(
+          api,
+          '22222222-2222-4222-8222-222222222222',
+          {
+            verified: true,
+            companyId: 'TEST-company',
+            companyName: 'TEST company',
+            merchantId: mandate.merchantId,
+            userId: '22222222-2222-4222-8222-222222222222',
+            scopes: ['pay:read', 'pay:write'],
+          },
+          guard,
+        );
+        document.getElementById('root').style.display = 'none';
+        const host = document.createElement('div');
+        host.className = 'if-app if-business';
+        document.body.append(host);
+        createRoot(host).render(
+          React.createElement(CreateSubscriptionView, {
+            mandates: ready([mandate]),
+            posture: ready({
+              paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'invoice-and-watch' }],
+              preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'none' },
+              card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+            }),
+            pay,
+            reload: () => {},
+          }),
+        );
+      },
+      { mandate, D },
+    );
+  }
+  await page.goto('/login');
+  await mount();
+  await page.getByLabel('Active customer mandate *').selectOption(D);
+  await page.getByLabel('Supported charge path *').selectOption('crypto_invoice');
+  await page.getByRole('button', { name: 'Create subscription', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm create subscription', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__fixtureCalls.length)).toBe(1);
+  await expect(page.getByRole('dialog')).toContainText('Outcome not confirmed');
+  const firstBody = await page.evaluate(() => window.__fixtureCalls[0]);
+  await page.reload();
+  await mount();
+  const path = page.getByLabel('Supported charge path *');
+  await expect(path).toHaveValue('crypto_invoice');
+  await expect(path).toBeDisabled();
+  if (shots) await page.screenshot({ path: `${shots}/P19-recovery-reloaded-TEST.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Check original action', exact: true }).click();
+  await expect(
+    page.getByText('A subscription request for this mandate is already recorded. Open Subscriptions to check it.').first(),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Subscriptions', exact: true })).toHaveAttribute('href', `/pay/subscriptions?mandateId=${D}`);
+  expect(await page.evaluate(() => window.__fixtureCalls[0])).toEqual(firstBody);
+  expect(
+    await page.evaluate((D) => window.__fixtureGuard.status(`22222222-2222-4222-8222-222222222222:subscription-create:${D}`), D),
+  ).toBeNull();
+  expect(
+    await page.evaluate((D) => localStorage.getItem(`pay.unresolved:22222222-2222-4222-8222-222222222222:subscription-create:${D}`), D),
+  ).toBeNull();
+  await expect(page.getByRole('button', { name: 'Create subscription', exact: true })).toBeEnabled();
+  await expect(page.locator('body')).not.toContainText('Idempotency-Key was already used');
+  if (shots) await page.screenshot({ path: `${shots}/P19-recovery-conflict-TEST.png`, fullPage: true });
+});

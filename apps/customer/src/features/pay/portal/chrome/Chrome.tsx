@@ -18,7 +18,7 @@ import { createPortalApi } from '../api';
 import { groups } from '../home-layout/Navigation';
 import { layoutCopy } from '../home-layout/copy';
 import { currentHref } from './model';
-import './frames.css';
+import './chrome.css';
 
 /** What the business pill says, from the verification status the account already reports. */
 function useBusinessStatus(): { kind: StatusKind; label: string } {

@@ -46,12 +46,20 @@ export const FOUNDER_EXTRA = [
 /** Prefixes whose procedures must be founder-guarded (mirror of FOUNDER_ONLY_PREFIXES, restated so a change there is noticed). */
 export const FOUNDER_PREFIXES = [
   'founderAdmin.',
-  'founderAdmin.approvals.destination',
   'payHalts.set',
   'payHalts.history',
   'payHalts.operatorStatus',
   'payHalts.pendingClears',
+  'b2bRamp.founderStatus',
 ] as const;
+
+/**
+ * Live-founder verdicts that are past the guard. While pay.b2b_ramp is off,
+ * founderStatus refuses with this cause; that is not an authority refusal.
+ */
+export const FOUNDER_FLAG_OFF: Readonly<Record<string, string>> = {
+  'b2bRamp.founderStatus': 'pay.b2b_ramp_off',
+};
 
 /** A merchant id nobody owns: the control-write targets it, so even a broken guard mutates nothing real. */
 const NOBODY = ghost();
@@ -111,7 +119,7 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   // Takes no input (`{}` is what the sweep sends by default); listed so the entry is explicit.
   'payHalts.operatorStatus': () => undefined,
   'founderAdmin.merchants.list': () => ({ limit: 10 }),
-  'founderAdmin.merchants.drilldown': () => ({ merchantId: NOBODY, window }),
+  'founderAdmin.merchants.drilldown': (w) => ({ merchantId: w.e.A.merchantId, window }),
   'founderAdmin.metrics.global': () => ({ window }),
   // A real merchant: founder authority replaces ownership, so the founder gets A's figures.
   'founderAdmin.metrics.merchant': (w) => ({ merchantId: w.e.A.merchantId, window }),
@@ -175,7 +183,48 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
     expectedPayloadHash: w.control.founderApprovalHash,
     reason: 'isolation drill',
   }),
+  'founderAdmin.control.limitRequests.list': () => ({ limit: 10 }),
+  'founderAdmin.control.limitRequests.close': (w) => ({
+    requestId: w.control.pendingLimitRequestId,
+    reason: 'isolation drill close',
+  }),
   'founderAdmin.treasury.exposure': () => ({}),
+  'founderAdmin.conversion.resolve.propose': () => ({
+    requestId: randomUUID(),
+    conversionId: ghost(),
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.resolve.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.holds.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    settlement: 'reviewed outside the book',
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
+  'founderAdmin.conversion.lateFill.sweep': () => ({}),
+  'founderAdmin.conversion.lateFill.book.propose': () => ({
+    requestId: randomUUID(),
+    auditId: ghost(),
+    reason: 'isolation drill',
+  }),
+  'founderAdmin.conversion.lateFill.book.confirm': () => ({
+    requestId: randomUUID(),
+    decision: 'reject' as const,
+    reason: 'isolation drill',
+    expectedChangeHash: hash,
+  }),
   // W15 operator notes: A is a real merchant, and the seeded note is live exactly until the positive control retracts it.
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
   'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),
@@ -205,6 +254,8 @@ export interface ProbeIds {
   inviteId: string;
   /** W1: a pending payout approval (the owner of that merchant is its maker). */
   approvalId: string;
+  invoiceId: string;
+  evidenceId: string;
 }
 
 export const idsOfEntity = (e: Entity): ProbeIds => ({
@@ -220,6 +271,8 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   memberId: e.memberId,
   inviteId: e.inviteId,
   approvalId: e.approvalId,
+  invoiceId: e.invoiceId,
+  evidenceId: e.evidenceId,
 });
 export const ghostIds = (): ProbeIds => ({
   merchantId: ghost(),
@@ -234,6 +287,8 @@ export const ghostIds = (): ProbeIds => ({
   memberId: ghost(),
   inviteId: ghost(),
   approvalId: ghost(),
+  invoiceId: ghost(),
+  evidenceId: ghost(),
 });
 
 export interface MerchantProc {
@@ -346,6 +401,29 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, assetCode: 'USDT', amount: '10' }),
   },
   { path: 'merchantControl.approvals.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'merchantControl.tiers.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchantControl.pricing.history', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 20 }) },
+  { path: 'merchantControl.limits.open', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  {
+    path: 'merchantControl.limits.requestIncrease',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({
+      merchantId: i.merchantId,
+      requestId: randomUUID(),
+      caps: [{ kind: 'per_payment', assetCode: 'USDT', limit: '10' }],
+      reason: 'isolation drill',
+    }),
+  },
+  {
+    path: 'merchantControl.limits.withdraw',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.limit_request_not_found',
+    input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
+  },
   // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {
     path: 'merchantControl.approvals.request',
@@ -381,14 +459,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   },
   {
     path: 'conversion.quote',
-    scope: 'pay:read',
+    scope: 'pay:write',
     own: 'service',
-    stub: true,
     input: (i) => ({ merchantId: i.merchantId, settlementId: i.settlementId, fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' }),
   },
-  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', stub: true, input: () => ({ requestId: ghost(), quoteId: ghost() }) },
-  { path: 'conversion.get', scope: 'pay:read', own: 'service', stub: true, input: () => ({ conversionId: ghost() }) },
-  { path: 'conversion.list', scope: 'pay:read', own: 'ok', stub: true, input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
+  { path: 'conversion.execute', scope: 'pay:payout', own: 'service', input: () => ({ requestId: ghost(), quoteId: ghost() }) },
+  { path: 'conversion.get', scope: 'pay:read', own: 'service', input: () => ({ conversionId: ghost() }) },
+  { path: 'conversion.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 10 }) },
   // W15 merchantOps.*: every procedure that takes a resource id. (The caller's merchant comes from the principal,
   // never the body, so there is no `mixed` case: the id is the only thing a caller can aim at someone else.)
   // Order matters for the positive controls: an action that consumes the row (remove, decline, respond) comes after its siblings.
@@ -397,6 +474,58 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     scope: 'pay:read',
     own: 'ok',
     input: (i) => ({ disputeId: i.disputeId }),
+  },
+  {
+    path: 'merchantOps.disputes.getEvidence',
+    scope: 'pay:read',
+    own: 'ok',
+    // Evidence bytes are an interactive respond action. An API key is refused even for the owner.
+    sessionOnly: true,
+    input: (i) => ({ evidenceId: i.evidenceId }),
+  },
+  {
+    path: 'merchantOps.disputes.uploadEvidence',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.dispute_evidence_upload_off',
+    input: (i) => ({
+      disputeId: i.disputeId,
+      kind: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      contentBase64: Buffer.from('%PDF').toString('base64'),
+    }),
+  },
+  {
+    path: 'merchantOps.invoices.get',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.send',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.markPaidByPayment',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId, paymentId: i.paymentId }),
+  },
+  {
+    path: 'merchantOps.invoices.void',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.invoice_paid',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
+  },
+  {
+    path: 'merchantOps.invoices.reissueLink',
+    scope: 'pay:write',
+    own: 'service',
+    input: (i) => ({ requestId: ghost(), invoiceId: i.invoiceId }),
   },
   {
     path: 'merchantOps.disputes.addEvidence',
@@ -449,6 +578,34 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ memberId: i.inviteId }),
   },
   { path: 'merchantOps.team.declineInvite', scope: 'pay:write', own: 'ok', sessionOnly: true, input: (i) => ({ memberId: i.inviteId }) },
+  // W10: while pay.b2b_ramp is off, the owner and a stranger get the same refusal. The flag check runs before any merchant lookup.
+  {
+    path: 'b2bRamp.status',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ merchantId: i.merchantId }),
+  },
+  {
+    path: 'b2bRamp.credit',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({
+      merchantId: i.merchantId,
+      bankLineId: 'bank-line-1',
+      amount: '10.00',
+      asset: 'USD',
+      clientSettledAmount: '999999.00',
+    }),
+  },
+  {
+    path: 'b2bRamp.get',
+    scope: 'pay:read',
+    own: 'service',
+    ownCause: 'pay.b2b_ramp_off',
+    input: (i) => ({ creditId: i.paymentId }),
+  },
 ];
 
 export const keyCanCall = (p: MerchantProc): boolean => !p.sessionOnly && MERCHANT_KEY_SCOPES.includes(p.scope);
@@ -466,19 +623,38 @@ export interface ListProc {
 }
 
 const arr = (v: unknown) => v as Array<Record<string, unknown>>;
+export function pageRows(v: unknown): Array<Record<string, unknown>> {
+  if (
+    v !== null &&
+    typeof v === 'object' &&
+    'items' in v &&
+    Array.isArray((v as { items: unknown }).items) &&
+    'nextCursor' in v &&
+    ((v as { nextCursor: unknown }).nextCursor === null || typeof (v as { nextCursor: unknown }).nextCursor === 'string')
+  ) {
+    return (v as { items: Array<Record<string, unknown>> }).items;
+  }
+  throw new Error('list page is not { items, nextCursor }');
+}
 
 export const LIST_PROCS: ListProc[] = [
   {
     name: 'trpc payment.list',
     call: { via: 'trpc', path: 'payment.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {
     name: 'trpc settlement.list',
     call: { via: 'trpc', path: 'settlement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.settlementId],
+  },
+  {
+    name: 'trpc merchantOps.invoices.list',
+    call: { via: 'trpc', path: 'merchantOps.invoices.list', input: () => ({ limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.invoiceId],
   },
   {
     name: 'trpc merchant.listLinks',
@@ -489,7 +665,7 @@ export const LIST_PROCS: ListProc[] = [
   {
     name: 'rest GET /v1/payments',
     call: { via: 'rest', req: (e) => ({ method: 'GET', url: `/v1/payments?merchantId=${e.merchantId}&limit=200` }) },
-    rows: arr,
+    rows: pageRows,
     expectedIds: (e) => [e.paymentId, e.paymentId2],
   },
   {

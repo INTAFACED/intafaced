@@ -5,8 +5,7 @@ import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
-  bankActionPayloadHash,
-  readApprovalIds,
+  consumeBankOpsApproval,
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
@@ -642,22 +641,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     targetId: string,
     fields: Record<string, string>,
   ): Promise<string> {
-    const ids = readApprovalIds(input);
-    const consumed = await approvals.consume({
-      approvalId: ids.approvalId,
-      operationId: ids.operationId,
-      payloadHash: bankActionPayloadHash(targetId, fields),
-      targetService: 'svc-bank',
-      targetId,
-      expectedVersion: '1',
-    });
-    if (!consumed.approverId) {
-      throw new ActionApprovalConsumeError(
-        'consumed approval has no approver; a typed-in name is not approval',
-        'action_approval.consume_failed',
-      );
-    }
-    return consumed.approverId;
+    return consumeBankOpsApproval(approvals, input, targetId, fields);
   }
 
   /** HTTP job twin: HMAC as svc-bank. Session admin:treasury is 401 unsigned. */

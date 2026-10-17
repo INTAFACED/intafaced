@@ -139,13 +139,17 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
 
     // ---- payments, settlements, payouts (W3b). The list reads take a page size and a status, nothing more; the browser
     // narrows further (search, dates, asset) over what it has loaded and says so on the page.
-    payments: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
-      query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.paymentSchema), signal),
+    payments: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
+      const page = await query('payment.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.paymentSchema), signal);
+      return page.ok ? { ok: true as const, data: page.data.items } : page;
+    },
     payment: (paymentId: string, signal?: AbortSignal) => query('payment.get', { paymentId }, p.paymentSchema, signal),
     paymentHistory: (paymentId: string, signal?: AbortSignal) =>
       query('payment.history', { paymentId, limit: 200 }, z.array(p.paymentEventSchema), signal),
-    settlements: (merchantId: string, status: string, limit: number, signal?: AbortSignal) =>
-      query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, z.array(p.settlementSchema), signal),
+    settlements: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
+      const page = await query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.settlementSchema), signal);
+      return page.ok ? { ok: true as const, data: page.data.items } : page;
+    },
     settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
 
     control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),

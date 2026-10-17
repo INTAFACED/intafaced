@@ -7,13 +7,23 @@ import { parseOwnerIntegerEnv } from '../fee-bps-env.js';
  * on its own. Setting a count is a business decision the owner makes.
  */
 export interface PayHaltAutoTripConfig {
-  /** Consecutive failures that set the halt, or null when auto-trip is disabled. */
+  /** Consecutive failures that set one merchant or user halt, or null when that counter is disarmed. */
   readonly failures: number | null;
+  /**
+   * Consecutive rail-health failures across every merchant on one rail, or null
+   * when that counter is disarmed. Unset does not copy `failures`.
+   */
+  readonly railFailures: number | null;
 }
 
 export const PAY_HALT_AUTOTRIP_ENV = 'PAY_HALT_AUTOTRIP_FAILURES';
+export const PAY_HALT_AUTOTRIP_RAIL_ENV = 'PAY_HALT_AUTOTRIP_RAIL_FAILURES';
 
 export function loadHaltAutoTripConfig(env: Record<string, string | undefined>): PayHaltAutoTripConfig {
   const parsed = parseOwnerIntegerEnv(env[PAY_HALT_AUTOTRIP_ENV]);
-  return { failures: parsed !== null && parsed >= 1 ? parsed : null };
+  const rail = parseOwnerIntegerEnv(env[PAY_HALT_AUTOTRIP_RAIL_ENV]);
+  return {
+    failures: parsed !== null && parsed >= 1 ? parsed : null,
+    railFailures: rail !== null && rail >= 1 ? rail : null,
+  };
 }

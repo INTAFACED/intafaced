@@ -47,6 +47,18 @@ it('keeps decimal precision, folds the two events into one refund, and never mix
   expect(out).toContain('2 refunds shown for this payment.');
   expect(out).toContain('This is not an account-wide list');
 });
+it('skips a team history row that has no payload when building one refund timeline', () => {
+  const team: PaymentEvent = {
+    id: 'TEAM',
+    event: 'refunded',
+    ts: '2026-10-16T00:01:30Z',
+    amount: '1',
+    assetId: 'USDT',
+    failure: null,
+  };
+  const out = render([event('refunded', 'TEST-r1', '1'), team], 'TEST-r1');
+  expect(out.match(/Refund confirmed/g)).toHaveLength(1);
+});
 it('shows only one exact refund timeline and discloses missing actor and ledger evidence', () => {
   const out = render([event('refunded', 'TEST-r1', '1'), event('refund.reversed', 'TEST-r2', '2')], 'TEST-r1');
   expect(out).toContain('Refund confirmed');

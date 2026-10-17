@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { StatusTag } from '@intafaced/ui';
-import './frames.css';
+import './chrome.css';
 
 /**
  * The one treatment for a feature that has not launched: a calm card with a short plain line on what it will do.

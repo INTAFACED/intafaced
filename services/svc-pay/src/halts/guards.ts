@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
-import { findBlockingHalt, findBlockingHaltForTargets, type PayHaltStore } from './store.js';
+import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
+import { findBlockingHalt, findBlockingHaltForTargets, railHaltKey, userHaltKey } from './store.js';
 import type { PayHaltScope } from './types.js';
 
 /**
@@ -8,15 +9,17 @@ import type { PayHaltScope } from './types.js';
  *
  * WHICH SEAM CHECKS WHICH SCOPE
  *   beforePaymentAdmit         intake       (create, authorize and capture alike)
- *   beforePayoutAdmit          payout       (+ auto-trip from the payout book)
- *   beforePayoutExecute        payout       (+ auto-trip from the payout book)
+ *   beforePayoutAdmit          payout
+ *   beforePayoutExecute        payout
  *   beforeSettlementRun        settlement   (prepare and post)
  *   beforeConversion           conversion
- *   beforeUserMoneyWithdrawal  payout       (global switch AND the switch of every merchant the
- *                              user owns: settlement posts a merchant's net into the
- *                              owner's user-money account, and `withdrawal.create`
- *                              debits that same account, so a merchant payout halt
- *                              must stop that exit too)
+ *   beforeUserMoneyWithdrawal  payout       (the global switch, always; the switch of
+ *                              every merchant the user owns that still has a legacy
+ *                              settlement; that user's own withdrawal switch; and the
+ *                              switch of the rail being asked. A legacy window's post
+ *                              debited userAvailable, and withdrawal.create debits the
+ *                              same account. A merchant whose settled net is only on
+ *                              proceeds is not this exit.)
  *   beforeRefund               NONE, by decision: a refund returns a payer's own
  *                              money. A halt that traps funds is not a safety
  *                              control (the edge switch lets `cancel` through for
@@ -33,7 +36,9 @@ import type { PayHaltScope } from './types.js';
  *       halt also refuses a `recovery`, because finishing it calls the rail and
  *       money would leave. The booked hold is left exactly as it is, so the
  *       operation is PAUSED, not stranded: nothing is released or marked failed,
- *       and the same call completes once the halt clears.
+ *       and the same call completes once the halt clears. The global payout
+ *       switch is that halt for every personal withdrawal. A merchant switch is
+ *       that halt only while the merchant still has a legacy settlement.
  *       A held withdrawal whose rail attempt already has a recorded outcome (accepted
  *       with a receipt, or refused) sends nothing: `UserMoneyService` classifies it a
  *       `replay` (settle or reverse only), so a halt never freezes that bookkeeping.
@@ -50,9 +55,6 @@ const RETRYABLE_PG = new Set(['40001', '40P01']);
 export const GUARD_HALTED = 'pay.guard_halted' as const;
 export const GUARD_HALT_STORE_UNAVAILABLE = 'pay.guard_halt_store_unavailable' as const;
 
-/** How long a refused payout waits for its auto-trip write before refusing anyway. */
-const TRIP_WAIT_MS = 2_000;
-
 /** Bookkeeping work: only fresh work is stopped. */
 const passes = (replay: GuardReplay): boolean => replay.kind !== 'fresh';
 /** Work that calls a rail: only a replay (which does nothing) is let through a halt. */
@@ -67,12 +69,12 @@ export async function assertNotHalted(
   scope: PayHaltScope,
   merchantId: string | undefined,
   replay: GuardReplay,
-  opts: { railSend?: boolean } = {},
+  opts: { railSend?: boolean; railId?: string } = {},
 ): Promise<void> {
   if (opts.railSend ? passesRailSend(replay) : passes(replay)) return;
   let blocking;
   try {
-    blocking = await findBlockingHalt(conn, scope, merchantId);
+    blocking = await findBlockingHalt(conn, scope, merchantId, opts.railId);
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -81,20 +83,33 @@ export async function assertNotHalted(
 }
 
 /**
- * A user's money can leave through a payout switch set for any merchant they own
- * (settlement credits `userAvailable(merchant.userId)`). Refuse when the payout
- * scope is halted globally or for one of those merchants. Fails closed.
+ * Personal withdrawals. The global payout switch always counts. A merchant
+ * switch counts only while that merchant still has legacy settled net on
+ * `userAvailable`. The user's own switch and the rail being asked always
+ * count. Replay settles or reverses a receipt already on file and sends
+ * nothing. A fresh withdrawal and a recovery both call the rail, so a
+ * matching halt pauses them. Fails closed.
  */
-async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: GuardReplay): Promise<void> {
+async function assertUserMoneyNotHalted(
+  conn: Sql,
+  userId: string,
+  railId: string,
+  replay: GuardReplay,
+  ledger: SettlementBookReader | undefined,
+): Promise<void> {
   if (passesRailSend(replay)) return;
+  let targets: string[];
+  try {
+    const legacy = await merchantIdsWithLegacySettlement(conn, ledger, userId);
+    targets = [...legacy, userHaltKey(userId), railHaltKey(railId)];
+  } catch (error) {
+    if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
+    throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
+  }
   let blocking;
   try {
-    const owned = await conn<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${userId}`;
-    blocking = await findBlockingHaltForTargets(
-      conn,
-      'payout',
-      owned.map((m) => m.id.toLowerCase()),
-    );
+    // findBlockingHaltForTargets always includes 'global'.
+    blocking = await findBlockingHaltForTargets(conn, 'payout', targets);
   } catch (error) {
     if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
     throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
@@ -102,61 +117,22 @@ async function assertUserMoneyNotHalted(conn: Sql, userId: string, replay: Guard
   if (blocking) throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
 }
 
-/**
- * Latest `failures` terminal rail results for `railId` since the payout switch last changed:
- * all refusals means the rail has failed that many times in a row.
- */
-async function railFailureStreakReached(conn: Sql, store: PayHaltStore, railId: string, failures: number): Promise<boolean> {
-  const since = await store.lastChangeAt(conn, 'payout', { level: 'global' });
-  const rows = await conn<Array<{ kind: string }>>`
-    SELECT o.kind
-      FROM pay.payout_outcomes o
-      JOIN pay.payout_admissions a ON a.id = o.admission_id
-     WHERE a.rail_id = ${railId}
-       AND o.kind IN ('rail_accepted', 'rail_refused')
-       AND (${since}::timestamptz IS NULL OR o.occurred_at > ${since}::timestamptz)
-     ORDER BY o.id DESC
-     LIMIT ${failures}
-  `;
-  return rows.length === failures && rows.every((r) => r.kind === 'rail_refused');
-}
-
-export function createHaltGuards(deps: { sql: Sql; store: PayHaltStore }): PartialPayGuards {
-  const failures = deps.store.autoTripPosture().consecutiveFailures;
-
-  /** Auto-trip from the payout book. The halt is written on the POOL, so it outlives the caller's rolled-back transaction. */
-  async function payoutRailGuard(conn: Sql, merchantId: string, railId: string, replay: GuardReplay): Promise<void> {
-    await assertNotHalted(conn, 'payout', merchantId, replay, { railSend: true });
-    if (passes(replay) || failures === null) return;
-    let reached: boolean;
-    try {
-      reached = await railFailureStreakReached(conn, deps.store, railId, failures);
-    } catch (error) {
-      if (RETRYABLE_PG.has((error as { code?: string } | null)?.code ?? '')) throw error;
-      throw new PayGuardRefusal(GUARD_HALT_STORE_UNAVAILABLE, 'unavailable');
-    }
-    if (!reached) return;
-    // The trip needs a SECOND pool connection while the caller still holds its own
-    // (a reserved payout connection, often inside a transaction). In a failure storm
-    // every pool connection can be such a caller, so an unbounded await here could
-    // wait forever for a connection none of them will release. Wait briefly, then
-    // refuse anyway; a trip still queued completes once a connection frees up.
-    const tripping = deps.store
-      .trip('payout', { level: 'global' }, `auto_trip: ${failures} consecutive refusals by rail ${railId}`)
-      .catch(() => false); // The refusal below is what matters; a failed trip write must not let the payout through.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([tripping, new Promise<void>((resolve) => (timer = setTimeout(resolve, TRIP_WAIT_MS)))]);
-    clearTimeout(timer);
-    throw new PayGuardRefusal(GUARD_HALTED, 'unavailable');
-  }
-
+export function createHaltGuards(deps: {
+  sql: Sql;
+  /** Settlement-key reader. Absent: a posted window counts as legacy (fail closed). */
+  ledger?: SettlementBookReader;
+}): PartialPayGuards {
+  // The connection arrives on each call. Auto-trip counts are not computed here:
+  // a rail-health refusal records itself and, at the configured count, writes
+  // the halt these guards then enforce.
   return {
     beforePaymentAdmit: (ctx) => assertNotHalted(ctx.tx, 'intake', ctx.merchantId, ctx.replay),
-    beforePayoutAdmit: (ctx) => payoutRailGuard(ctx.tx, ctx.merchantId, ctx.railId, ctx.replay),
-    beforePayoutExecute: (ctx) => payoutRailGuard(ctx.sql, ctx.merchantId, ctx.railId, ctx.replay),
+    beforePayoutAdmit: (ctx) => assertNotHalted(ctx.tx, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
+    beforePayoutExecute: (ctx) => assertNotHalted(ctx.sql, 'payout', ctx.merchantId, ctx.replay, { railSend: true, railId: ctx.railId }),
     beforeSettlementRun: (ctx) => assertNotHalted(ctx.sql, 'settlement', ctx.merchantId, ctx.replay),
-    beforeConversion: (ctx) => assertNotHalted(ctx.sql, 'conversion', ctx.merchantId, ctx.replay),
-    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.replay),
+    // Conversion runs inside the order-intent transaction. `tx` is that transaction; the pool is not a lock.
+    beforeConversion: (ctx) => assertNotHalted(ctx.tx, 'conversion', ctx.merchantId, ctx.replay),
+    beforeUserMoneyWithdrawal: (ctx) => assertUserMoneyNotHalted(ctx.tx, ctx.userId, ctx.rail, ctx.replay, deps.ledger),
     // beforeRefund: deliberately absent. See the table above.
   };
 }

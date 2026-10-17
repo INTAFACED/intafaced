@@ -361,6 +361,18 @@ export class ApprovalService {
     );
   }
 
+  /** Pending payout approvals for one merchant. Caller has already been authorised (founder drill-down). */
+  async pendingForMerchant(merchantId: string, limit: number): Promise<ApprovalDetail[]> {
+    const at = this.now();
+    const rows = await this.sql<ApprovalRow[]>`
+      SELECT * FROM pay.control_payout_approvals
+       WHERE merchant_id = ${merchantId} AND status = 'pending'
+       ORDER BY seq DESC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => toApprovalView(row, at)).filter((approval) => approval.status === 'pending');
+  }
+
   /** Founders waiting to sign: merchant-side approved, founder step still open. */
   async founderQueue(input: {
     limit: number;
@@ -383,7 +395,8 @@ export class ApprovalService {
   /**
    * The stored destination of one founder-queue approval. Merchant lists stay masked.
    * Every successful read appends `payout.destination_read` on `pay.control_audit`.
-   * An id that is missing or not on the queue is the same not-found, and writes nothing.
+   * An id that is missing, expired, or not on the queue is the same not-found, and writes nothing.
+   * A plain read: this does not lock the row, so a reveal does not wait behind a decision.
    */
   async founderDestination(founderUserId: string, approvalId: string): Promise<FounderApprovalDestination> {
     return transaction(
@@ -395,7 +408,7 @@ export class ApprovalService {
              AND founder_required
              AND status = 'pending'
              AND checker_user_id IS NOT NULL
-           FOR UPDATE
+             AND expires_at > now()
         `;
         const row = rows[0];
         if (!row) throw notFound();

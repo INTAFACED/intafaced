@@ -15,6 +15,13 @@ export async function postDisputeOpening(
     rail: string;
     fromClearing: Amount;
     fromMerchantBalance: Amount;
+    /**
+     * Omitted means proceeds. `user` is the pot of a payment whose own
+     * settlement post debited `userAvailable`. Open, a stored-plan replay,
+     * and any later won or lost post must pass the same value: the key does
+     * not contain it, so a different pot is a different body.
+     */
+    settledPot?: 'proceeds' | 'user';
   },
 ): Promise<{ txId: string }> {
   const tx = await ledger.post(recipes.chargebackOpen(input));

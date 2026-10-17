@@ -6,12 +6,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, type Context } from '@intafaced/contracts';
+import type { ControlService } from '../control/service.js';
 import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
 const NAMESPACES = ['merchantControl', 'merchantMetrics', 'founderAdmin', 'conversion', 'payHalts'] as const;
-/** W15 owns these and tests them in merchant-ops/merchant-ops.test.ts; they are real, not W0 stubs. */
-const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.');
+/** W15 and W10 own these and test them in their own suites; they are real, not W0 stubs. */
+const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.') || path.startsWith('b2bRamp.');
 
 const id = () => randomUUID();
 const merchantId = id();
@@ -72,6 +73,32 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'founderAdmin.approvals.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.approvals.destination': { founder: true, input: { approvalId: id() } },
   'founderAdmin.treasury.exposure': { founder: true, input: {} },
+  'founderAdmin.conversion.resolve.propose': {
+    founder: true,
+    input: { requestId: id(), conversionId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.resolve.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.holds.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), settlement: 'reviewed outside the book', reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
+  'founderAdmin.conversion.lateFill.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.book.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.book.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
 };
 
 const userId = id();
@@ -125,11 +152,15 @@ describe('W0 namespaces are mounted', () => {
       /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
     );
     expect(src).toContain('startMetricsRefresher(metrics.projector');
-    expect(src).toContain('payHalts: { store: new PayHaltStore(sql,');
+    expect(src).toContain('const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);');
+    expect(src).toContain('retryAdoptConfig');
+    expect(src).toContain('haltStore.adoptConfig()');
+    expect(src).toContain('setAutoTripAccountErrorSink');
+    expect(src).toContain('payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
-    expect(src).toContain('const payGuards = buildPayGuards({ sql });');
-    // One registry instance serves both the payment service and the user-money service.
-    expect(src.match(/guards: payGuards,/g)).toHaveLength(2);
+    expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
+    // One registry instance serves the payment service, the user-money service, and conversion.
+    expect(src.match(/guards: payGuards,/g)).toHaveLength(3);
   });
 
   it('merges with an existing router without a path collision', () => {
@@ -183,6 +214,28 @@ describe('payHalts.* without a halt store refuses closed', () => {
 describe('G7: static inventory of founder-only procedures', () => {
   it('no founderAdmin.* (or operator payHalts.*) procedure is outside founder authority', () => {
     expect(findUnguardedFounderProcedures(build(vi.fn()), FOUNDER_ONLY_PREFIXES)).toEqual([]);
+  });
+
+  it('mounts b2bRamp.founderStatus behind founder authority', () => {
+    const r = build(vi.fn());
+    expect(allProcedures(r)).toContain('b2bRamp.founderStatus');
+    expect(findUnguardedFounderProcedures(r, ['b2bRamp.founderStatus'])).toEqual([]);
+  });
+
+  it('founderAdmin.approvals.destination is a mutation, so a reveal is not a cacheable query', () => {
+    const typeOf = (routerValue: unknown) =>
+      (routerValue as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures[
+        'founderAdmin.approvals.destination'
+      ]!._def.type;
+    expect(typeOf(build(vi.fn()))).toBe('mutation');
+    expect(
+      typeOf(
+        createPayNamespaces({
+          founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }),
+          control: {} as ControlService,
+        }),
+      ),
+    ).toBe('mutation');
   });
 
   it('every procedure the manifest marks founder-only is guarded, and founderAdmin.* is all of them', () => {

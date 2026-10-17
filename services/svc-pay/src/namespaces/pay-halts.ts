@@ -15,6 +15,9 @@ import {
 } from '@intafaced/contracts';
 import type { FounderAuthority } from '../founder-authority.js';
 import { PayHaltError, type PayHaltStore } from '../halts/store.js';
+import { PayError } from '../payment-service.js';
+import { allowMerchantRead } from '../merchant-read-access.js';
+import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
 import { founderProcedure, type FounderContext } from './founder-procedure.js';
 
@@ -34,6 +37,8 @@ export interface PayHaltsDeps {
   readonly store: PayHaltStore;
   /** Only `getMerchant` is used, to prove the caller owns the merchant it asks about. */
   readonly merchants: MerchantOwnerLookup;
+  /** Active team members, by role. Absent keeps the owner-only rule. */
+  readonly team?: MerchantTeamRead | null;
 }
 
 class PayHaltsRouterError extends Error {
@@ -49,8 +54,20 @@ function unavailable(): never {
 
 function mapError(error: unknown): never {
   if (error instanceof TRPCError) throw error;
-  if (error instanceof PayHaltError && error.code === 'pay.halt_target_not_found') {
-    throw new TRPCError({ code: 'NOT_FOUND', message: error.code, cause: error });
+  if (error instanceof PayHaltError) {
+    switch (error.code) {
+      case 'pay.halt_target_not_found':
+      case 'pay.halt_target_unknown_rail':
+        throw new TRPCError({ code: 'NOT_FOUND', message: error.code, cause: error });
+      case 'pay.halt_target_unsupported':
+        throw new TRPCError({ code: 'BAD_REQUEST', message: error.code, cause: error });
+      case 'pay.halt_store_unavailable':
+        break;
+      default: {
+        const unreachable: never = error.code;
+        void unreachable;
+      }
+    }
   }
   const cause = new PayHaltsRouterError('pay.halt_store_unavailable');
   throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: cause.code, cause });
@@ -68,8 +85,15 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
           if (!deps) return unavailable();
           if (input.merchantId) {
             try {
-              await assertMerchantOwnership(deps.merchants, ctx.principal?.userId, input.merchantId);
-            } catch {
+              await allowMerchantRead({
+                ownerCheck: () => assertMerchantOwnership(deps.merchants, ctx.principal?.userId, input.merchantId!),
+                team: deps.team,
+                userId: ctx.principal?.userId,
+                merchantId: input.merchantId,
+                permission: 'halts.read',
+              });
+            } catch (err) {
+              if (err instanceof PayError && err.code !== 'pay.merchant_not_found') throw err;
               // Same answer for "not yours" and "does not exist": no existence leak.
               const cause = new PayHaltsRouterError('pay.merchant_forbidden');
               throw new TRPCError({ code: 'FORBIDDEN', message: cause.code, cause });

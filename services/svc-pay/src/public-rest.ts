@@ -6,6 +6,9 @@ import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
+import { allowMerchantRead } from './merchant-read-access.js';
+import { projectPricingSnapshot } from './team-read-projection.js';
+import type { MerchantTeamRead } from './merchant-team-read.js';
 import { areaForSurface, isPayfacPermissionPort, resolveActorMerchantId, type PayfacPermissionPort } from './payfac-permissions.js';
 import { PERMISSION_AREAS, SubMerchantError, type PermissionArea } from './submerchants.js';
 import { type MerchantWebhookService, type WebhookDeliveryStatus } from './merchant-webhooks.js';
@@ -13,7 +16,7 @@ import { PayError, type PayService, type PaymentStatus } from './payment-service
 import { SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
 import { fingerprintRequest, MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
-import { assertSandboxKeyDoesNotLookLive, isSandboxRailId, paymentModeFromRail, resolveMerchantRail } from './sandbox-key-routing.js';
+import { assertSandboxKeyDoesNotLookLive, paymentModeFromRail, resolveMerchantRail } from './sandbox-key-routing.js';
 
 /**
  * `pay.public-api` — the merchant REST surface.
@@ -130,6 +133,8 @@ export interface PublicRestDeps {
    * no `index.ts` change required while #1720 is open.
    */
   trees?: MerchantAreaFence | PayfacPermissionPort | null;
+  /** Active team members may read payments. Absent keeps owner-or-area only. */
+  teamReads?: MerchantTeamRead | null;
 }
 
 /**
@@ -177,6 +182,13 @@ const paymentSchema = {
     capturedAmount: { type: 'string', description: 'Decimal string.' },
     refundedAmount: { type: 'string', description: 'Decimal string.' },
     createdAt: { type: 'string', format: 'date-time' },
+    pricingSnapshot: { type: 'object', nullable: true, additionalProperties: true },
+    failure: {
+      type: 'object',
+      nullable: true,
+      additionalProperties: false,
+      properties: { code: { type: 'string' }, message: { type: 'string' } },
+    },
   },
 } as const;
 
@@ -377,6 +389,17 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
   /** A payment id the caller may not touch is refused exactly like one that does not exist. */
   const assertPaymentAccess = (userId: string | undefined, paymentId: string, merchantId: string, area: PermissionArea) =>
     refuseAsMissing(assertAccess(userId, merchantId, area), () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'));
+  const assertPaymentRead = (userId: string | undefined, paymentId: string, merchantId: string) =>
+    refuseAsMissing(
+      allowMerchantRead({
+        ownerCheck: () => assertAccess(userId, merchantId, areaForSurface('rest.payments.read')),
+        team: deps.teamReads,
+        userId,
+        merchantId,
+        permission: 'payments.read',
+      }),
+      () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'),
+    );
   const edge = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
   const idempotency = deps.idempotency ?? new MemoryRestIdempotencyStore();
 
@@ -414,6 +437,8 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
           '**Sandbox keys** (mode=sandbox / `key_env=sandbox`): createPayment always uses the sandbox rail',
           '(`card-sandbox`). A **live** key that names a sandbox rail is refused (`pay.sandbox_rail_refused`).',
           'Every payment response includes `mode: "sandbox" | "live"` from the rail posture — never silent.',
+          '`GET /payments` returns `{ items, nextCursor }` (ADR 2026-08-07 §2.7, pre-launch amendment 2026-10-16).',
+          '`nextCursor` is null on the last page. A sandbox key is scoped to sandbox rails before the cursor is chosen.',
           'There is no parallel sandbox deployment — same API, rail posture only.',
           '',
           '**Idempotency-Key** is required on every mutating POST. A repeated key with the same body returns',
@@ -583,9 +608,14 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       if (!principal) return reply;
       try {
         const payment = await deps.pay.getPayment(req.params.id);
-        await assertPaymentAccess(principal.userId, req.params.id, payment.merchantId, areaForSurface('rest.payments.read'));
+        const audience = await assertPaymentRead(principal.userId, req.params.id, payment.merchantId);
         assertSandboxKeyDoesNotLookLive(principal.key_env, payment.railAdapter);
-        return reply.send(toPaymentBody(payment));
+        const facts = (await deps.pay.paymentFacts?.(payment.id)) ?? { pricingSnapshot: null, failure: null };
+        return reply.send({
+          ...toPaymentBody(payment),
+          pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
+          failure: facts.failure,
+        });
       } catch (err) {
         return send(reply, err);
       }
@@ -598,6 +628,8 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       schema: {
         tags: ['payments'],
         summary: 'List a merchant’s payments, newest first',
+        description:
+          'Returns `{ items, nextCursor }`. `nextCursor` is null on the last page. Pre-launch this replaced a bare array (ADR 2026-08-07 §2.7 amendment 2026-10-16): there are no external callers yet, and keyset paging needs the cursor. A sandbox key lists sandbox rails before the cursor is chosen, so `nextCursor` never names a live payment.',
         querystring: {
           type: 'object',
           required: ['merchantId'],
@@ -605,25 +637,72 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
             merchantId: { type: 'string', format: 'uuid' },
             status: { type: 'string', enum: [...PAYMENT_STATUSES] },
             limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+            cursor: { type: 'string', minLength: 1, maxLength: 300 },
+            search: { type: 'string', minLength: 1, maxLength: 200 },
+            assetId: { type: 'string', minLength: 1, maxLength: 16 },
+            from: { type: 'string', format: 'date-time' },
+            to: { type: 'string', format: 'date-time' },
           },
         },
-        response: { 200: { type: 'array', items: paymentSchema }, 401: errorSchema, 403: errorSchema, 404: errorSchema },
+        response: {
+          200: {
+            type: 'object',
+            required: ['items', 'nextCursor'],
+            properties: {
+              items: { type: 'array', items: paymentSchema },
+              nextCursor: { type: 'string', nullable: true },
+            },
+          },
+          401: errorSchema,
+          403: errorSchema,
+          404: errorSchema,
+        },
       },
     },
-    async (req: FastifyRequest<{ Querystring: { merchantId: string; status?: PaymentStatus; limit?: number } }>, reply) => {
+    async (
+      req: FastifyRequest<{
+        Querystring: {
+          merchantId: string;
+          status?: PaymentStatus;
+          limit?: number;
+          cursor?: string;
+          search?: string;
+          assetId?: string;
+          from?: string;
+          to?: string;
+        };
+      }>,
+      reply,
+    ) => {
       const principal = principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
-        await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payments.list'));
-        const rows = await deps.pay.listPayments({
+        const audience = await allowMerchantRead({
+          ownerCheck: () => assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payments.list')),
+          team: deps.teamReads,
+          userId: principal.userId,
+          merchantId: req.query.merchantId,
+          permission: 'payments.read',
+        });
+        const page = await deps.pay.listPayments({
           merchantId: req.query.merchantId,
           status: req.query.status,
           limit: req.query.limit,
+          cursor: req.query.cursor,
+          search: req.query.search,
+          assetId: req.query.assetId,
+          from: req.query.from,
+          to: req.query.to,
+          railMode: principal.key_env === 'sandbox' ? 'sandbox' : undefined,
         });
-        // Sandbox keys must not see live rows (Stripe-shaped honesty). Skip, don't
-        // paint them live. Missing rail is skipped rather than invented as live.
-        const visible = principal.key_env === 'sandbox' ? rows.filter((row) => row.railAdapter && isSandboxRailId(row.railAdapter)) : rows;
-        return reply.send(visible.map(toPaymentBody));
+        return reply.send({
+          items: page.items.map((row) => ({
+            ...toPaymentBody(row),
+            pricingSnapshot: projectPricingSnapshot(row.pricingSnapshot, audience),
+            failure: row.failure ?? null,
+          })),
+          nextCursor: page.nextCursor,
+        });
       } catch (err) {
         return send(reply, err);
       }

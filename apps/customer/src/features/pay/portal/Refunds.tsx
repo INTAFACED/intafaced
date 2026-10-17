@@ -203,7 +203,12 @@ export function RefundHistoryView({
                   <Timeline
                     label={t('refundHistory')}
                     items={history
-                      .filter((e) => e.payload.refundId === refundId && ['refund.posted', 'refunded', 'refund.reversed'].includes(e.event))
+                      .filter(
+                        (e) =>
+                          ['refund.posted', 'refunded', 'refund.reversed'].includes(e.event) &&
+                          'payload' in e &&
+                          e.payload.refundId === refundId,
+                      )
                       .map((e) => ({
                         at: e.ts,
                         title: t(
