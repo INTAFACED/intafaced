@@ -77,6 +77,7 @@ function stubDeps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRou
     },
     relayEnabled: () => true,
     ammFactoryAddress: () => ZERO,
+    swapSlippageBps: () => null,
     ...overrides,
   } as unknown as ProtocolRouterDeps;
 }

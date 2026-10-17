@@ -98,6 +98,7 @@ export const appRouter = createProtocolRouter({
   relay,
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
+  swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
 });
 export type AppRouter = typeof appRouter;
 

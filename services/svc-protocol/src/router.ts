@@ -9,9 +9,18 @@ import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, isZeroAddress } from './chain/availability.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
 import { RelayRefusedError, SessionRelay } from './session/relay.js';
-import { createSessionSpec, evaluateSessionCall, hashSessionSpec, sessionSpecInputSchema, SessionScopeError } from './session/spec.js';
+import {
+  createSessionSpec,
+  evaluateSessionCall,
+  hashSessionSpec,
+  readSwapExactInCall,
+  sessionSpecInputSchema,
+  SessionScopeError,
+} from './session/spec.js';
 import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
+import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
+import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import { buildCreatePool, buildMintLiquidity, buildSwapExactIn, quoteExactIn } from './amm/build.js';
 import { computeTokenAddress, DEFAULT_TOKEN_SALT, templateArtifact, TokenAddressError } from './launch/address.js';
 import { buildCreateToken } from './launch/build.js';
@@ -206,6 +215,13 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof AmmMathError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
+  if (err instanceof SwapSlippageError) {
+    const code = err.code === 'protocol.swap_slippage_unset' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
+  if (err instanceof PoolTokenError) {
+    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
   /**
    * A launch parameter the platform will not put its name on, or an address
    * that does not parse. Both are the caller's input, and both carry their own
@@ -230,6 +246,11 @@ export interface ProtocolRouterDeps {
   relayEnabled: () => boolean;
   /** Pool factory address on PROTOCOL_CHAIN_ID (0x0 = not deployed yet). */
   ammFactoryAddress: () => Address;
+  /**
+   * `PROTOCOL_SWAP_SLIPPAGE_BPS`. Null when blank. The swap builder and the
+   * session check refuse — they do not invent a tolerance.
+   */
+  swapSlippageBps: () => number | null;
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -553,18 +574,29 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         }),
       )
       .output(z.object({ allowed: z.boolean(), code: z.string(), reason: z.string(), spentAfterWei: z.string() }))
-      .query(({ input }) => {
+      .query(async ({ input }) => {
         try {
           const now = Math.floor(Date.now() / 1000);
           const spec = createSessionSpec(input.spec, { account: input.account as Address, now });
+          const data = input.data as Hex;
+          const swap = readSwapExactInCall(data);
+          let swapBound: { quoteOut: bigint; slippageBps: number } | undefined;
+          if (swap && swap !== 'truncated') {
+            // Blank config refuses before the quote and before any call is blessed.
+            const slippageBps = requireSwapSlippageBps(deps.swapSlippageBps());
+            const pool = swap.kind === 'router' ? swap.pool : (input.target as Address);
+            const quoted = await freshPoolQuote(chain, pool, swap.tokenIn, swap.amountIn);
+            swapBound = { quoteOut: quoted.amountOut, slippageBps };
+          }
           const decision = evaluateSessionCall({
             spec,
             account: input.account as Address,
             target: input.target as Address,
             value: BigInt(input.value),
-            data: input.data as Hex,
+            data,
             spentWei: BigInt(input.spentWei),
             now,
+            ...(swapBound ? { swapBound } : {}),
           });
           return { ...decision, spentAfterWei: decision.spentAfterWei.toString() };
         } catch (err) {
@@ -799,46 +831,20 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         .query(async ({ input }) => {
           try {
             const pool = input.pool as Address;
-            const [reserves, token0, token1, feeBps] = await Promise.all([
-              chain.poolReserves(pool),
-              chain.poolToken0(pool),
-              chain.poolToken1(pool),
-              chain.poolFeeBps(pool),
-            ]);
-
             /**
-             * `token1` is read purely to make this check possible.
-             *
-             * Deciding orientation with a single `tokenIn === token0` test would
-             * treat every unrecognised token as token1 and return a confident
-             * quote for a pair the pool does not trade. That is a fabricated
-             * price — the exact failure mode this whole surface refuses — so the
-             * mismatch is named instead of defaulted.
+             * `token1` is read so an unrecognised token cannot be treated as
+             * token1. That would be a fabricated price for a pair the pool
+             * does not trade. `freshPoolQuote` names the mismatch.
              */
-            const tokenIn = toChecksum(input.tokenIn);
-            const inIsToken0 = tokenIn === toChecksum(token0);
-            const inIsToken1 = tokenIn === toChecksum(token1);
-            if (!inIsToken0 && !inIsToken1) {
-              throw new TRPCError({
-                code: 'BAD_REQUEST',
-                message:
-                  `amm.token_not_in_pool: ${tokenIn} is not traded by pool ${pool}, which holds ` +
-                  `${toChecksum(token0)} and ${toChecksum(token1)}. Refusing rather than quoting the wrong side.`,
-              });
-            }
-
-            const reserveIn = inIsToken0 ? reserves.reserve0 : reserves.reserve1;
-            const reserveOut = inIsToken0 ? reserves.reserve1 : reserves.reserve0;
-
-            const q = quoteExactIn({ amountIn: BigInt(input.amountIn), reserveIn, reserveOut, feeBps });
+            const quoted = await freshPoolQuote(chain, pool, toChecksum(input.tokenIn), BigInt(input.amountIn));
             return {
-              amountOut: q.amountOut.toString(),
-              priceImpactBps: q.priceImpactBps,
-              reserveIn: reserveIn.toString(),
-              reserveOut: reserveOut.toString(),
-              feeBps,
+              amountOut: quoted.amountOut.toString(),
+              priceImpactBps: quoted.priceImpactBps,
+              reserveIn: quoted.reserveIn.toString(),
+              reserveOut: quoted.reserveOut.toString(),
+              feeBps: quoted.feeBps,
               reservesFromChain: true as const,
-              blockTimestampLast: reserves.blockTimestampLast,
+              blockTimestampLast: quoted.blockTimestampLast,
             };
           } catch (err) {
             throw toTrpcError(err);
@@ -877,15 +883,22 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           }),
         )
         .output(unsignedCallOutput)
-        .query(({ input }) => {
-          const call = buildSwapExactIn(
-            input.pool as Address,
-            input.tokenIn as Address,
-            BigInt(input.amountIn),
-            BigInt(input.minAmountOut),
-            input.to as Address,
-          );
-          return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+        .query(async ({ input }) => {
+          try {
+            // Config first: a blank tolerance refuses before the quote and
+            // before `buildSwapExactIn` encodes anything.
+            const slippageBps = requireSwapSlippageBps(deps.swapSlippageBps());
+            const pool = input.pool as Address;
+            const tokenIn = toChecksum(input.tokenIn);
+            const amountIn = BigInt(input.amountIn);
+            const minAmountOut = BigInt(input.minAmountOut);
+            const quoted = await freshPoolQuote(chain, pool, tokenIn, amountIn);
+            assertMinAmountOut(minAmountOut, quoted.amountOut, slippageBps);
+            const call = buildSwapExactIn(pool, tokenIn, amountIn, minAmountOut, input.to as Address);
+            return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
 
       buildMintLiquidity: publicJurisdictionProcedure('protocol', 'protocol')
