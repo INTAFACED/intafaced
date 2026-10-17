@@ -23,7 +23,7 @@ import type { PortalApi } from '../api';
 import { EntityList } from '../ui/EntityList';
 import { chromeCopy } from '../chrome/copy';
 import { ApprovalDecision } from './Approvals';
-import { NamedBlocker } from './common';
+import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
 import { PayoutDetailView } from './Payouts';
 import { RefundChip } from './Refunds';
@@ -227,5 +227,20 @@ describe('words', () => {
     expect(renderToString(<RefundChip status="reversed" />)).toContain('Failed');
     expect(renderToString(<ConversionChip status="partially_filled" />)).toContain('Partly done');
     expect(renderToString(<ConversionChip status="something_new" />)).toContain('Update');
+  });
+});
+
+describe('a busy statement', () => {
+  it('reads as a calm wait with a retry, not as an error', () => {
+    const busy = {
+      ok: false,
+      reason: 'error',
+      code: 'pay.statement_busy',
+      message: 'pay.statement_busy: A statement for this merchant is already in progress.',
+    } as never;
+    const html = renderToString(<MoneyFailure result={busy} retry={noop} />);
+    expect(html).toContain('Statement is being prepared, try again in a minute.');
+    expect(html).toContain('Try again');
+    expect(html).not.toContain('already in progress');
   });
 });

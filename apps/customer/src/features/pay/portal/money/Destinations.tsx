@@ -71,11 +71,6 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
         empty={{ title: t('dstEmptyTitle'), body: t('dstEmptyBody') }}
         label={t('dstTable')}
         rowKey={(d) => d.id}
-        blocked={
-          <NamedBlocker title={t('dstTable')} why="reasonLists" needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)">
-            {t('dstListBlocked')}
-          </NamedBlocker>
-        }
         columns={[
           { header: t('mnColDestination'), cell: (d) => describeDestination(t, d.kind, d.destinationMasked, d.railId) },
           { header: t('dstDefault'), cell: () => <span className="muted">{t('mnNotSetUp')}</span> },

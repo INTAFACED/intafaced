@@ -6,7 +6,6 @@ import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { MerchantRefund } from '../../MerchantRefund';
 import { Facts, Gate, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
-import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt, useUrlParam } from '../hooks';
@@ -26,7 +25,7 @@ import { ToneChip, type StatusTone } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
-import { ExportButton, LinkButton, ListBody, localRefusal, NamedBlocker, shortDay, TestBanner, useListQuery, useTestMode } from './common';
+import { ExportButton, LinkButton, ListBody, localRefusal, shortDay, TestBanner, useListQuery, useTestMode } from './common';
 import { mc } from './copy';
 import { refundableAmount, refundRate } from './model';
 import { refundStatuses, type RefundItem } from './schemas';
@@ -99,11 +98,6 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
   const captured = snap?.captured.find((a) => a.assetCode === asset)?.amount ?? null;
   const rate = refunded !== null && captured !== null ? refundRate(refunded, captured) : null;
   const n = newest.resource.status === 'ready' ? newest.resource.data : null;
-  const blocked = (
-    <NamedBlocker title={t('rfTitle')} why="reasonLists" needs="payment.refunds.list (feat/pay-portal-be-reads-money)">
-      {t('rfListBlocked')}
-    </NamedBlocker>
-  );
   return (
     <div className="stack">
       <TestBanner />
@@ -187,7 +181,6 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
         state={list.state}
         retry={() => list.reload()}
         onMore={list.loadMore}
-        blocked={blocked}
         filtered={{
           active: Boolean(filters.search || filters.status || filters.date || filters.asset),
           clear: () => {
@@ -237,17 +230,6 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
   );
   const readAt = useReadAt(refund.resource.status === 'ready', refund.resource);
   const r = refund.resource;
-  if (r.status === 'failed' && isNotLive(r.failure))
-    return (
-      <div className="stack">
-        <a className="text-link" href="/pay/refunds">
-          {t('backRefunds')}
-        </a>
-        <NamedBlocker title={t('rfDetailTitle')} why="reasonDetail" needs="payment.refunds.get (feat/pay-portal-be-reads-money)">
-          {t('rfDetailBlocked')}
-        </NamedBlocker>
-      </div>
-    );
   return (
     <div className="stack">
       <Gate resource={r} retry={refund.reload} rows={4}>

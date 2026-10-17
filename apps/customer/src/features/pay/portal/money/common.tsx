@@ -14,6 +14,29 @@ import { reason, type ReasonKey } from '../chrome/copy';
 import { mc } from './copy';
 import type { ListQuery } from './api';
 
+/** The service allows one statement scan per merchant at a time; a second call is refused as busy. */
+export function isStatementBusy(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
+  const code = result.code?.startsWith('pay.') ? result.code : (/^(pay\.[a-z0-9_]+)/.exec(result.message)?.[1] ?? result.code ?? '');
+  return code === 'pay.statement_busy';
+}
+
+/** A refusal with its plain words and a retry; a busy statement is a calm wait, not an error. */
+export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+  const { t } = mc.useCopy();
+  if (!isStatementBusy(result)) return <PortalFailure result={result} retry={retry} />;
+  return (
+    <div className="failure" role="status">
+      <h3>{t('stmBusyTitle')}</h3>
+      <p>{t('rStatementBusy')}</p>
+      {retry && (
+        <Button variant="secondary" onClick={retry}>
+          {t('stmBusyRetry')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** A button that is a link: the one way these pages send a merchant somewhere. */
 export function LinkButton({
   href,
@@ -111,7 +134,7 @@ export function ListBody<T>({
   const { t } = mc.useCopy();
   if (state.status === 'loading') return <PortalLoading rows={4} />;
   if (state.status === 'failed')
-    return blocked && isNotLive(state.failure) ? <>{blocked}</> : <PortalFailure result={state.failure} retry={retry} />;
+    return blocked && isNotLive(state.failure) ? <>{blocked}</> : <MoneyFailure result={state.failure} retry={retry} />;
   if (state.items.length === 0)
     return filtered?.active ? (
       <EmptyState

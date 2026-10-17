@@ -2,7 +2,6 @@ import { EmptyState, HeroNumber, SegmentedControl } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';
-import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { EntityList } from '../ui/EntityList';
@@ -11,7 +10,7 @@ import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
 import { StatusChip } from '../ui/StatusChip';
 import { DateTime } from '../ui/DateTime';
-import { LinkButton, NamedBlocker, TestBanner, payoutName, useTestMode } from './common';
+import { LinkButton, MoneyFailure, TestBanner, payoutName, useTestMode } from './common';
 import { mc } from './copy';
 import { amountFor, bpsPercent, hasHiddenDigits, roundedDecimal } from './model';
 import { statementCard, statementColumns } from './Statement';
@@ -269,13 +268,7 @@ function RecentMovements({ portal, merchantId, asset, test }: { portal: PortalAp
       {r.status === 'loading' ? (
         <PortalLoading rows={3} />
       ) : r.status === 'failed' ? (
-        isNotLive(r.failure) ? (
-          <NamedBlocker title={t('balMovementsTitle')} why="reasonLists" needs="merchant.statement.list (feat/pay-portal-be-reads-money)">
-            {t('balMovementsBlocked')}
-          </NamedBlocker>
-        ) : (
-          <PortalFailure result={r.failure} retry={list.reload} />
-        )
+        <MoneyFailure result={r.failure} retry={list.reload} />
       ) : r.data.items.length === 0 ? (
         <p className="muted">{t('balMovementsNone')}</p>
       ) : (

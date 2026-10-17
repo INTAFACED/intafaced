@@ -5,7 +5,6 @@ import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import { Facts, Gate, HaltBanner, NotConfigured, PortalFailure, PortalLoading } from '../components';
 import { useUnsavedForm } from '../useUnsavedForm';
-import { isNotLive } from '../refusal';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { activeHalts } from '../model';
@@ -14,7 +13,7 @@ import { MoneyText } from '../ui/MoneyText';
 import { PortalReview } from '../ui/PortalReview';
 import { uiCopy } from '../ui/copy';
 import { SelectField } from '../components';
-import { LinkButton, NamedBlocker, TestBanner, useTestMode } from './common';
+import { LinkButton, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
 import { approvalsBySettlement, payoutBlock, payoutHeadroom, type PayoutBlock } from './model';
@@ -81,7 +80,6 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           const payable = page.items.filter((s) => !(waiting?.get(s.id)?.status === 'pending'));
           const settlement: Settlement | null = payable.find((s) => s.id === picked) ?? null;
           const dests: DestinationItem[] | null = destinations.resource.status === 'ready' ? destinations.resource.data.items : null;
-          const destMissing = destinations.resource.status === 'failed' && isNotLive(destinations.resource.failure);
           const dest = dests?.find((d) => d.id === destPicked) ?? (dests && dests.length === 1 ? dests[0]! : null);
           const headroom = settlement && usage.resource.status === 'ready' ? payoutHeadroom(usage.resource.data, settlement.assetId) : null;
           const paused =
@@ -130,14 +128,6 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                   <PaySection title={t('pnStep2')} description={t('pnStep2Body')}>
                     {destinations.resource.status === 'loading' ? (
                       <PortalLoading rows={1} />
-                    ) : destMissing ? (
-                      <NamedBlocker
-                        title={t('pnStep2')}
-                        why="reasonLists"
-                        needs="merchant.payoutDestinations.list (feat/pay-portal-be-reads-money)"
-                      >
-                        {t('pnDestBlocked')}
-                      </NamedBlocker>
                     ) : destinations.resource.status === 'failed' ? (
                       <PortalFailure result={destinations.resource.failure} retry={destinations.reload} />
                     ) : dests && dests.length === 0 ? (

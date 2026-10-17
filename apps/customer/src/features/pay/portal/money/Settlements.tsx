@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui';
 import { PaySection } from '../../components';
 import { isUuid } from '../model';
 import { Gate, HaltBanner, Money, MoneyLines, PortalFailure, PortalLoading } from '../components';
-import { isNotLive, portalRefusal } from '../refusal';
+import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
@@ -398,8 +398,6 @@ export function SettlementDetailPage({
                   <LifecycleTrail lifecycle={lc.data} approvals={[]} me={portal.userId} names={new Map()} />
                 ) : events.length > 0 ? (
                   <Timeline label={t('stlLifecycleTitle')} items={events} />
-                ) : isNotLive(lc.failure) ? (
-                  <p className="muted">{t('stlLifecycleNone')}</p>
                 ) : (
                   <PortalFailure result={lc.failure} retry={lifecycle.reload} />
                 )}

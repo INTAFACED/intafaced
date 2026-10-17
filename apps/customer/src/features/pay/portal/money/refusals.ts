@@ -37,6 +37,7 @@ const words: Record<string, Parameters<typeof mc.t>[0]> = {
   'pay.conversion_amount_invalid': 'rConvAmount',
   'pay.conversion_forbidden': 'rConvForbidden',
   'pay.conversion_not_found': 'rConvNotFound',
+  'pay.statement_busy': 'rStatementBusy',
 };
 const known = new Set(knownRefusalCodes());
 registerRefusals(

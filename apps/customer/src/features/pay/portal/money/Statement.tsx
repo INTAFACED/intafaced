@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Field } from '@intafaced/ui';
-import { PortalFailure, SelectField } from '../components';
+import { SelectField } from '../components';
 import type { PortalApi } from '../api';
 import { useNow } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
@@ -10,7 +10,7 @@ import { dateRange, useListFilters, type DatePreset } from '../ui/FilterRow';
 import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
-import { ListBody, TestBanner, useTestMode } from './common';
+import { ListBody, MoneyFailure, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { defaultStatementRange, runningView, STATEMENT_MAX_DAYS, statementRangeTooWide, tieView, lineSign } from './model';
 import type { StatementLine, StatementPage } from './schemas';
@@ -200,7 +200,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
         </p>
       )}
       {list.state.status === 'failed' && !complete ? (
-        <PortalFailure result={list.state.failure} />
+        <MoneyFailure result={list.state.failure} retry={() => list.reload()} />
       ) : (
         <ListBody
           state={list.state}
@@ -211,11 +211,6 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           rowKey={(l) => l.id}
           columns={statementColumns(t, test, running.shown)}
           card={statementCard(t, test)}
-          blocked={
-            <p className="muted" role="note">
-              {t('stmBlocked')}
-            </p>
-          }
         />
       )}
       <div className="pp-actions">
