@@ -9,6 +9,7 @@ import type { MemberRole, MerchantRecord } from '../schemas';
 import type { Need } from './capabilities';
 import { allows, canOwnerWrite as ownerMayWrite, resolveAccess, type Access, type Ready } from './resolve';
 import type { MyAccess } from './schemas';
+import { NoBusiness } from './NoBusiness';
 import { publishAccess } from './shared-access';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
@@ -71,13 +72,13 @@ export function readyAccess(value: MerchantAccessValue | null): Ready | null {
   return value && value.access.status === 'ready' ? value.access : null;
 }
 
-/** Draws its children only for a person who holds the permission. Otherwise it says why, in words. */
+/** Draws its children only for a person who holds the permission. Otherwise it says why, in words. No business shows the one calm setup state, never the page. */
 export function Requires({ need, children }: { need: Need; children: ReactNode }) {
   const { t } = portalCopy.useCopy();
   const { access, can } = useMerchantAccess();
   if (access.status === 'loading') return <PortalLoading rows={4} />;
   if (access.status === 'failed') return <PortalFailure result={access.failure} />;
-  if (access.status === 'none') return <>{children}</>;
+  if (access.status === 'none') return <NoBusiness />;
   if (can(need)) return <>{children}</>;
   return <EmptyState title={t('noRoleTitle')}>{need === 'owner' ? t('ownerOnlyBody') : t('noRoleBody')}</EmptyState>;
 }

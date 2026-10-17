@@ -100,6 +100,28 @@ describe('business access: the owner fallback (merchant.myAccess not live)', () 
   });
 });
 
+describe('business access: a team lookup that did not answer fails closed', () => {
+  it('says "failed", not "none", when the team read was refused or unreachable', () => {
+    for (const team of [failure('unreachable'), failure('forbidden'), failure('forbidden', 'pay.merchant_ops_unavailable')]) {
+      const access = resolveAccess(inputs({ team: team as AccessInputs['team'] }));
+      expect(access.status).toBe('failed');
+      expect(allows(access, 'payments.read')).toBe(false);
+    }
+  });
+  it('says "none" only when the service says this person is not in a business, or the team read is not live', () => {
+    for (const team of [
+      failure('forbidden', 'pay.merchant_ops_not_merchant'),
+      failure('forbidden', 'pay.team_member_not_found'),
+      failure('not_mounted'),
+    ])
+      expect(resolveAccess(inputs({ team: team as AccessInputs['team'] })).status).toBe('none');
+  });
+  it('fails closed when the merchant read failed and the team read finds no seat', () => {
+    const team = ready({ merchantId: MERCHANT, userId: 'someone-else', role: 'admin' as const });
+    expect(resolveAccess(inputs({ merchant: failure('unreachable') as AccessInputs['merchant'], team })).status).toBe('failed');
+  });
+});
+
 describe('business access: the team fallback', () => {
   const asMember = (role: 'admin' | 'finance' | 'developer' | 'viewer') =>
     resolveAccess(inputs({ team: ready({ merchantId: MERCHANT, userId: ME, role }) }));

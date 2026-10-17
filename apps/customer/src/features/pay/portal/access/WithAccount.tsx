@@ -35,6 +35,7 @@ export function WithAccount({
   if (access.status === 'loading') return <PortalLoading rows={4} />;
   if (access.status === 'failed') return <PortalFailure result={access.failure} />;
   if (access.status === 'none') return <NoMerchant />;
-  const record = merchant.status === 'ready' ? merchant.data : null;
+  // The owner's record is handed over only when it is the business this access resolved to.
+  const record = merchant.status === 'ready' && merchant.data?.id === access.merchantId ? merchant.data : null;
   return <>{children({ merchantId: access.merchantId, role: access.role, record })}</>;
 }

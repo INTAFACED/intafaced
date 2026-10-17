@@ -23,6 +23,9 @@ const en = {
   noBusinessBody: 'Set up your business to take payments, send payment links and move money. It takes a few minutes.',
   noBusinessStart: 'Start setup',
   noBusinessActionOff: 'Needs a business account. Start setup first.',
+  // A header action the signed-in person's role does not allow, or that waits on their account details.
+  headerActionNoRole: 'Your role doesn’t allow this. Ask the account owner.',
+  headerActionWaiting: 'Available once your account details load.',
   switchAccount: 'Switch account',
   yourBusiness: 'Your business',
   yourAccounts: 'Your accounts',

@@ -74,7 +74,18 @@ export function resolveAccess({ sessionUserId, myAccess, merchant, team }: Acces
   if (merchant.status === 'failed' && team.status !== 'ready') return { status: 'failed', failure: merchant.failure };
   if (team.status === 'loading') return { status: 'loading' };
   const member = team.status === 'ready' ? memberFromTeam(team.data, sessionUserId) : null;
-  return member ? fromDerived(member) : { status: 'none' };
+  if (member) return fromDerived(member);
+  // No owner record and no team seat. That means "no business" only when the service says so. A lookup that failed or
+  // could not be reached proves nothing, so it fails closed instead of sending a real member to set up a business.
+  if (merchant.status === 'failed') return { status: 'failed', failure: merchant.failure };
+  if (team.status === 'failed' && !isNotAMember(team.failure)) return { status: 'failed', failure: team.failure };
+  return { status: 'none' };
+}
+
+/** The service's two answers for "this person is not in a business". Not live also reads as none: there is no team to be in. */
+const NOT_A_MEMBER = new Set(['pay.merchant_ops_not_merchant', 'pay.team_member_not_found']);
+function isNotAMember(failure: Failed): boolean {
+  return (failure.code !== undefined && NOT_A_MEMBER.has(failure.code)) || isNotLive(failure);
 }
 
 function fromDerived(d: NonNullable<ReturnType<typeof ownerFromRecord>>): Ready {

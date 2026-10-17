@@ -9,7 +9,8 @@ import { LayoutFrame } from './home-layout/Frame';
 import { rooms } from './rooms';
 import type { RoomContext } from './rooms-model';
 import { DisabledAction, NoBusiness } from './access/NoBusiness';
-import type { PayBusinessAuthority } from '../pay-api';
+import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
+import { headerActionReason } from './access/headerActions';
 import { MerchantAccessProvider, useMerchantAccess } from './access/MerchantAccess';
 import { authorityFromAccess } from './access/authority';
 
@@ -47,13 +48,15 @@ function PortalRooms({
   const { api, userId } = useSession();
   const portal = useMemo(() => createPortalApi(api, userId), [api, userId]);
   const access = useMerchantAccess();
-  const route = parsePortalRoute(path);
-  if (!route) return null;
   // A page that needs a `PayBusinessAuthority` gets one made from the resolved access, for the owner only.
   const effective = authority ?? authorityFromAccess(access.access, userId);
+  const pay = useMemo(() => createBusinessPayApi(api, userId, effective), [api, userId, effective]);
+  const route = parsePortalRoute(path);
+  if (!route) return null;
   return (
     <PortalPage
       route={route}
+      pay={pay}
       ctx={{
         portal,
         authority: effective,
@@ -70,7 +73,7 @@ function PortalRooms({
  * one calm "No business account yet" state and the header action switched off, unless the page says otherwise
  * (`withoutBusiness` on its room). This is the only place that decision is made.
  */
-export function PortalPage({ route, ctx }: { route: PortalRoute; ctx: RoomContext }) {
+export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx: RoomContext; pay?: BusinessPayApi | null }) {
   const room = rooms[route.room];
   const noBusiness = ctx.access.access.status === 'none' && room.withoutBusiness !== 'render';
   const body = !noBusiness ? (
@@ -81,13 +84,28 @@ export function PortalPage({ route, ctx }: { route: PortalRoute; ctx: RoomContex
     <NoBusiness />
   );
   return (
-    <PortalFrame route={route} actionOff={noBusiness}>
+    <PortalFrame
+      route={route}
+      actionOff={noBusiness}
+      actionReason={noBusiness ? undefined : headerActionReason(route.room, ctx.access, pay)}
+    >
       {body}
     </PortalFrame>
   );
 }
 
-export function PortalFrame({ route, actionOff = false, children }: { route: PortalRoute; actionOff?: boolean; children: ReactNode }) {
+export function PortalFrame({
+  route,
+  actionOff = false,
+  actionReason,
+  children,
+}: {
+  route: PortalRoute;
+  actionOff?: boolean;
+  /** Why the header action is switched off for this person (their role lacks the scope). Null or left out: it works. */
+  actionReason?: string | null;
+  children: ReactNode;
+}) {
   // Subscribes the header to the language preference; the room headers read the same catalogs.
   portalCopy.useCopy();
   const room = rooms[route.room];
@@ -98,7 +116,15 @@ export function PortalFrame({ route, actionOff = false, children }: { route: Por
       here={here}
       title={copy.title}
       purpose={copy.purpose}
-      action={actionOff ? <DisabledAction action={copy.action} /> : copy.action}
+      action={
+        actionOff ? (
+          <DisabledAction action={copy.action} />
+        ) : actionReason ? (
+          <DisabledAction action={copy.action} reason={actionReason} />
+        ) : (
+          copy.action
+        )
+      }
     >
       <ExactMoneyContext.Provider
         value={Boolean(route.param || route.step) || route.room.endsWith('-new') || route.room === 'money-activity'}

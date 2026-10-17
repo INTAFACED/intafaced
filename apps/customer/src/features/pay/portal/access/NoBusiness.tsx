@@ -25,10 +25,10 @@ export function NoBusiness({ children }: { children?: ReactNode }) {
 }
 
 /**
- * The page's header action, switched off with its reason beside it. Every header action is a create or manage
+ * The page's header action, switched off with its reason beside it (no business by default, or the `reason` given). Every header action is a create or manage
  * button, and none of them can work without a business. The label is kept so the person sees what they will get.
  */
-export function DisabledAction({ action }: { action: ReactNode }) {
+export function DisabledAction({ action, reason }: { action: ReactNode; reason?: string }) {
   const { t } = chromeCopy.useCopy();
   const reasonId = useId();
   if (!isValidElement(action)) return null;
@@ -38,7 +38,7 @@ export function DisabledAction({ action }: { action: ReactNode }) {
       <Button variant="secondary" disabled aria-describedby={reasonId}>
         {label}
       </Button>
-      <small id={reasonId}>{t('noBusinessActionOff')}</small>
+      <small id={reasonId}>{reason ?? t('noBusinessActionOff')}</small>
     </div>
   );
 }
