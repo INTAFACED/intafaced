@@ -68,4 +68,38 @@ describe('D26-P1-P5 fraud review queue', () => {
     expect(closed.resolvedBy).toBe('ops-1');
     expect(() => q.resolve({ id: 'rev-2', outcome: 'decline', actorId: 'ops-2' })).toThrowError(/already allowed/);
   });
+
+  it('deciding the same outcome twice keeps the first decision', () => {
+    const q = new MemoryFraudReviewQueue();
+    const decision = evaluateFraud({
+      merchantId: 'm1',
+      amount: '100',
+      assetId: 'USDT',
+      recentPaymentCount: 9,
+      thresholds: { maxPaymentsInWindow: 2 },
+    });
+    q.enqueue({ id: 'rev-same', merchantId: 'm1', amount: '100', assetId: 'USDT', decision });
+    const first = q.resolve({ id: 'rev-same', outcome: 'allow', actorId: 'ops-1', note: 'vip' });
+    const second = q.resolve({ id: 'rev-same', outcome: 'allow', actorId: 'ops-2' });
+    expect(second).toBe(first);
+    expect(second.resolvedBy).toBe('ops-1');
+    expect(q.listOpen('m1', 50)).toHaveLength(0);
+  });
+
+  it('claim is idempotent for the same operator and refuses a second operator', () => {
+    const q = new MemoryFraudReviewQueue();
+    const decision = evaluateFraud({
+      merchantId: 'm1',
+      amount: '100',
+      assetId: 'USDT',
+      recentPaymentCount: 9,
+      thresholds: { maxPaymentsInWindow: 2 },
+    });
+    q.enqueue({ id: 'rev-claim', merchantId: 'm1', amount: '100', assetId: 'USDT', decision });
+    const claimed = q.claim({ id: 'rev-claim', actorId: 'ops-1' });
+    expect(claimed.status).toBe('claimed');
+    expect(q.claim({ id: 'rev-claim', actorId: 'ops-1' })).toBe(claimed);
+    expect(() => q.claim({ id: 'rev-claim', actorId: 'ops-2' })).toThrowError(FraudReviewError);
+    expect(q.listOpen('m1', 50)).toHaveLength(1);
+  });
 });

@@ -972,6 +972,39 @@ export const merchantInvoiceLines = pay.table(
  * One screening case per custodial send. Status is clear, review, refuse, or
  * unavailable. Factors are codes only: no name, address, or list contents.
  */
+/**
+ * One fraud review case per payment ref. Status moves; the decision log does not.
+ * A withdrawal hold stores the user id in merchant_id: that send has no merchant.
+ */
+export const fraudReviewCases = pay.table('fraud_review_cases', {
+  id: text('id').primaryKey(),
+  merchantId: text('merchant_id').notNull(),
+  paymentRef: text('payment_ref'),
+  amount: amount('amount').notNull(),
+  assetId: text('asset_id').notNull(),
+  status: text('status').notNull(),
+  reason: text('reason').notNull(),
+  reasons: jsonb('reasons').notNull(),
+  source: text('source').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: tstz('created_at').notNull(),
+  claimedBy: text('claimed_by'),
+  claimedAt: tstz('claimed_at'),
+  decidedBy: text('decided_by'),
+  decidedAt: tstz('decided_at'),
+  resolutionNote: text('resolution_note'),
+});
+
+/** Append-only enqueue, claim, allow, and decline. The case row is the current status. */
+export const fraudReviewDecisions = pay.table('fraud_review_decisions', {
+  decisionId: bigserial('decision_id', { mode: 'number' }).primaryKey(),
+  caseId: text('case_id').notNull(),
+  effect: text('effect').notNull(),
+  actorId: text('actor_id').notNull(),
+  note: text('note'),
+  decidedAt: tstz('decided_at').notNull(),
+});
+
 export const screeningCases = pay.table(
   'screening_cases',
   {
@@ -1040,5 +1073,7 @@ export const schema = {
   merchantInvoices,
   merchantInvoiceLines,
   merchantInvoiceActions,
+  fraudReviewCases,
+  fraudReviewDecisions,
   screeningCases,
 };
