@@ -34,6 +34,11 @@ describe('delivery health', () => {
     expect(html).toContain('channel.not_configured ×1');
     expect(html).toContain('As of 03:00:00 UTC');
   });
+  it('prints the span the figures cover in the shared UTC form, never as raw ISO text', () => {
+    const html = render(view([row({ updatedAt: '2026-10-17T01:00:00.000Z' }), row({ updatedAt: '2026-10-17T02:30:15.000Z' })]));
+    expect(html).toContain('from 17 Oct 2026, 01:00:00 UTC to 17 Oct 2026, 02:30:15 UTC');
+    expect(html).not.toContain('2026-10-17T01:00:00.000Z');
+  });
   it('says what the figures cover, and that a full page is not all-time', () => {
     expect(render(view([row()], 200))).toContain('svc-notify returned nothing older');
     const full = render(view([row(), row()], 2));
