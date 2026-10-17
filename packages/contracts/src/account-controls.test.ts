@@ -71,10 +71,15 @@ describe('founder account-control wire boundary', () => {
     expect(accountControlInputSchema.parse({ ...command, action: 'restore' }).action).toBe('restore');
   });
 
-  it.each(['actorUserId', 'actor', 'mfa', 'founder', 'confirmOperatorId', 'approvalId', 'recoveryAllowed'])(
+  it.each(['actorUserId', 'actor', 'mfa', 'founder', 'confirmOperatorId', 'recoveryAllowed'])(
     'rejects caller-supplied %s authority',
     (field) => expect(accountControlInputSchema.safeParse({ ...command, [field]: OTHER }).success).toBe(false),
   );
+
+  it('accepts an approval id as a reference and rejects a blank one', () => {
+    expect(accountControlInputSchema.parse({ ...command, approvalId: KEY }).approvalId).toBe(KEY);
+    expect(accountControlInputSchema.safeParse({ ...command, approvalId: '  ' }).success).toBe(false);
+  });
 
   it('rejects wrong target fields and malformed concurrency inputs', () => {
     for (const candidate of [

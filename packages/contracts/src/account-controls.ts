@@ -29,6 +29,12 @@ export const accountControlInputSchema = z
     action: z.enum(['restrict', 'restore']),
     reason,
     expectedVersion: version,
+    /**
+     * Reference to a stored `trading.restrict` approval. Not authority by itself:
+     * identity checks it is approved, unexpired, unconsumed, and bound to this account
+     * and payload before it consumes the row. Absent on every other control.
+     */
+    approvalId: z.string().trim().min(1).max(128).optional(),
   })
   .strict();
 export type AccountControlInput = z.infer<typeof accountControlInputSchema>;
@@ -74,6 +80,9 @@ export const accountControlResultSchema = z
           'target.not_found',
           'restore.not_permitted',
           'request.conflict',
+          'restriction_no_four_eyes',
+          'restriction_approval_mismatch',
+          'restriction_approval_consumed',
         ]),
         current: accountControlStateSchema.nullable(),
       })
