@@ -12,7 +12,7 @@ const localCopy = {
       'Founder authentication is enforced before protected reads. It does not supply action approval or original operation context.',
     'admin.console.transport.details': 'Deployment configuration',
     'admin.console.module.room.intro':
-      'Inspect the selected module’s current edge state and historical audit, and ask two founders to kill or re-enable it. A different founder has to approve every change.',
+      'Inspect the selected module’s current edge state and historical audit, and ask for a kill or re-enable. Two different operators must agree; this console admits only founders.',
     'admin.console.transport.treasury.inspect': 'Ledger posting status and freeze prerequisites',
     'admin.console.transport.treasury.inspect.notice':
       'Inspect ledger posting status and freeze prerequisites in Ledger ops. Treasury, live-session and identity-issued approval guards remain authoritative.',
@@ -41,7 +41,7 @@ const localCopy = {
       'La autenticación del fundador es obligatoria antes de las lecturas protegidas. No proporciona aprobación de acciones ni contexto de la operación original.',
     'admin.console.transport.details': 'Configuración del despliegue',
     'admin.console.module.room.intro':
-      'Consulta el estado actual del módulo seleccionado y su historial de auditoría, y pide a dos fundadores que lo detengan o lo reactiven. Otro fundador debe aprobar cada cambio.',
+      'Consulta el estado actual del módulo seleccionado y su historial de auditoría, y solicita detenerlo o reactivarlo. Deben estar de acuerdo dos operadores distintos; esta consola solo admite fundadores.',
     'admin.console.transport.treasury.inspect': 'Estado de contabilización y requisitos de bloqueo del libro mayor',
     'admin.console.transport.treasury.inspect.notice':
       'Consulta el estado de contabilización y los requisitos de bloqueo en Ledger ops. Los requisitos de tesorería, sesión activa y aprobación emitida por identidad siguen siendo obligatorios.',
@@ -70,7 +70,7 @@ const localCopy = {
       'L’authentification du fondateur est exigée avant toute lecture protégée. Elle ne fournit ni approbation d’action ni contexte de l’opération initiale.',
     'admin.console.transport.details': 'Configuration du déploiement',
     'admin.console.module.room.intro':
-      'Consultez l’état actuel du module sélectionné et son historique d’audit, et demandez à deux fondateurs de l’arrêter ou de le réactiver. Un autre fondateur doit approuver chaque changement.',
+      'Consultez l’état actuel du module sélectionné et son historique d’audit, et demandez de l’arrêter ou de le réactiver. Deux opérateurs différents doivent être d’accord ; cette console n’admet que des fondateurs.',
     'admin.console.transport.treasury.inspect': 'État des écritures et prérequis du blocage du grand livre',
     'admin.console.transport.treasury.inspect.notice':
       'Consultez l’état des écritures et les prérequis du blocage dans Ledger ops. Les exigences de trésorerie, session active et approbation émise par identité restent obligatoires.',

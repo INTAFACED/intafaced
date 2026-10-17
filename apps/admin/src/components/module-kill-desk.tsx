@@ -52,8 +52,8 @@ export function ModuleKillDesk({ module, snapshot, readAt, loading, writesBlocke
       action={blocked ? null : actionFor(module, killed)}
       consequence={
         killed
-          ? 'Re-enabling lets new commitments through again. Two different founders must agree; the second approves from their own console.'
-          : 'A kill refuses new commitments on this module (503) until it is re-enabled; reads and cancels still pass. Two different founders must agree; the second approves from their own console.'
+          ? 'Re-enabling lets new commitments through again. Two different operators must agree; this console admits only founders, but identity also accepts other operators on the approval, so check who approved below.'
+          : 'A kill refuses new commitments on this module (503) until it is re-enabled; reads and cancels still pass. Two different operators must agree; this console admits only founders, but identity also accepts other operators on the approval, so check who approved below.'
       }
       blockedButtonLabel="Kill / re-enable unavailable"
       onChanged={onReload}
@@ -64,8 +64,9 @@ export function ModuleKillDesk({ module, snapshot, readAt, loading, writesBlocke
         {badge.reason && <span className="dk-muted">Recorded reason: {badge.reason}</span>}
         {badge.lastChange && (
           <span className="dk-muted">
-            Last change for this module: {badge.lastChange.at} by {badge.lastChange.actor}
-            {badge.lastChange.confirmedBy ? `, confirmed by ${badge.lastChange.confirmedBy}` : ''}: {badge.lastChange.reason}
+            Last change for this module: {badge.lastChange.at}, run with the console credential {badge.lastChange.actor}
+            {badge.lastChange.confirmedBy ? `, approved by ${badge.lastChange.confirmedBy}` : ', approver not recorded'}; the requester is
+            on the approval record: {badge.lastChange.reason}
           </span>
         )}
       </div>

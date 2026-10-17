@@ -23,7 +23,7 @@ export function killRefusalFor(module: ModuleId): KillRefusal | null {
     return {
       code: 'admin.kill_self_lockout',
       reason:
-        'Identity carries founder sign-in and the approvals this console needs. Killing it would stop you from approving the re-enable, so this console will not arm it. Freeze accounts from Account controls, or have engineering restart the edge.',
+        'Identity carries founder sign-in and the approvals this console needs. Killing it would stop you from approving the re-enable, so this console will not arm it. Freeze accounts from Account controls. If the edge is ever down because of a kill, fix the kill-state file: an unreadable kill-state halts every module on boot.',
     };
   }
   if (!isEdgePerimeterModule(module)) {

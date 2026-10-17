@@ -12,14 +12,17 @@ import { handleStep } from '@/lib/desk/step-route';
  *
  * GET reads the edge's module state. POST runs one step of a TWO-FOUNDER request (propose, approve, reject,
  * withdraw, execute); there is no single-call "flip". The edge refuses a module command without an
- * identity-issued approval that a different founder signed for exactly that command, and spends it once.
+ * identity-issued approval that a different OPERATOR signed for exactly that command, and spends it once. This console
+ * admits only founders, but identity treats `edge.kill` as an operator-level action, so an operator holding another
+ * permission can approve it straight at identity. The console cannot tell (identity has no approval read): filed in
+ * admin-BACKEND-NEEDS.md.
  *
  * A thin server-side hop, and the thinness is the point:
  *
  *   · The operator credential stays on the server. A board that called `svc-edge` from the browser would have to ship
  *     `ADMIN_OPERATOR_TOKEN` to the browser, and a token carrying `admin:write` in a bundle is a token in everybody's
  *     devtools.
- *   · The approval steps use the SIGNED-IN FOUNDER's own session, so identity records which two people agreed.
+ *   · The approval steps use the SIGNED-IN FOUNDER's own session, so identity records which two people agreed (two different operators; this console admits only founders).
  *     Only `execute` uses the console's deployment credential, because that is what the edge's `admin:write` door
  *     takes; the edge's audit line therefore names that credential's user, while identity's approval row names the
  *     two founders. Both are shown on the desk.

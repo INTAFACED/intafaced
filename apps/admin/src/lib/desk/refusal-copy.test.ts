@@ -13,6 +13,8 @@ describe('typed refusals are explained in plain words', () => {
     expect(explainRefusal('action_approval.not_approved', 400).title).toContain('has not approved');
     expect(explainRefusal('action_approval.payload_mismatch', 412).body).toContain('Nothing was approved');
     expect(explainRefusal('action_approval.consumed', 412).title).toContain('already used');
+    // A used approval may be the first run of this very request that went through: not a definite "nothing changed".
+    expect(explainRefusal('action_approval.consumed', 412).changed).toBe('unknown');
     expect(explainRefusal('action_approval.expired', 412).title).toContain('expired');
     expect(explainRefusal('action_approval.founder_only', 403).title).toContain('two current founders');
   });

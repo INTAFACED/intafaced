@@ -43,7 +43,9 @@ describe('the current-state badge', () => {
     expect(html).toContain('trade is KILLED at the edge');
     expect(html).toContain('Recorded reason: market integrity incident');
     expect(html).toContain('console-operator');
-    expect(html).toContain('confirmed by checker-founder');
+    expect(html).toContain('run with the console credential console-operator');
+    expect(html).toContain('approved by checker-founder');
+    expect(html).toContain('the requester is on the approval record');
   });
   it('no usable read: unknown, never running', () => {
     const html = render({ snapshot: null, readAt: null });
@@ -65,7 +67,7 @@ describe('the one request that makes sense', () => {
     expect(html).toContain('<code>KILL trade</code>');
     expect(html).toContain('id="dk-reason"');
     expect(html).toContain('Ask a second founder to approve the kill');
-    expect(html).toContain('Two different founders must agree');
+    expect(html).toContain('Two different operators must agree');
   });
   it('killed: offers the way back, re-enable, with its own phrase', () => {
     const html = render({ snapshot: killed as never });

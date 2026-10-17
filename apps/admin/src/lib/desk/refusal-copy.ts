@@ -51,6 +51,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'This approval was already used',
     body: 'An approval can run once. If the first run went through, the current state below shows it.',
     next: 'Read the current state. If it is not what you intended, start a new request.',
+    changed: 'unknown',
   },
   'action_approval.not_found': {
     title: 'No such approval',

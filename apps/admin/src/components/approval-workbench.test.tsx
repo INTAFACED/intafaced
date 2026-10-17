@@ -145,6 +145,8 @@ describe('what the page says happened', () => {
       />,
     );
     expect(html).toContain('NOT for the request you read');
+    expect(html).toContain('Ask the requester to withdraw it');
+    expect(html).not.toContain('Reject it now');
     expect(html).toContain('role="alert"');
   });
   it('a made request says nothing has run', () => {

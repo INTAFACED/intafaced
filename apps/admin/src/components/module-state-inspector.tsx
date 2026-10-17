@@ -73,7 +73,8 @@ export function ModuleStateInspector({ plane, onRead, writesBlocked, userId }: M
     <Panel title="Module state" className="module-inspector">
       <div className="mi-heading">
         <p>
-          Read the current edge state and its audit, and ask two founders to kill or re-enable a module. Reading never changes anything.
+          Read the current edge state and its audit, and ask for a kill or re-enable of a module (two different operators must agree; this
+          console admits only founders). Reading never changes anything.
         </p>
         <button className="adm-btn" type="button" onClick={() => void reload()}>
           Refresh module state

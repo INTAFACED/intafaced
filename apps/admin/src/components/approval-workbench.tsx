@@ -59,7 +59,8 @@ export function StepReplyView({ reply }: { reply: StepReply }) {
         </dl>
         {reply.matchesReviewedRequest === false && (
           <p className="dk-why" role="alert">
-            Identity&rsquo;s approval is NOT for the request you read. Reject it now and tell engineering.
+            Identity&rsquo;s approval is NOT for the request you read. Do not run it. Ask the requester to withdraw it, and tell
+            engineering.
           </p>
         )}
       </div>
