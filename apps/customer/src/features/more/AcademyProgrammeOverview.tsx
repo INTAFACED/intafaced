@@ -38,7 +38,7 @@ const badge = z.object({
 const payQuote = z.object({ status: z.literal('refuse'), payable: z.literal(false), message: z.string(), code: z.string() });
 
 /** Programme depth from real answers: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
-export function AcademyProgrammeOverview({ action }: { action: ActionControls }) {
+export function AcademyProgrammeOverview({ action }: { action: ProgrammeAction }) {
   const overview = useAcademyTracking();
   return (
     <>
@@ -60,7 +60,7 @@ export function programmeGuards(input: {
   signedIn: boolean;
   enrolments: 'loading' | 'failed' | 'ready';
   enrolled: boolean;
-  busy: boolean;
+  busy: ProgrammeBusy;
 }): { enrol: GuardReason | null; leave: GuardReason | null } {
   const common: GuardReason | null = !input.signedIn
     ? 'signInReason'
@@ -69,18 +69,29 @@ export function programmeGuards(input: {
       : input.enrolments === 'failed'
         ? 'enrolmentsUnreadableReason'
         : null;
-  const busy: GuardReason | null = input.busy ? 'actionBusyReason' : null;
+  const busy: GuardReason | null =
+    input.busy === 'inflight' ? 'actionInFlightReason' : input.busy === 'unconfirmed' ? 'actionUnconfirmedReason' : null;
   return {
     enrol: common ?? (input.enrolled ? 'enrolReasonEnrolled' : busy),
     leave: common ?? (input.enrolled ? busy : 'refEnrollmentNotFound'),
   };
+}
+/** Why the shared Academy action is not free: this page's own request is in flight, or an earlier one was never confirmed. */
+export type ProgrammeBusy = 'inflight' | 'unconfirmed' | null;
+/** The shared Academy action, with the two facts that tell its busy states apart when the hook offers them. */
+export type ProgrammeAction = ActionControls & { busy?: boolean; snapshot?: { status: string; known?: unknown } };
+export function busyOf(action: ProgrammeAction): ProgrammeBusy {
+  if (action.busy) return 'inflight';
+  if (action.snapshot && (action.snapshot.status !== 'empty' || action.snapshot.known)) return 'unconfirmed';
+  return action.disabled ? 'inflight' : null;
 }
 type GuardReason =
   | 'signInReason'
   | 'enrolmentsLoadingReason'
   | 'enrolmentsUnreadableReason'
   | 'enrolReasonEnrolled'
-  | 'actionBusyReason'
+  | 'actionInFlightReason'
+  | 'actionUnconfirmedReason'
   | 'refEnrollmentNotFound';
 
 const unrecorded = () => ({
@@ -105,7 +116,7 @@ function worded<T extends Extract<ApiResult<unknown>, { ok: false }>>(result: T)
   });
 }
 
-function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]; action: ActionControls }) {
+function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]; action: ProgrammeAction }) {
   const api = useApi();
   const { userId } = useSession();
   const groups = groupByPath(lessons);
@@ -159,6 +170,7 @@ function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]
         if (!settled.ok) reloadEnrolments();
         return settled.ok ? settled : worded(settled);
       },
+      reference: clientRequestId,
       done: reloadEnrolments,
     });
   };
@@ -168,7 +180,7 @@ function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]
       reload={enrolments.reload}
       groups={groups}
       signedIn={Boolean(userId)}
-      busy={action.disabled}
+      busy={busyOf(action)}
       onEnrol={enrolStage}
       onLeave={leaveStage}
     />
@@ -189,7 +201,7 @@ export function PathProgrammesView({
   reload: () => void;
   groups: readonly PathSummary[];
   signedIn: boolean;
-  busy: boolean;
+  busy: ProgrammeBusy;
   onEnrol: (path: AcademyPath) => void;
   onLeave: (path: AcademyPath) => void;
 }) {

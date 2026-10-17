@@ -9,8 +9,8 @@ import { z } from 'zod';
  * certificate's progress counts it. It is pending when a certificate requires it and it is not
  * recorded, and open otherwise.
  *
- * Academy keeps no time spent or streak. "Resume" uses the lesson this browser last opened, kept only
- * on this device.
+ * svc-academy also keeps a reading position (`learningState`, `touchLesson`), but this app does not read it. "Resume"
+ * uses the lesson this browser last opened, kept only on this device.
  */
 
 export const academyPaths = ['foundations', 'markets', 'builder', 'sovereign'] as const;

@@ -9,8 +9,8 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import { SessionProvider } from '../session/session';
 import { Assessment, AttemptHistory, QuizView, StudyQuestions, submitBlock, type QuizViewProps } from './AcademyAssessment';
-import { VerifyPanel, VerifyResult } from './AcademyCertificates';
-import { PathProgrammesView, programmeGuards } from './AcademyProgrammeOverview';
+import { CertificateShelf, VerifyPanel, VerifyResult } from './AcademyCertificates';
+import { PathProgrammesView, busyOf, programmeGuards, type ProgrammeBusy } from './AcademyProgrammeOverview';
 import type { Assessment as AssessmentData, Attempt, Enrolment } from './academy-flows';
 import { groupByPath, type LessonSummary } from './academy-lms';
 import { academyLmsCopy } from './academy-lms-copy';
@@ -60,7 +60,7 @@ const quizProps = (over: Partial<QuizViewProps> = {}): QuizViewProps => ({
   block: null,
   onSubmit: noop,
   onAnswerAgain: noop,
-  onCheckHistory: noop,
+  onResend: noop,
   onRetryHistory: noop,
   onReloadQuestions: noop,
   ...over,
@@ -93,7 +93,7 @@ describe('assessment questions', () => {
   });
 
   it('keeps Submit off with its reason beside it until every question is answered', () => {
-    const block = submitBlock({ sending: false, unconfirmed: false, historyReady: true, refreshing: false, remaining: 2 });
+    const block = submitBlock({ sending: false, remaining: 2 });
     const page = quiz({ block });
     const button = submitButton(page);
     expect(button).toContain('disabled');
@@ -104,7 +104,7 @@ describe('assessment questions', () => {
   });
 
   it('turns Submit on, with no reason shown, when everything is answered and the history is loaded', () => {
-    const block = submitBlock({ sending: false, unconfirmed: false, historyReady: true, refreshing: false, remaining: 0 });
+    const block = submitBlock({ sending: false, remaining: 0 });
     expect(block).toBeNull();
     const page = quiz({ answers: { q1: 'a', q2: 'b' }, block });
     expect(submitButton(page)).not.toContain('disabled');
@@ -113,7 +113,7 @@ describe('assessment questions', () => {
   });
 
   it('turns Submit off while a request is in flight, locks the answers and says so', () => {
-    const block = submitBlock({ sending: true, unconfirmed: false, historyReady: true, refreshing: false, remaining: 0 });
+    const block = submitBlock({ sending: true, remaining: 0 });
     const page = quiz({ answers: { q1: 'a', q2: 'b' }, sending: true, block });
     expect(submitButton(page)).toContain('disabled');
     expect(page).toContain('Your answers are being sent. Wait for Academy to reply.');
@@ -122,14 +122,14 @@ describe('assessment questions', () => {
     expect(page).toContain('Sending answers');
   });
 
-  it('puts the reasons in order: in flight, unchecked lost reply, history not loaded, unanswered, then on', () => {
-    const base = { sending: false, unconfirmed: false, historyReady: true, refreshing: false, remaining: 0 };
-    expect(submitBlock({ ...base, sending: true, unconfirmed: true, remaining: 1 })).toEqual({ key: 'submitInFlight' });
-    expect(submitBlock({ ...base, unconfirmed: true, remaining: 1 })).toEqual({ key: 'submitCheckFirst' });
-    expect(submitBlock({ ...base, historyReady: false, remaining: 1 })).toEqual({ key: 'submitNeedsHistory' });
-    expect(submitBlock({ ...base, refreshing: true })).toEqual({ key: 'submitNeedsHistory' });
-    expect(submitBlock({ ...base, remaining: 1 })).toEqual({ key: 'submitNeedsAnswers', remaining: 1 });
-    expect(submitBlock(base)).toBeNull();
+  it('puts the reasons in order: in flight, unanswered, then on', () => {
+    expect(submitBlock({ sending: true, remaining: 1 })).toEqual({ key: 'submitInFlight' });
+    expect(submitBlock({ sending: false, remaining: 1 })).toEqual({ key: 'submitNeedsAnswers', remaining: 1 });
+    expect(submitBlock({ sending: false, remaining: 0 })).toBeNull();
+  });
+
+  it('does not announce every click: the answered count is plain text, not a live region', () => {
+    expect(quiz()).not.toMatch(/role="status"[^>]*>0 of 2 questions answered/);
   });
 });
 
@@ -148,7 +148,9 @@ describe('assessment result and refusals', () => {
   it('says a result was read back from the attempt history when the reply was lost', () => {
     const page = quiz({ result: { attempt: attempt(1, '2026-10-12T10:00:00.000Z'), recovered: true } });
     expect(page).toContain('Not passed');
-    expect(page).toContain('The reply was lost on the way. This result is read back from your attempt history.');
+    expect(page).toContain('The first reply was lost.');
+    expect(page).toContain('so it was not counted twice');
+    expect(page).not.toContain('read back from your attempt history');
   });
 
   it('words a typed refusal and keeps the answers on screen', () => {
@@ -167,22 +169,27 @@ describe('assessment result and refusals', () => {
     expect(quiz({ problem: { kind: 'failure', failure: failure('academy.attempt_limit') } })).not.toContain('Reload questions');
   });
 
-  it('says a lost reply was not recorded, and that resending reuses the same attempt reference', () => {
-    const page = quiz({ problem: { kind: 'not-recorded' } });
-    expect(page).toContain('shows no new attempt');
-    expect(page).toContain('reuses the same attempt reference');
+  it('after a lost reply locks the answers, hides Submit and offers to send the same answers again', () => {
+    const page = quiz({ answers: { q1: 'a', q2: 'a' }, problem: { kind: 'unconfirmed', failure: failure('x') } });
+    expect(page).toContain('Send the same answers again');
+    expect(page).toContain('cannot count it twice');
+    expect(page).toContain('may count as a second one');
+    expect(submitButton(page)).toBe('');
+    expect((page.match(/<fieldset[^>]*disabled/g) ?? []).length).toBe(2);
+    expect(page).not.toContain('Check attempt history');
+    expect(page).not.toContain('shows no new attempt');
+    expect(page).toMatch(/<input[^>]*checked=""[^>]*value="a"/);
   });
 
-  it('asks for a check of the history, and keeps Submit off, after a lost reply that could not be checked', () => {
-    const block = submitBlock({ sending: false, unconfirmed: true, historyReady: true, refreshing: false, remaining: 0 });
-    const page = quiz({
-      answers: { q1: 'a', q2: 'a' },
-      problem: { kind: 'unconfirmed', failure: failure('x') },
-      block,
-    });
-    expect(page).toContain('Check attempt history');
-    expect(page).toContain('Academy did not confirm your last submission. Check your attempt history before sending again.');
-    expect(submitButton(page)).toContain('disabled');
+  it('turns the resend off while it is in flight, with its reason', () => {
+    const page = quiz({ answers: { q1: 'a', q2: 'a' }, sending: true, problem: { kind: 'unconfirmed', failure: failure('x') } });
+    expect(page).toMatch(/<button[^>]*disabled[^>]*>(?:<[^>]+>)*Sending answers/);
+    expect(page).toContain('Your answers are being sent. Wait for Academy to reply.');
+  });
+
+  it('keeps the answers editable after a typed refusal', () => {
+    const page = quiz({ answers: { q1: 'a', q2: 'a' }, problem: { kind: 'failure', failure: failure('academy.attempt_limit') } });
+    expect((page.match(/<fieldset[^>]*disabled/g) ?? []).length).toBe(0);
   });
 
   it('words a refusal in Spanish and French too', () => {
@@ -317,6 +324,35 @@ describe('certificate verify box', () => {
   });
 });
 
+describe('verify box placement and copy', () => {
+  it('is drawn beside the shelf, not inside the tracking read, so it shows while that read is still loading or has failed', () => {
+    const page = html(<CertificateShelf />);
+    expect(page).toContain('Loading');
+    expect(page).toContain('Verify certificate');
+    expect(page).toContain('Verification code');
+  });
+
+  it('promises only what the product does: a code-only check for people signed in to INTAFACED', () => {
+    for (const locale of ['en', 'es', 'fr'] as const) {
+      const t = academyLmsCopy.forLocale(locale).t;
+      expect(t('verifyIntro')).not.toMatch(/signed in or not|con o sin sesión|connecté ou non/i);
+    }
+    expect(academyLmsCopy.t('verifyIntro')).toContain('does not look at your account');
+    expect(academyLmsCopy.t('sheetVerifyHint')).toContain('Anyone signed in to INTAFACED');
+  });
+});
+
+describe('which busy state the buttons report', () => {
+  const free = { stage: noop, disabled: false, isCurrent: () => true, result: null };
+  it('tells this page’s own request from an unconfirmed one, and a free action from both', () => {
+    expect(busyOf(free)).toBeNull();
+    expect(busyOf({ ...free, disabled: true, busy: true })).toBe('inflight');
+    expect(busyOf({ ...free, disabled: true, busy: false, snapshot: { status: 'other' } })).toBe('unconfirmed');
+    expect(busyOf({ ...free, disabled: true, busy: false, snapshot: { status: 'empty', known: {} } })).toBe('unconfirmed');
+    expect(busyOf({ ...free, busy: false, snapshot: { status: 'empty' } })).toBeNull();
+  });
+});
+
 describe('programme enrolments', () => {
   const lessons: LessonSummary[] = [
     { slug: 'f-1', title: 'One', kind: 'lesson', path: 'foundations', order: 1, summary: '', estimatedMinutes: 5 },
@@ -331,7 +367,7 @@ describe('programme enrolments', () => {
         reload={noop}
         groups={groups}
         signedIn
-        busy={false}
+        busy={null}
         onEnrol={noop}
         onLeave={noop}
         {...over}
@@ -388,16 +424,25 @@ describe('programme enrolments', () => {
   });
 
   it('says why when another Academy request is open', () => {
-    const page = view({ busy: true });
-    expect(card(page, 'Foundations')).toContain('Another Academy request on this page is open. Finish or close it first.');
+    const page = view({ busy: 'inflight' });
+    expect(card(page, 'Foundations')).toContain('Academy is answering a request from this page.');
+  });
+
+  it('says the true thing when an earlier request was never confirmed, instead of asking to close something', () => {
+    const page = view({ busy: 'unconfirmed' });
+    expect(card(page, 'Foundations')).toContain('An earlier Academy request was not confirmed. Read the notice on this page.');
+    expect(page).not.toContain('Finish or close it first');
   });
 
   it('keeps every button reason in the guard table', () => {
-    const base = { signedIn: true, enrolments: 'ready' as const, enrolled: false, busy: false };
+    const base = { signedIn: true, enrolments: 'ready' as const, enrolled: false, busy: null as ProgrammeBusy };
     expect(programmeGuards(base)).toEqual({ enrol: null, leave: 'refEnrollmentNotFound' });
     expect(programmeGuards({ ...base, enrolled: true })).toEqual({ enrol: 'enrolReasonEnrolled', leave: null });
-    expect(programmeGuards({ ...base, busy: true })).toEqual({ enrol: 'actionBusyReason', leave: 'refEnrollmentNotFound' });
-    expect(programmeGuards({ ...base, enrolled: true, busy: true })).toEqual({ enrol: 'enrolReasonEnrolled', leave: 'actionBusyReason' });
+    expect(programmeGuards({ ...base, busy: 'inflight' })).toEqual({ enrol: 'actionInFlightReason', leave: 'refEnrollmentNotFound' });
+    expect(programmeGuards({ ...base, enrolled: true, busy: 'unconfirmed' })).toEqual({
+      enrol: 'enrolReasonEnrolled',
+      leave: 'actionUnconfirmedReason',
+    });
     expect(programmeGuards({ ...base, signedIn: false })).toEqual({ enrol: 'signInReason', leave: 'signInReason' });
     expect(programmeGuards({ ...base, enrolments: 'loading' })).toEqual({
       enrol: 'enrolmentsLoadingReason',

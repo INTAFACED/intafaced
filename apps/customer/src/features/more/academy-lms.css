@@ -170,6 +170,7 @@
   border-color: var(--color-accent);
   color: var(--color-text);
 }
+.academy-lms-chip[data-status='failed'],
 .academy-lms-chip[data-status='revoked'] {
   border-color: var(--color-negative);
   color: var(--color-text);

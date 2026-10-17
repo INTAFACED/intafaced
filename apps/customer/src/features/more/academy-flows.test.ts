@@ -146,7 +146,6 @@ describe('submitting answers', () => {
       { questionId: 'q1', choiceId: 'a' },
       { questionId: 'q2', choiceId: 'a' },
     ],
-    attemptsBefore: 1,
   };
 
   it('sends the answers and the attempt reference once and returns the score Academy computed', async () => {
@@ -200,33 +199,47 @@ describe('submitting answers', () => {
     expect(of('assessment.attempts')).toHaveLength(0);
   });
 
-  it('reads the attempt history instead of resending when the reply is lost, and reports an attempt that did land', async () => {
-    const landed = attempt(2, '2026-10-12T10:00:00.000Z');
+  it('does not guess from the attempt history when the reply is lost: it reports unconfirmed and sends nothing more', async () => {
     const { api, of } = harness({
       'assessment.submit': [lostReply()],
-      'assessment.attempts': [ok([landed, attempt(1, '2026-10-11T10:00:00.000Z')])],
+      'assessment.attempts': [ok([attempt(2, '2026-10-12T10:00:00.000Z')])],
     });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome).toMatchObject({ kind: 'recovered', attempt: { score: 2 } });
-    expect(of('assessment.submit')).toHaveLength(1);
-    expect(of('assessment.attempts')).toHaveLength(1);
-  });
-
-  it('says the attempt was not recorded when the history shows nothing new, still without resending', async () => {
-    const { api, of } = harness({
-      'assessment.submit': [json(502, { error: 'bad gateway' })],
-      'assessment.attempts': [ok([attempt(1, '2026-10-11T10:00:00.000Z')])],
-    });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome.kind).toBe('not-recorded');
-    expect(of('assessment.submit')).toHaveLength(1);
-  });
-
-  it('keeps the answers and asks for a check when the lost reply cannot be checked either', async () => {
-    const { api, of } = harness({ 'assessment.submit': [lostReply()], 'assessment.attempts': [lostReply()] });
     const outcome = await submitAssessment(api, input);
     expect(outcome.kind).toBe('unconfirmed');
     expect(of('assessment.submit')).toHaveLength(1);
+    expect(of('assessment.attempts')).toHaveLength(0);
+  });
+
+  it('never shows another tab’s score as this attempt’s: a history that grew meanwhile changes nothing', async () => {
+    // Another tab scored 3 while this tab's reply was lost. The history has grown, but its rows carry no attempt reference.
+    const other = attempt(3, '2026-10-12T10:00:00.000Z');
+    const { api } = harness({
+      'assessment.submit': [json(502, { error: 'bad gateway' })],
+      'assessment.attempts': [ok([other, attempt(1, '2026-10-11T10:00:00.000Z')])],
+    });
+    const outcome = await submitAssessment(api, input);
+    expect(outcome.kind).toBe('unconfirmed');
+    expect(JSON.stringify(outcome)).not.toContain('"score":3');
+  });
+
+  it('settles a lost reply by sending the same answers under the same reference, and shows what Academy returns for it', async () => {
+    const stored = attempt(2, '2026-10-12T10:00:00.000Z');
+    const { api, of } = harness({ 'assessment.submit': [lostReply(), ok(stored)] });
+    expect((await submitAssessment(api, input)).kind).toBe('unconfirmed');
+    const second = await submitAssessment(api, input);
+    expect(second).toMatchObject({ kind: 'scored', attempt: { score: 2 } });
+    const bodies = of('assessment.submit').map((call) => call.body as typeof input);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]!.clientAttemptId).toBe(bodies[1]!.clientAttemptId);
+    expect(bodies[0]!.answers).toEqual(bodies[1]!.answers);
+  });
+
+  it('shows a typed refusal for the repeat as the answer for this attempt', async () => {
+    const { api } = harness({
+      'assessment.submit': [lostReply(), refusal(429, 'TOO_MANY_REQUESTS', 'academy.attempt_limit', 'academy.attempt_limit slug=x')],
+    });
+    expect((await submitAssessment(api, input)).kind).toBe('unconfirmed');
+    expect((await submitAssessment(api, input)).kind).toBe('refused');
   });
 
   it('makes a fresh attempt reference for every answering session', () => {

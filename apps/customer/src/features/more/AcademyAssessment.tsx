@@ -6,6 +6,7 @@ import { Button, Loading } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
 import {
   academyCodeOf,
+  academyRefusalKey,
   maxScoreOf,
   newAttemptId,
   readAssessment,
@@ -21,29 +22,14 @@ import './academy-lms.css';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 export type History = { status: 'loading' } | { status: 'ready'; data: Attempt[] } | { status: 'failed'; failure: Failure };
-export type Problem = { kind: 'failure'; failure: Failure } | { kind: 'not-recorded' } | { kind: 'unconfirmed'; failure: Failure };
+export type Problem = { kind: 'failure'; failure: Failure } | { kind: 'unconfirmed'; failure: Failure };
 export type Result = { attempt: Attempt; recovered: boolean };
 
-export type SubmitBlock =
-  | { key: 'submitInFlight' }
-  | { key: 'submitCheckFirst' }
-  | { key: 'submitNeedsHistory' }
-  | { key: 'submitNeedsAnswers'; remaining: number };
+export type SubmitBlock = { key: 'submitInFlight' } | { key: 'submitNeedsAnswers'; remaining: number };
 
-/**
- * Why Submit is off, or null when it is on. The order matters: a request in flight and a lost reply come before
- * anything the person can fix by answering, and the attempt history must be loaded so a lost reply can be checked.
- */
-export function submitBlock(state: {
-  sending: boolean;
-  unconfirmed: boolean;
-  historyReady: boolean;
-  refreshing: boolean;
-  remaining: number;
-}): SubmitBlock | null {
+/** Why Submit is off, or null when it is on. A request in flight comes before anything the person can fix by answering. */
+export function submitBlock(state: { sending: boolean; remaining: number }): SubmitBlock | null {
   if (state.sending) return { key: 'submitInFlight' };
-  if (state.unconfirmed) return { key: 'submitCheckFirst' };
-  if (!state.historyReady || state.refreshing) return { key: 'submitNeedsHistory' };
   if (state.remaining > 0) return { key: 'submitNeedsAnswers', remaining: state.remaining };
   return null;
 }
@@ -143,7 +129,7 @@ export type QuizViewProps = {
   block: SubmitBlock | null;
   onSubmit: () => void;
   onAnswerAgain: () => void;
-  onCheckHistory: () => void;
+  onResend: () => void;
   onRetryHistory: () => void;
   onReloadQuestions: () => void;
 };
@@ -159,7 +145,8 @@ export function QuizView(props: QuizViewProps) {
   useEffect(() => {
     if (result) resultRef.current?.focus();
   }, [result]);
-  const locked = props.sending || result !== null;
+  // After a lost reply the answers stay exactly as sent: the repeat must be the same attempt. Only "Answer again" unlocks them.
+  const locked = props.sending || result !== null || problem?.kind === 'unconfirmed';
   const invalidAnswers = problem?.kind === 'failure' && academyCodeOf(problem.failure) === 'academy.assessment_invalid';
   const reasonText = block
     ? block.key === 'submitNeedsAnswers'
@@ -170,13 +157,13 @@ export function QuizView(props: QuizViewProps) {
     <div className="academy-lms-stack">
       <div className="academy-lms-meta">
         <span>{t('assessmentPassMark', { passMark: assessment.passMark, maxScore: maxScoreOf(assessment) })}</span>
-        <span role="status">{t('answeredCount', { answered, total })}</span>
+        <span>{t('answeredCount', { answered, total })}</span>
       </div>
       <form
         className="academy-lms-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!block && !result) props.onSubmit();
+          if (!block && !result && problem?.kind !== 'unconfirmed') props.onSubmit();
         }}
         aria-busy={props.sending}
       >
@@ -207,7 +194,7 @@ export function QuizView(props: QuizViewProps) {
             </fieldset>
           ))}
         </div>
-        {!result && (
+        {!result && problem?.kind !== 'unconfirmed' && (
           <GuardedButton type="submit" reasonId={`${id}-reason`} reason={reasonText} variant="primary">
             {props.sending ? t('submitting') : t('submitAnswers')}
           </GuardedButton>
@@ -215,17 +202,23 @@ export function QuizView(props: QuizViewProps) {
       </form>
       {props.sending && <Loading label={t('submitting')} />}
       {problem?.kind === 'failure' && <AcademyRefusal failure={problem.failure} />}
-      {problem?.kind === 'not-recorded' && (
-        <div className="failure" role="alert">
-          <p>{t('submitNotRecorded')}</p>
-        </div>
-      )}
       {problem?.kind === 'unconfirmed' && (
         <div className="failure" role="alert">
           <p>{t('submitUnconfirmed')}</p>
-          <Button variant="secondary" onClick={props.onCheckHistory}>
-            {t('checkAttempts')}
-          </Button>
+          <GuardedButton
+            type="button"
+            variant="secondary"
+            reasonId={`${id}-resend-reason`}
+            reason={props.sending ? t('submitInFlight') : null}
+            onClick={props.onResend}
+          >
+            {props.sending ? t('submitting') : t('resendSame')}
+          </GuardedButton>
+          <div>
+            <Button variant="secondary" onClick={props.onAnswerAgain}>
+              {t('answerAgain')}
+            </Button>
+          </div>
         </div>
       )}
       {invalidAnswers && (
@@ -259,18 +252,19 @@ export function QuizView(props: QuizViewProps) {
 }
 
 /**
- * Answering state for one assessment. A submit is sent once per attempt reference; when its reply is lost the attempt
- * history is read, and nothing is sent again until that history has been checked.
+ * Answering state for one assessment. Answers are sent under one attempt reference. When a reply is lost nothing is
+ * guessed from the attempt history: the answers lock and the person sends the same answers again, which Academy
+ * answers with the result it stored for that reference.
  */
 function Quiz({ assessment, onReload }: { assessment: AssessmentData; onReload: () => void }) {
   const api = useApi();
-  const { history, refreshing, refresh } = useAttemptHistory(assessment.slug);
+  const { history, refresh } = useAttemptHistory(assessment.slug);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
   const attemptId = useRef(newAttemptId());
-  const lostReplyBase = useRef<number | null>(null);
+  const firstReplyLost = useRef(false);
   const inFlight = useRef(false);
   const live = useRef(true);
   useEffect(() => {
@@ -280,55 +274,37 @@ function Quiz({ assessment, onReload }: { assessment: AssessmentData; onReload: 
     };
   }, []);
   const remaining = assessment.questions.filter((q) => answers[q.id] === undefined).length;
-  const block = submitBlock({
-    sending,
-    unconfirmed: problem?.kind === 'unconfirmed',
-    historyReady: history.status === 'ready',
-    refreshing,
-    remaining,
-  });
+  const block = submitBlock({ sending, remaining });
 
-  async function submit() {
-    if (inFlight.current || block !== null || history.status !== 'ready' || result) return;
+  async function send() {
+    if (inFlight.current || result || remaining > 0) return;
     inFlight.current = true;
     setSending(true);
     setProblem(null);
-    const before = history.data.length;
     const outcome = await submitAssessment(api, {
       slug: assessment.slug,
       clientAttemptId: attemptId.current,
       answers: assessment.questions.map((q) => ({ questionId: q.id, choiceId: answers[q.id]! })),
-      attemptsBefore: before,
     });
     inFlight.current = false;
     if (!live.current) return;
     setSending(false);
-    if (outcome.kind === 'scored') setResult({ attempt: outcome.attempt, recovered: false });
-    else if (outcome.kind === 'recovered') setResult({ attempt: outcome.attempt, recovered: true });
-    else if (outcome.kind === 'not-recorded') setProblem({ kind: 'not-recorded' });
+    if (outcome.kind === 'scored') setResult({ attempt: outcome.attempt, recovered: firstReplyLost.current });
     else if (outcome.kind === 'unconfirmed') {
-      lostReplyBase.current = before;
+      firstReplyLost.current = true;
       setProblem({ kind: 'unconfirmed', failure: outcome.failure });
-    } else setProblem({ kind: 'failure', failure: outcome.failure });
-    // Every outcome re-reads the history, so the list and the next submit's baseline are Academy's own.
-    if (outcome.kind !== 'unconfirmed') void refresh();
-  }
-
-  async function checkHistory() {
-    const base = lostReplyBase.current ?? (history.status === 'ready' ? history.data.length : 0);
-    const read = await refresh();
-    if (!read.ok || !live.current) return;
-    lostReplyBase.current = null;
-    const newest = read.data[0];
-    if (newest && read.data.length > base) {
-      setResult({ attempt: newest, recovered: true });
-      setProblem(null);
-    } else setProblem({ kind: 'not-recorded' });
+    } else {
+      // A typed refusal means Academy stored nothing under this reference, so there is no lost reply to account for.
+      firstReplyLost.current = false;
+      setProblem({ kind: 'failure', failure: outcome.failure });
+    }
+    // The list is only a display; it never decides what this attempt scored.
+    void refresh();
   }
 
   function answerAgain() {
     attemptId.current = newAttemptId();
-    lostReplyBase.current = null;
+    firstReplyLost.current = false;
     setAnswers({});
     setResult(null);
     setProblem(null);
@@ -344,9 +320,9 @@ function Quiz({ assessment, onReload }: { assessment: AssessmentData; onReload: 
       problem={problem}
       history={history}
       block={block}
-      onSubmit={() => void submit()}
+      onSubmit={() => void send()}
       onAnswerAgain={answerAgain}
-      onCheckHistory={() => void checkHistory()}
+      onResend={() => void send()}
       onRetryHistory={() => void refresh()}
       onReloadQuestions={onReload}
     />
@@ -370,7 +346,12 @@ export function Assessment({ slug, prompts }: { slug: string; prompts: readonly 
       {resource.status === 'loading' && <Loading />}
       {resource.status === 'failed' && (
         <>
-          <AcademyRefusal failure={resource.failure} retry={quiz.reload} />
+          {academyRefusalKey(resource.failure) === 'refAssessmentUnpublished' ? (
+            // A lesson with no assessment is an ordinary state, not an error: a quiet note, not a failure box.
+            <p className="muted">{t('refAssessmentUnpublished')}</p>
+          ) : (
+            <AcademyRefusal failure={resource.failure} retry={quiz.reload} />
+          )}
           <StudyQuestions prompts={prompts} />
         </>
       )}

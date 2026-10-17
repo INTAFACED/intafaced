@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
+import { useResource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
@@ -20,25 +21,46 @@ import { verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
 import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip } from './AcademyLmsParts';
 
-const param = (name: string) => new URLSearchParams(window.location.search).get(name) ?? '';
+const param = (name: string) => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? ''));
 
 /** Certificates tab: every published certificate with its real state, the printable document, and the verify box. */
 export function CertificateShelf() {
   const overview = useAcademyTracking();
+  const [reference, setReference] = useState(param('verify'));
+  // The verify box needs only the code, so a failed or empty tracking read never hides it.
   return (
-    <Read resource={overview.resource} retry={overview.reload}>
-      {(data) => <Shelf lessons={data.lessons} tracking={data.tracking} />}
-    </Read>
+    <div className="academy-lms-stack">
+      <Read resource={overview.resource} retry={overview.reload}>
+        {(data) => (
+          <Shelf
+            lessons={data.lessons}
+            tracking={data.tracking}
+            onCheckCode={(code) => {
+              setReference(code);
+              document.getElementById(VERIFY_FIELD)?.focus();
+            }}
+          />
+        )}
+      </Read>
+      <VerifyPanel reference={reference} onReference={setReference} />
+    </div>
   );
 }
 
-function Shelf({ lessons, tracking }: { lessons: readonly LessonSummary[]; tracking: Tracking }) {
+function Shelf({
+  lessons,
+  tracking,
+  onCheckCode,
+}: {
+  lessons: readonly LessonSummary[];
+  tracking: Tracking;
+  onCheckCode: (code: string) => void;
+}) {
   const { t, Copy } = copy.useCopy();
   const cards = certificateCards(tracking);
   const earned = cards.filter((c) => c.state === 'earned');
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
-  const [reference, setReference] = useState(param('verify'));
   if (cards.length === 0)
     return (
       <Panel title={t('shelfTitle')}>
@@ -61,17 +83,7 @@ function Shelf({ lessons, tracking }: { lessons: readonly LessonSummary[]; track
           </div>
         </div>
       </Panel>
-      {view && (
-        <CertificateSheet
-          card={view}
-          lessons={lessons}
-          onCheckCode={(code) => {
-            setReference(code);
-            document.getElementById(VERIFY_FIELD)?.focus();
-          }}
-        />
-      )}
-      <VerifyPanel reference={reference} onReference={setReference} />
+      {view && <CertificateSheet card={view} lessons={lessons} onCheckCode={onCheckCode} />}
     </div>
   );
 }
@@ -161,13 +173,10 @@ function CertificateSheet({
           <p>
             <Copy k="sheetBody" params={{ count: doc.requirements }} />
           </p>
-          <code lang="zxx">{doc.holder}</code>
+          {doc.code && <SheetHolder code={doc.code} />}
           <p>
             <Copy k="sheetIssued" params={{ date: formatDay(doc.issuedAt, language) }} />
           </p>
-          <small>
-            <Copy k="sheetReference" />: <code lang="zxx">{doc.reference}</code>
-          </small>
           {doc.code && (
             <>
               <small>
@@ -189,8 +198,36 @@ function CertificateSheet({
             </Button>
           )}
         </div>
+        {/* Outside the printed sheet on purpose: the account id and the grant reference are private record keys. */}
+        <details className="muted">
+          <summary>
+            <Copy k="sheetPrivate" />
+          </summary>
+          <Details
+            items={[
+              [t('sheetAccount'), <code lang="zxx">{doc.holder}</code>],
+              [t('sheetReference'), <code lang="zxx">{doc.reference}</code>],
+            ]}
+          />
+        </details>
       </div>
     </Panel>
+  );
+}
+
+/** The holder as the public check shows it: the name only when the holder agreed to share it. Nothing is shown while that is unknown. */
+export function SheetHolder({ code }: { code: string }) {
+  const api = useApi();
+  const { t } = copy.useCopy();
+  const holder = useResource((signal) => verifyCertificate(api, code, signal), `sheet-holder:${code}`);
+  if (holder.resource.status !== 'ready') return null;
+  const name = holder.resource.data.holderName;
+  return (
+    <p>
+      <small className="muted">{t('verifyHolder')}</small>
+      <br />
+      {name ? <span lang="und">{name}</span> : t('holderNotShared')}
+    </p>
   );
 }
 

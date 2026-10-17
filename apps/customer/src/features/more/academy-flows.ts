@@ -64,22 +64,20 @@ export const newAttemptId = () => `attempt-${crypto.randomUUID()}`;
 export type SubmitOutcome =
   /** Academy replied with the score. */
   | { kind: 'scored'; attempt: Attempt }
-  /** The reply was lost, and the attempt history shows a new attempt: it is read back from there. */
-  | { kind: 'recovered'; attempt: Attempt; attempts: Attempt[] }
-  /** The reply was lost, and the attempt history shows nothing new. */
-  | { kind: 'not-recorded'; attempts: Attempt[] }
-  /** The reply was lost and the history could not be read either. */
+  /** The reply never arrived. Nothing is known about this attempt until the same reference is sent again. */
   | { kind: 'unconfirmed'; failure: Failure }
   /** Academy refused the submission in words (attempt limit, cooldown, answers that do not match). */
   | { kind: 'refused'; failure: Failure };
 
 /**
- * Submit answers once. A reply that never arrives (connection dropped, gateway error) is not resent: the attempt
- * history is read instead and compared with the count from before the submit.
+ * Send answers under one attempt reference. A reply that never arrives (connection dropped, gateway error) is never
+ * guessed at from the attempt history: its rows carry no reference, so another tab's attempt could be mistaken for this
+ * one. The caller keeps the reference and sends the same answers again; the service answers a repeated reference with
+ * the row it stored for it, without scoring again and before any attempt-limit or cooldown check.
  */
 export async function submitAssessment(
   api: ApiClient,
-  input: { slug: string; clientAttemptId: string; answers: readonly { questionId: string; choiceId: string }[]; attemptsBefore: number },
+  input: { slug: string; clientAttemptId: string; answers: readonly { questionId: string; choiceId: string }[] },
 ): Promise<SubmitOutcome> {
   const result = await api.mutate(
     'academy',
@@ -89,11 +87,7 @@ export async function submitAssessment(
   );
   if (result.ok) return { kind: 'scored', attempt: result.data };
   if (result.reason !== 'uncertain') return { kind: 'refused', failure: result };
-  const history = await readAttempts(api, input.slug);
-  if (!history.ok) return { kind: 'unconfirmed', failure: result };
-  const newest = history.data[0];
-  if (newest && history.data.length > input.attemptsBefore) return { kind: 'recovered', attempt: newest, attempts: history.data };
-  return { kind: 'not-recorded', attempts: history.data };
+  return { kind: 'unconfirmed', failure: result };
 }
 
 // ------------------------------------------------------------ certificate check
