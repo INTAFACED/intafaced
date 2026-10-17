@@ -17,6 +17,7 @@ import {
   rememberPendingOutcome,
   type PendingReservation,
 } from './pending-outcomes';
+import { settleRefusal } from './money-refusal-copy';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -436,7 +437,11 @@ export function MutationDialog({
       if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
       // Local transfer validation precedes HTTP dispatch. Auth refusals occur
       // before the Bank handler. Other failures cannot prove non-settlement.
-      const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
+      // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
+      const settled = settleRefusal(outcome);
+      outcome = settled.outcome;
+      const definitive =
+        outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
       if (definitive) {
         try {
           await clearPendingOutcome(reservation, currentRun);
