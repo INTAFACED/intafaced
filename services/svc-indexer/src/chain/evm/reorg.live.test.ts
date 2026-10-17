@@ -485,12 +485,16 @@ if (!reachable) {
       it('states how stale it is, through the API a caller actually sees', async () => {
         await harness.reset();
         const store = harness.store();
-        const indexer = await indexerOver(store);
+        // The book is served as of the FINALIZED height (head − finalityDepth), not the head. With the
+        // default depth of 64 on a dev chain only a few dozen blocks tall nothing is finalized yet and
+        // asOfHeight is null, so use a small depth that this test's own blocks can clear.
+        const finalityDepth = 2;
+        const indexer = await indexerOver(store, finalityDepth);
         const router = createIndexerRouter({
           store,
           indexer,
           chainId: DEV_CHAIN_ID,
-          finalityDepth: 64,
+          finalityDepth,
           ingestEnabled: () => true,
           chainSource: 'evm',
           chainProbe: () => source.probe(),
@@ -498,6 +502,8 @@ if (!reachable) {
         const caller = router.createCaller({ requestId: 'live', region: 'DE', principal: null } as never);
 
         await publishAll({ price: '77', quantity: '1', fillQuantity: '1', size: '1' });
+        // Bury the publish block by `finalityDepth` so it is finalized (and held) when the book is read.
+        await mine(clients.publicClient, finalityDepth);
         await indexer.sync();
 
         const current = await caller.status();
@@ -516,9 +522,11 @@ if (!reachable) {
         expect(behind.chain!.chainHeight).toBe(behind.indexedHeight! + 5);
 
         // The book still says which block it is confirmed to, so a client holding
-        // both can tell how old the ladder in front of it is.
+        // both can tell how old the ladder in front of it is. Since #4563 that block
+        // is the finalized one: finalityDepth behind the indexed head, not the head.
         const book = await caller.book({ market: MARKET, depth: 5 });
-        expect(book.asOfHeight).toBe(behind.indexedHeight);
+        expect(behind.finalizedHeight).toBe(behind.indexedHeight! - finalityDepth);
+        expect(book.asOfHeight).toBe(behind.finalizedHeight);
       }, 120_000);
 
       /**
