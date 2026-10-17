@@ -14,9 +14,11 @@ import { effectiveReserve, loadMerchantControl } from './store.js';
  * and releasing it on `reserve_release_at`, is refused with a typed error until
  * the ledger owner adds a recipe. Nothing here invents one.
  *
- * `set_reserve` with a percentage, and `payoutSettlement` for a merchant who
- * already has one, both refuse with `pay.reserve_ledger_unwired`. Clearing a
- * reserve (both fields null) still applies. Existing rows are not rewritten.
+ * `set_reserve` with a percentage refuses with `pay.reserve_ledger_unwired`.
+ * A fresh payout for a merchant who already has one refuses the same way,
+ * before any admission. A resumed admission finishes under the net it was
+ * admitted with. Clearing a reserve (both fields null) still applies.
+ * Existing rows are not rewritten.
  */
 export const RESERVE_NOT_ENFORCED = PAY_RESERVE_NOT_ENFORCED;
 
@@ -30,9 +32,10 @@ export function assertReserveMayBeConfigured(reserve: { rollingReserveBps: numbe
 }
 
 /**
- * A merchant who already carries a non-null reserve must not be paid the full
- * settlement net. There is no recipe to hold the reserved part, so the payout
- * is refused and nothing is admitted.
+ * A fresh payout for a reserved merchant is refused before any admission.
+ * A resumed admission finishes under the net it was admitted with; callers
+ * run this only when no admission existed at entry. There is no recipe to
+ * hold the reserved part, so a non-null reserve must not leave as the full net.
  *
  * A database that has not migrated the control tables has no reserve rows.
  * That is "no reserve", and the payout continues. Any other read failure still

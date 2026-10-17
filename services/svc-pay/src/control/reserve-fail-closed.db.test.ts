@@ -190,4 +190,47 @@ describe('rolling reserve fails closed until a ledger recipe exists', () => {
     expect(await proceeds(m.id)).toBe('0');
     expect(chain.totalSent('USDT')).toBe('10');
   });
+
+  it('a payout admitted before the reserve existed still completes', async () => {
+    const m = await merchant();
+    let crashed = false;
+    const crashing = new PayService(
+      sql,
+      ledger,
+      new RailRegistry([
+        new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 }),
+        new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
+        new BankPayoutAbsentAdapter(),
+      ]),
+      {
+        payoutDestinations: new MerchantPayoutDestinationStore(sql),
+        checkoutRiskBand: 'low',
+        routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((p) => ({ ...p })),
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+        afterPayoutAdmission: () => {
+          if (crashed) return;
+          crashed = true;
+          throw new Error('test.admission_crash');
+        },
+      },
+    );
+    const settlement = await settled(m.id, 'w-admitted-before-reserve');
+    const input = { settlementId: settlement.id, railId: 'crypto-native', destination: DEST };
+    await expect(crashing.payoutSettlement(input)).rejects.toThrow('test.admission_crash');
+    expect((await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${settlement.id}`).length).toBe(1);
+
+    await sql`
+      INSERT INTO pay.control_merchant_profiles (merchant_id, reserve_override)
+      VALUES (${m.id}, ${sql.json({ rollingReserveBps: 1000, holdDays: 7 })})
+    `;
+    const paid = await crashing.payoutSettlement(input);
+    expect(paid.status).toBe('paid_out');
+    expect(formatAmount(paid.net)).toBe('10');
+    expect(chain.totalSent('USDT')).toBe('10');
+    expect(await proceeds(m.id)).toBe('0');
+    expect((await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${settlement.id}`).length).toBe(1);
+  });
 });

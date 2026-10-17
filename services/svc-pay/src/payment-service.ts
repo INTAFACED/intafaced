@@ -4432,10 +4432,6 @@ export class PayService {
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
-          // A reserve already on the merchant (tier or an override written before
-          // set_reserve refused) must not leave as the full net. No recipe can
-          // hold the reserved part, so the payout stops here: no admission, no hold.
-          await assertPayoutReserveWired(connection, settlement.merchantId);
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
           // Classified before the admission exists. An unrecognised book must
@@ -4443,6 +4439,12 @@ export class PayService {
           // has that row; its book is read below, once, for the plan.
           let payoutBook: 'legacy' | 'proceeds' | undefined;
           if (!admission) {
+            // A resumed admission finishes under the net it was admitted with.
+            // A fresh payout for a reserved merchant is refused before any admission:
+            // a percentage already on the merchant (tier, or an override written before
+            // set_reserve refused) must not leave as the full net. No recipe can hold
+            // the reserved part, so nothing is admitted and no hold is posted.
+            await assertPayoutReserveWired(connection, settlement.merchantId);
             const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
             if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
               throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');
