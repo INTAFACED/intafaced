@@ -41,6 +41,10 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.business.addMember',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
+  'bank.step_up.cards.setLimits',
+  'bank.step_up.cards.reveal',
+  'bank.step_up.cards.pinReveal',
+  'bank.step_up.cards.pinSet',
 ] as const;
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 

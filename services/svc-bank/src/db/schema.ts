@@ -713,6 +713,22 @@ export const cards = bank.table(
      * has this card spent" from the settlement records.
      */
     perAuthorizationLimit: amount('per_authorization_limit').notNull(),
+    /** POLICY ceiling for a UTC day. NULL means no daily ceiling. Not a running total. */
+    dailyLimit: amount('daily_limit'),
+    /** POLICY ceiling for a UTC month. NULL means no monthly ceiling. Not a running total. */
+    monthlyLimit: amount('monthly_limit'),
+    /** POLICY ceiling for ATM cash in a UTC day. NULL means no cash ceiling. */
+    cashLimit: amount('cash_limit'),
+    channelOnline: boolean('channel_online').notNull().default(true),
+    channelContactless: boolean('channel_contactless').notNull().default(true),
+    channelAtm: boolean('channel_atm').notNull().default(true),
+    channelAbroad: boolean('channel_abroad').notNull().default(true),
+    cardType: text('card_type').notNull().default('virtual'),
+    /** Delivery address for a physical card. NULL on a virtual card. Not a PAN. */
+    shippingAddress: jsonb('shipping_address'),
+    replacesCardId: uuid('replaces_card_id'),
+    replacedByCardId: uuid('replaced_by_card_id'),
+    replaceReason: text('replace_reason'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -744,6 +760,8 @@ export const cardAuthorizations = bank.table(
       .references(() => cards.id),
     /** The issuer's reference for this authorisation. The business key. */
     authorizationRef: text('authorization_ref').notNull(),
+    /** Where the purchase was presented: card-present, online, contactless, atm, or foreign. */
+    channel: text('channel').notNull().default('card-present'),
     /**
      * WHAT MOVES, in the card's FUNDING asset. A RECORD of one request, written once.
      *
