@@ -77,7 +77,7 @@ export function AlgoList({
   if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    { id: 'market', header: t('Market'), width: 130, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
     { id: 'side', header: t('Side'), value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
     { id: 'kind', header: t('Kind'), cell: (r) => (r.ok ? <Badge variant="outline">{r.parent.kind.toUpperCase()}</Badge> : null) },
     {
