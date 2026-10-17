@@ -125,16 +125,33 @@ async function both(page, name) {
   await page.setViewportSize({ width: 1440, height: 1000 });
 }
 
-test('invoices: no invented entity, money or write', async ({ page }) => {
+test('invoices: a real list, a create form that reviews the exact amount, and a detail with the actions its status allows', async ({
+  page,
+}) => {
   const { mock, errors } = await setup(page);
   await signIn(page, '/pay/invoices');
-  await expect(page.getByText('Standalone invoice records are not available yet.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create invoice' })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Invoices', level: 1 })).toBeVisible();
+  await expect(page.locator('.pe-table tbody tr').first()).toBeVisible();
+  await expect(page.getByText(/Overdue/)).toHaveCount(0);
+  await page.getByLabel('Status').selectOption('sent');
+  await expect.poll(() => mock.calls.some((c) => c.procedure === 'merchantOps.invoices.list' && c.input.status === 'sent')).toBe(true);
   await both(page, 'P20-invoices');
-  await go(page, '/pay/invoices/TEST-invoice');
-  await expect(page.getByText(/does not confirm whether the reference exists/)).toBeVisible();
+  await go(page, '/pay/invoices/new');
+  await page.getByLabel('Amount').fill('12.345678');
+  await page.getByLabel('Customer reference').fill('TEST-cust-001');
+  await page.getByRole('button', { name: 'Create invoice' }).click();
+  await expect(page.getByRole('dialog')).toContainText('12.345678');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: /Confirm/ })
+    .click();
+  await expect(page).toHaveURL(/\/pay\/invoices\/[0-9a-f-]{36}$/);
+  expect(mock.calls.filter((c) => c.procedure === 'merchantOps.invoices.create')).toHaveLength(1);
+  await expect(page.getByRole('button', { name: 'Send invoice' })).toBeVisible();
   await both(page, 'P21-invoice-detail');
-  expect(mock.calls.some((c) => /invoice\.(create|void|send)/.test(c.procedure))).toBe(false);
+  await go(page, '/pay/invoices/1a000003-0000-4000-8000-000000000003');
+  await expect(page.getByRole('button', { name: 'Send invoice' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Void invoice' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 test('developers: direct routes retain company authority guard', async ({ page }) => {

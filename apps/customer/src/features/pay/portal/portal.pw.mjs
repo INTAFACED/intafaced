@@ -225,17 +225,17 @@ test('team: pending invitations can be accepted or declined', async ({ page }) =
   await expect(page.getByText('Invitation to join a team as Developer')).toHaveCount(0);
 });
 
-test('disputes: filter in the URL, open one, add evidence metadata, then contest', async ({ page }) => {
+test('disputes: filter in the URL, open one, upload evidence, then contest', async ({ page }) => {
   const { mock } = await setup(page);
   await signIn(page, '/pay/disputes');
-  await expect(page.getByRole('region', { name: 'All disputes' }).getByRole('row')).toHaveCount(4);
-  await expect(page.getByText('No deadline has been published')).toBeVisible();
+  await expect(page.locator('.pe-table tbody tr')).toHaveCount(3);
+  await expect(page.getByText('No deadline').first()).toBeVisible();
   await snap(page, '12-disputes');
   await page.getByLabel('Status').selectOption('won');
   await expect(page).toHaveURL(/status=won/);
-  await expect(page.getByRole('region', { name: 'All disputes' }).getByRole('row')).toHaveCount(2);
+  await expect(page.locator('.pe-table tbody tr')).toHaveCount(1);
   await page.getByLabel('Status').selectOption('');
-  await page.getByRole('link', { name: /Open dispute d0000001/ }).click();
+  await page.locator('.pe-table').getByRole('link', { name: 'Open', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Dispute', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Contest the dispute' })).toBeDisabled();
   await expect(page.getByText('Add at least one piece of evidence to contest.')).toBeVisible();
@@ -248,8 +248,8 @@ test('disputes: filter in the URL, open one, add evidence metadata, then contest
     .getByRole('button', { name: /^Confirm/ })
     .click();
   await expect(page.getByRole('cell', { name: /TEST-receipt\.txt/ })).toBeVisible();
-  const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.addEvidence').input;
-  expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', sizeBytes: 21 });
+  const sent = mock.calls.find((c) => c.procedure === 'merchantOps.disputes.uploadEvidence').input;
+  expect(sent).toMatchObject({ fileName: 'TEST-receipt.txt', contentType: 'text/plain', contentBase64: content.toString('base64') });
   expect(sent.sha256).toBe(createHash('sha256').update(content).digest('hex'));
   await snap(page, '13-dispute-detail');
   await page.getByRole('button', { name: 'Contest the dispute' }).click();
@@ -366,41 +366,36 @@ const STL_WAITING = 'bb000003-0000-4000-8000-000000000003';
 const STL_OWN = 'bb000006-0000-4000-8000-000000000006';
 const STL_FAILED = 'bb000005-0000-4000-8000-000000000005';
 
-test('payments: KPI strip, filters in the URL, search, load more, CSV with its times, and a phone layout', async ({ page }) => {
+test('payments: totals with their period, filters the service applies, load more, export, and a phone layout', async ({ page }) => {
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/payments');
   await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Totals for Last 30 days' })).toBeVisible();
+  const totals = page.getByRole('group', { name: 'Totals for Last 30 days' });
+  await expect(totals).toBeVisible();
+  await expect(totals.getByRole('link', { name: /Failed/ })).toHaveAttribute('href', /status=failed&date=30d/);
   await expect(page.getByText('4 s behind').first()).toBeVisible();
-  const table = page.getByRole('region', { name: 'All payments' });
-  await expect(table.getByRole('row')).toHaveCount(26);
-  await expect(page.getByText('25 shown so far. More are available.')).toBeVisible();
+  const rows = page.locator('.pe-table tbody tr');
+  await expect(rows).toHaveCount(25);
+  await expect(page.getByText('Newest 25 · Load more')).toBeVisible();
   await snap(page, '20-payments-desktop');
   await page.getByRole('button', { name: 'Load more' }).click();
-  await expect(table.getByRole('row')).toHaveCount(51);
-  await expect(page).toHaveURL(/limit=50/);
-  expect(mock.calls.filter((c) => c.procedure === 'payment.list').map((c) => c.input.limit)).toEqual(expect.arrayContaining([25, 50]));
-  // status asks the service; the other filters narrow what is loaded
+  await expect(rows).toHaveCount(50);
+  expect(mock.calls.filter((c) => c.procedure === 'payment.list').some((c) => c.input.cursor)).toBe(true);
+  // every filter is asked of the service and lives in the address
   await page.getByLabel('Status').selectOption('failed');
   await expect(page).toHaveURL(/status=failed/);
   await expect.poll(() => mock.calls.some((c) => c.procedure === 'payment.list' && c.input.status === 'failed')).toBe(true);
   await page.getByLabel('Status').selectOption('');
-  await page.getByLabel('Search', { exact: true }).fill('TEST-rail-0010');
-  await expect(page).toHaveURL(/q=TEST-rail-0010/);
-  await expect(table.getByRole('row')).toHaveCount(2);
-  await expect(page.getByText(/1 of the \d+ payments shown match\./)).toBeVisible();
+  await page.getByLabel('Search', { exact: true }).fill('TEST-cust-001');
+  await expect(page).toHaveURL(/q=TEST-cust-001/);
+  await expect.poll(() => mock.calls.some((c) => c.procedure === 'payment.list' && c.input.search === 'TEST-cust-001')).toBe(true);
   await page.getByLabel('Search', { exact: true }).fill('no-such-thing');
-  await expect(page.getByRole('heading', { name: 'No payment shown matches' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No payments match these filters' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await expect(table.getByRole('row')).not.toHaveCount(2);
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download CSV' }).click();
-  const file = await download;
-  expect(file.suggestedFilename()).toBe('payments.csv');
-  const { readFile } = await import('node:fs/promises');
-  const csv = await readFile(await file.path(), 'utf8');
-  expect(csv.split('\r\n')[0]).toContain('"generated_at","as_of"');
-  expect(csv).not.toMatch(/founder|operator/i);
+  await expect(rows.first()).toBeVisible();
+  await page.getByRole('button', { name: 'Export these results' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Search text isn’t part of an export');
+  await page.keyboard.press('Escape');
   await axe(page);
   expect(seen.filter((u) => /founderAdmin/i.test(u))).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -411,28 +406,25 @@ test('payments: KPI strip, filters in the URL, search, load more, CSV with its t
 test('payments: an empty account explains how the first payment appears', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/payments');
-  await expect(page.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create a payment link' }).last()).toHaveAttribute('href', '/pay/links');
+  await expect(page.getByRole('heading', { name: 'Your first payment starts here' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create payment link' }).last()).toHaveAttribute('href', '/pay/links/new');
   await snap(page, '22-payments-empty');
 });
 
 test('payment detail: facts, amounts, timeline, refunds, dispute card; never the payer instrument', async ({ page }) => {
   await setup(page);
   await signIn(page, `/pay/payments/${PAY_REFUNDED}`);
-  await expect(page.getByRole('heading', { name: 'Payment', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2 }).first()).toContainText('Refunded');
   await expect(page.getByText('Still refundable')).toBeVisible();
-  await expect(page.getByText('Fee, net and the price that applied')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Refunds' }).getByRole('row')).toHaveCount(2);
-  await expect(page.getByText('Completed')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Refund or capture this payment' }).first()).toHaveAttribute(
-    'href',
-    new RegExp(`payment=${PAY_REFUNDED}`),
-  );
+  await expect(page.getByRole('heading', { name: 'Summary' })).toBeVisible();
+  await expect(page.getByText('Fee rule')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Refunds' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText('tok_TEST_must_never_show');
   await expect(page.locator('body')).not.toContainText('rail internals');
   await snap(page, '23-payment-detail');
   await go(page, `/pay/payments/${PAY_DISPUTED}`);
-  await expect(page.getByRole('heading', { name: 'Dispute', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Dispute', level: 2 }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open the dispute' })).toHaveAttribute(
     'href',
     '/pay/disputes/d0000001-0000-4000-8000-000000000001',

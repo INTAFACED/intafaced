@@ -90,6 +90,59 @@ export function createPaymentsMock(ctx) {
     })),
   });
 
+  // ---- links, subscriptions, mandates (TEST data; real-shaped ids; lists come back as pages, as on main) ----
+  state.links = activity
+    ? Array.from({ length: 8 }, (_, i) => ({
+        id: hex('1c', i + 1),
+        prefix: `TESTl${i + 1}`,
+        label: `TEST link ${i + 1}`,
+        amount: i % 2 ? '25.00' : null,
+        currency: i % 2 ? 'USDT' : null,
+        active: i !== 3,
+        expiresAt: iso(now + (i === 5 ? -2 : 20) * DAY),
+        maxUses: i % 3 === 0 ? 10 : null,
+        uses: i,
+        createdAt: iso(now - (i + 1) * DAY),
+      }))
+    : [];
+  state.mandates = activity
+    ? Array.from({ length: 4 }, (_, i) => ({
+        id: hex('1d', i + 1),
+        merchantId: MERCHANT_ID,
+        customerId: `TEST-cust-${String(i + 1).padStart(3, '0')}`,
+        assetId: 'USDT',
+        amount: '19.00',
+        ceiling: i % 2 ? '25.00' : null,
+        cadence: 'monthly',
+        startsAt: iso(now - 40 * DAY),
+        endsAt: null,
+        railAdapter: 'crypto-native',
+        railMandateRef: null,
+        status: i === 3 ? 'cancelled' : 'active',
+        cancelledAt: i === 3 ? iso(now - DAY) : null,
+        createdAt: iso(now - 40 * DAY),
+      }))
+    : [];
+  state.subscriptions = activity
+    ? state.mandates.map((m, i) => ({
+        id: hex('1e', i + 1),
+        mandateId: m.id,
+        merchantId: MERCHANT_ID,
+        customerId: m.customerId,
+        nextRunAt: iso(now + (i + 1) * DAY),
+        status: ['active', 'active', 'paused', 'cancelled'][i],
+        cancelledAt: i === 3 ? iso(now - DAY) : null,
+        path: 'crypto_invoice',
+        createdAt: iso(now - 40 * DAY),
+        anchorAt: iso(now - 40 * DAY),
+        anchorOccurrence: 1,
+        pausedAt: i === 2 ? iso(now - 2 * DAY) : null,
+        resumedAt: null,
+        stalledAt: i === 2 ? iso(now - 2 * DAY) : null,
+        stallReason: i === 2 ? 'arrears' : null,
+      }))
+    : [];
+
   // ---- invoices (TEST data): every status, so the list, the filters and each action can be shown ----
   const invoiceRow = (n, status, extra = {}) => ({
     id: hex('1a', n),
@@ -354,6 +407,69 @@ export function createPaymentsMock(ctx) {
           i.paidAt = iso(Date.now());
           i.updatedAt = iso(Date.now());
           return ok(route, i);
+        }
+        case 'merchant.listLinks':
+          return ok(route, page(state.links, input));
+        case 'subscription.list':
+          return ok(route, page(state.subscriptions, input));
+        case 'mandate.list':
+          return ok(route, page(state.mandates, input));
+        case 'subscription.get': {
+          const x = state.subscriptions.find((y) => y.id === input.subscriptionId);
+          return x ? ok(route, x) : refuse(route, 404, 'pay.subscription_not_found');
+        }
+        case 'mandate.get': {
+          const x = state.mandates.find((y) => y.id === input.mandateId);
+          return x ? ok(route, x) : refuse(route, 404, 'pay.mandate_not_found');
+        }
+        case 'subscription.listExecutions':
+          return ok(
+            route,
+            [1, 2].map((n) => ({
+              id: hex('1f', n),
+              subscriptionId: input.subscriptionId,
+              occurrence: n,
+              amount: '19.00',
+              status: n === 1 ? 'settled' : 'rejected',
+              paymentId: n === 1 ? hex('aa', 1) : null,
+              rejectionCode: n === 1 ? null : 'pay.insufficient_funds',
+              attemptedAt: iso(now - (3 - n) * 10 * DAY),
+              settledAt: n === 1 ? iso(now - 29 * DAY) : null,
+              createdAt: iso(now - (3 - n) * 10 * DAY),
+              notifyStatus: null,
+              notifyCode: null,
+            })),
+          );
+        case 'subscription.cycles':
+          return ok(route, { subscriptionId: input.subscriptionId, cycles: [] });
+        case 'subscription.productReady':
+          return ok(route, {
+            paths: [{ path: 'crypto_invoice', charge: 'open_crypto_invoice', opensMoney: true, posture: 'TEST posture' }],
+            preChargeNotify: { status: 'unwired', notified: false, merchantReadable: 'TEST notices are not connected' },
+            card: { status: 'refuse_closed', code: 'pay.mandate_rail_absent' },
+          });
+        case 'merchantOps.disputes.uploadEvidence': {
+          const row = {
+            evidenceId: `e${Date.now()}`,
+            kind: input.kind,
+            fileName: input.fileName,
+            contentType: input.contentType,
+            sizeBytes: String(Math.floor((input.contentBase64.length * 3) / 4)),
+            sha256: input.sha256 ?? 'cd'.repeat(32),
+            note: input.note ?? null,
+            addedBy: USER_ID,
+            createdAt: iso(Date.now()),
+            hasContent: true,
+          };
+          (state.evidence[input.disputeId] ??= []).push({ ...row, content: input.contentBase64 });
+          return ok(route, row);
+        }
+        case 'merchantOps.disputes.getEvidence': {
+          const all = Object.values(state.evidence).flat();
+          const e = all.find((x) => x.evidenceId === input.evidenceId);
+          if (!e) return refuse(route, 404, 'pay.dispute_evidence_not_found');
+          if (!e.content) return refuse(route, 409, 'pay.dispute_evidence_content_absent');
+          return ok(route, e);
         }
         case 'merchantOps.disputes.summary': {
           const by = { open: 0, contested: 0, accepted: 0, won: 0, lost: 0 };
