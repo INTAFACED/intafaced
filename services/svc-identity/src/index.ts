@@ -128,6 +128,11 @@ await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
     'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
   );
 });
+await sql`SELECT code_hash FROM password_reset_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: password_reset_proofs is missing — apply drizzle/0031_password_reset_proofs.sql before starting svc-identity',
+  );
+});
 await sql`SELECT successor_refresh FROM sessions LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sessions.successor_refresh is missing — apply drizzle/0032_session_refresh_grace.sql before starting svc-identity',
@@ -182,6 +187,10 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
 );
+// Lifetime can be published without a mail port. With either one missing, every
+// reset request refuses auth.reset_unwired. No mailer is installed in this
+// process: svc-notify is a different module, and this service does not invent one.
+auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);

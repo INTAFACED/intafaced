@@ -241,6 +241,51 @@ const schema = baseEnvSchema
       ),
 
       /**
+       * MULTIPLEXED DOOR (`GET /stream` with no `market`) — see `mux/protocol.ts`.
+       *
+       * Owner-published ceiling on subscriptions (channels) one multiplexed
+       * connection may hold. Blank / unset is unpublished — the connection is
+       * closed 1008 `ws.close.mux_max_subscriptions_unset`. A git default of 64
+       * looks published. Never invent a ceiling.
+       */
+      WS_MUX_MAX_SUBSCRIPTIONS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
+       * Owner-published inbound operation budget per multiplexed connection
+       * (a token bucket: a subscribe of N channels costs N, uncapped). An
+       * operation with more channels than this rate is refused `bad_request`
+       * and closed 1008 `ws.close.mux_rate_limited`. Any later operation that
+       * does not fit the remaining tokens closes the same way. Blank / unset is
+       * unpublished — closed 1008 `ws.close.mux_max_ops_per_second_unset`.
+       * Never invent a rate.
+       */
+      WS_MUX_MAX_OPS_PER_SECOND: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
+       * All-markets ticker channel. A market's row is sent at most once per this
+       * many ms (the product spec is "about one update a second per market").
+       */
+      WS_TICKER_THROTTLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
+
+      /**
+       * How often svc-trade's `GET /api/v1/tickers` is read while at least one
+       * connection watches the ticker channel. Nothing is read while nobody does.
+       */
+      WS_TICKER_POLL_MS: z.coerce.number().int().min(250).max(60_000).default(1_000),
+
+      /**
+       * How often each WATCHED (market, interval) candle is re-read from
+       * svc-trade's `GET /api/v1/ohlcv`. Nothing is read while nobody watches.
+       */
+      WS_CANDLE_POLL_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
+
+      /**
        * Process kill-switch via env (`WS_GATEWAY_ENABLED=false`), restart, or
        * SIGTERM/SIGINT (handler flips enabled off). svc-edge admin kill-switch
        * cannot halt this process — ws is not on the edge route table. When false
@@ -297,6 +342,11 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_DROP_COPY_DURABLE',
   'WS_DROP_COPY_RECENT_LIMIT',
   'WS_GATEWAY_ENABLED',
+  'WS_MUX_MAX_SUBSCRIPTIONS',
+  'WS_MUX_MAX_OPS_PER_SECOND',
+  'WS_TICKER_THROTTLE_MS',
+  'WS_TICKER_POLL_MS',
+  'WS_CANDLE_POLL_MS',
   'WS_COD_MIN_LEASE_MS',
   'WS_COD_MAX_LEASE_MS',
 ] as const;

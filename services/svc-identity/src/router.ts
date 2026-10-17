@@ -317,6 +317,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.session_denied':
     case 'auth.session_revoked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    case 'auth.reset_proof_invalid':
+      // Same sentence for a wrong, expired, spent, or unknown-email proof.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.reset_unwired':
+      // No mail port or no owner-published lifetime. Same answer for every address.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
   }
 }
 
@@ -782,6 +788,44 @@ export function createIdentityRouter(
               throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
             }
             throw toFactorError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 1 (D-38). Same answer whether or not
+       * the email is registered. The one-time code is mailed, never returned.
+       * The password hash does not change here.
+       */
+      requestPasswordReset: publicProcedure
+        .input(z.object({ email: z.string().trim().email().max(320) }))
+        .output(z.object({ accepted: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.requestPasswordReset({ email: input.email });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Signed-out password reset, step 2. A correct proof replaces the hash
+       * and ends the old sessions. This does not sign the caller in.
+       */
+      completePasswordReset: publicProcedure
+        .input(
+          z.object({
+            email: z.string().trim().email().max(320),
+            code: z.string().trim().min(1).max(200),
+            newPassword: z.string().max(200),
+          }),
+        )
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            await auth.completePasswordReset(input);
+            return { ok: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 

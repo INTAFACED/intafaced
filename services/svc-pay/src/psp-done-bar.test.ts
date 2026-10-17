@@ -86,6 +86,7 @@ function stubKyb(): KybService {
     },
     decide: async (input: Parameters<KybService['decide']>[0]) => {
       if (status !== 'pending') throw new KybError('not pending', 'pay.kyb_not_pending');
+      await input.beforeWrite?.();
       const from = status;
       status = input.decision;
       const event = {
@@ -105,6 +106,20 @@ function stubKyb(): KybService {
     },
     history: async () => events,
     currentStatus: async () => ({ kybStatus: status, kybRef, mode: 'psp' as const }),
+    decisionBinding: async (merchantId: string) => {
+      const identityHash = 'sha256:' + '0'.repeat(64);
+      const identity = { legalName: null, address: null, statementDescriptor: null, industry: null };
+      return {
+        merchantId,
+        identity,
+        identityHash,
+        fields: (decision: 'approved' | 'rejected') => ({
+          decision,
+          identityHash,
+          merchantId,
+        }),
+      };
+    },
   } as unknown as KybService;
 }
 
@@ -209,6 +224,29 @@ describe('D26-P1-P1 PSP Done bar — public doors', () => {
     const history = await router.createCaller(await ctx(['admin:read'])).kyb.history({ merchantId: MERCHANT, limit: 50 });
     expect(history).toHaveLength(2);
     expect(history.map((e) => e.toStatus)).toEqual(['pending', 'approved']);
+  });
+
+  it('kyb.decisionBinding is admin:compliance and returns only the bound identity', async () => {
+    const router = createKybPspRouter(stubKyb(), stubPsp(), stubApprovalConsumer(CONFIRM), { getMerchant: async () => ({ userId: USER }) });
+    await expect(router.createCaller(await ctx(['pay:write'])).kyb.decisionBinding({ merchantId: MERCHANT })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(router.createCaller(await ctx(['admin:read'])).kyb.decisionBinding({ merchantId: MERCHANT })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(
+      router.createCaller(await ctx(['admin:compliance'], { mfa: false })).kyb.decisionBinding({ merchantId: MERCHANT }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const view = await router.createCaller(await ctx(['admin:compliance'])).kyb.decisionBinding({ merchantId: MERCHANT });
+    expect(view).toEqual({
+      merchantId: MERCHANT,
+      legalName: null,
+      address: null,
+      statementDescriptor: null,
+      industry: null,
+      identityHash: `sha256:${'0'.repeat(64)}`,
+    });
+    expect(view).not.toHaveProperty('profileVersion');
   });
 
   it('psp.setPricing + enableMode refuse invent blank reason and record durability', async () => {

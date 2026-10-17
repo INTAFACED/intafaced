@@ -272,6 +272,25 @@ export const sessions = identity.table(
   (t) => [uniqueIndex('sessions_refresh_idx').on(t.refreshHash), index('sessions_user_idx').on(t.userId, t.revoked)],
 );
 
+/**
+ * One-time signed-out password reset proofs. The code itself is never stored.
+ */
+export const passwordResetProofs = identity.table(
+  'password_reset_proofs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 hex of the mailed code. */
+    codeHash: text('code_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('password_reset_proofs_code_hash_idx').on(t.codeHash), index('password_reset_proofs_user_open_idx').on(t.userId)],
+);
+
 export const apiKeys = identity.table(
   'api_keys',
   {
@@ -436,6 +455,7 @@ export const schema = {
   xpEvents,
   rankThresholds,
   sessions,
+  passwordResetProofs,
   apiKeys,
   subAccounts,
   waitlistEntries,

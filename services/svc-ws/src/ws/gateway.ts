@@ -16,6 +16,7 @@ import {
   writeMarketDataFeedRefuse,
 } from '../gateway-policy.js';
 import { isPublishedConnectionCeiling } from '../max-connections.js';
+import type { MuxGateway } from '../mux/gateway.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import { encodeL2JsonFrame } from '../sbe-l2-tape.js';
 import type { TradeHub } from '../trade/hub.js';
@@ -30,11 +31,14 @@ import type { TradeHub } from '../trade/hub.js';
  * principal. The hazard with an unauthenticated public port is not that
  * somebody reads a price — it is that it becomes a path to something else, so:
  *
- *   · **Inbound frames are never interpreted.** There is no subscribe verb, no
- *     command vocabulary, no JSON parser on the read side. The market is a
- *     query parameter on the upgrade and it is the only thing a client ever
- *     says. `maxPayload` is 1 KiB so a client cannot make us buffer one either.
- *     One market per socket; a terminal that wants two opens two.
+ *   · **On this door inbound frames are never interpreted.** There is no
+ *     subscribe verb, no command vocabulary, no JSON parser on the read side.
+ *     The market is a query parameter on the upgrade and it is the only thing a
+ *     client ever says. `maxPayload` is 1 KiB so a client cannot make us buffer
+ *     one either. One market per socket. A terminal that wants many markets or
+ *     tickers or candles on one socket uses the multiplexed door (`GET /stream`
+ *     with NO `market`, `mux/gateway.ts`), which has the one inbound parser in
+ *     this service, bounded and budgeted (`mux/protocol.ts`).
  *   · **The market id is checked against the engine's own list** before any
  *     depth call is made for it. `svc-matching`'s `engine.depth()` creates the
  *     book if it is missing, so an unvalidated id is a memory-growth primitive
@@ -125,6 +129,12 @@ export interface WebSocketGatewayOptions {
   readonly l3Hub?: NativeL3Hub;
   /** How long a native L3 probe may hold the raw upgrade socket. Omitted uses `heartbeatMs`. */
   readonly l3ProbeBoundMs?: number;
+  /**
+   * The multiplexed door. Omit = `GET /stream` with no `market` stays the 400 it
+   * has always been. Present = that exact request (and only that request)
+   * upgrades to a multiplexed session; every `?market=` request is untouched.
+   */
+  readonly mux?: MuxGateway;
 }
 
 export interface WebSocketGateway {
@@ -192,7 +202,7 @@ function parseChannel(raw: string | null): StreamChannel | null {
 }
 
 export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSocketGateway {
-  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs } = options;
+  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs, mux } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -265,6 +275,11 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
     if (url.pathname !== STREAM_PATH) return reject(socket, 404, 'Not Found');
 
     if (!enabled()) return reject(socket, 503, 'Service Unavailable');
+
+    // No `market` parameter at all: the multiplexed door, when one is mounted.
+    // `?market=` with any value (even empty) is the single-market socket and is
+    // validated exactly as before.
+    if (mux && !url.searchParams.has('market')) return mux.upgrade(request, socket, head, url);
 
     const marketId = url.searchParams.get('market');
     if (!marketId || !MARKET_ID.test(marketId)) return reject(socket, 400, 'Bad Request');
@@ -418,6 +433,7 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
       hub.closeAll(CLOSE_GOING_AWAY, copy);
       tradeHub.closeAll(CLOSE_GOING_AWAY, copy);
       l3Hub?.closeAll(CLOSE_GOING_AWAY, copy);
+      await mux?.close(copy);
       for (const ws of wss.clients) ws.close(CLOSE_GOING_AWAY, closeReason(copy));
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       log.info({ reason: copy }, 'ws: gateway closed');

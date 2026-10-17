@@ -222,7 +222,7 @@ describe('native recovery integration with the actual ledger service', () => {
           return Reflect.get(target, property, receiver);
         },
       });
-      const thaw = writeFreeze(delayed, { frozen: false, actor: 'delayed-thaw' });
+      const thaw = writeFreeze(delayed, { frozen: false, actor: 'delayed-thaw', confirmOperatorId: 'delayed-confirm' });
       const thawObserved = thaw.catch((error: unknown) => {
         throw error;
       });

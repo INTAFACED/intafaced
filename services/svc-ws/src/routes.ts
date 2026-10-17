@@ -4,6 +4,9 @@ import { DEPTH_ENGINE_UNAVAILABLE, snapshotHasRestingDepth, toSnapshot, type Dep
 import type { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthL3UnavailableError, DepthNoBookError, DepthSourceError, type DepthSource } from './depth/source.js';
 import type { TradeHub } from './trade/hub.js';
+import type { CandleHub } from './mux/candle-hub.js';
+import type { MuxGateway } from './mux/gateway.js';
+import type { TickerHub } from './mux/ticker-hub.js';
 import type { DropCopyHub } from './drop-copy/hub.js';
 import type { PrivateOrderHub } from './private/hub.js';
 import { withWsSpan } from './tracing.js';
@@ -95,6 +98,8 @@ export interface RouteOptions {
   readonly sbe?: SbeCodec;
   /** Matching HTTP poll cadence. Named on /health /ready so poll is not sold as push. */
   readonly pollMs?: number;
+  /** The multiplexed door and its two feed hubs. Omit = not mounted; `/health` says nothing about it. */
+  readonly mux?: { readonly gateway: MuxGateway; readonly tickerHub: TickerHub; readonly candleHub: CandleHub };
 }
 
 function sendL2Sbe(
@@ -141,6 +146,7 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
     dropCopyBus = () => false,
     sbe = sbeCodec,
     pollMs = 250,
+    mux,
   } = options;
 
   app.get('/health', async () => ({
@@ -181,6 +187,17 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
         maxConnections: dropCopyHub?.maxConnections ?? null,
         maxConnectionsPerUser: dropCopyHub?.maxConnectionsPerUser ?? null,
       },
+      ...(mux
+        ? {
+            mux: {
+              connections: mux.gateway.connections,
+              maxConnections: mux.gateway.maxConnections ?? null,
+              subscriptions: mux.gateway.subscriptions,
+              tickers: mux.tickerHub.stats,
+              candles: mux.candleHub.stats,
+            },
+          }
+        : {}),
     },
   }));
 

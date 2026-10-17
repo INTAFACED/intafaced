@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['auth','config','connect-data-lake','contracts','i18n','quant-honesty','telemetry'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/svc-edge^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",

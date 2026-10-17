@@ -161,6 +161,16 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner-published lifetime for a signed-out password-reset proof, in seconds.
+       * Blank / unset → unpublished; the reset request refuses (`auth.reset_unwired`).
+       * Never git-default 900 or 15 minutes. One day is the ceiling.
+       */
+      IDENTITY_PASSWORD_RESET_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.

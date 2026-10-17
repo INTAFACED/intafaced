@@ -6,10 +6,10 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['auth','config','contracts','events','i18n','ledger-client','market-data','sbe-codec','telemetry'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/svc-ws^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "pnpm --dir ../.. exec turbo run build --filter=@intafaced/svc-ws^... && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "vitest run",
+    "test": "pnpm --filter @intafaced/sbe-codec run build:jar && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },
