@@ -118,12 +118,12 @@ describe('customer copy never promises a later capability', () => {
     expect(
       rels.some((rel) => rel.startsWith('screens/trade/') || rel.startsWith('features/trade/') || rel.startsWith('features/pay/portal/')),
     ).toBe(false);
-  });
+  }, 30_000); // reads ~90 files; CI runs many suites at once
 
   it('has no "not … yet", "coming soon", "once it is" or "for now" outside the stated facts', () => {
     const found = files.flatMap((file) => promisesIn(readFileSync(file, 'utf8')).map((hit) => `${relative(SRC, file)}:${hit}`));
     expect(found).toEqual([]);
-  });
+  }, 30_000); // reads ~90 files; CI runs many suites at once
 
   it('catches a reintroduced promise', () => {
     for (const bad of [
@@ -150,10 +150,10 @@ describe('customer copy never promises a later capability', () => {
     expect(promisesIn("  a: 'Not chosen yet. Bill pay isn’t connected yet.',")).toHaveLength(1);
     expect(promisesIn("  a: 'Not chosen yet',")).toEqual([]);
     expect(promisesIn("  empty: 'No trades yet',")).toEqual([]);
-  });
+  }, 30_000); // reads ~90 files; CI runs many suites at once
 
   it('keeps every allowed phrase in use, so the list cannot go stale', () => {
     const all = files.map((file) => readFileSync(file, 'utf8')).join('\n');
     for (const [phrase] of FACTS) expect(all, phrase).toContain(phrase);
-  });
+  }, 30_000); // reads ~90 files; CI runs many suites at once
 });
