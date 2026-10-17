@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../../../../shared/api';
 import { createBusinessPayApi, createPayMutationGuard, type BusinessPayApi } from '../../pay-api';
 import { checkSubscriptionOriginal, createSubscriptionWithRecovery, replaySubscriptionCreate } from './subscription-recovery';
@@ -242,4 +242,152 @@ it.each(['legacy', 'new'])('clears the %s journal on a definite create conflict 
   expect(mutate.mock.calls[1]?.[2].idempotencyKey).not.toBe(mutate.mock.calls[0]?.[2].idempotencyKey);
   expect(pay.guard.original(lockId)).toBeNull();
   expect(values.size).toBe(0);
+});
+
+// ---- B1 page side and the check-before-resend rules (audit 10-17) ---------------------------------------------------
+describe('a lost create is checked before anything is sent again', () => {
+  const userId = '11111111-1111-4111-8111-111111111111';
+  const merchantId = '33333333-3333-4333-8333-333333333333';
+  const subscriptionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const made = {
+    id: subscriptionId,
+    mandateId,
+    merchantId,
+    customerId: 'cust-check',
+    nextRunAt: after,
+    status: 'active' as const,
+    cancelledAt: null,
+    path: row.path,
+    createdAt: after,
+    anchorAt: null,
+    anchorOccurrence: 0,
+    pausedAt: null,
+    resumedAt: null,
+    stalledAt: null,
+    stallReason: null,
+  };
+  const merchantReply = {
+    result: {
+      data: { id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null },
+    },
+  };
+  type Body = { idempotencyKey?: string; mandateId?: string; path?: string };
+  function build(handler: (href: string, body: Body | null, count: number) => Response | 'lost') {
+    const creates: Body[] = [];
+    const lists: string[] = [];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return new Response(JSON.stringify(merchantReply));
+        if (href.includes('subscription.list')) lists.push(decodeURIComponent(href));
+        const body = href.includes('subscription.create') ? (JSON.parse(String(options?.body)) as Body) : null;
+        if (body) creates.push(body);
+        const out = handler(href, body, creates.length);
+        if (out === 'lost') throw new Error('socket hang up');
+        return out;
+      },
+    });
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+    };
+    const pay = createBusinessPayApi(
+      api,
+      userId,
+      { verified: true, companyId: 'c', companyName: 'C', merchantId, userId, scopes: ['pay:read', 'pay:write'] },
+      createPayMutationGuard(storage),
+    );
+    return { pay, creates, lists, values, lockId: `${userId}:subscription-create:${mandateId}` };
+  }
+  const json = (data: unknown, status = 200) => new Response(JSON.stringify({ result: { data } }), { status });
+
+  it('treats a gateway that has no such procedure as a definite refusal: nothing is locked and nothing is waited for', async () => {
+    const f = build(
+      () =>
+        new Response(
+          JSON.stringify({ error: { message: 'No "mutation"-procedure on path "subscription.create"', data: { code: 'NOT_FOUND' } } }),
+          {
+            status: 404,
+          },
+        ),
+    );
+    const result = await createSubscriptionWithRecovery(f.pay, mandateId, row.path);
+    expect(result).toMatchObject({ ok: false, reason: 'not_supported' });
+    expect(result.ok ? '' : result.message).toMatch(/isn’t available right now, so nothing was changed/);
+    expect(result.ok ? '' : result.message).not.toMatch(/procedure|NOT_FOUND|404/i);
+    expect(f.pay.guard.status(f.lockId)).toBeNull();
+    expect(f.values.size).toBe(0);
+    expect(f.creates).toHaveLength(1);
+  });
+
+  it('a gateway 404 on the check itself is also never an outcome to wait for', async () => {
+    const f = build((href) => (href.includes('subscription.get') ? new Response('{}', { status: 404 }) : json(null)));
+    await f.pay.guard.run(`${userId}:subscription:${subscriptionId}`, async () => uncertain, 'paused');
+    const result = await checkSubscriptionOriginal(f.pay, subscriptionId, () => true);
+    expect(result).toMatchObject({ ok: false, reason: 'not_supported' });
+    expect(f.pay.guard.status(`${userId}:subscription:${subscriptionId}`)).toBe('uncertain');
+  });
+
+  it('finishes from the subscription list when the first request had committed: no second create is sent, and the lock clears', async () => {
+    const f = build((href, body) => {
+      if (body) return 'lost';
+      if (href.includes('subscription.list'))
+        return json({ items: decodeURIComponent(href).includes('"active"') ? [made] : [], nextCursor: null });
+      throw new Error(href);
+    });
+    expect(await createSubscriptionWithRecovery(f.pay, mandateId, row.path)).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(f.pay.guard.status(f.lockId)).toBe('uncertain');
+    const checked = await replaySubscriptionCreate(f.pay, mandateId, row.path, () => true);
+    expect(checked).toEqual({ ok: true, data: made });
+    expect(f.creates).toHaveLength(1);
+    expect(f.lists[0]).toContain(`"merchantId":"${merchantId}"`);
+    expect(f.pay.guard.status(f.lockId)).toBeNull();
+    expect(f.values.size).toBe(0);
+  });
+
+  it('resends exactly one more create with the same key and path when the list shows nothing; the lock stays while uncertain and clears on success', async () => {
+    let attempt = 0;
+    const f = build((href, body) => {
+      if (href.includes('subscription.list')) return json({ items: [], nextCursor: null });
+      if (body) {
+        attempt += 1;
+        return attempt < 3 ? 'lost' : json(made);
+      }
+      throw new Error(href);
+    });
+    await createSubscriptionWithRecovery(f.pay, mandateId, row.path);
+    expect(f.creates).toHaveLength(1);
+    const second = await replaySubscriptionCreate(f.pay, mandateId, row.path, () => true);
+    expect(second).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(f.creates).toHaveLength(2);
+    expect(f.creates[1]).toEqual(f.creates[0]);
+    expect(f.creates[1]?.idempotencyKey).toBe(`${f.lockId}:${f.pay.guard.reference(f.lockId)}`);
+    expect(f.pay.guard.status(f.lockId)).toBe('uncertain');
+    const third = await replaySubscriptionCreate(f.pay, mandateId, row.path, () => true);
+    expect(third).toEqual({ ok: true, data: made });
+    expect(f.creates).toHaveLength(3);
+    expect(f.creates[2]).toEqual(f.creates[0]);
+    expect(f.pay.guard.status(f.lockId)).toBeNull();
+    expect(f.values.size).toBe(0);
+  });
+
+  it('still resends when the list cannot be read (the key makes the resend safe)', async () => {
+    const f = build((href, body) => {
+      if (href.includes('subscription.list')) return new Response('{}', { status: 503 });
+      if (body) return f2.count++ === 0 ? 'lost' : json(made);
+      throw new Error(href);
+    });
+    const f2 = { count: 0 };
+    await createSubscriptionWithRecovery(f.pay, mandateId, row.path);
+    const result = await replaySubscriptionCreate(f.pay, mandateId, row.path, () => true);
+    expect(result).toEqual({ ok: true, data: made });
+    expect(f.creates).toHaveLength(2);
+    expect(f.creates[1]).toEqual(f.creates[0]);
+  });
 });

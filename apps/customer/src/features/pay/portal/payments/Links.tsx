@@ -1,24 +1,33 @@
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
-import { reason } from '../chrome/copy';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { StatusTag, Button, DataTable } from '@intafaced/ui';
+import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
 import { PayDetails, PaySection, PayTime } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { validatedMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as s from '../../schemas';
-import { BackLink, NotLive, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from '../components';
+import { BackLink, Facts, Gate, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, Timeline } from '../components';
 import { useNow, useReadAt, useUrlParam } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
 import { nextLimit, readLimit } from '../model';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { w3cCopy } from './copy';
 import type { PortalApi } from '../api';
+import { EntityList } from '../ui/EntityList';
+import { DateTime } from '../ui/DateTime';
+import { StatusChip, ToneChip } from '../ui/StatusChip';
+import { useServerList } from '../ui/useServerList';
+import { paymentLabel } from '../presentation';
+import type { Payment } from '../schemas';
+import { useAssetChoices } from './asset-choices';
+import { isWebAddress, LinkAddress } from './LinkAddress';
+import { definite } from './not-available';
+import { linkRowSchema } from './schemas';
 
-type Link = z.infer<typeof s.linkSchema>;
+type Link = z.infer<typeof linkRowSchema>;
 export function linkState(link: Link, now: number) {
   if (!link.active) return 'inactive';
   if (link.expiresAt === null || !Number.isFinite(Date.parse(link.expiresAt))) return 'unknown';
@@ -64,9 +73,9 @@ export function Links({
   const { t } = w3cCopy.useCopy();
   return (
     <div className="stack">
-      <BackLink href={create || linkId ? '/pay/links' : '/pay/merchant'}>{t(create || linkId ? 'backLinks' : 'backMerchant')}</BackLink>
+      <BackLink href={create || linkId ? '/pay/links' : '/pay/merchant'}>{t(create || linkId ? 'backLinks' : 'lk_backHome')}</BackLink>
       {create ? (
-        <PaymentLinkForm pay={pay} merchantId={merchantId} />
+        <PaymentLinkForm pay={pay} merchantId={merchantId} portal={portal} />
       ) : (
         <LinksView
           resource={query.resource}
@@ -77,6 +86,7 @@ export function Links({
           pay={pay}
           merchantId={merchantId}
           linkId={linkId}
+          portal={portal}
         />
       )}
     </div>
@@ -92,6 +102,7 @@ export function LinksView({
   pay,
   merchantId,
   linkId,
+  portal,
 }: {
   resource: Resource<Link[]>;
   retry: () => void;
@@ -101,6 +112,8 @@ export function LinksView({
   pay: BusinessPayApi;
   merchantId: string;
   linkId?: string;
+  /** Reads the payments made with a link. Without it (a static preview) that list is left out. */
+  portal?: PortalApi;
 }) {
   const { t } = w3cCopy.useCopy();
   const [q, setQ] = useUrlParam('q', '');
@@ -129,7 +142,7 @@ export function LinksView({
               </p>
             )}
             <Button variant="secondary" onClick={retry}>
-              {t('refresh')}
+              {t('lk_refresh')}
             </Button>
             {selected ? (
               <>
@@ -164,9 +177,16 @@ export function LinksView({
                     ]}
                   />
                 </PaySection>
-                <NotLive reason={reason('reasonLists')} title={t('linkPaymentsTitle')}>
-                  {t('linkPaymentsBlocked')}
-                </NotLive>
+                <PaySection title={t('lk_addressTitle')} description={t('lk_addressBody')}>
+                  {selected.checkoutUrl && isWebAddress(selected.checkoutUrl) ? (
+                    <LinkAddress url={selected.checkoutUrl} />
+                  ) : (
+                    <p className="pp-callout" role="note">
+                      {t('lk_addressBlocked')}
+                    </p>
+                  )}
+                </PaySection>
+                {portal && <LinkPayments portal={portal} merchantId={merchantId} linkId={selected.id} />}
                 {noWrite && (
                   <p className="muted pp-note" role="note">
                     {t('linkOwnerOnly')}
@@ -188,12 +208,14 @@ export function LinksView({
                     }
                     disabled={noWrite || !selected.active}
                     perform={async () => {
-                      const result = await pay.mutate(
-                        'merchant.deactivateLink',
-                        { merchantId, linkId: selected.id },
-                        z.object({ deactivated: z.boolean() }),
-                        'pay:write',
-                        `link-deactivate:${selected.id}`,
+                      const result = definite(
+                        await pay.mutate(
+                          'merchant.deactivateLink',
+                          { merchantId, linkId: selected.id },
+                          z.object({ deactivated: z.boolean() }),
+                          'pay:write',
+                          `link-deactivate:${selected.id}`,
+                        ),
                       );
                       return result.ok && !result.data.deactivated
                         ? { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('deactivateNotConfirmed') }
@@ -225,7 +247,9 @@ export function LinksView({
                     onChange={setStatus}
                     options={[
                       ['', t('allStatuses')],
-                      ...(['active', 'inactive', 'expired', 'exhausted', 'unknown'] as const).map((state) => [state, t(state)] as const),
+                      ...(['active', 'inactive', 'expired', 'exhausted', 'unknown'] as const).map(
+                        (state) => [state, t(state === 'unknown' ? 'lk_unknown' : state)] as const,
+                      ),
                     ]}
                   />
                   <SelectField
@@ -238,7 +262,11 @@ export function LinksView({
                     ]}
                   />
                 </div>
-                <p>{t('linkCount', { shown: rows.length, loaded: links.length })}</p>
+                <p>
+                  {links.length === 1
+                    ? t('linkCountOne', { shown: rows.length })
+                    : t('linkCount', { shown: rows.length, loaded: links.length })}
+                </p>
                 {rows.length ? (
                   <DataTable label={t('linksTitle')} headers={[t('linkLabel'), t('amount'), t('status'), t('uses'), t('expiry')]}>
                     {rows.map((link) => (
@@ -318,21 +346,70 @@ export function LinksView({
   );
 }
 
+/** The payments made through one link, read from the payments list filtered by that link. */
+function LinkPayments({ portal, merchantId, linkId }: { portal: PortalApi; merchantId: string; linkId: string }) {
+  const { t } = w3cCopy.useCopy();
+  const list = useServerList(
+    (f, cursor, signal) => portal.paymentPage(merchantId, { linkId: f.linkId! }, cursor, signal),
+    { linkId },
+    (p: Payment) => p.id,
+  );
+  return (
+    <PaySection title={t('linkPaymentsTitle')}>
+      {list.state.status === 'loading' && <PortalLoading rows={3} />}
+      {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={list.reload} />}
+      {list.state.status === 'ready' &&
+        (list.state.items.length === 0 ? (
+          <EmptyState title={t('lk_paymentsEmpty')}>{t('lk_paymentsEmptyBody')}</EmptyState>
+        ) : (
+          <>
+            <EntityList
+              label={t('linkPaymentsTitle')}
+              rows={list.state.items}
+              rowKey={(p) => p.id}
+              href={(p) => `/pay/payments/${encodeURIComponent(p.id)}`}
+              columns={[
+                { header: t('colPayment'), cell: (p) => <strong>{paymentLabel(p)}</strong> },
+                { header: t('amount'), cell: (p) => <Money value={p.amount} asset={p.assetId} /> },
+                { header: t('status'), cell: (p) => <StatusChip entity="payment" value={p.status} /> },
+                { header: t('created'), cell: (p) => <DateTime value={p.createdAt} /> },
+              ]}
+              card={(p) => ({
+                title: paymentLabel(p),
+                time: <DateTime value={p.createdAt} />,
+                amount: <Money value={p.amount} asset={p.assetId} />,
+                status: <StatusChip entity="payment" value={p.status} />,
+              })}
+            />
+            {list.state.hasMore && (
+              <Button variant="secondary" onClick={list.loadMore} disabled={list.state.more === 'loading'}>
+                {t('loadMoreLinkPayments')}
+              </Button>
+            )}
+          </>
+        ))}
+    </PaySection>
+  );
+}
+
+const linkTone = { active: 'done', inactive: 'progress', expired: 'progress', exhausted: 'action', unknown: 'action' } as const;
+/** A soft chip: the word carries the meaning, the colour only backs it up. */
 function LinkChip({ value }: { value: ReturnType<typeof linkState> }) {
   const { t } = w3cCopy.useCopy();
   return (
-    <StatusTag
-      status={value === 'active' ? 'filled' : value === 'inactive' ? 'working' : 'pending'}
-      title={t(`${value}Tip`)}
-      label={t(value)}
+    <ToneChip
+      tone={linkTone[value]}
+      label={t(value === 'unknown' ? 'lk_unknown' : value)}
+      tip={t(value === 'unknown' ? 'lk_unknownTip' : (`${value}Tip` as 'activeTip'))}
     />
   );
 }
-export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merchantId: string }) {
+export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayApi; merchantId: string; portal?: PortalApi }) {
   const { t } = w3cCopy.useCopy();
   const [form, setForm] = useState({ label: '', amount: '', currency: '', profileId: '', expiry: '', maxUses: '' });
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const [sent, setSent] = useState(false);
+  const assets = useAssetChoices(portal, merchantId, form.currency);
   const parsed = createLinkInputSchema.safeParse({
     merchantId,
     label: form.label,
@@ -372,10 +449,16 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
           {field('label', t('linkLabel'), t('linkLabelHint'), true)}
           <div className="form-row">
             {field('amount', t('fixedAmount'), t('fixedAmountHint'))}
-            {field('currency', t('asset'), t('assetHint'))}
+            <SelectField
+              label={t('lk_asset')}
+              value={form.currency}
+              onChange={(value) => setForm({ ...form, currency: value })}
+              hint={t('assetHint')}
+              options={[['', t('lk_noAsset')], ...assets.map((a) => [a, a] as const)]}
+            />
           </div>
           {form.amount && !form.currency && <p className="error-text">{t('invalidAmountAsset')}</p>}
-          {field('profileId', t('profile'), t('profileHint'))}
+          {field('profileId', t('lk_profile'), t('profileHint'))}
         </fieldset>
         <fieldset className="pp-group">
           <legend>{t('groupAvailability')}</legend>
@@ -399,15 +482,17 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
                 ]}
               />
             }
-            perform={() =>
-              validatedMutation(
-                pay,
-                'merchant.createLink',
-                parsed.success ? parsed.data : {},
-                createLinkInputSchema,
-                s.newLinkSchema,
-                'pay:write',
-                'link-create',
+            perform={async () =>
+              definite(
+                await validatedMutation(
+                  pay,
+                  'merchant.createLink',
+                  parsed.success ? parsed.data : {},
+                  createLinkInputSchema,
+                  s.newLinkSchema,
+                  'pay:write',
+                  'link-create',
+                ),
               )
             }
             onConfirmed={(value) => {
@@ -418,10 +503,7 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
         </div>
         {created && (
           <PaySection title={t('publishedOnce')} description={t('publishedOnceBody')}>
-            <a
-              className="text-link pp-mono pp-copy"
-              href={`/pay/checkout?token=${encodeURIComponent(created.token)}`}
-            >{`${location.origin}/pay/checkout?token=${encodeURIComponent(created.token)}`}</a>
+            <LinkAddress url={`${location.origin}/pay/checkout?token=${encodeURIComponent(created.token)}`} />
             <Facts
               items={[
                 [t('linkId'), <span className="pp-copy pp-mono">{created.id}</span>],

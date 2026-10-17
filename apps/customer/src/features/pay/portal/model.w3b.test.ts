@@ -126,13 +126,23 @@ describe('payment list helpers', () => {
     expect(readSort('x')).toBe('newest');
   });
   it('computes a success rate that is not 100% when there were no payments', () => {
-    expect(successRate([])).toEqual({ total: 0, failed: 0, pct: null });
+    expect(successRate([])).toEqual({ total: 0, succeeded: 0, failed: 0, pct: null });
     expect(
       successRate([
         { status: 'captured', count: 9 },
         { status: 'failed', count: 3 },
       ]),
-    ).toEqual({ total: 12, failed: 3, pct: 75 });
+    ).toEqual({ total: 12, succeeded: 9, failed: 3, pct: 75 });
+    // Payments still in progress have not finished, so they count for neither side.
+    expect(
+      successRate([
+        { status: 'created', count: 40 },
+        { status: 'authorized', count: 5 },
+        { status: 'settled', count: 6 },
+        { status: 'refunded', count: 1 },
+        { status: 'failed', count: 1 },
+      ]),
+    ).toEqual({ total: 8, succeeded: 7, failed: 1, pct: 88 });
   });
   it('works out what can still be refunded without going below zero', () => {
     expect(refundable({ capturedAmount: '100', refundedAmount: '20.25' })).toBe('79.75');

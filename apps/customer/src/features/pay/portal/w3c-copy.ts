@@ -35,7 +35,6 @@ const en = {
   reserveTitle: 'Reserve policy',
   reserveDays: 'Hold days',
   reportsTitle: 'Reports',
-  backMerchant: 'Back to merchant dashboard',
   unsaved: 'Leave this page? Your unsaved entries will be lost.',
 } as const;
 export const w3cCopy = defineCopy('pay.portal.w3c', en);

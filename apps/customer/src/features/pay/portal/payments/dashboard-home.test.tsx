@@ -54,7 +54,7 @@ describe('portal overview', () => {
   });
   it('gives every tile its period and the filter of the list it opens', () => {
     const out = view();
-    expect(out).toContain('href="/pay/payments?status=captured&amp;date=today"');
+    expect(out).toContain('href="/pay/payments?date=today"');
     expect(out).toContain('href="/pay/payments?date=today"');
     expect(out).toContain('href="/pay/refunds?from=');
     expect(out).toContain('href="/pay/money"');

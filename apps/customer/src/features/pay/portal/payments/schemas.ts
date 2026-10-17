@@ -2,7 +2,7 @@
 //   // mirrors <branch>:<path>; import from @intafaced/contracts after merge
 // and parses tolerantly (unknown keys ignored, an array and a page both accepted).
 import { z } from 'zod';
-import { amount, asset, id } from '../../schemas';
+import { amount, asset, id, linkSchema } from '../../schemas';
 import * as shared from '../schemas';
 
 const timestamp = z.string().datetime({ offset: true });
@@ -88,3 +88,34 @@ export const customerSeriesSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type CustomerSeries = z.infer<typeof customerSeriesSchema>;
+
+/**
+ * A payment link as the list returns it. `checkoutUrl` is read when the service sends one (the owner's own checkout
+ * address, so the link can be copied, opened and scanned again later); an older service omits it and the page says so.
+ * Only an http or https address is accepted.
+ */
+export const linkRowSchema = linkSchema.extend({
+  checkoutUrl: z
+    .string()
+    .url()
+    .refine((value) => /^https?:\/\//i.test(value))
+    .nullish(),
+});
+export type LinkRow = z.infer<typeof linkRowSchema>;
+
+/**
+ * `merchant.checkoutSettings.get` on main (packages/contracts/src/pay-portal-reads.ts, #4871): the newest checkout
+ * profile, or `not_configured`. `feeRouting` is null when this role may not see it. Nothing is filled in on the page.
+ */
+export const checkoutSettingsSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('not_configured') }),
+  z.object({
+    status: z.literal('configured'),
+    profileId: z.string(),
+    checkoutConfig: z.record(z.unknown()),
+    feeRouting: z.record(z.unknown()).nullable(),
+    domains: z.array(z.string()),
+    createdAt: timestamp,
+  }),
+]);
+export type CheckoutSettings = z.infer<typeof checkoutSettingsSchema>;

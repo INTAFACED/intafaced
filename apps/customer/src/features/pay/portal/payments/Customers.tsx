@@ -24,7 +24,7 @@ import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, type ListState } from '../hooks';
 import { DAY_MS, addDays, utcDay } from '../model';
 import { seriesTotals } from './model';
-import { DateTime } from '../ui/DateTime';
+import { uiCopy } from '../ui/copy';
 import type { CustomerSeries } from './schemas';
 import type { PortalApi } from '../api';
 import type { Customer, CustomerDetail, customerSummarySchema } from '../schemas';
@@ -274,7 +274,12 @@ export function CustomerDetailView({
                 {t('customerAllPayments')}
               </a>
             </PaySection>
-            <PaySection title={t('recentPayments')} description={t('recentPaymentsBody', { count: c.recentPayments.length })}>
+            <PaySection
+              title={t('recentPayments')}
+              description={
+                c.recentPayments.length === 1 ? t('recentPaymentsBodyOne') : t('recentPaymentsBody', { count: c.recentPayments.length })
+              }
+            >
               {c.recentPayments.length === 0 ? (
                 <p className="muted">{t('noRecentPayments')}</p>
               ) : (
@@ -307,6 +312,17 @@ export function CustomerDetailView({
   );
 }
 
+/** A day, with no time: the daily table counts whole UTC days, so "12:00 AM" would be a made-up hour. */
+function DayOnly({ period }: { period: string }) {
+  const { requestedLocale } = uiCopy.useCopy();
+  const date = new Date(`${period}T00:00:00.000Z`);
+  if (!Number.isFinite(date.getTime())) return <span lang="zxx">{period}</span>;
+  return (
+    <time dateTime={period} lang={requestedLocale}>
+      {date.toLocaleDateString(requestedLocale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
+    </time>
+  );
+}
 function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries>; today: string; retry: () => void }) {
   const { t } = portalCopy.useCopy();
   if (series.status === 'loading') return <PortalLoading rows={2} />;
@@ -330,7 +346,10 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
             period: label,
             href: `/pay/payments?q=${encodeURIComponent(series.data.customerRef)}&status=captured`,
             value: totals.length ? <MoneyLines items={totals.map((x) => ({ assetCode: x.assetCode, amount: x.volume }))} /> : '—',
-            note: t('seriesCount', { count: totals.reduce((n, x) => n + x.count, 0) }),
+            note: (() => {
+              const count = totals.reduce((n, x) => n + x.count, 0);
+              return count === 1 ? t('seriesCountOne') : t('seriesCount', { count });
+            })(),
           };
         })}
       />
@@ -341,7 +360,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
           {items.map((i) => (
             <tr key={`${i.period}:${i.assetCode}`}>
               <th scope="row">
-                <DateTime value={`${i.period}T00:00:00.000Z`} timeZone="UTC" />
+                <DayOnly period={i.period} />
               </th>
               <td className="numeric">{i.count}</td>
               <td>

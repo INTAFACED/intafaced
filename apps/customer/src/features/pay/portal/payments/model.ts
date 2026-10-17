@@ -71,11 +71,17 @@ export function sortRows<T>(rows: readonly T[], sort: SortKey, at: (row: T) => s
   }
 }
 
-/** Share of payments in the period that did not fail. `null` when there were none: no payments is not a 100% rate. */
-export function successRate(mix: Snapshot['statusMix']): { total: number; failed: number; pct: number | null } {
-  const total = mix.reduce((n, row) => n + row.count, 0);
-  const failed = mix.find((row) => row.status === 'failed')?.count ?? 0;
-  return { total, failed, pct: total === 0 ? null : Math.round(((total - failed) * 100) / total) };
+/**
+ * Of the payments that finished, the share that went through: succeeded / (succeeded + failed). A payment that is
+ * still being made (created, authorised) has not finished, so it counts for neither side. `null` when nothing has
+ * finished: no finished payments is not a 100% rate.
+ */
+export function successRate(mix: Snapshot['statusMix']): { total: number; succeeded: number; failed: number; pct: number | null } {
+  const sum = (statuses: readonly string[]) => mix.filter((row) => statuses.includes(row.status)).reduce((n, row) => n + row.count, 0);
+  const succeeded = sum(['captured', 'settled', 'refunded', 'disputed']);
+  const failed = sum(['failed']);
+  const total = succeeded + failed;
+  return { total, succeeded, failed, pct: total === 0 ? null : Math.round((succeeded * 100) / total) };
 }
 
 export const countOf = (mix: Snapshot['statusMix'], status: string) => mix.find((row) => row.status === status)?.count ?? 0;

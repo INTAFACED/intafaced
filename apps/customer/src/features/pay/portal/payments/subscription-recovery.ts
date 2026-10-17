@@ -3,7 +3,9 @@ import type { BusinessPayApi } from '../../pay-api';
 import { id, subscriptionSchema } from '../../schemas';
 import type { ApiResult } from '../../../../shared/api';
 import { payRefusal } from '../../copy';
+import * as portalSchemas from '../schemas';
 import { extensionCopy as c } from './copy';
+import { definite } from './not-available';
 
 const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
   ok: false,
@@ -18,7 +20,27 @@ const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
 export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandateId: string, path: string) {
   const input = z.object({ mandateId: id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }).safeParse({ mandateId, path });
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
-  return pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`);
+  // A call that never ran (the gateway has no such procedure) is a definite refusal, never an outcome to wait for.
+  return definite(await pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`));
+}
+
+/**
+ * Before any second create is sent, ask whether this mandate already has an open subscription. A create that committed
+ * but lost its reply shows up here, so the check can finish without another request. A failed read says nothing: the
+ * caller then falls back to resending the original request, which carries the same key and so cannot create a second one.
+ */
+async function findOpenSubscription(pay: BusinessPayApi, mandateId: string) {
+  for (const status of ['active', 'paused'] as const) {
+    const listed = await pay.query(
+      'subscription.list',
+      { merchantId: pay.authority!.merchantId, status, limit: 200 },
+      portalSchemas.page(subscriptionSchema),
+    );
+    if (!listed.ok) return null;
+    const found = listed.data.items.find((row) => row.mandateId === mandateId && row.merchantId === pay.authority!.merchantId);
+    if (found) return found;
+  }
+  return null;
 }
 
 // A blank path must not be sent: the server binds the attempt id to the request
@@ -38,6 +60,20 @@ export function replaySubscriptionCreate(
     );
   }
   if (!path) return Promise.resolve(unresolved());
+  return checkThenResend(pay, mandateId, path);
+}
+async function checkThenResend(
+  pay: BusinessPayApi,
+  mandateId: string,
+  path: string,
+): Promise<ApiResult<z.infer<typeof subscriptionSchema>>> {
+  const existing = await findOpenSubscription(pay, mandateId);
+  if (existing) {
+    const lockId = `${pay.authority!.userId}:subscription-create:${mandateId}`;
+    const held = pay.guard.original(lockId);
+    if (held?.status === 'present') await pay.guard.resolve(lockId, held.raw);
+    return { ok: true, data: existing };
+  }
   return createSubscriptionWithRecovery(pay, mandateId, path);
 }
 
@@ -45,7 +81,7 @@ export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: s
   return pay.guard.checkOriginal(
     `${pay.authority!.userId}:subscription:${subscriptionId}`,
     async (original) => {
-      const result = await pay.query('subscription.get', { subscriptionId }, subscriptionSchema);
+      const result = definite(await pay.query('subscription.get', { subscriptionId }, subscriptionSchema));
       if (!result.ok) return result;
       if (result.data.id !== subscriptionId || result.data.status !== original.reference) return unresolved();
       return result;

@@ -6,7 +6,7 @@ import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
-import { Facts, Gate, Money, PortalFailure, PortalLoading } from '../components';
+import { Facts, Gate, Money, PortalFailure, PortalLoading, SelectField } from '../components';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
 import { paymentLabel } from '../presentation';
@@ -34,6 +34,7 @@ import {
   type InvoiceDraft,
 } from './invoice-model';
 import { paymentsCopy as c } from './copy';
+import { DEFAULT_ASSET, useAssetChoices } from './asset-choices';
 import './refusals';
 import { invoiceStatuses, type Invoice, type InvoiceLink } from './schemas';
 
@@ -41,8 +42,16 @@ const invoiceHref = (id: string) => `/pay/invoices/${encodeURIComponent(id)}`;
 const name = (invoice: Invoice) => invoiceName(invoice, (short) => c.t('inv_fallbackName', { short }));
 
 /** `/pay/invoices`: every invoice, newest first, filtered by the service. */
-export function Invoices({ portal, route }: { portal: PortalApi; route: { room: string; param?: string }; merchantId: string }) {
-  if (route.room === 'invoice-new') return <InvoiceCreate portal={portal} />;
+export function Invoices({
+  portal,
+  route,
+  merchantId,
+}: {
+  portal: PortalApi;
+  route: { room: string; param?: string };
+  merchantId: string;
+}) {
+  if (route.room === 'invoice-new') return <InvoiceCreate portal={portal} merchantId={merchantId} />;
   if (route.room === 'invoice' && route.param) return <InvoiceDetail portal={portal} invoiceId={route.param} />;
   return <InvoiceList portal={portal} />;
 }
@@ -161,14 +170,15 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
 }
 
 /** `/pay/invoices/new`: one amount, one customer reference, one description. Review shows the exact amount; a lost reply is safe to resend. */
-export function InvoiceCreate({ portal }: { portal: PortalApi }) {
+export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merchantId?: string }) {
   const { t } = c.useCopy();
-  const [draft, setDraft] = useState<InvoiceDraft>({ assetId: 'USDT', amount: '', customerRef: '', description: '' });
+  const [draft, setDraft] = useState<InvoiceDraft>({ assetId: DEFAULT_ASSET, amount: '', customerRef: '', description: '' });
   const [touched, setTouched] = useState<Partial<Record<keyof InvoiceDraft, boolean>>>({});
   const problems = draftProblems(draft);
   const ready = Object.keys(problems).length === 0;
   const request = useRequestId(`invoice-create:${JSON.stringify(draft)}`);
   const shown = (key: keyof InvoiceDraft) => (touched[key] && problems[key] ? t(`inv_problem_${problems[key]!}`) : undefined);
+  const assets = useAssetChoices(portal, merchantId, draft.assetId);
   const set = (key: keyof InvoiceDraft) => (value: string) => {
     setDraft({ ...draft, [key]: key === 'assetId' ? value.toUpperCase() : value });
     setTouched({ ...touched, [key]: true });
@@ -189,12 +199,12 @@ export function InvoiceCreate({ portal }: { portal: PortalApi }) {
               hint={t('inv_hintAmount')}
               error={shown('amount')}
             />
-            <Field
+            <SelectField
               label={t('inv_fieldAsset')}
               value={draft.assetId}
-              onChange={(e) => set('assetId')(e.target.value)}
-              hint={t('inv_hintAsset')}
-              error={shown('assetId')}
+              onChange={set('assetId')}
+              hint={shown('assetId') ?? t('inv_hintAsset')}
+              options={assets.map((a) => [a, a] as const)}
             />
           </div>
           <Field

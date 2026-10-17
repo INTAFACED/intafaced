@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import * as p from '../schemas';
-import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, linkSchema, listed } from '../../schemas';
+import { subscriptionSchema, mandateSchema, executionSchema, subscriptionPostureSchema, listed } from '../../schemas';
 import { cycleSchema } from './billing-schemas';
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
@@ -59,7 +59,7 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       signal,
     ),
   links: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query('merchant.listLinks', { merchantId, limit }, p.page(linkSchema), signal).then(listed),
+    query('merchant.listLinks', { merchantId, limit }, p.page(pay.linkRowSchema), signal).then(listed),
   disputePage: (
     filters: { status?: string; search?: string; from?: string; to?: string; dueBefore?: string; deadline?: string },
     cursor: string | undefined,
@@ -110,7 +110,7 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   },
   paymentPage: (
     merchantId: string,
-    filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
+    filters: { status?: string; search?: string; assetId?: string; linkId?: string; from?: string; to?: string },
     cursor: string | undefined,
     signal?: AbortSignal,
   ) =>
@@ -128,6 +128,8 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
     list('payment.refunds.list', pay.paymentRefundRowSchema, { merchantId, paymentId, limit: 200 }, signal),
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
     list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
+  checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
+    query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
   ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),
   invoices: (
     filters: { status?: string; search?: string; assetId?: string; from?: string; to?: string },
