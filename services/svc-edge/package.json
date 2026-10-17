@@ -12,8 +12,8 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@fastify/helmet": "^13.1.1",
-    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/helmet": "^13.1.2",
+    "@fastify/rate-limit": "^11.2.1",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
     "@intafaced/connect-data-lake": "workspace:*",
