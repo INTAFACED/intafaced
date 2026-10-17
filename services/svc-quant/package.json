@@ -9,17 +9,21 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "db:migrate": "tsx scripts/migrate.ts",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
+    "@intafaced/db": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/quant-honesty": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@trpc/server": "^11.19.0",
+    "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.5",
+    "postgres": "^3.4.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

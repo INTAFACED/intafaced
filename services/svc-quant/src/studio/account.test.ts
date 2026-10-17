@@ -17,6 +17,7 @@ import {
 import { createQuantRouter } from '../router.js';
 import { saveStudio } from './save.js';
 import { STUDIO_SERVICE_ALLOWLIST } from './scope.js';
+import { createMemoryStrategyRepository } from './memory-repository.js';
 import { createStudioStore } from './store.js';
 
 const SECRET = 'a-quant-account-scope-test-edge-secret-long-enough';
@@ -30,7 +31,15 @@ const ACCOUNT_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const risk = { maxDrawdown: '500', maxNotional: '10000', kill: '100' };
 const blocks = [{ side: 'buy' as const, symbol: 'BTC-USD', qty: '0.01' }];
-const saveBody = { name: 'alpha', blocks, risk, cash: '10000', environment: 'paper' as const };
+const saveBody = {
+  name: 'alpha',
+  blocks,
+  risk,
+  cash: '10000',
+  environment: 'paper' as const,
+  clientStrategyId: 'client-alpha',
+  idempotencyKey: 'idem-alpha',
+};
 
 function signed(userId: string, overrides: { scopes?: string[]; sub_account?: string } = {}): Context {
   const principal = {
@@ -59,6 +68,7 @@ function router(allowlist?: readonly string[]) {
     wired: true,
     venueVaultSet: false,
     limits,
+    strategies: createMemoryStrategyRepository(),
     ...(allowlist ? { studioServiceAllowlist: allowlist } : {}),
   });
 }
@@ -165,7 +175,13 @@ describe('saved strategies are per account', () => {
     expect((await agent.studio.list({ limit: 50, accountId: ACCOUNT_B })).strategies).toEqual([]);
 
     const session = open.createCaller({ ...signed(ACCOUNT_A), service: 'svc-agents' });
-    const owned = await session.studio.save({ ...saveBody, name: 'session', accountId: ACCOUNT_B });
+    const owned = await session.studio.save({
+      ...saveBody,
+      name: 'session',
+      accountId: ACCOUNT_B,
+      clientStrategyId: 'client-session',
+      idempotencyKey: 'idem-session',
+    });
     const asA = open.createCaller(signed(ACCOUNT_A));
     const asB = open.createCaller(signed(ACCOUNT_B));
     expect((await asA.studio.list({ limit: 50 })).strategies.map((row) => row.name)).toContain('session');
