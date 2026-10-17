@@ -16,10 +16,6 @@ ALTER TABLE "identity"."users" DROP CONSTRAINT IF EXISTS "users_phone_e164_ck";
 ALTER TABLE "identity"."users"
   ADD CONSTRAINT "users_phone_e164_ck" CHECK ("phone" IS NULL OR "phone" ~ '^\+[1-9][0-9]{7,14}$');
 
--- An unverified phone is not unique. Uniqueness waits for a phone-verification
--- job, so storing a number cannot reveal whether another account already has it.
-DROP INDEX IF EXISTS "identity"."users_phone_idx";
-
 CREATE TABLE IF NOT EXISTS "identity"."payee_search_audit" (
   "id"             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "user_id"        uuid NOT NULL REFERENCES "identity"."users"("id"),

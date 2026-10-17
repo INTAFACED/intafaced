@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
-import { createTestDatabase, postgresAvailable, resolveTestDatabaseUrl, type TestDatabase } from '@intafaced/db';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { ActivityRecordService } from './activity-records.js';
 import { attachTransferMessageTx, bindTransferMessage } from '../transfers/transfer-message.js';
 
@@ -21,23 +21,25 @@ function dedicatedTestUrl(raw: string): string {
   return parsed.toString();
 }
 
-const ADMIN_URL = dedicatedTestUrl(
-  resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test'),
-);
-const available = await postgresAvailable(ADMIN_URL);
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 const LINE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:u:USDT:out';
 
-const db: TestDatabase = available
-  ? await createTestDatabase({ service: 'bank', url: ADMIN_URL, migrations })
-  : (undefined as unknown as TestDatabase);
+if (!process.env.TEST_DATABASE_URL?.trim()) {
+  throw new Error('TEST_DATABASE_URL is unset. This suite does not start Docker.');
+}
 
-afterAll(async () => {
-  await db?.drop();
-});
+describe('activity notes, disputes and transfer messages', () => {
+  let db!: TestDatabase;
 
-describe.skipIf(!available)('activity notes, disputes and transfer messages', () => {
+  beforeAll(async () => {
+    const raw = process.env.TEST_DATABASE_URL?.trim();
+    if (!raw) throw new Error('TEST_DATABASE_URL is unset. This suite does not start Docker.');
+    db = await createTestDatabase({ service: 'bank', url: dedicatedTestUrl(raw), migrations });
+  }, 120_000);
+
+  afterAll(() => db?.drop());
+
   it('replays a note, keeps one open dispute, and shows a transfer note to both parties', async () => {
     const records = new ActivityRecordService(db.sql);
     const note = await records.setNote(ALICE, { activityId: LINE, text: 'rent', commandId: 'note-cmd-0001' });
