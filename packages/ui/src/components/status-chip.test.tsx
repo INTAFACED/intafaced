@@ -84,3 +84,28 @@ describe('StatusChip density', () => {
     expect(html(<StatusChip kind="live" />)).toContain('text-xs');
   });
 });
+
+describe('StatusChip server markup', () => {
+  // renderToStaticMarkup never runs effects: with or without `now` it must render once, not throw and schedule nothing.
+  it('renders without now (own clock) and still derives the kind', () => {
+    const timers: unknown[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+      timers.push(args);
+      return realSetTimeout(...args);
+    }) as typeof setTimeout;
+    try {
+      const out = html(<StatusChip asOf={Date.now()} staleAfterMs={60_000} />);
+      expect(out).toContain('data-freshness="live"');
+      expect(out).toContain('>Live<');
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    expect(timers).toHaveLength(0);
+  });
+  it('renders with a pinned now, identical on every render', () => {
+    const el = <StatusChip asOf={AS_OF} now={NOW} staleAfterMs={60_000} showAsOf timeZone="UTC" locale="en-GB" />;
+    expect(html(el)).toBe(html(el));
+    expect(html(el)).toContain('data-freshness="stale"');
+  });
+});

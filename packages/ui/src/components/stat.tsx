@@ -5,6 +5,7 @@ import { type AsOf, type Freshness, freshnessOf } from './freshness.js';
 import { ChangeText, Money } from './numbers.js';
 import { Skeleton } from './skeleton.js';
 import { StatusChip } from './status-chip.js';
+import { useFreshnessClock } from './use-freshness-clock.js';
 
 export type StatSize = 'sm' | 'md' | 'lg';
 
@@ -25,7 +26,7 @@ export interface StatProps extends Omit<React.ComponentProps<'div'>, 'children'>
   delta?: string | null;
   /** When given (or when refused), a StatusChip with the as-of time is drawn under the value. */
   asOf?: AsOf;
-  /** Epoch ms. Defaults to Date.now() here at the component edge; pass it for stable tests and screenshots. */
+  /** Epoch ms. Leave it out and the figure re-checks itself and turns Stale by itself; pass it only for stable tests and screenshots, or if your screen re-renders on its own clock. */
   now?: number;
   staleAfterMs?: number | null;
   refused?: boolean;
@@ -69,7 +70,7 @@ export function Stat({
   const labelId = `${id}-label`;
   const hintId = `${id}-hint`;
   const hasFreshness = !loading && (asOf != null || refused === true);
-  const clock = now ?? Date.now();
+  const clock = useFreshnessClock({ asOf, now, staleAfterMs, refused, enabled: hasFreshness });
   const freshness = hasFreshness ? freshnessOf({ asOf, now: clock, staleAfterMs, refused }) : undefined;
   const dense = density === 'dense';
   const v = valueSize[size];
@@ -112,7 +113,7 @@ export function Stat({
       {hasFreshness ? (
         <StatusChip
           asOf={asOf}
-          now={clock}
+          now={now}
           staleAfterMs={staleAfterMs}
           refused={refused}
           reason={reason}

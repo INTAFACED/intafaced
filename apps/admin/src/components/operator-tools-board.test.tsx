@@ -26,7 +26,7 @@ const catalog: ToolListResponse = {
   treasuryConfigured: false,
   tools: [notWiredKyc],
   residual: {
-    reconcile: 'simulated — svc-edge has no reconcile route; see /ledger',
+    reconcile: 'not available — svc-edge has no reconcile route; /ledger says so and shows no figures',
     sso: 'Class X — console has no operator SSO',
   },
 };
@@ -64,9 +64,9 @@ describe('OperatorToolsView honesty', () => {
     expect(html).toMatch(/Disabled —/);
   });
 
-  it('shows residual reconcile as simulated', () => {
+  it('shows residual reconcile as not available', () => {
     const html = renderToStaticMarkup(<OperatorToolsView {...base()} />);
-    expect(html).toMatch(/simulated/i);
+    expect(html).toMatch(/not available/i);
     expect(html).toMatch(/reconcile/i);
   });
 

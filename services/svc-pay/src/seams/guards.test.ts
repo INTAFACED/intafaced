@@ -60,12 +60,15 @@ describe('refund and user-money withdrawal seams', () => {
     replay: FRESH,
   };
 
-  it('default to no-ops, also through the registry', async () => {
+  it('refund stays a no-op; a fresh withdrawal with no screening result is refused', async () => {
     await expect(NOOP_GUARDS.beforeRefund(refund)).resolves.toBeUndefined();
     await expect(NOOP_GUARDS.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
     const guards = buildPayGuards({ sql: readableSql });
     await expect(guards.beforeRefund(refund)).resolves.toBeUndefined();
-    await expect(guards.beforeUserMoneyWithdrawal({ ...withdrawal, tx: readableSql })).resolves.toBeUndefined();
+    await expect(guards.beforeUserMoneyWithdrawal({ ...withdrawal, tx: readableSql })).rejects.toMatchObject({
+      code: 'pay.guard_screening_unavailable',
+      kind: 'unavailable',
+    });
   });
 
   it('refuse closed with the same error mapping as every other hook', async () => {
