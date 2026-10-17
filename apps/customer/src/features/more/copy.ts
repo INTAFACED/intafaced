@@ -602,7 +602,7 @@ const messages = {
   'quant.the.service.reads.historical.fills.from.its':
     'The service reads historical fills from its data lake. Ordered, disjoint windows and evidence for all costs are required.',
   'quant.review.historical.simulation': 'Review historical simulation',
-  'quant.run.backtest': 'Run backtest',
+  'quant.run.backtest': 'Run historical analysis',
   'quant.historical.simulation.received': 'Historical simulation received',
   'quant.strategy': 'Strategy',
   'quant.in.sample': 'In sample',
@@ -1538,7 +1538,7 @@ const es = {
   'quant.the.service.reads.historical.fills.from.its':
     'El servicio consulta ejecuciones históricas de su lago de datos. Se requieren intervalos ordenados y disjuntos y pruebas de todos los costes.',
   'quant.review.historical.simulation': 'Revisar simulación histórica',
-  'quant.run.backtest': 'Ejecutar prueba histórica',
+  'quant.run.backtest': 'Ejecutar análisis histórico',
   'quant.historical.simulation.received': 'Simulación histórica recibida',
   'quant.strategy': 'Estrategia',
   'quant.in.sample': 'Dentro de la muestra',
@@ -2484,7 +2484,7 @@ const fr = {
   'quant.the.service.reads.historical.fills.from.its':
     'Le service consulte les exécutions historiques de son lac de données. Des fenêtres ordonnées et disjointes ainsi que des preuves de tous les coûts sont nécessaires.',
   'quant.review.historical.simulation': 'Vérifier la simulation historique',
-  'quant.run.backtest': 'Exécuter le test historique',
+  'quant.run.backtest': 'Lancer l’analyse historique',
   'quant.historical.simulation.received': 'Simulation historique reçue',
   'quant.strategy': 'Stratégie',
   'quant.in.sample': 'Dans l’échantillon',

@@ -37,7 +37,7 @@ const fr = {
     'Le service Blueprint ne publie pas sa liste de questions : impossible de créer un Blueprint d’ici. C’est pourquoi le formulaire ci-dessous est désactivé.',
   start: 'Créer ton Blueprint',
   optIn: 'Accepter d’être disponible comme mentor',
-  private: 'Moi seul',
+  private: 'Moi uniquement',
   crew: 'Mon équipe',
   public: 'Tout compte connecté',
   portrait: 'Portrait',

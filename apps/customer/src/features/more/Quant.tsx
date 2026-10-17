@@ -386,7 +386,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 variant="secondary"
                 onClick={() => {
                   draft.current?.scrollIntoView({ block: 'start' });
-                  draft.current?.querySelector('input')?.focus({ preventScroll: true });
+                  draft.current?.querySelector<HTMLElement>('select, input')?.focus({ preventScroll: true });
                 }}
               >
                 <Copy k="configure" />

@@ -58,6 +58,8 @@ describe('Quant Backtest form', () => {
     expect(html).not.toContain('Strategy ID');
     expect(html).toMatch(/<button[^>]*disabled[^>]*>.*?Review historical analysis/);
     expect(html).toContain('Choose a strategy draft');
+    expect(html).not.toContain('whole strategy');
+    expect(html).toContain('It does not run your strategy.');
   });
 
   it('with an unnamed draft it asks for a name', () => {
@@ -71,6 +73,7 @@ describe('Quant Backtest form', () => {
     expect(html).toContain('<option value="Momentum test">Momentum test</option>');
     expect(html).toContain('Choose a draft');
     expect(html).not.toContain('Create a strategy in Studio first');
+    expect(html).toMatch(/Only the draft’s name is sent, as a label for this analysis; its rules are not run\./);
   });
 
   it('shows plain-English cost models, never the raw model names or engineering words', () => {
