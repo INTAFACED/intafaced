@@ -5,7 +5,7 @@ import { useSession } from '../../../features/session/session';
 import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
-import { useDeskApi, useOpenOrders, useRefreshPrivate } from './data';
+import { useDeskApi, useListedFees, useOpenOrders, useRefreshPrivate } from './data';
 import {
   Amount,
   AlertDialog,
@@ -29,6 +29,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
+import { MoreOrderTypes, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -43,7 +44,6 @@ import {
   protectionNow,
   scaled,
   type OrderType,
-  type Problem,
   type Reference,
   type Side,
 } from './order-math';
@@ -62,29 +62,21 @@ import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } fr
 import { CONFLICT_CODE, resendOrder } from './resend';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
+import { problemText } from './problem-text';
+import { outcomeOf, tifFields, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
-function problemText(problem: Problem, market: DeskMarket, t: ReturnType<typeof deskCopy.useCopy>['t']): string {
-  switch (problem.kind) {
-    case 'amountEmpty':
-      return t('Enter an amount');
-    case 'priceEmpty':
-      return t('Enter a price');
-    case 'amountLot':
-      return t('Amount must be a whole number of steps', {
-        lot: fmtAmount(problem.lot, { places: placesOf(problem.lot) }),
-        asset: market.base,
-      });
-    case 'amountMin':
-      return t('Amount too small', { min: fmtAmount(problem.min, { places: placesOf(market.lotSize) }), asset: market.base });
-    case 'priceTick':
-      return t('Price must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
-    case 'valueMin':
-      return t('Value too small', { min: fmtAmount(problem.min, { places: 8 }), asset: market.quote });
-    case 'noPrice':
-      return t('No prices to judge a market order');
-  }
+/** Words for an order that came back with nothing traded: refused outright, or cancelled with nothing filled. */
+function notTradedCopy(
+  tif: Tif,
+  kind: 'rejected' | 'noFill',
+  t: ReturnType<typeof deskCopy.useCopy>['t'],
+): { title: string; body: string } {
+  if (tif === 'PO') return { title: t('Not placed post only title'), body: t('Not placed post only body') };
+  if (tif === 'FOK') return { title: t('Not placed fok title'), body: t('Not placed fok body') };
+  if (kind === 'noFill') return { title: t('Nothing filled title'), body: t('Nothing filled body') };
+  return { title: t('Not placed title'), body: t('Not placed body') };
 }
 
 /** The reason a refusal gives, with its action link ("Verify now") when it has one. */
@@ -130,6 +122,8 @@ interface SideProps {
   api: TradeApi;
   suggestion: BookPick | null;
   autoFocus: boolean;
+  /** Time in force picked once for both tickets (limit: GTC, post only, IOC, FOK; market: standard or FOK). */
+  tif: Tif;
   onPlaced: () => void;
 }
 
@@ -146,6 +140,7 @@ function SideForm({
   api,
   suggestion,
   autoFocus,
+  tif,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -159,6 +154,7 @@ function SideForm({
   const [restingId, setRestingId] = useState<string | null>(null);
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
+  const listedFees = useListedFees();
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -241,12 +237,11 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      ...tifFields(tif),
       clientOrderId: 'desk-preview',
     };
-  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type]); // eslint-disable-line react-hooks/exhaustive-deps
-  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}` : 'none';
+  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type, tif]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${tif}` : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
@@ -308,8 +303,7 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      ...tifFields(tif),
       clientOrderId: `desk:${crypto.randomUUID()}`,
     };
     const parsed = draftSchema.safeParse(fresh);
@@ -373,19 +367,32 @@ function SideForm({
       if (mounted.current) {
         const done = result.data;
         const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
-        const complete = scaled(done.remaining) === 0n && done.status === 'closed';
+        const outcome = outcomeOf(done, tifOfDraft(sending));
         restingSeen.current = false;
-        setRestingId(done.status === 'open' ? done.id : null);
-        setStatus(
-          complete
-            ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
-            : done.status === 'open'
-              ? t('Order placed open', { side: sideWord })
-              : t('Order placed done', { side: sideWord }),
-        );
-        setReview(null);
-        setAmount('');
-        setTotalEdit(null);
+        setRestingId(outcome.kind === 'resting' ? done.id : null);
+        if (outcome.kind === 'rejected' || outcome.kind === 'noFill') {
+          // Nothing traded: say so as a refusal, keep what the person typed, and never call it "done".
+          setReview(null);
+          setFailure({ kind: 'refusal', copy: notTradedCopy(outcome.tif, outcome.kind, t) });
+        } else {
+          setStatus(
+            outcome.kind === 'filled'
+              ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
+              : outcome.kind === 'resting'
+                ? t('Order placed open', { side: sideWord })
+                : outcome.kind === 'partCancelled'
+                  ? t('Order placed part cancelled', {
+                      side: sideWord,
+                      filled: fmtAmount(done.filled, { places: amountPlaces }),
+                      amount: fmtAmount(done.amount, { places: amountPlaces }),
+                      asset: market.base,
+                    })
+                  : t('Order placed done', { side: sideWord }),
+          );
+          setReview(null);
+          setAmount('');
+          setTotalEdit(null);
+        }
       }
       onPlaced();
     } else if (result.reason === 'changed') {
@@ -439,6 +446,7 @@ function SideForm({
   const verb = side === 'buy' ? t('Buy asset', { asset: market.base }) : t('Sell asset', { asset: market.base });
   const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
   const bbo = bboPrice(side, reference);
+  const listed = listedFees.status === 'ready' ? (listedFees.data[market.symbol] ?? null) : null;
 
   return (
     <form
@@ -542,11 +550,22 @@ function SideForm({
         </div>
       </dl>
       <p className="dk-fees if-num">
-        {sellOff
-          ? t('Fee at fill')
-          : live.state === 'ok' && feeRate(live.preview) !== null
-            ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-            : t('Fee not yet')}
+        <span>
+          {sellOff
+            ? t('Fee at fill')
+            : live.state === 'ok' && feeRate(live.preview) !== null
+              ? live.preview.feeRole === 'maker'
+                ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                : type === 'limit' && tif === 'GTC'
+                  ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                  : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+              : t('Fee not yet')}
+        </span>
+        {listed ? (
+          <span className="dk-fees-listed" title={t('Fee listed title')}>
+            {t('Fee listed', { maker: fmtPct(listed.maker, { signed: false }), taker: fmtPct(listed.taker, { signed: false }) })}
+          </span>
+        ) : null}
       </p>
       {signedIn ? (
         <Button
@@ -626,6 +645,10 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
       <div>
         <dt>{t('Review type')}</dt>
         <dd>{limit ? t('Order type limit') : t('Order type market')}</dd>
+      </div>
+      <div>
+        <dt>{t('Review time in force')}</dt>
+        <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
       </div>
       <div>
         <dt>{t('Review price')}</dt>
@@ -710,6 +733,9 @@ export const OrderPanel = memo(function OrderPanel({
   const api = useDeskApi();
   const refresh = useRefreshPrivate();
   const [type, setType] = useState<OrderType>('limit');
+  const [pickedTif, setTif] = useState<Tif>('GTC');
+  // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
+  const tif = tifFor(type, pickedTif);
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -832,13 +858,18 @@ export const OrderPanel = memo(function OrderPanel({
     suggestion,
     onPlaced: () => (refresh(), onPlaced()),
     type,
+    tif,
   } as const;
   return (
     <Tabs value={type} onValueChange={(value) => setType(value as OrderType)} className="dk-panel dk-order">
-      <TabsList divider className="dk-tabs" aria-label={t('Order type')}>
-        <TabsTab value="limit">{t('Limit')}</TabsTab>
-        <TabsTab value="market">{t('Market')}</TabsTab>
-      </TabsList>
+      <div className="dk-order-head">
+        <TabsList className="dk-tabs" aria-label={t('Order type')}>
+          <TabsTab value="limit">{t('Limit')}</TabsTab>
+          <TabsTab value="market">{t('Market')}</TabsTab>
+        </TabsList>
+        <MoreOrderTypes />
+        {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
+      </div>
       {!market.open ? (
         <div className="dk-order-body">
           <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />

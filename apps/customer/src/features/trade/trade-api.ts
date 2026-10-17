@@ -245,6 +245,9 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         return tradeRefusal('cancellationDoesNotConfirmTheOriginalOrderSTerminalOutcomeCheck', { reason: 'uncertain' });
       return result;
     },
+    /** Cancel every open order in one market (DELETE /orders?symbol=). The reply lists the orders it cancelled. */
+    cancelAll: (symbol: string): Promise<ApiResult<Order[]>> =>
+      api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
     async amend(reviewed: ReviewedOrder, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });

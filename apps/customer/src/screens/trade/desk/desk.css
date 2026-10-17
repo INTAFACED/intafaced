@@ -358,7 +358,7 @@
 
   /* Keep the complete ticket and monitoring tabs reachable in the desktop viewport. */
   .dk-chart {
-    height: clamp(220px, calc(100vh - 650px), 430px);
+    height: clamp(220px, calc(100vh - 638px), 430px);
   }
   .dk-chart:fullscreen {
     height: 100vh;
@@ -613,7 +613,7 @@
   .dk-form {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     min-width: 0;
   }
   .dk-percents {
@@ -728,6 +728,192 @@
   .dk-link:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  /* Order strip: Limit / Market, the order kinds this market does not take yet, and time in force */
+  .dk-order-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 20px;
+    padding-right: 14px;
+    border-bottom: 1px solid var(--if-line);
+  }
+  .dk-order-head .dk-tabs {
+    padding-right: 0;
+  }
+  .dk-type-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg-2);
+    font: 500 13px/16px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .dk-type-more:hover,
+  .dk-type-more[data-popup-open] {
+    color: var(--if-fg);
+  }
+  .dk-type-more:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .dk-type-menu {
+    min-width: 300px;
+  }
+  .dk-type-reason {
+    margin: 0;
+    padding: 6px 12px 10px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .dk-tif {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    min-width: 0;
+  }
+  .dk-tif-label {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    white-space: nowrap;
+  }
+  .dk-tif-trigger {
+    height: 28px;
+    padding-inline: 10px;
+    font: 400 12px/16px var(--if-font-ui);
+  }
+
+  /* Fee line: this order's rate, then the listed pair */
+  .dk-fees {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .dk-fees-listed {
+    color: var(--if-fg-3);
+  }
+
+  /* Table extras: order tag, row actions, cancel all, edit dialog */
+  .dk-tag {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 500 11px/16px var(--if-font-ui);
+    white-space: nowrap;
+  }
+  .dk-bt-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dk-cancel-all {
+    padding: 0 12px;
+    border: 0;
+    background: transparent;
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .dk-cancel-all:hover {
+    color: var(--if-fg);
+  }
+  .dk-cancel-all:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .dk-edit .dk-edit-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0 4px;
+  }
+  .dk-edit .dk-note {
+    margin-top: 8px;
+  }
+
+  /* Data status chip (ticker strip, right edge) */
+  .dk-ticker-status {
+    display: flex;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .dk-feed {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 500 12px/16px var(--if-font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .dk-feed:hover {
+    color: var(--if-fg);
+  }
+  .dk-feed:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .dk-feed-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--if-up-text);
+  }
+  .dk-feed[data-state='delayed'] .dk-feed-dot {
+    background: var(--if-warn);
+  }
+  .dk-feed[data-state='problem'] .dk-feed-dot {
+    background: var(--if-down-text);
+  }
+  .dk-feed-pop {
+    width: 280px;
+    padding: 12px 14px;
+  }
+  .dk-feed-title {
+    margin: 0 0 8px;
+    font: 500 13px/18px var(--if-font-ui);
+  }
+  .dk-feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .dk-feed-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font: 400 12px/16px var(--if-font-ui);
+  }
+  .dk-feed-list li > span:first-child {
+    color: var(--if-fg-2);
+  }
+  .dk-feed-list li[data-state='down'] .dk-feed-state {
+    color: var(--if-down-text);
+  }
+  .dk-feed-list li[data-state='old'] .dk-feed-state {
+    color: var(--if-warn);
+  }
+  .dk-feed-note {
+    margin: 10px 0 0;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-3);
   }
 
   /* Bottom strip */

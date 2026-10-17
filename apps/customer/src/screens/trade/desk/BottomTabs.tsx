@@ -7,6 +7,7 @@ import { deskCopy } from './copy';
 import { useClosedOrders, useRefreshPrivate } from './data';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import type { DeskMarket } from './market';
+import { CancelAll } from './CancelAll';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
 type Tab = 'open' | 'history' | 'trades' | 'assets';
@@ -33,7 +34,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
   const showAll = !isHiddenPath('/money/activity');
 
   const orderTable = (rows: Order[], withAction: boolean) => (
-    <OrdersTable rows={rows} withAction={withAction} precision={precision} onChanged={refresh} />
+    <OrdersTable rows={rows} withAction={withAction} precision={precision} onChanged={refresh} desk />
   );
 
   return (
@@ -45,6 +46,9 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           <TabsTab value="trades">{t('Trade history')}</TabsTab>
           <TabsTab value="assets">{t('Assets')}</TabsTab>
         </TabsList>
+        {tab === 'open' && openOrders.status === 'ready' ? (
+          <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
+        ) : null}
         {showAll && userId ? (
           <a className="dk-viewall" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>
             {t('View all')}

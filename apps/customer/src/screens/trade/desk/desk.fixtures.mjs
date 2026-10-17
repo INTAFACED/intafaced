@@ -206,8 +206,8 @@ export class Exchange {
       symbol: draft.symbol,
       type: draft.type,
       side: draft.side,
-      timeInForce: draft.timeInForce,
-      postOnly: false,
+      timeInForce: draft.postOnly ? 'PO' : draft.timeInForce,
+      postOnly: Boolean(draft.postOnly),
       reduceOnly: false,
       price: draft.price ?? null,
       stopPrice: null,
@@ -254,7 +254,7 @@ export class Exchange {
       estimatedFee: marketSell ? null : plain(fee),
       feeAsset: marketSell ? null : draft.side === 'buy' ? market.base : market.quote,
       feeBps: Number((rate * 10000n) / SCALE),
-      feeRole: 'taker',
+      feeRole: draft.postOnly ? 'maker' : 'taker',
       orderable: !refused,
       refusals: refused ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused' }] : [],
     };
@@ -279,6 +279,10 @@ export class Exchange {
     if (path === 'orders/open') return json(this.opts.hideOrders ? [] : this.open);
     if (path === 'orders/closed') return json(this.opts.hideOrders ? [] : this.closed);
     if (path === 'account/trades') return json(this.fills);
+    if (path === 'account/fees')
+      return json(
+        this.opts.fees === false ? {} : { 'BTC/USDT': { symbol: 'BTC/USDT', maker: '0.0008', taker: '0.0012', percentage: true } },
+      );
     if (path === 'orders/preview' && method === 'POST') {
       if (this.opts.previewError) return json({ error: { message: 'down' } }, 503);
       return json(this.preview(body));
@@ -292,6 +296,63 @@ export class Exchange {
       if (this.opts.placeMode === 'lose') return 'abort';
       if (this.opts.placeMode !== 'ok') return json(this.opts.placeMode.json, this.opts.placeMode.status);
       return json(this.commit(body));
+    }
+    if (path === 'orders' && method === 'DELETE') {
+      // Cancel every open order in one market.
+      const gone = this.open.filter((order) => order.symbol === query.symbol);
+      this.open = this.open.filter((order) => order.symbol !== query.symbol);
+      const cancelled = gone.map((order) => ({ ...order, status: 'canceled' }));
+      for (const order of gone) this.releaseHold(order);
+      this.closed.unshift(...cancelled);
+      return json(cancelled);
+    }
+    if (/^orders\/[^/]+$/.test(path) && method === 'PATCH') {
+      // Native amend: the amount left on the order changes, the place in the queue is kept.
+      const order = this.open.find((row) => row.id === decodeURIComponent(path.slice(7)));
+      if (!order) return json({ error: { message: 'gone', code: 'trade.order_not_found' } }, 404);
+      this.releaseHold(order);
+      order.amount = body.qty;
+      order.remaining = body.qty;
+      if (order.side === 'buy' && order.price) {
+        const hold = mulFloor(scaled(order.price), scaled(order.amount));
+        this.balances.USDT = entry(this.balances.USDT.total, plain(scaled(this.balances.USDT.used) + hold));
+      }
+      return json({
+        accepted: true,
+        idempotent: false,
+        code: 'AMENDED',
+        reasonCode: null,
+        reconciliationRequired: false,
+        path: 'NATIVE',
+        priority: 'retained',
+        orderId: order.id,
+        order,
+      });
+    }
+    if (/^orders\/[^/]+\/replace$/.test(path) && method === 'POST') {
+      // Cancel and replace: the old order is cancelled first, then the new one is placed.
+      const id = decodeURIComponent(path.split('/')[1]);
+      const at = this.open.findIndex((row) => row.id === id);
+      if (at === -1) return json({ error: { message: 'gone', code: 'trade.order_not_found' } }, 404);
+      const [old] = this.open.splice(at, 1);
+      const original = { ...old, status: 'canceled' };
+      this.closed.unshift(original);
+      this.releaseHold(old);
+      const replacement = this.commit(body);
+      return json({
+        accepted: true,
+        idempotent: false,
+        code: 'REPLACED',
+        reasonCode: null,
+        reconciliationRequired: false,
+        path: 'CANCEL_REPLACE',
+        originalOrderId: original.id,
+        originalState: original.status,
+        replacementOrderId: replacement.id,
+        replacementState: replacement.status,
+        original,
+        replacement,
+      });
     }
     if (path.startsWith('orders/') && method === 'DELETE') {
       // The real trade service refuses a DELETE that says it is JSON but has no body. The app now sends neither.
@@ -324,11 +385,42 @@ export class Exchange {
     }
   }
 
+  /** The service answers with an order that ended at once (rejected, or cancelled with nothing or part filled). */
+  finish(draft, extra) {
+    const order = this.wireOrder(draft, extra);
+    this.closed.unshift(order);
+    return order;
+  }
+
   /** The service accepts an order: a limit rests in the book, a market order fills at the best price. */
   commit(draft) {
     const existing = [...this.open, ...this.closed].find((order) => order.clientOrderId === draft.clientOrderId);
     if (existing) return existing;
-    if (draft.type === 'limit') {
+    const ask = this.opts.book.asks[0];
+    const bid = this.opts.book.bids[0];
+    const crosses =
+      draft.type === 'limit' && (draft.side === 'buy' ? scaled(draft.price) >= scaled(ask[0]) : scaled(draft.price) <= scaled(bid[0]));
+    const touch = draft.side === 'buy' ? ask : bid;
+    const room = scaled(touch[1]);
+    const wanted = scaled(draft.amount);
+    const tif = draft.postOnly ? 'PO' : draft.timeInForce;
+    if (tif === 'PO' && crosses) return this.finish(draft, { status: 'rejected' });
+    if (tif === 'FOK' && (draft.type === 'market' || crosses) && wanted > room) return this.finish(draft, { status: 'rejected' });
+    if (tif === 'FOK' && draft.type === 'limit' && !crosses) return this.finish(draft, { status: 'rejected' });
+    if (tif === 'IOC' && draft.type === 'limit') {
+      if (!crosses) return this.finish(draft, { status: 'canceled' });
+      if (wanted > room) {
+        const part = plain(room);
+        return this.finish(draft, {
+          status: 'canceled',
+          filled: part,
+          remaining: plain(wanted - room),
+          average: touch[0],
+          cost: plain(mulFloor(scaled(touch[0]), room)),
+        });
+      }
+    }
+    if (draft.type === 'limit' && !(tif === 'IOC' || tif === 'FOK')) {
       const order = this.wireOrder(draft, {});
       this.open.unshift(order);
       if (draft.side === 'buy') {
