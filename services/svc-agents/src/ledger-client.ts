@@ -1,128 +1,59 @@
-import {
-  formatAmount,
-  parseAmount,
-  type AccountRef,
-  type Balance,
-  type LedgerClient,
-  type LedgerTx,
-  type PostRequest,
-  rehydrateLedgerHttpError,
-} from '@intafaced/ledger-client';
+import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } from '@intafaced/ledger-client';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 
 /**
- * HTTP client for svc-ledger.
+ * Budgets for svc-ledger calls.
  *
- * §2: services never touch another service's tables. svc-agents moves value in
- * exactly one place — settling a metered usage window — and that one place goes
- * over this client into svc-ledger, which owns the balance graph (Doctrine
- * §0.6).
+ * svc-agents moves value in exactly one place: `UsageMeter.settleInner` posts the `feeCharge` for a sealed usage window.
+ * That post is made with NO database transaction open: the seal commits first (it freezes the amount and the charge key),
+ * and the ledger id is written back by a plain statement afterwards. So the post budget protects the caller (a settle
+ * route or `session.close` waiting on svc-agents) and the connection pool, not an idle-in-transaction timer. The same
+ * code reads no balance, so the read budget below is only what any later read would inherit.
  *
- * It implements the same `LedgerClient` interface the in-memory reference and
- * the Postgres engine implement, so the metering path in `metering/meter.ts` is
- * written once and tested against the reference without a network.
+ *   - post: 10s per attempt, 2 retries, 25s for the whole call including backoffs. Retrying a post is safe because the
+ *     ledger answers a reused idempotency key with the original transaction (the key is the window's charge key,
+ *     `fee:<module>:<session>:<window>`, fixed when the window is sealed), or refuses a different body
+ *     (`ledger.idempotency_conflict`). A sealed amount never changes, so a retry cannot carry a different body.
+ *   - reads (`balance`, `balances`, `getTx`, `getTxByKey`): 3s per attempt, 1 retry, 5s for the whole call.
+ *
+ * The 60s idle-in-transaction limit (the shared `createDb` default; svc-agents' own pool in `index.ts` sets none, so there
+ * is no tighter config to anchor to) is not on this path. If a transaction is ever opened around a post, 25s leaves 35s
+ * for everything else in it.
+ */
+const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as const;
+const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const;
+
+/**
+ * svc-agents' client for svc-ledger: the shared HTTP client, signed as `svc-agents`.
+ *
+ * §2: services never touch another service's tables. Settling a metered usage window goes over this client into
+ * svc-ledger, which owns the balance graph (Doctrine §0.6). It implements the same `LedgerClient` interface the
+ * in-memory reference and the Postgres engine implement, so the metering path in `metering/meter.ts` is written once and
+ * tested against the reference without a network.
+ *
+ * Service credentials (§2): svc-ledger's `post` is a `serviceProcedure`, so this client must prove which service it is.
+ * The signature covers a timestamp and the body (L2-6): the shared transport signs the exact bytes it sends, once per
+ * attempt, so a captured header stops working after the skew window and cannot be replayed against another charge.
+ *
+ * Because it is the shared client, a post returns the entries the ledger actually booked, and `getTx` / `getTxByKey`
+ * answer (through the read-only `txById` / `txByKey` doors) instead of throwing "not exposed".
  */
 export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
-  /**
-   * Service credentials, per call (§2).
-   *
-   * svc-ledger's `post` is a `serviceProcedure` now, so this client must prove
-   * which service it is. It previously sent `content-type` and nothing else —
-   * there was no credential to check even before `post` began checking.
-   *
-   * Signed per request rather than once at construction, because the signature
-   * covers a timestamp: a captured header stops working after the skew window
-   * instead of being a permanent bearer token.
-   *
-   * It also covers the body (L2-6). Identity plus a timestamp left a captured
-   * signature replayable against ANY body for 300 seconds, which on this path
-   * means any transaction.
-   */
-  const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-agents', internalSecret, payload);
-
-  const url = baseUrl.replace(/\/$/, '');
-
-  async function call<T>(path: string, body: unknown): Promise<T> {
-    // Serialised ONCE, and the same string is both signed and sent. Signing
-    // `JSON.stringify(body)` and then handing `body` to fetch to re-serialise
-    // would digest bytes the server never sees; it presents as a 401 that
-    // reproduces only under whatever key order the two calls happened to differ on.
-    const payload = JSON.stringify(body);
-
-    const response = await fetch(`${url}${path}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders(payload) },
-      body: payload,
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      // Preserve the ledger's own error text: 'ledger.insufficient_funds' and
-      // 'ledger.frozen' mean very different things to a caller — the first is a
-      // user who cannot afford their usage, the second is a platform freeze —
-      // and collapsing them into "request failed" makes both unactionable.
-      throw rehydrateLedgerHttpError(path, response.status, detail);
-    }
-
-    return (await response.json()) as T;
-  }
+  const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
+    baseUrl,
+    sign: (payload) => serviceAuthHeadersForBody('svc-agents', internalSecret, payload),
+    // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
+    // client is built (telemetry, a test door) still sees every ledger call.
+    fetch: (input, init) => globalThis.fetch(input, init),
+  };
+  const writer = createHttpLedgerClient({ ...shared, ...POST_BUDGET });
+  const reader = createHttpLedgerClient({ ...shared, ...READ_BUDGET });
 
   return {
-    async post(request: PostRequest): Promise<LedgerTx> {
-      // Amounts cross the wire as decimal strings — never as JS numbers, and
-      // never as bigint (which JSON cannot represent).
-      const wire = {
-        idempotencyKey: request.idempotencyKey,
-        module: request.module,
-        reason: request.reason,
-        meta: request.meta ?? {},
-        correlationId: request.correlationId,
-        entries: request.entries.map((e) => ({
-          account: e.account,
-          direction: e.direction,
-          amount: formatAmount(e.amount),
-        })),
-      };
-
-      const result = await call<{ txId: string; hash: string; postedAt: string }>('/trpc/post', wire);
-
-      return {
-        id: result.txId,
-        idempotencyKey: request.idempotencyKey,
-        module: request.module,
-        reason: request.reason,
-        meta: request.meta ?? {},
-        postedAt: new Date(result.postedAt),
-        hash: result.hash,
-        previousHash: null,
-        entries: [],
-      };
-    },
-
-    async balance(ref: AccountRef): Promise<Balance> {
-      const result = await call<{ accountId: string; amount: string }>('/trpc/balance', ref);
-      return { account: ref, accountId: result.accountId, amount: parseAmount(result.amount) };
-    },
-
-    async balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<Balance[]> {
-      const result = await call<Array<{ accountId: string; assetId: string; kind: string; amount: string }>>('/trpc/balances', {
-        ownerType,
-        ownerId,
-      });
-
-      return result.map((b) => ({
-        account: { ownerType, ownerId, assetId: b.assetId, kind: b.kind as AccountRef['kind'] },
-        accountId: b.accountId,
-        amount: parseAmount(b.amount),
-      }));
-    },
-
-    async getTx(): Promise<LedgerTx | null> {
-      throw new Error('getTx is not exposed over the internal ledger API — query svc-ledger directly');
-    },
-
-    async getTxByKey(): Promise<LedgerTx | null> {
-      throw new Error('getTxByKey is not exposed over the internal ledger API — query svc-ledger directly');
-    },
+    post: (request) => writer.post(request),
+    balance: (ref) => reader.balance(ref),
+    balances: (ownerType, ownerId) => reader.balances(ownerType, ownerId),
+    getTx: (txId) => reader.getTx(txId),
+    getTxByKey: (idempotencyKey) => reader.getTxByKey(idempotencyKey),
   };
 }
