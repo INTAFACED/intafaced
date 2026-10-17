@@ -101,7 +101,8 @@ describe('classifying a failed chain read', () => {
 
   it('keeps a redacted cause so a logged error cannot carry the endpoint secret', () => {
     const root = connectionRefused();
-    const rpc = 'http://user:fk_test_secret_key@rpc.example/v1/fk_test_secret_key?apikey=fk_test_query_key';
+    const SECRET = 'fk_test_secret_key';
+    const rpc = `http://user:${SECRET}@rpc.example/v1/${SECRET}?apikey=fk_test_query_key`;
     const err = classifyChainError(root, 'sessionOf', rpc);
     expect(err.cause).not.toBe(root);
     expect((err.cause as Error).message).not.toContain('fk_test_secret_key');
