@@ -716,6 +716,8 @@ function serviceDefs(secrets) {
         WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
         IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
         IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
+        // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
+        PAY_URL: urlOf('pay'),
         // Edge reads each caller's current account authority with this key; without it
         // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
         IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
@@ -724,6 +726,16 @@ function serviceDefs(secrets) {
         // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
         // test accounts; "LOCAL TEST — not a real approval".
         IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+        // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
+        // transport, a lifetime, and a rate budget are published. local-outbox is refused
+        // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
+        // not an owner decision. The confirm link is written to the outbox file, labelled
+        // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
+        IDENTITY_MAIL_TRANSPORT: 'local-outbox',
+        IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
+        IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+        IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+        IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
@@ -741,6 +753,8 @@ function serviceDefs(secrets) {
         // Opening a market needs a two-person approval that matching consumes from identity
         // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
         IDENTITY_URL: urlOf('identity'),
+        // Matching reads order:<id> holds read-only from the ledger at boot; without it a journal with resting orders boots closed (matching.hold_check_unwired).
+        LEDGER_URL: urlOf('ledger'),
         // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
         // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
         // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
@@ -804,6 +818,8 @@ function serviceDefs(secrets) {
         PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
         PAY_LINK_DEFAULT_TTL_DAYS: '30',
         PAY_LINK_MAX_TTL_DAYS: '365',
+        // LOCAL-TEST value, not INTAFACED pricing. 250 bps is a labelled stand-in so the local portal can show a fee. The product stays unset wherever this variable is absent.
+        PAY_MERCHANT_STARTER_FEE_BPS: '250',
       }),
     },
     {

@@ -43,6 +43,7 @@ const en = {
   // dashboard
   accountStatus: 'Account status',
   feeNotPublished: 'Not published',
+  testFeeNotPricing: 'Test fee — not INTAFACED pricing ({bps} bps)',
   feeBps: '{bps} basis points',
   modeGateway: 'Gateway',
   modePsp: 'Payment service provider',

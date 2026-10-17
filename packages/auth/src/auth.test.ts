@@ -224,6 +224,8 @@ describe('delegation — an API key cannot exceed the session that minted it', (
     // A step-up session genuinely holds `trade:withdraw`. A long-lived key must
     // still never carry it (§9).
     expect(() => assertDelegatableScopes(['trade:withdraw'], ['trade:withdraw'])).toThrow(/interactive/);
+    expect(() => assertDelegatableScopes(['pay:onboard'], ['pay:onboard'])).toThrow(/interactive/);
+    expect(() => assertKeyScopesAllowed(['pay:onboard'])).toThrow(/API key/);
   });
 
   it('refuses unknown scope strings instead of storing them', () => {

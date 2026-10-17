@@ -78,20 +78,26 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
     const url = `http://127.0.0.1:${address.port}/current`;
     try {
       let live = false;
-      for (let attempt = 0; attempt < 400 && !live; attempt++) {
+      let lastStatus: number | null = null;
+      // Poll until the process is live, has exited, or its own kill is about to fire.
+      // A fixed 10s or 11s cap ended while a starved CI boot was still starting.
+      const deadline = Date.now() + CHILD_KILL_MS - 1_000;
+      const childAlive = () => run.process.exitCode === null && run.process.signalCode === null;
+      while (!live && Date.now() < deadline && childAlive()) {
         try {
           const response = await fetch(url, {
             method: 'POST',
             headers: { authorization: `Bearer ${environment.OPS_ERASURE_ARCHIVE_SECRET}`, 'content-type': 'application/json' },
             body: JSON.stringify({ nonce: '00000000-0000-4000-8000-000000000001' }),
           });
+          lastStatus = response.status;
           live = response.status === 200;
         } catch {
           /* Wait for this owned process only. */
         }
-        if (!live) await new Promise((resolve) => setTimeout(resolve, 25));
+        if (!live && childAlive()) await new Promise((resolve) => setTimeout(resolve, 25));
       }
-      expect(live).toBe(true);
+      expect(live, `archive receiver not live (status ${String(lastStatus)}, exit ${String(run.process.exitCode)})`).toBe(true);
       run.process.kill('SIGTERM');
       expect(await run.done).toEqual({ code: 0, signal: null, stderr: '', stdout: '' });
       await expect(fetch(url)).rejects.toThrow();
@@ -101,5 +107,5 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
         await run.done;
       }
     }
-  });
+  }, 45_000);
 });

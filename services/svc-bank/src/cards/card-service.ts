@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -197,7 +198,42 @@ export interface CardRecord {
   status: 'active' | 'frozen' | 'closed';
   cashbackBps: number;
   perAuthorizationLimit: Amount;
+  /** NULL means no ceiling. A policy, not a remaining balance. */
+  dailyLimit: Amount | null;
+  monthlyLimit: Amount | null;
+  cashLimit: Amount | null;
+  online: boolean;
+  contactless: boolean;
+  atm: boolean;
+  abroad: boolean;
+  cardType: 'virtual' | 'physical';
+  shippingAddress: CardShippingAddress | null;
+  replacesCardId: string | null;
+  replacedByCardId: string | null;
+  replaceReason: CardReplaceReason | null;
 }
+
+export interface CardShippingAddress {
+  name: string;
+  line1: string;
+  line2: string | null;
+  city: string;
+  region: string | null;
+  postalCode: string;
+  country: string;
+}
+
+export type CardChannel = 'card-present' | 'online' | 'contactless' | 'atm' | 'foreign';
+export type CardReplaceReason = 'lost' | 'stolen' | 'damaged';
+
+const SECRET_TTL_MS = 60_000;
+
+const PAN_UNSET =
+  'No live card issuer can return a card number. The missing piece is socket.live-issuer (a card-scheme sponsor and an issuing BIN). This service will not invent a number, expiry, or security code.';
+const PIN_UNSET =
+  'No live card issuer can view or set a PIN. The missing piece is socket.live-issuer (a card-scheme sponsor and an issuing BIN). This service will not invent a PIN.';
+const WALLET_UNSET =
+  'No live card issuer can add this card to a phone wallet. The missing piece is socket.live-issuer (a card-scheme sponsor and an issuing BIN). This service will not invent a provisioning payload.';
 
 /**
  * The rate one authorisation converted at, as it was written down.
@@ -223,6 +259,7 @@ export interface AuthorizationRecord {
   /** WHAT MOVES, in the card's FUNDING asset. Not the merchant's number on a converted card. */
   amount: Amount;
   merchantCategory: string | null;
+  channel: CardChannel;
   decision: 'approved' | 'declined';
   declineCode: string | null;
   status: 'pending' | 'settled' | 'rejected';
@@ -364,11 +401,44 @@ export class CardService {
    * Rewards stay refused until a real card issuer is connected.
    * `cashbackBps` is a rate field, not a balance, and this posts nothing.
    */
-  rewards(): never {
-    throw new BankError(
-      'Card rewards are refused. The missing piece is an outside company, the card issuer. A cashback field is not a rewards balance.',
-      'bank.rewards_issuer_unset',
-    );
+  /**
+   * Cashback already paid, summed from settled reward records in one asset.
+   *
+   * Refuses until a non-simulated issuer is connected. A rate on the card is
+   * not a balance, and card-sim does not pay one. Two assets are not added.
+   */
+  async rewards(userId: string): Promise<{ balance: Amount; assetId: string }> {
+    if (!this.liveSecretProgramme()) {
+      throw new BankError(
+        'Card rewards are refused. The missing piece is an outside company, the card issuer. A cashback field is not a rewards balance.',
+        'bank.rewards_issuer_unset',
+      );
+    }
+    const rows = await this.sql<Array<{ asset_id: string; balance: string }>>`
+      SELECT c.asset_id,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS balance
+        FROM bank.cards c
+        LEFT JOIN bank.card_authorizations a ON a.card_id = c.id
+        LEFT JOIN bank.card_cashback cb ON cb.authorization_id = a.id
+       WHERE c.user_id = ${userId}
+         AND c.simulated = false
+         AND c.issuer = ${this.issuer.programme.id}
+       GROUP BY c.asset_id
+    `;
+    if (rows.length === 0) {
+      throw new BankError(
+        'Card rewards are refused. The missing piece is an outside company, the card issuer. A cashback field is not a rewards balance.',
+        'bank.rewards_issuer_unset',
+      );
+    }
+    if (rows.length > 1) {
+      throw new BankError(
+        'Cashback for this customer is in more than one asset. This call will not add those figures together.',
+        'bank.rewards_asset_ambiguous',
+      );
+    }
+    const row = rows[0]!;
+    return { balance: parseAmount(row.balance), assetId: row.asset_id };
   }
 
   // ── Cards ──────────────────────────────────────────────────────────────────
@@ -397,6 +467,9 @@ export class CardService {
     settlementAssetId?: string;
     cashbackBps?: number;
     perAuthorizationLimit: Amount;
+    /** Omitted means virtual. A physical card stores a delivery address and stays simulated on card-sim. */
+    cardType?: 'virtual' | 'physical';
+    shippingAddress?: CardShippingAddress;
   }): Promise<CardRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
@@ -404,31 +477,44 @@ export class CardService {
       throw new BankError('A card needs a positive per-authorisation limit', 'bank.card_limit_exceeded');
     }
 
+    const cardType = input.cardType ?? 'virtual';
+    const shipping = cardType === 'physical' ? requireShippingAddress(input.shippingAddress) : null;
     const settlementAssetId = input.settlementAssetId ?? input.assetId;
     const handle = await this.issuer.issue({ cardId: input.cardId, userId: input.userId, assetId: input.assetId });
     const programme = this.issuer.programme;
 
     const rows = await this.sql<CardRow[]>`
-      INSERT INTO bank.cards (id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit)
+      INSERT INTO bank.cards (
+        id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
+        card_type, shipping_address
+      )
       VALUES (
         ${input.cardId}, ${input.userId}, ${input.assetId}, ${settlementAssetId}, ${programme.id}, ${programme.simulated},
         ${handle.issuerRef}, ${handle.panTail}, ${input.cashbackBps ?? 0},
-        ${formatAmount(input.perAuthorizationLimit)}::numeric
+        ${formatAmount(input.perAuthorizationLimit)}::numeric,
+        ${cardType}, ${shipping === null ? null : JSON.stringify(shipping)}::jsonb
       )
       ON CONFLICT (issuer, issuer_ref) DO NOTHING
-      RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit
+      RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason
     `;
 
     // A redelivered issue is the same card, not a second one drawing on the same
     // balance. The unique index is what makes that true; this reads it back.
     const existing = rows[0] ?? (await this.cardByIssuerRef(programme.id, handle.issuerRef));
     if (!existing) throw new BankError('Card could not be issued', 'bank.card_not_found');
-    return toCard(existing);
+    const card = toCard(existing);
+    if (card.cardType !== cardType) {
+      throw new BankError('This card id was already issued as a different card type', 'bank.card_issue_conflict');
+    }
+    if (cardType === 'physical' && canonicalAddress(card.shippingAddress) !== canonicalAddress(shipping)) {
+      throw new BankError('This card id was already issued to a different delivery address', 'bank.card_issue_conflict');
+    }
+    return card;
   }
 
   async card(cardId: string): Promise<CardRecord> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit FROM bank.cards WHERE id = ${cardId}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE id = ${cardId}
     `;
     const row = rows[0];
     if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
@@ -438,7 +524,7 @@ export class CardService {
   async cardsOf(userId: string, limit?: number): Promise<CardRecord[]> {
     const page = assertCardsListLimit(limit);
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}
     `;
     return rows.map(toCard);
@@ -462,6 +548,260 @@ export class CardService {
     return this.card(cardId);
   }
 
+  /**
+   * Change the spending ceilings. `commandId` is the idempotency key.
+   * Omitted optional limits stay as they are. Null clears that ceiling.
+   */
+  async setLimits(input: {
+    cardId: string;
+    userId: string;
+    commandId: string;
+    perAuthorizationLimit: Amount;
+    dailyLimit?: Amount | null;
+    monthlyLimit?: Amount | null;
+    cashLimit?: Amount | null;
+  }): Promise<CardRecord> {
+    this.assertModuleEnabled();
+    if (input.perAuthorizationLimit <= 0n) {
+      throw new BankError('A card needs a positive per-authorisation limit', 'bank.card_limit_exceeded');
+    }
+    for (const value of [input.dailyLimit, input.monthlyLimit, input.cashLimit]) {
+      if (value != null && value <= 0n) {
+        throw new BankError('A card limit must be a positive amount', 'bank.card_limit_exceeded');
+      }
+    }
+    const card = await this.ownedCard(input.cardId, input.userId);
+    const hash = commandHash({
+      perAuthorizationLimit: formatAmount(input.perAuthorizationLimit),
+      dailyLimit: limitToken(input.dailyLimit),
+      monthlyLimit: limitToken(input.monthlyLimit),
+      cashLimit: limitToken(input.cashLimit),
+    });
+    await transaction(this.sql, async (tx) => {
+      const claim = await this.claimCommand(tx, card.id, input.commandId, 'set_limits', hash);
+      if (claim === 'replay') return;
+      const daily = input.dailyLimit === undefined ? card.dailyLimit : input.dailyLimit;
+      const monthly = input.monthlyLimit === undefined ? card.monthlyLimit : input.monthlyLimit;
+      const cash = input.cashLimit === undefined ? card.cashLimit : input.cashLimit;
+      await tx`
+        UPDATE bank.cards
+           SET per_authorization_limit = ${formatAmount(input.perAuthorizationLimit)}::numeric,
+               daily_limit = ${daily === null ? null : formatAmount(daily)}::numeric,
+               monthly_limit = ${monthly === null ? null : formatAmount(monthly)}::numeric,
+               cash_limit = ${cash === null ? null : formatAmount(cash)}::numeric,
+               updated_at = now()
+         WHERE id = ${card.id}
+      `;
+    });
+    return this.card(card.id);
+  }
+
+  /** Flip the four channel switches. `commandId` is the idempotency key. */
+  async setChannels(input: {
+    cardId: string;
+    userId: string;
+    commandId: string;
+    online: boolean;
+    contactless: boolean;
+    atm: boolean;
+    abroad: boolean;
+  }): Promise<CardRecord> {
+    this.assertModuleEnabled();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    const hash = commandHash({
+      online: input.online ? '1' : '0',
+      contactless: input.contactless ? '1' : '0',
+      atm: input.atm ? '1' : '0',
+      abroad: input.abroad ? '1' : '0',
+    });
+    await transaction(this.sql, async (tx) => {
+      const claim = await this.claimCommand(tx, card.id, input.commandId, 'set_channels', hash);
+      if (claim === 'replay') return;
+      await tx`
+        UPDATE bank.cards
+           SET channel_online = ${input.online},
+               channel_contactless = ${input.contactless},
+               channel_atm = ${input.atm},
+               channel_abroad = ${input.abroad},
+               updated_at = now()
+         WHERE id = ${card.id}
+      `;
+    });
+    return this.card(card.id);
+  }
+
+  /**
+   * Refuse a card-number or PIN call when this deployment has no live issuer
+   * method. card-sim and `none` stay `bank.card_pan_issuer_unset` /
+   * `bank.card_pin_issuer_unset`, and the router runs this before step-up.
+   */
+  assertSecretIssuer(kind: 'pan' | 'pin', op: 'revealCredentials' | 'revealPin' | 'setPin'): void {
+    this.assertModuleEnabled();
+    this.assertLiveSecret(kind);
+    const present =
+      op === 'revealCredentials' ? this.issuer.revealCredentials : op === 'revealPin' ? this.issuer.revealPin : this.issuer.setPin;
+    if (present) return;
+    if (kind === 'pan') throw new BankError(PAN_UNSET, 'bank.card_pan_issuer_unset');
+    throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');
+  }
+
+  /** A PIN that is not 4–12 digits. The message does not echo the PIN. */
+  assertPinDigits(pin: string): void {
+    if (!/^\d{4,12}$/.test(pin)) {
+      throw new BankError('A PIN must be 4 to 12 digits', 'bank.card_pin_invalid');
+    }
+  }
+
+  /**
+   * PAN, expiry and CVV from a live issuer. Not stored. The audit row names the
+   * reveal and not the secret. `expiresAt` is when the caller should drop it.
+   */
+  async reveal(input: { cardId: string; userId: string; revealId: string }): Promise<{
+    pan: string;
+    expiry: string;
+    cvv: string;
+    expiresAt: string;
+  }> {
+    this.assertModuleEnabled();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    this.assertLiveSecret('pan');
+    if (!this.issuer.revealCredentials) throw new BankError(PAN_UNSET, 'bank.card_pan_issuer_unset');
+    const revealed = await this.issuer.revealCredentials({ cardId: card.id, issuerRef: card.issuerRef });
+    await this.auditSecret({
+      id: input.revealId,
+      cardId: card.id,
+      userId: input.userId,
+      kind: 'pan_reveal',
+      payloadHash: commandHash({ cardId: card.id, kind: 'pan_reveal' }),
+    });
+    return { pan: revealed.pan, expiry: revealed.expiry, cvv: revealed.cvv, expiresAt: this.secretExpiresAt() };
+  }
+
+  async revealPin(input: { cardId: string; userId: string; revealId: string }): Promise<{ pin: string; expiresAt: string }> {
+    this.assertModuleEnabled();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    this.assertLiveSecret('pin');
+    if (!this.issuer.revealPin) throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');
+    const revealed = await this.issuer.revealPin({ cardId: card.id, issuerRef: card.issuerRef });
+    await this.auditSecret({
+      id: input.revealId,
+      cardId: card.id,
+      userId: input.userId,
+      kind: 'pin_reveal',
+      payloadHash: commandHash({ cardId: card.id, kind: 'pin_reveal' }),
+    });
+    return { pin: revealed.pin, expiresAt: this.secretExpiresAt() };
+  }
+
+  /** The PIN is sent to the issuer and is not written, hashed, or put in an error. */
+  async setPin(input: { cardId: string; userId: string; commandId: string; pin: string }): Promise<{ ok: true }> {
+    this.assertModuleEnabled();
+    this.assertPinDigits(input.pin);
+    const card = await this.ownedCard(input.cardId, input.userId);
+    this.assertLiveSecret('pin');
+    if (!this.issuer.setPin) throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');
+    const payloadHash = commandHash({ cardId: card.id, kind: 'pin_set' });
+    if (!(await this.secretAlreadyAudited(input.commandId, card.id, 'pin_set', payloadHash))) {
+      await this.issuer.setPin({ cardId: card.id, issuerRef: card.issuerRef, pin: input.pin });
+      await this.auditSecret({
+        id: input.commandId,
+        cardId: card.id,
+        userId: input.userId,
+        kind: 'pin_set',
+        payloadHash,
+      });
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Opaque wallet payload from a live issuer. The payload is not stored.
+   * `provisionId` is the idempotency key; a different nonce under the same id conflicts.
+   */
+  async walletProvision(input: {
+    cardId: string;
+    userId: string;
+    provisionId: string;
+    wallet: 'apple' | 'google';
+    nonce: string;
+  }): Promise<{ payload: string; expiresAt: string }> {
+    this.assertModuleEnabled();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    this.assertLiveSecret('wallet');
+    if (!this.issuer.provisionWallet) throw new BankError(WALLET_UNSET, 'bank.card_wallet_issuer_unset');
+    const payloadHash = commandHash({ wallet: input.wallet, nonce: input.nonce });
+    const provisioned = await this.issuer.provisionWallet({
+      cardId: card.id,
+      issuerRef: card.issuerRef,
+      wallet: input.wallet,
+      nonce: input.nonce,
+    });
+    await this.auditSecret({
+      id: input.provisionId,
+      cardId: card.id,
+      userId: input.userId,
+      kind: 'wallet_provision',
+      payloadHash,
+    });
+    return { payload: provisioned.payload, expiresAt: this.secretExpiresAt() };
+  }
+
+  /**
+   * Close `cardId` and issue `replacementId` with the same asset, ceilings and channels.
+   * A retry of the same replacement id returns that card. A different id or reason conflicts.
+   */
+  async replace(input: { cardId: string; userId: string; replacementId: string; reason: CardReplaceReason }): Promise<CardRecord> {
+    this.assertModuleEnabled();
+    this.assertIssuerMayMutate();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    if (card.replacedByCardId) {
+      if (card.replacedByCardId !== input.replacementId || card.replaceReason !== input.reason) {
+        throw new BankError('This card was already replaced on different terms', 'bank.card_replace_conflict');
+      }
+      return this.ownedCard(card.replacedByCardId, input.userId);
+    }
+    if (card.status === 'closed') {
+      throw new BankError('A closed card cannot be replaced', 'bank.card_not_active');
+    }
+
+    const existing = await this.cardOrNull(input.replacementId);
+    if (existing) {
+      if (existing.replacesCardId !== card.id || existing.userId !== input.userId) {
+        throw new BankError('This replacement id already belongs to another card', 'bank.card_replace_conflict');
+      }
+      await this.closeReplaced(card, existing.id, input.reason);
+      return this.card(existing.id);
+    }
+
+    const handle = await this.issuer.issue({ cardId: input.replacementId, userId: input.userId, assetId: card.assetId });
+    const programme = this.issuer.programme;
+    await this.sql`
+      INSERT INTO bank.cards (
+        id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
+        daily_limit, monthly_limit, cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad,
+        card_type, shipping_address, replaces_card_id
+      )
+      VALUES (
+        ${input.replacementId}, ${card.userId}, ${card.assetId}, ${card.settlementAssetId}, ${programme.id}, ${programme.simulated},
+        ${handle.issuerRef}, ${handle.panTail}, ${card.cashbackBps},
+        ${formatAmount(card.perAuthorizationLimit)}::numeric,
+        ${card.dailyLimit === null ? null : formatAmount(card.dailyLimit)}::numeric,
+        ${card.monthlyLimit === null ? null : formatAmount(card.monthlyLimit)}::numeric,
+        ${card.cashLimit === null ? null : formatAmount(card.cashLimit)}::numeric,
+        ${card.online}, ${card.contactless}, ${card.atm}, ${card.abroad},
+        ${card.cardType}, ${card.shippingAddress === null ? null : JSON.stringify(card.shippingAddress)}::jsonb,
+        ${card.id}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const created = await this.card(input.replacementId);
+    if (created.replacesCardId !== card.id) {
+      throw new BankError('This replacement id already belongs to another card', 'bank.card_replace_conflict');
+    }
+    await this.closeReplaced(card, created.id, input.reason);
+    return this.card(created.id);
+  }
+
   // ── The authorisation webhook ──────────────────────────────────────────────
 
   /**
@@ -480,6 +820,8 @@ export class CardService {
     /** THE MERCHANT'S NUMBER, in the card's SETTLEMENT asset. */
     amount: Amount;
     merchantCategory?: string;
+    /** Omitted means card-present (chip or swipe at home), which the four switches do not gate. */
+    channel?: CardChannel;
   }): Promise<AuthorizationRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
@@ -512,18 +854,34 @@ export class CardService {
         // nothing moves, and no decision is recorded, because nobody made one.
         const quote = await this.quote(card, input.amount);
         const fundingAmount = quote ? quote.fundingAmount : input.amount;
+        const channel = input.channel ?? 'card-present';
         span.setAttribute('intafaced.card_funding_amount', formatAmount(fundingAmount));
+        span.setAttribute('intafaced.card_channel', channel);
 
-        const declineCode = await this.declineReason(card, fundingAmount);
+        const declineCode = await this.declineReason(card, fundingAmount, channel);
 
         if (declineCode) {
           span.setAttribute('intafaced.card_decision', 'declined');
-          const declined = await this.recordDecision({ card, input, fundingAmount, quote, decision: 'declined', declineCode });
+          const declined = await this.recordDecision({
+            card,
+            input: { ...input, channel },
+            fundingAmount,
+            quote,
+            decision: 'declined',
+            declineCode,
+          });
           await this.tellIssuer(card, declined, { decision: 'declined', reason: declineCode });
           return declined;
         }
 
-        const claimed = await this.recordDecision({ card, input, fundingAmount, quote, decision: 'approved', declineCode: null });
+        const claimed = await this.recordDecision({
+          card,
+          input: { ...input, channel },
+          fundingAmount,
+          quote,
+          decision: 'approved',
+          declineCode: null,
+        });
         const finished = await this.commitHold(card, claimed, input.amount);
         if (finished.decision === 'declined') return finished;
 
@@ -615,13 +973,14 @@ export class CardService {
   }
 
   /**
-   * The four reasons this service declines, and there are only four.
+   * Named declines only. No score and no invented fee.
    *
-   * No score, no velocity, no risk model — those belong to a rail. Each of these
-   * is a fact somebody can check afterwards, which is the property a decline
-   * needs most: a user asking "why" gets a reason, not a probability.
+   * Period ceilings sum approved authorisation records in the UTC day or month.
+   * They are not a column that counts down. ATM cash uses the cash ceiling on
+   * top of the daily and monthly ones. Card-present (chip or swipe at home) is
+   * not one of the four switches.
    */
-  private async declineReason(card: CardRecord, fundingAmount: Amount): Promise<string | null> {
+  private async declineReason(card: CardRecord, fundingAmount: Amount, channel: CardChannel): Promise<string | null> {
     if (card.status !== 'active') return 'bank.card_not_active';
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
@@ -629,6 +988,21 @@ export class CardService {
     // protects; a settlement-denominated limit is a spending-tier concept and
     // belongs with tiering, which is not built here.
     if (fundingAmount > card.perAuthorizationLimit) return 'bank.card_limit_exceeded';
+    if (!channelOpen(card, channel)) return 'bank.card_channel_off';
+
+    const now = this.clock();
+    if (card.dailyLimit !== null) {
+      const spent = await this.approvedSpend(card.id, startOfUtc(now, 'day'));
+      if (spent + fundingAmount > card.dailyLimit) return 'bank.card_daily_limit_exceeded';
+    }
+    if (card.monthlyLimit !== null) {
+      const spent = await this.approvedSpend(card.id, startOfUtc(now, 'month'));
+      if (spent + fundingAmount > card.monthlyLimit) return 'bank.card_monthly_limit_exceeded';
+    }
+    if (channel === 'atm' && card.cashLimit !== null) {
+      const spent = await this.approvedSpend(card.id, startOfUtc(now, 'day'), 'atm');
+      if (spent + fundingAmount > card.cashLimit) return 'bank.card_cash_limit_exceeded';
+    }
 
     const balance = (await this.ledger.balance(userAvailable(card.userId, card.assetId))).amount;
     if (balance < fundingAmount) return 'ledger.insufficient_funds';
@@ -1162,7 +1536,7 @@ export class CardService {
   async authorizationsOf(cardId: string, limit?: number): Promise<AuthorizationRecord[]> {
     const page = assertCardAuthorizationsListLimit(limit);
     const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
@@ -1186,14 +1560,14 @@ export class CardService {
 
   private async cardByIssuerRef(issuer: string, issuerRef: string): Promise<CardRow | undefined> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
     `;
     return rows[0];
   }
 
   private async authorizationByRef(cardId: string, authorizationRef: string): Promise<AuthorizationRecord | null> {
     const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
@@ -1281,7 +1655,7 @@ export class CardService {
    */
   private async recordDecision(input: {
     card: CardRecord;
-    input: { authorizationRef: string; merchantCategory?: string };
+    input: { authorizationRef: string; merchantCategory?: string; channel: CardChannel };
     fundingAmount: Amount;
     quote: ConversionQuote | null;
     decision: 'approved' | 'declined';
@@ -1291,10 +1665,10 @@ export class CardService {
       this.sql,
       async (tx) => {
         const claimed = await tx<Array<{ id: string }>>`
-          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, decision, decline_code, status)
+          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, channel, decision, decline_code, status)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
-            ${input.input.merchantCategory ?? null}, ${input.decision}, ${input.declineCode},
+            ${input.input.merchantCategory ?? null}, ${input.input.channel}, ${input.decision}, ${input.declineCode},
             ${input.decision === 'approved' ? 'pending' : 'rejected'}
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
@@ -1472,6 +1846,136 @@ export class CardService {
     `;
     return posted.id;
   }
+
+  private liveSecretProgramme(): boolean {
+    const programme = this.issuer.programme;
+    return programme.simulated === false && programme.id !== 'none' && programme.id !== 'card-sim';
+  }
+
+  private assertLiveSecret(kind: 'pan' | 'pin' | 'wallet'): void {
+    if (this.liveSecretProgramme()) return;
+    if (kind === 'pan') throw new BankError(PAN_UNSET, 'bank.card_pan_issuer_unset');
+    if (kind === 'pin') throw new BankError(PIN_UNSET, 'bank.card_pin_issuer_unset');
+    throw new BankError(WALLET_UNSET, 'bank.card_wallet_issuer_unset');
+  }
+
+  private secretExpiresAt(): string {
+    return new Date(this.clock().getTime() + SECRET_TTL_MS).toISOString();
+  }
+
+  private async ownedCard(cardId: string, userId: string): Promise<CardRecord> {
+    const card = await this.card(cardId);
+    if (card.userId !== userId) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
+    return card;
+  }
+
+  private async cardOrNull(cardId: string): Promise<CardRecord | null> {
+    const rows = await this.sql<CardRow[]>`
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE id = ${cardId}
+    `;
+    const row = rows[0];
+    return row ? toCard(row) : null;
+  }
+
+  private async claimCommand(
+    tx: Sql,
+    cardId: string,
+    commandId: string,
+    kind: 'set_limits' | 'set_channels',
+    hash: string,
+  ): Promise<'new' | 'replay'> {
+    const inserted = await tx<Array<{ id: string }>>`
+      INSERT INTO bank.card_commands (id, card_id, kind, payload_hash)
+      VALUES (${commandId}, ${cardId}, ${kind}, ${hash})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `;
+    if (inserted.length > 0) return 'new';
+    const rows = await tx<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+      SELECT card_id, kind, payload_hash FROM bank.card_commands WHERE id = ${commandId}
+    `;
+    const row = rows[0];
+    if (!row || row.card_id !== cardId || row.kind !== kind || row.payload_hash !== hash) {
+      throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
+    }
+    return 'replay';
+  }
+
+  private async secretAlreadyAudited(
+    id: string,
+    cardId: string,
+    kind: 'pan_reveal' | 'pin_reveal' | 'pin_set' | 'wallet_provision',
+    payloadHash: string,
+  ): Promise<boolean> {
+    const rows = await this.sql<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+      SELECT card_id, kind, payload_hash FROM bank.card_secret_audits WHERE id = ${id}
+    `;
+    const row = rows[0];
+    if (!row) return false;
+    if (row.card_id !== cardId || row.kind !== kind || row.payload_hash !== payloadHash) {
+      throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
+    }
+    return true;
+  }
+
+  private async auditSecret(input: {
+    id: string;
+    cardId: string;
+    userId: string;
+    kind: 'pan_reveal' | 'pin_reveal' | 'pin_set' | 'wallet_provision';
+    payloadHash: string;
+  }): Promise<void> {
+    const inserted = await this.sql<Array<{ id: string }>>`
+      INSERT INTO bank.card_secret_audits (id, card_id, user_id, kind, payload_hash)
+      VALUES (${input.id}, ${input.cardId}, ${input.userId}, ${input.kind}, ${input.payloadHash})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `;
+    if (inserted.length > 0) return;
+    const rows = await this.sql<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+      SELECT card_id, kind, payload_hash FROM bank.card_secret_audits WHERE id = ${input.id}
+    `;
+    const row = rows[0];
+    if (!row || row.card_id !== input.cardId || row.kind !== input.kind || row.payload_hash !== input.payloadHash) {
+      throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
+    }
+  }
+
+  private async approvedSpend(cardId: string, since: Date, channel?: CardChannel): Promise<Amount> {
+    const rows = channel
+      ? await this.sql<Array<{ total: string }>>`
+          SELECT COALESCE(SUM(amount), 0)::text AS total
+            FROM bank.card_authorizations
+           WHERE card_id = ${cardId}
+             AND decision = 'approved'
+             AND status <> 'rejected'
+             AND decided_at >= ${since}
+             AND channel = ${channel}
+        `
+      : await this.sql<Array<{ total: string }>>`
+          SELECT COALESCE(SUM(amount), 0)::text AS total
+            FROM bank.card_authorizations
+           WHERE card_id = ${cardId}
+             AND decision = 'approved'
+             AND status <> 'rejected'
+             AND decided_at >= ${since}
+        `;
+    return parseAmount(rows[0]?.total ?? '0');
+  }
+
+  private async closeReplaced(card: CardRecord, replacementId: string, reason: CardReplaceReason): Promise<void> {
+    const current = await this.card(card.id);
+    if (current.replacedByCardId === replacementId && current.status === 'closed' && current.replaceReason === reason) return;
+    if (current.replaceReason && current.replaceReason !== reason) {
+      throw new BankError('This card was already replaced on different terms', 'bank.card_replace_conflict');
+    }
+    await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
+    await this.sql`
+      UPDATE bank.cards
+         SET status = 'closed', replaced_by_card_id = ${replacementId}, replace_reason = ${reason}, updated_at = now()
+       WHERE id = ${current.id}
+    `;
+  }
 }
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
@@ -1488,6 +1992,18 @@ interface CardRow {
   status: CardRecord['status'];
   cashback_bps: number;
   per_authorization_limit: string;
+  daily_limit: string | null;
+  monthly_limit: string | null;
+  cash_limit: string | null;
+  channel_online: boolean;
+  channel_contactless: boolean;
+  channel_atm: boolean;
+  channel_abroad: boolean;
+  card_type: string;
+  shipping_address: unknown;
+  replaces_card_id: string | null;
+  replaced_by_card_id: string | null;
+  replace_reason: string | null;
 }
 
 interface AuthorizationRow {
@@ -1496,6 +2012,7 @@ interface AuthorizationRow {
   authorization_ref: string;
   amount: string;
   merchant_category: string | null;
+  channel: string;
   decision: 'approved' | 'declined';
   decline_code: string | null;
   status: AuthorizationRecord['status'];
@@ -1527,6 +2044,99 @@ function toCard(row: CardRow): CardRecord {
     status: row.status,
     cashbackBps: Number(row.cashback_bps),
     perAuthorizationLimit: parseAmount(row.per_authorization_limit),
+    dailyLimit: row.daily_limit === null ? null : parseAmount(row.daily_limit),
+    monthlyLimit: row.monthly_limit === null ? null : parseAmount(row.monthly_limit),
+    cashLimit: row.cash_limit === null ? null : parseAmount(row.cash_limit),
+    online: row.channel_online,
+    contactless: row.channel_contactless,
+    atm: row.channel_atm,
+    abroad: row.channel_abroad,
+    cardType: row.card_type === 'physical' ? 'physical' : 'virtual',
+    shippingAddress: toAddress(row.shipping_address),
+    replacesCardId: row.replaces_card_id,
+    replacedByCardId: row.replaced_by_card_id,
+    replaceReason:
+      row.replace_reason === 'lost' || row.replace_reason === 'stolen' || row.replace_reason === 'damaged' ? row.replace_reason : null,
+  };
+}
+
+function commandHash(fields: Record<string, string>): string {
+  const canonical = Object.keys(fields)
+    .sort()
+    .map((key) => `${key}=${fields[key]}`)
+    .join('\n');
+  return createHash('sha256').update(canonical).digest('hex');
+}
+
+function limitToken(value: Amount | null | undefined): string {
+  if (value === undefined) return '';
+  if (value === null) return 'null';
+  return formatAmount(value);
+}
+
+function startOfUtc(now: Date, unit: 'day' | 'month'): Date {
+  return unit === 'day'
+    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+function channelOpen(card: CardRecord, channel: CardChannel): boolean {
+  switch (channel) {
+    case 'card-present':
+      return true;
+    case 'online':
+      return card.online;
+    case 'contactless':
+      return card.contactless;
+    case 'atm':
+      return card.atm;
+    case 'foreign':
+      return card.abroad;
+  }
+}
+
+function parseChannel(value: string): CardChannel {
+  if (value === 'online' || value === 'contactless' || value === 'atm' || value === 'foreign' || value === 'card-present') return value;
+  return 'card-present';
+}
+
+function requireShippingAddress(input: CardShippingAddress | undefined): CardShippingAddress {
+  if (!input) throw new BankError('A physical card needs a delivery address', 'bank.card_shipping_address_required');
+  const address = {
+    name: input.name.trim(),
+    line1: input.line1.trim(),
+    line2: input.line2?.trim() ? input.line2.trim() : null,
+    city: input.city.trim(),
+    region: input.region?.trim() ? input.region.trim() : null,
+    postalCode: input.postalCode.trim(),
+    country: input.country.trim().toUpperCase(),
+  };
+  if (!address.name || !address.line1 || !address.city || !address.postalCode || !/^[A-Z]{2}$/.test(address.country)) {
+    throw new BankError('A physical card needs a delivery address', 'bank.card_shipping_address_required');
+  }
+  return address;
+}
+
+function canonicalAddress(address: CardShippingAddress | null): string {
+  if (!address) return '';
+  return JSON.stringify(address);
+}
+
+function toAddress(value: unknown): CardShippingAddress | null {
+  if (value == null) return null;
+  const parsed = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!parsed || typeof parsed !== 'object') return null;
+  const row = parsed as Record<string, unknown>;
+  if (typeof row.name !== 'string' || typeof row.line1 !== 'string' || typeof row.city !== 'string') return null;
+  if (typeof row.postalCode !== 'string' || typeof row.country !== 'string') return null;
+  return {
+    name: row.name,
+    line1: row.line1,
+    line2: typeof row.line2 === 'string' ? row.line2 : null,
+    city: row.city,
+    region: typeof row.region === 'string' ? row.region : null,
+    postalCode: row.postalCode,
+    country: row.country,
   };
 }
 
@@ -1537,6 +2147,7 @@ function toAuthorization(row: AuthorizationRow): AuthorizationRecord {
     authorizationRef: row.authorization_ref,
     amount: parseAmount(row.amount),
     merchantCategory: row.merchant_category,
+    channel: parseChannel(row.channel),
     decision: row.decision,
     declineCode: row.decline_code,
     status: row.status,

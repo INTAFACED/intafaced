@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
+import { payAmountStringSchema, payAssetCodeSchema, payBpsSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
 import { payListCursorSchema } from './pay-merchant-reads.js';
 
 /**
@@ -11,6 +11,19 @@ import { payListCursorSchema } from './pay-merchant-reads.js';
  * not-configured state: this module does not publish a fee, a cap, or a terms
  * version.
  */
+
+/**
+ * Local-test starter fee, when the pay service was booted with one.
+ * Absent on the product: the starter fee is not set yet. `local_test` is the
+ * only source this contract names, so a screen can label it as a test fee.
+ */
+export const merchantStarterFeeSchema = z
+  .object({
+    bps: payBpsSchema,
+    source: z.literal('local_test'),
+  })
+  .strict();
+export type MerchantStarterFeeView = z.infer<typeof merchantStarterFeeSchema>;
 
 export const MERCHANT_PORTAL_ROLES = ['owner', 'admin', 'finance', 'developer', 'viewer'] as const;
 export const merchantPortalRoleSchema = z.enum(MERCHANT_PORTAL_ROLES);
@@ -337,6 +350,84 @@ export const merchantAnalyticsVolumeSchema = z
   })
   .strict();
 
+/** Fees and gross on a rate row. A refused row may be negative; every other row is not. */
+const signedPayAmountSchema = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+
+const LEDGER_SCALE = 10n ** 18n;
+const FEE_RATE_SCALE = 1_000_000n;
+
+function ledgerScaled(raw: string): bigint | null {
+  const match = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(raw);
+  if (!match) return null;
+  const [, sign, whole, frac = ''] = match;
+  const value = BigInt(whole ?? '0') * LEDGER_SCALE + BigInt(frac.padEnd(18, '0'));
+  return sign === '-' ? -value : value;
+}
+
+function feeRateScaled(raw: string): bigint | null {
+  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(raw);
+  if (!match) return null;
+  const [, whole, frac = ''] = match;
+  return BigInt(whole ?? '0') * FEE_RATE_SCALE + BigInt(frac.padEnd(6, '0'));
+}
+
+/**
+ * Fees ÷ gross for one asset over the requested window. The quotient is rounded
+ * down to 6 decimal places. `exact` lost nothing; `rounded` did. `no_volume`
+ * is a zero gross, not a rate of 0. `refused` is a negative input.
+ */
+export const merchantEffectiveRateSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    fees: signedPayAmountSchema,
+    gross: signedPayAmountSchema,
+    rate: payAmountStringSchema.nullable(),
+    rateStatus: z.enum(['exact', 'rounded', 'no_volume', 'refused']),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const negative = value.fees.startsWith('-') || value.gross.startsWith('-');
+    const publishes = value.rateStatus === 'exact' || value.rateStatus === 'rounded';
+    if (publishes && value.rate === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a quotient' });
+    }
+    if (!publishes && value.rate !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only a published quotient carries a rate' });
+    }
+    if (value.rate !== null && !/^\d+(\.\d{1,6})?$/.test(value.rate)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a rate has at most 6 decimal places' });
+    }
+    if (value.rateStatus === 'no_volume' && (value.gross !== '0' || negative)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'no_volume requires a zero gross and a non-negative fee' });
+    }
+    if (value.rateStatus === 'refused' && !negative) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'refused requires a negative input' });
+    }
+    if (publishes && (negative || value.gross === '0')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a positive gross and a non-negative fee' });
+    }
+    if (publishes && value.rate !== null && !negative && value.gross !== '0') {
+      const fees = ledgerScaled(value.fees);
+      const gross = ledgerScaled(value.gross);
+      const rate = feeRateScaled(value.rate);
+      if (fees === null || gross === null || rate === null || gross <= 0n) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a published rate needs a readable quotient' });
+      } else {
+        const quotient = (fees * FEE_RATE_SCALE) / gross;
+        const remainder = (fees * FEE_RATE_SCALE) % gross;
+        if (rate !== quotient) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'the rate is not the rounded-down quotient' });
+        }
+        if (value.rateStatus === 'exact' && remainder !== 0n) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'exact requires a quotient that fits 6 decimal places' });
+        }
+        if (value.rateStatus === 'rounded' && remainder === 0n) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'rounded requires a quotient that does not fit 6 decimal places' });
+        }
+      }
+    }
+  });
+
 export const merchantFeePointSchema = z
   .object({
     period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -358,12 +449,14 @@ export const merchantAnalyticsFeesSchema = z
     items: z.array(merchantFeePointSchema),
     nextCursor: z.string().nullable(),
     /**
-     * The day rollup stores fee totals, not the pricing rule that produced them.
-     * An effective rate recomputed from those totals would be a number this
-     * service did not record. It stays null until rule snapshots are aggregated.
+     * There is no single rate across assets. `rates` is fees ÷ gross per asset
+     * over the whole window, rounded down to 6 decimal places. `rounded` keeps
+     * that quotient. `exact` lost nothing. A zero gross is `no_volume`, not 0.
+     * A negative input is `refused`.
      */
     effectiveRate: z.null(),
     effectiveRateReason: z.literal('not_aggregated'),
+    rates: z.array(merchantEffectiveRateSchema).max(200),
     /** Conversion cost is not on the merchant-day projection. */
     conversionCost: z.null(),
     byRule: z.array(z.never()),

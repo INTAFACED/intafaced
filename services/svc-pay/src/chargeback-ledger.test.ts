@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt, recipes, railBoundary } from '@intafaced/ledger-client';
-import { postDisputeOpening } from './chargeback-ledger.js';
+import {
+  MemoryLedger,
+  formatAmount,
+  insuranceFund,
+  merchantClearing,
+  merchantProceeds,
+  parseAmount as amt,
+  recipes,
+  railBoundary,
+} from '@intafaced/ledger-client';
+import {
+  chargebackKeys,
+  disputeOpeningKey,
+  disputeShortfallKey,
+  disputeShortfallRecoveredKey,
+  disputeWonKey,
+  postDisputeOpening,
+  postDisputeShortfall,
+  postDisputeShortfallRecovered,
+  postDisputeWon,
+} from './chargeback-ledger.js';
 import { MemoryDisputeCaseStore } from './fraud/dispute-case.js';
 import { CHARGEBACK_LEDGER_REFUSE_CODE, CHARGEBACK_LEDGER_UNCOVERED_CODE } from './fraud/chargeback-ledger-socket.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -40,6 +59,66 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(formatAmount((await ledger.balance(railBoundary(RAIL, 'USDT'))).amount)).toBe('0');
     expect(ledger.journal().map((t) => t.reason)).toContain('pay.chargeback.opened');
     expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('pins lookup keys to the recipes and posts shortfall then won recovery once', async () => {
+    const ledger = new MemoryLedger();
+    const open = {
+      disputeId: 'dsp-keys',
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      merchantUserId: MERCHANT_USER,
+      assetId: 'USDT',
+      rail: RAIL,
+      fromClearing: amt('10'),
+      fromMerchantBalance: amt('0'),
+    };
+    const short = {
+      disputeId: 'dsp-keys',
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      assetId: 'USDT',
+      rail: RAIL,
+      amount: amt('5'),
+    };
+    expect(chargebackKeys('dsp-keys')).toEqual({
+      open: disputeOpeningKey(open),
+      shortfall: disputeShortfallKey(short),
+      won: disputeWonKey(open),
+      recovered: disputeShortfallRecoveredKey(short),
+    });
+    await ledger.post(
+      recipes.paymentCapture({
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        assetId: 'USDT',
+        amount: amt('10'),
+        rail: RAIL,
+        railRef: `ch_${PAYMENT}`,
+      }),
+    );
+    await ledger.post({
+      idempotencyKey: 'test.insurance.seed:dsp-keys',
+      module: 'pay',
+      reason: 'test.insurance.funded',
+      entries: [
+        { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('5') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('5') },
+      ],
+    });
+    await postDisputeOpening(ledger, open);
+    await postDisputeShortfall(ledger, short);
+    expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('0');
+    await postDisputeShortfallRecovered(ledger, short);
+    await postDisputeWon(ledger, open);
+    const again = await postDisputeWon(ledger, open);
+    expect(again.txId).toBe((await ledger.getTxByKey(disputeWonKey(open)))?.id);
+    expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USDT'))).amount)).toBe('10');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('5');
+    expect(formatAmount((await ledger.balance(merchantProceeds(MERCHANT, 'USDT'))).amount)).toBe('0');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.won')).toHaveLength(1);
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 

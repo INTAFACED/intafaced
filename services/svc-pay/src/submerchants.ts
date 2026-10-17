@@ -69,6 +69,18 @@ import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
  * whole subtree".
  */
 
+/**
+ * Sub-merchant create, grant, and revoke stay closed until the named account
+ * consents. The service methods stay callable so a fixture can seed a tree.
+ * The public doors call this first.
+ */
+export function refuseSubMerchantWithoutConsent(): never {
+  throw new SubMerchantError(
+    'Sub-merchant onboarding and permission changes stay closed until the named account consents.',
+    'pay.submerchant_consent_required',
+  );
+}
+
 /** Thrown for every refusal here. Transport-free — the routers render it. */
 export class SubMerchantError extends Error {
   constructor(

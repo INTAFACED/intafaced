@@ -96,6 +96,8 @@ function findings(file: string): string[] {
 
 describe('svc-bank never holds one pool connection while waiting for a second', () => {
   const files = sources(here);
+  // Parsed once while the file loads. Doing it inside the test is what hit the 5s CI limit.
+  const poolFindings = files.flatMap(findings);
 
   it('reads a real set of source files', () => {
     expect(files.length).toBeGreaterThan(20);
@@ -103,7 +105,7 @@ describe('svc-bank never holds one pool connection while waiting for a second', 
   });
 
   it('no transaction callback or claim callback uses the pool-level sql', () => {
-    expect(files.flatMap(findings)).toEqual([]);
+    expect(poolFindings).toEqual([]);
   });
 
   it('the scheduled-transfer claim reads its spaces on the transaction', () => {
