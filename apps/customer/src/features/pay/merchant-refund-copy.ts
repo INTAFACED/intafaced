@@ -18,7 +18,7 @@ const en = {
   unknown: 'Refund outcome unknown',
   unknownBody: 'Keep the original reference while you check its recorded outcome.',
   check: 'Check original refund',
-  noMatch: 'No matching outcome returned',
+  noMatch: 'No matching outcome',
   historyWindow: 'The first {count} recorded payment events were checked (limit {limit}). Newer events may be outside this response.',
   noProof: 'This does not confirm or cancel the refund.',
   paused: 'New refunds stay paused while this original refund is unresolved.',
@@ -69,7 +69,7 @@ const es: Record<keyof typeof en, string> = {
   unknown: 'Resultado del reembolso desconocido',
   unknownBody: 'Conserva la referencia original mientras compruebas su resultado registrado.',
   check: 'Comprobar reembolso original',
-  noMatch: 'No se devolvió un resultado coincidente',
+  noMatch: 'Ningún resultado coincidente',
   historyWindow:
     'Se comprobaron los primeros {count} eventos registrados del pago (límite {limit}). Los eventos más recientes pueden quedar fuera de esta respuesta.',
   noProof: 'Esto no confirma ni cancela el reembolso.',
@@ -123,7 +123,7 @@ const fr: Record<keyof typeof en, string> = {
   unknown: 'Résultat du remboursement inconnu',
   unknownBody: 'Conservez la référence originale pendant la vérification du résultat enregistré.',
   check: 'Vérifier le remboursement original',
-  noMatch: 'Aucun résultat correspondant reçu',
+  noMatch: 'Aucun résultat correspondant',
   historyWindow:
     'Les {count} premiers événements enregistrés du paiement ont été vérifiés (limite {limit}). Les événements plus récents peuvent être absents de cette réponse.',
   noProof: 'Cela ne confirme ni n’annule le remboursement.',

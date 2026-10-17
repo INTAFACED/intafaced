@@ -84,8 +84,7 @@ export function Continuation({ count, limit, onMore }: { count: number; limit: n
     <div className="money-continuation">
       <span>
         {count}
-        <Text k="components.records.returned.requested.limit" />
-        {limit}.{' '}
+        <Text k="components.records.returned.requested.limit" />.{' '}
         {count >= limit
           ? limit < 200
             ? copyText('components.more.records.may.exist')

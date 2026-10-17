@@ -27,8 +27,7 @@ const en = {
   refundTo: 'Asset returns to',
   releaseTo: 'Release to',
   gross: 'Escrow release quantity (gross)',
-  releaseTerms:
-    'The fee and net asset amount to the buyer are not returned here. This authorizes release under the order’s settlement terms.',
+  releaseTerms: 'The fee and the net amount the buyer receives aren’t shown here. Releasing follows the order’s settlement terms.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -59,7 +58,7 @@ const es = {
   releaseTo: 'Liberar a',
   gross: 'Cantidad bruta que se libera del depósito',
   releaseTerms:
-    'Aquí no se devuelve la comisión ni el importe neto del activo para el comprador. Autorizas la liberación según las condiciones del pedido.',
+    'Aquí no se muestran la comisión ni el importe neto que recibe el comprador. La liberación sigue las condiciones de liquidación de la orden.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -90,6 +89,6 @@ const fr = {
   releaseTo: 'Libérer à',
   gross: 'Quantité brute libérée du séquestre',
   releaseTerms:
-    'Les frais et le montant net de l’actif pour l’acheteur ne sont pas renvoyés ici. Vous autorisez la libération selon les conditions de la commande.',
+    'Les frais et le montant net reçu par l’acheteur ne sont pas affichés ici. La libération suit les conditions de règlement de la commande.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

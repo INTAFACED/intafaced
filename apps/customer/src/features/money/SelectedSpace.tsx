@@ -89,8 +89,15 @@ export function SelectedSpace({
               <dt>
                 <Text k="rooms.space.reference" />
               </dt>
-              <dd lang="zxx" dir="ltr">
-                {space.id}
+              <dd>
+                <details>
+                  <summary>
+                    <Copy k="details" />
+                  </summary>
+                  <span lang="zxx" dir="ltr">
+                    {space.id}
+                  </span>
+                </details>
               </dd>
             </div>
             <div className="money-selected-lock">
@@ -149,8 +156,15 @@ export function SelectedSpace({
                 <dt>
                   <Text k="rooms.space.reference" />
                 </dt>
-                <dd lang="zxx" dir="ltr">
-                  {reference}
+                <dd>
+                  <details>
+                    <summary>
+                      <Copy k="details" />
+                    </summary>
+                    <span lang="zxx" dir="ltr">
+                      {reference}
+                    </span>
+                  </details>
                 </dd>
               </div>
             </dl>
