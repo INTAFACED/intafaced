@@ -26,6 +26,7 @@ import { useServerList } from '../ui/useServerList';
 import { assetsOf } from '../model';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { ExportResults } from './ExportResults';
+import { MoneyAction } from '../access/MoneyAction';
 import { RefundsIssuedValue } from './RefundsIssued';
 import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
@@ -33,6 +34,15 @@ import { disputeReason } from './dispute-model';
 import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
 import { countOf, paymentSteps, refundable, successRate } from './model';
 import type { ActivityItem, PaymentRefundRow } from './schemas';
+
+/**
+ * Why a payment shows no fee. The per-payment fee record is written when the payment is captured; the fee actually taken
+ * comes off at settlement and is shown on the settlement. A payment that never completed has no fee at all.
+ */
+export function feeNoneText(t: (key: 'pay_feeAtSettlement' | 'pay_feeFailed' | 'pay_feeOnSettlement') => string, status: string): string {
+  if (status === 'failed') return t('pay_feeFailed');
+  return status === 'created' || status === 'authorized' ? t('pay_feeAtSettlement') : t('pay_feeOnSettlement');
+}
 
 export const paymentHref = (id: string) => `/pay/payments/${encodeURIComponent(id)}`;
 
@@ -367,14 +377,16 @@ export function PaymentDetailView({
                 subtitle={[paymentLabel(p), plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_'))].join(' · ')}
                 action={
                   canRefund(p) ? (
-                    <Button
-                      variant="primary"
-                      nativeButton={false}
-                      role="link"
-                      render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
-                    >
-                      {t('pay_refund')}
-                    </Button>
+                    <MoneyAction kind="refund">
+                      <Button
+                        variant="primary"
+                        nativeButton={false}
+                        role="link"
+                        render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
+                      >
+                        {t('pay_refund')}
+                      </Button>
+                    </MoneyAction>
                   ) : undefined
                 }
               />
@@ -386,7 +398,7 @@ export function PaymentDetailView({
                     [t('colRefunded'), <Money value={p.refundedAmount} asset={p.assetId} />],
                     [t('stillRefundable'), <Money value={refundable(p)} asset={p.assetId} />],
                     ...(fee.kind === 'none'
-                      ? ([[t('pay_fee'), <NotConfigured>{t('pay_feeNotRecorded')}</NotConfigured>]] as const)
+                      ? ([[t('pay_fee'), <NotConfigured>{feeNoneText(t, p.status)}</NotConfigured>]] as const)
                       : ([
                           [t('pay_fee'), <Money value={fee.fee} asset={fee.assetId} />],
                           ...(fee.net ? ([[t('pay_net'), <Money value={fee.net} asset={fee.assetId} />]] as const) : []),

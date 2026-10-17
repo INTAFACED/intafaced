@@ -2,18 +2,19 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { createPortalMock, USER_ID } from './portal.mock.mjs';
+import { OWNER_SCOPES, OWNER_SCOPES_WITH_MONEY, accessTokenFor, createPortalMock, USER_ID } from './portal.mock.mjs';
 
 // The real App, the real sign-in form, and a mocked pay service (portal.mock.mjs). Every figure and name is TEST data.
 // With PORTAL_SHOTS_DIR set the run also writes a screenshot of each page, with a visible "mocked data" badge.
 const shots = process.env.PORTAL_SHOTS_DIR;
 if (shots) mkdirSync(shots, { recursive: true });
-const session = {
+// The owner session carries the scopes the test names: with money (refund, payout) unless the test passes `scopes`.
+const sessionFor = (scopes = OWNER_SCOPES_WITH_MONEY) => ({
   userId: USER_ID,
-  accessToken: 'portal-test-only',
+  accessToken: accessTokenFor(scopes),
   refreshToken: 'portal-test-refresh',
   expiresAt: '2027-10-08T00:00:00Z',
-};
+});
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
 
 async function setup(page, scenario = 'active', options = {}) {
@@ -26,7 +27,7 @@ async function setup(page, scenario = 'active', options = {}) {
       body: JSON.stringify({ error: 'Unavailable', message: 'The service is offline.' }),
     }),
   );
-  await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, session));
+  await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, sessionFor(options.scopes)));
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
   const mock = createPortalMock(scenario, options);
   await mock.install(page);
@@ -463,7 +464,7 @@ test('settlements: a tile strip, server filters in the address, status words, an
   await go(page, `/pay/settlements/${STL_PAID}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Settlement statement' })).toBeVisible();
   await expect(page.getByText('Checked: gross minus fees equals net, to the last decimal.')).toBeVisible();
-  await expect(page.getByText(/Fee details weren.t recorded for this settlement/)).toBeVisible();
+  await expect(page.getByText(/No fee record is stored for this settlement/)).toBeVisible();
   await expect(page.getByText('TEST-tx-0xabc123')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Payments in this settlement' })).toBeVisible();
   await snap(page, '27-settlement-statement');
@@ -660,9 +661,11 @@ test('pricing: the fee table, the calculator uses the live engine, and an unconf
 test('pricing: not configured shows the words "not configured" and not one placeholder fee', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/pricing');
-  await expect(page.getByText('INTAFACED has not published pricing for your account.')).toBeVisible();
+  await expect(
+    page.getByText('No pricing schedule is published for this account and no fee rate is set, so no fee is shown.'),
+  ).toBeVisible();
   await expect(page.getByText('No tier assigned').first()).toBeVisible();
-  await expect(page.getByText('The calculator needs published pricing')).toBeVisible();
+  await expect(page.getByText('The calculator works from a published pricing schedule')).toBeVisible();
   await expect(page.getByText(/\d\.\d\d%/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download schedule (CSV)' })).toHaveCount(0);
   await snap(page, '39-pricing-not-configured');
@@ -695,7 +698,7 @@ test('limits: usage bars with exact figures and reset times, and nothing invente
 test('limits: an account with no limits set says "not configured" and labels itself as a test account', async ({ page }) => {
   await setup(page, 'quiet');
   await signIn(page, '/pay/limits');
-  await expect(page.getByText('INTAFACED has not set limits for your account yet.')).toBeVisible();
+  await expect(page.getByText('No limits are set for this account, so none are shown here.')).toBeVisible();
   await expect(page.getByRole('progressbar')).toHaveCount(0);
   await expect(page.getByText('TEST VALUE').first()).toBeVisible();
   await expect(page.getByText('0 / 5')).toBeVisible();

@@ -13,6 +13,7 @@ import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapsho
 import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { TierUsage } from './TierUsage';
+import { MoneyAction } from '../access/MoneyAction';
 import { RefundsIssuedValue } from './RefundsIssued';
 import { dateRange } from '../ui/FilterRow';
 import { DateTime, useDayText } from '../ui/DateTime';
@@ -74,7 +75,8 @@ export function LayoutDashboardView({
   const { t } = c.useCopy();
   const [pickedAsset, setAsset] = useState('');
   const [period, setPeriod] = useState<MetricPreset>('today');
-  const labels = { today: t('today'), rolling_7d: t('week'), rolling_30d: t('month') };
+  const dayText = useDayText();
+  const labels = { today: `${t('today')}: ${dayText(todayDay)}`, rolling_7d: t('week'), rolling_30d: t('month') };
   const actions =
     role === 'owner' ? (
       <nav className="plo-actions" aria-label={t('available')}>
@@ -82,14 +84,18 @@ export function LayoutDashboardView({
           <Link2 size={16} aria-hidden="true" />
           {t('createLink')}
         </Button>
-        <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/payouts?view=tools'} />}>
-          <ArrowUpRight size={16} aria-hidden="true" />
-          {t('payOut')}
-        </Button>
-        <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/refunds/new'} />}>
-          <Undo2 size={16} aria-hidden="true" />
-          {t('refund')}
-        </Button>
+        <MoneyAction kind="payout">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/payouts?view=tools'} />}>
+            <ArrowUpRight size={16} aria-hidden="true" />
+            {t('payOut')}
+          </Button>
+        </MoneyAction>
+        <MoneyAction kind="refund">
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href={'/pay/refunds/new'} />}>
+            <Undo2 size={16} aria-hidden="true" />
+            {t('refund')}
+          </Button>
+        </MoneyAction>
       </nav>
     ) : null;
   const hero = (
@@ -192,7 +198,13 @@ export function LayoutDashboardView({
       <Gate resource={data[period]} retry={retry} rows={1}>
         {(snap) => (
           <>
-            <MetricStrip snap={snap} period={labels[period]} key={period} when={period} {...(issued ? { issued: issued(period) } : {})} />
+            <MetricStrip
+              snap={snap}
+              period={period === 'today' ? t('today') : labels[period]}
+              key={period}
+              when={period}
+              {...(issued ? { issued: issued(period) } : {})}
+            />
             <AsOf freshness={snap.freshness} />
           </>
         )}

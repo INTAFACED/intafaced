@@ -69,7 +69,15 @@ const panels = (patch: Partial<Parameters<typeof HomePanelsView>[0]> = {}) =>
 describe('Home panels, in plain words', () => {
   it('says status, verification, mode, fee and role as a person would, with no raw service value', () => {
     const out = panels();
-    for (const word of ['Your account', 'Active', 'Approved', 'Gateway', '1.5% + 0.30 per payment', 'Owner', 'Ways customers can pay'])
+    for (const word of [
+      'Your account',
+      'Active',
+      'Approved',
+      'Gateway',
+      'Fee 1.50% — taken when a payment settles',
+      'Owner',
+      'Ways customers can pay',
+    ])
       expect(out).toContain(word);
     for (const raw of [
       'basis points',
@@ -91,13 +99,29 @@ describe('Home panels, in plain words', () => {
     expect(out).toContain('pp-chip pp-chip--done');
     expect(out).not.toMatch(/bg-lime|text-lime/);
   });
+  it('tells one fee story, with the TEST label from the server and no basis points', () => {
+    const test = panels({ merchant: { ...merchant, feeBps: 250, starterFee: { bps: 250, source: 'local_test' as const } } });
+    expect(test).toContain('Starter fee 2.50% (TEST value) — taken when a payment settles');
+    expect(test).not.toMatch(/bps|basis points/i);
+    const noPrices = ready({
+      merchantId: merchant.id,
+      tierId: null,
+      archetypeId: null,
+      caps: null,
+      pricing: [],
+      reserve: null,
+      version: '1',
+      updatedAt: null,
+    });
+    expect(panels({ merchant: { ...merchant, feeBps: null }, pricing: noPrices })).toContain('No fee rate is set on this account');
+  });
   it('turns basis points into a percentage', () => {
     expect(feePercent(150)).toBe('1.5%');
     expect(feePercent(25)).toBe('0.25%');
     expect(feePercent(100)).toBe('1%');
   });
   it('reads the checkout settings: not set up, or the website addresses it is set up for', () => {
-    expect(panels()).toContain('isn’t set up yet');
+    expect(panels()).toContain('isn’t set up, so customers');
     const configured = panels({
       settings: ready({
         status: 'configured' as const,
@@ -142,7 +166,7 @@ describe('checkout settings page', () => {
     expect(out).toContain('Add a checkout');
   });
   it('says plainly when nothing is set up', () => {
-    expect(view(ready({ status: 'not_configured' as const }))).toContain('No checkout set up yet');
+    expect(view(ready({ status: 'not_configured' as const }))).toContain('No checkout set up');
   });
 });
 

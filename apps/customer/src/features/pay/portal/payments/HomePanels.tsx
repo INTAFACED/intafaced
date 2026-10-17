@@ -14,7 +14,7 @@ import { portalCopy } from '../copy';
 import type { ControlProfile, MemberRole, MerchantRecord, PricingRule } from '../schemas';
 import { formatMoney } from '../ui/format';
 import { CopyReference } from '../ui/CopyReference';
-import { YourEffectiveFee } from '../money/fee-rate';
+import { feeStory, hasAccountFee } from '../ui/fee-story';
 import { DateTime } from '../ui/DateTime';
 import { PortalReview } from '../ui/PortalReview';
 import { plainCode } from '../ui/plain-code';
@@ -76,8 +76,6 @@ export function HomePanels({
       settings={settings.resource}
       retryRails={rails.reload}
       retrySettings={settings.reload}
-      // The rate INTAFACED worked out over the last 30 days; the price rule is the answer until the service sends one.
-      feeRate={<YourEffectiveFee portal={portal} merchantId={merchantId} fallback={<FeeText pricing={pricing.resource} />} />}
     />
   );
 }
@@ -113,18 +111,7 @@ export function HomePanelsView({
                   [c.t('hp_status'), <Chip kind="merchant" value={merchant.status} />],
                   [c.t('hp_verification'), <Chip kind="kyb" value={merchant.kybStatus} />],
                   [c.t('hp_mode'), t(merchant.mode === 'gateway' ? 'modeGateway' : merchant.mode === 'psp' ? 'modePsp' : 'modePayfac')],
-                  [
-                    c.t('hp_fee'),
-                    <>
-                      {feeRate ?? <FeeText pricing={pricing} />}
-                      {merchant.starterFee?.source === 'local_test' && merchant.feeBps === merchant.starterFee.bps && (
-                        <>
-                          <br />
-                          <span className="muted">{t('testFeeNotPricing', { bps: merchant.starterFee.bps })}</span>
-                        </>
-                      )}
-                    </>,
-                  ],
+                  [c.t('hp_fee'), feeRate ?? <FeeText pricing={pricing} merchant={merchant} />],
                 ] as const)
               : []),
             ...(role ? ([[c.t('hp_role'), t(`role_${role}` as 'role_owner')]] as const) : []),
@@ -174,11 +161,14 @@ export function HomePanelsView({
   );
 }
 
-function FeeText({ pricing }: { pricing?: Resource<ControlProfile> }) {
+/** The account's fee statement (`ui/fee-story.ts`); a published price list only when the account has no rate of its own. */
+function FeeText({ pricing, merchant }: { pricing?: Resource<ControlProfile>; merchant: MerchantRecord | null }) {
+  // The fee taken at settlement is the account's own rate; price rules only describe a schedule (see `ui/fee-story.ts`).
+  if (hasAccountFee(merchant)) return <>{feeStory(merchant)}</>;
   if (!pricing || pricing.status === 'loading') return <>…</>;
   if (pricing.status === 'failed') return <span className="muted">{c.t('hp_feeUnavailable')}</span>;
   const lines = feeLines(pricing.data.pricing);
-  if (lines.length === 0) return <span className="muted">{c.t('hp_feeNone')}</span>;
+  if (lines.length === 0) return <span className={hasAccountFee(merchant) ? undefined : 'muted'}>{feeStory(merchant)}</span>;
   return (
     <>
       {lines.map((line, i) => (

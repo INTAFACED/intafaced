@@ -13,7 +13,7 @@ const en = {
   byWeek: 'Week',
   asset: 'Asset',
   allAssets: 'All assets',
-  today: 'Today',
+  today: 'Today (UTC)',
   last7: '7 days',
   last30: '30 days',
   custom: 'Custom',
@@ -21,7 +21,7 @@ const en = {
   to: 'To',
   errCustom: 'Pick a first and last day, with the last on or after the first.',
   pickDates: 'Pick a first and last day to see figures.',
-  period_today: 'Today',
+  period_today: 'Today (UTC)',
   period_7d: 'Last 7 days',
   period_30d: 'Last 30 days',
   yourDates: 'Your dates',
@@ -63,7 +63,7 @@ const en = {
   rateIs: 'Your effective rate over this period is {rate}.',
   rateOffTitle: 'No rate shown',
   rateOffBody:
-    'INTAFACED stores the fee total for each day but not the pricing rule behind it, so a rate cannot be worked out honestly. It will show here once those rules are recorded. Conversion cost is also not recorded yet.',
+    'INTAFACED stores the fee total for each day but not the pricing rule behind it, so a rate cannot be worked out honestly. No rate is shown until those rules are recorded. Conversion cost is also not recorded.',
   feesOffTitle: 'Fee analytics are not switched on',
   feesOffBody:
     'The fee summary for your account has not been switched on. Your settlements list already shows the fees on each settlement.',

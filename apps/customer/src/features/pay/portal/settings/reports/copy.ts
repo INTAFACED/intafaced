@@ -66,7 +66,7 @@ const en = {
   allReports: 'All reports',
   allStatuses: 'All statuses',
   anyDate: 'Any date',
-  today: 'Today',
+  today: 'Today (UTC)',
   last7: '7 days',
   last30: '30 days',
   custom: 'Custom',
@@ -115,8 +115,8 @@ export const reportsCopy = defineCopy('pay.portal.settings.reports', en);
 export const reportsMessages: Record<string, string> = en;
 
 registerRefusals({
-  'pay.export_ledger_unconfigured': () => 'Balance reports are not set up yet for this account. Nothing was requested.',
-  'pay.export_disputes_unconfigured': () => 'Dispute reports are not set up yet for this account. Nothing was requested.',
+  'pay.export_ledger_unconfigured': () => 'Balance reports are not set up for this account. Nothing was requested.',
+  'pay.export_disputes_unconfigured': () => 'Dispute reports are not set up for this account. Nothing was requested.',
   'pay.export_columns_forbidden': () => 'One of the columns is not available to your role. Choose again.',
   'pay.export_in_progress': () => 'This file is being built right now. Try deleting it once it has finished.',
 });
