@@ -13,7 +13,9 @@ import { registerRoutes } from './routes.js';
 import { TradeHub } from './trade/hub.js';
 import { subscribeTradeTape } from './trade/source.js';
 import { PrivateOrderHub } from './private/hub.js';
+import { PositionsStream } from './private/positions-stream.js';
 import { tryAttachPrivate, type PrivateAttachments } from './private/source.js';
+import { HttpFuturesMarkFeed } from './public/futures-mark.js';
 import { DropCopyHub } from './drop-copy/hub.js';
 import { tryAttachDropCopy, type DropCopyAttachments } from './drop-copy/source.js';
 import { WS_COPY } from './copy.js';
@@ -118,6 +120,8 @@ const registry = new UnionMarketRegistry(
   ],
   app.log,
 );
+
+const positionsStream = new PositionsStream();
 
 const privateOrderHub = new PrivateOrderHub(
   {
@@ -257,6 +261,8 @@ if (muxIdleMs === undefined) {
       highWaterBytes: env.WS_HIGH_WATER_BYTES,
       idleMs: muxIdleMs,
       log: app.log,
+      markFeed: new HttpFuturesMarkFeed({ baseUrl: env.TRADE_URL }),
+      markFreshnessSeconds: env.WS_MARK_FRESHNESS_SECONDS,
     },
     maxConnections: env.WS_MAX_CONNECTIONS,
     heartbeatMs: env.WS_HEARTBEAT_MS,
@@ -318,6 +324,7 @@ const busLifecycle = createBusLifecycle({
             hub: privateOrderHub,
             durable: env.WS_PRIVATE_ORDERS_DURABLE,
             log: app.log,
+            positions: positionsStream,
           }),
         isClosed: () => sessionClosed,
         unsubscribe: async (half) => {
@@ -500,6 +507,7 @@ const privateGateway = createPrivateWebSocketGateway({
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
   customerOrigins,
+  positions: positionsStream,
 });
 
 const dropCopyGateway = createDropCopyWebSocketGateway({
