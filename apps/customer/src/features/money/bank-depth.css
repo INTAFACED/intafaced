@@ -5,6 +5,14 @@
   gap: 20px;
   min-width: 0;
 }
+/* A record section that follows a depth panel gets the same 32 px the sections use between each other. */
+.bd-panel + .money-section,
+.bd-stack + .money-section {
+  margin-top: 32px;
+}
+.withdrawal-page .bd-stack + .money-section {
+  margin-top: 0;
+}
 .bd-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

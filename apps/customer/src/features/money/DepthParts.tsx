@@ -25,6 +25,33 @@ export function DisabledAction({
   );
 }
 
+/** Several controls that are blocked for one reason: the buttons sit side by side and the reason is said once. */
+export function DisabledActions({
+  labels,
+  reason,
+  variant = 'secondary',
+}: {
+  labels: ReactNode[];
+  reason: ReactNode;
+  variant?: 'primary' | 'secondary' | 'ghost';
+}) {
+  const id = useId();
+  return (
+    <div className="bd-disabled">
+      <div className="actions">
+        {labels.map((label, index) => (
+          <Button key={index} variant={variant} disabled aria-describedby={id}>
+            {label}
+          </Button>
+        ))}
+      </div>
+      <p id={id} className="money-caption">
+        {reason}
+      </p>
+    </div>
+  );
+}
+
 /** A switch that shows no on/off state because the service cannot tell us one. It cannot be flipped. */
 export function UnknownSwitch({ label, state }: { label: ReactNode; state: ReactNode }) {
   const id = useId();

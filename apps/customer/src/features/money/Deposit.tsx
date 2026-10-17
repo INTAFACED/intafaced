@@ -7,7 +7,7 @@ import { str } from '../../data/decimal';
 import { ReportedTime } from './bank-context';
 import { depositAssets, depositHistory, depositTotal } from './deposit-model';
 import { depositCopy } from './deposit-copy';
-import { DepthPanel, DisabledAction, Fact } from './DepthParts';
+import { DepthPanel, DisabledActions, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
 import './bank-depth.css';
 
@@ -56,10 +56,7 @@ export function Deposit() {
               <strong>{t('addressBlockedTitle')}</strong>
               <p>{t('addressBlocked')}</p>
             </div>
-            <div className="actions">
-              <DisabledAction label={t('copyAddress')} reason={t('copyReason')} />
-              <DisabledAction label={t('showQr')} reason={t('copyReason')} />
-            </div>
+            <DisabledActions labels={[t('copyAddress'), t('showQr')]} reason={t('copyReason')} />
             <dl className="bd-facts">
               <Fact label={t('minimum')}>{t('notPublished')}</Fact>
               <Fact label={t('confirmations')}>{t('notPublished')}</Fact>
