@@ -1,0 +1,323 @@
+import type { Sql } from 'postgres';
+import { parseAmount, type AccountRef, type Balance, type LedgerTx, type PostedEntry } from '@intafaced/ledger-client';
+import { describe, expect, it } from 'vitest';
+import type { PayFail } from './common.js';
+import { stableUuid } from './common.js';
+import { listMerchantStatement } from './statement.js';
+
+const MERCHANT = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
+const USER = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4';
+const PAY_DEBIT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5';
+const PAY_CREDIT = 'ffffffff-ffff-4fff-8fff-fffffffffff6';
+const DEBIT_TX = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const CREDIT_TX = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+const AT = new Date('2026-06-15T12:00:00.000Z');
+const RANGE = { merchantId: MERCHANT, limit: 20, from: '2026-06-01T00:00:00.000Z', to: '2026-07-01T00:00:00.000Z' };
+
+const fail: PayFail = (message, code) => {
+  throw new Error(`${code}: ${message}`);
+};
+
+function lineIds(): { debit: string; credit: string } {
+  for (let n = 0; n < 5000; n += 1) {
+    const debit = `d${n}`;
+    const credit = `c${n}`;
+    if (stableUuid(`${CREDIT_TX}:${credit}`) < stableUuid(`${DEBIT_TX}:${debit}`)) return { debit, credit };
+  }
+  throw new Error('no same-millisecond id pair');
+}
+
+const LINES = lineIds();
+
+function answerStatementSql(text: string, values: unknown[], captures: Array<{ id: string; currency: string }>): unknown {
+  if (text.includes('merchant_statement_leases')) {
+    if (text.includes('DELETE')) return [];
+    return [{ lease_id: values[1] }];
+  }
+  if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
+  if (text.includes("e.event = 'captured'")) return captures;
+  if (text.includes('FROM pay.settlements')) return [];
+  if (text.includes("e.event = 'refund.posted'")) return [];
+  if (text.includes('chargeback.opening_planned')) return [];
+  if (text.includes('pay.payout_admissions')) return [];
+  throw new Error(text);
+}
+
+function scriptSql(
+  captures: Array<{ id: string; currency: string }> = [
+    { id: PAY_DEBIT, currency: 'USDT' },
+    { id: PAY_CREDIT, currency: 'USDT' },
+  ],
+): Sql {
+  return (async (strings: TemplateStringsArray, ...values: unknown[]) =>
+    answerStatementSql(strings.join(' '), values, captures)) as unknown as Sql;
+}
+
+function accountId(ref: AccountRef): string {
+  if (ref.ownerId.startsWith('pay:clearing:')) return 'clearing';
+  if (ref.ownerId.startsWith('pay:proceeds:')) return 'proceeds';
+  if (ref.ownerType === 'user') return 'personal';
+  return 'fees';
+}
+
+function entry(id: string, txId: string, direction: 'debit' | 'credit', amount: string): PostedEntry {
+  return {
+    id,
+    txId,
+    accountId: 'clearing',
+    assetId: 'USDT',
+    direction,
+    amount: parseAmount(amount),
+    balanceAfter: parseAmount(amount),
+  };
+}
+
+function posted(input: {
+  id: string;
+  key: string;
+  hash: string;
+  previousHash: string | null;
+  entryId: string;
+  direction: 'debit' | 'credit';
+  amount: string;
+  seq?: number;
+}): LedgerTx {
+  const tx: LedgerTx & { seq?: number } = {
+    id: input.id,
+    idempotencyKey: input.key,
+    module: 'pay',
+    reason: 'payment.captured',
+    meta: {},
+    postedAt: AT,
+    hash: input.hash,
+    previousHash: input.previousHash,
+    entries: [entry(input.entryId, input.id, input.direction, input.amount)],
+  };
+  if (input.seq !== undefined) tx.seq = input.seq;
+  return tx;
+}
+
+function reader(txs: LedgerTx[], balanceAsOf?: (ref: AccountRef, at: Date) => Promise<Balance>) {
+  const byKey = new Map(txs.map((tx) => [tx.idempotencyKey, tx]));
+  return {
+    async balance(ref: AccountRef): Promise<Balance> {
+      return { account: ref, accountId: accountId(ref), amount: 0n };
+    },
+    async getTxByKey(key: string): Promise<LedgerTx | null> {
+      return byKey.get(key) ?? null;
+    },
+    balanceAsOf,
+  };
+}
+
+describe('statement same-millisecond order', () => {
+  it('orders two posts in one millisecond by the hash chain and keeps the running balance', async () => {
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '10',
+      }),
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: 'hash-debit',
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
+    expect(page.runningBalances).toBe('within_range');
+    expect(page.opening).toBeNull();
+    expect(page.items.find((line) => line.amount === '10')).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '10',
+    });
+    expect(page.items.find((line) => line.amount === '4')).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '6',
+    });
+    expect(page.items.every((line) => line.runningOrder === 'clear')).toBe(true);
+  });
+
+  it('flags the line instead of failing the page when same-millisecond posts have no ledger order', async () => {
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '10',
+      }),
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
+    expect(page.items.every((line) => line.runningOrder === 'order_ambiguous' && line.runningReason === 'order_ambiguous')).toBe(true);
+    expect(page.items.every((line) => line.runningClearing === null && line.windowNet === null)).toBe(true);
+  });
+
+  it('flags a same-millisecond tie even when both movements would stay non-negative', async () => {
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '10',
+      }),
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'debit',
+        amount: '4',
+      }),
+    ];
+    const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
+    expect(page.runningBalances).toBe('within_range');
+    expect(page.items.every((line) => line.runningReason === 'order_ambiguous' && line.windowNet === null)).toBe(true);
+  });
+
+  it('keeps a lone credit as a negative window net when there is no opening balance', async () => {
+    const txs = [
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const sql = scriptSql([{ id: PAY_CREDIT, currency: 'USDT' }]);
+    const page = await listMerchantStatement(sql, reader(txs), RANGE, fail);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      direction: 'credit',
+      amount: '4',
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      runningClearing: null,
+      runningProceeds: null,
+      windowNet: '-4',
+    });
+  });
+
+  it('orders two posts in one millisecond by the ledger sequence when the client exposes it', async () => {
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '10',
+        seq: 1,
+      }),
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+        seq: 2,
+      }),
+    ];
+    const page = await listMerchantStatement(scriptSql(), reader(txs), RANGE, fail);
+    expect(page.items.find((line) => line.amount === '4')).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: 'no_opening',
+      windowNet: '6',
+      runningClearing: null,
+    });
+  });
+
+  it('starts running balances from balance-as-of when the ledger exposes it', async () => {
+    const seen: Date[] = [];
+    const txs = [
+      posted({
+        id: DEBIT_TX,
+        key: `payment.capture:${PAY_DEBIT}`,
+        hash: 'hash-debit',
+        previousHash: null,
+        entryId: LINES.debit,
+        direction: 'debit',
+        amount: '1',
+      }),
+    ];
+    const ledger = reader(txs, async (ref, at) => {
+      seen.push(at);
+      return {
+        account: ref,
+        accountId: accountId(ref),
+        amount: ref.ownerId.startsWith('pay:clearing:') ? parseAmount('5') : 0n,
+      };
+    });
+    const sql = scriptSql([{ id: PAY_DEBIT, currency: 'USDT' }]);
+    const page = await listMerchantStatement(sql, ledger, RANGE, fail);
+    expect(page.runningBalances).toBe('from_opening');
+    expect(page.opening).toEqual([{ assetId: 'USDT', clearing: '5', proceeds: '0' }]);
+    expect(page.items[0]).toMatchObject({
+      runningOrder: 'clear',
+      runningReason: null,
+      runningClearing: '6',
+      runningProceeds: '0',
+      windowNet: null,
+    });
+    expect(seen.every((at) => at.toISOString() === RANGE.from)).toBe(true);
+  });
+
+  it('flags a from-opening reconstruction that would go negative', async () => {
+    const txs = [
+      posted({
+        id: CREDIT_TX,
+        key: `payment.capture:${PAY_CREDIT}`,
+        hash: 'hash-credit',
+        previousHash: null,
+        entryId: LINES.credit,
+        direction: 'credit',
+        amount: '4',
+      }),
+    ];
+    const ledger = reader(txs, async (ref) => ({ account: ref, accountId: accountId(ref), amount: 0n }));
+    const sql = scriptSql([{ id: PAY_CREDIT, currency: 'USDT' }]);
+    const page = await listMerchantStatement(sql, ledger, RANGE, fail);
+    expect(page.runningBalances).toBe('from_opening');
+    expect(page.items[0]).toMatchObject({
+      runningOrder: 'order_ambiguous',
+      runningReason: 'order_ambiguous',
+      runningClearing: null,
+      windowNet: null,
+    });
+  });
+});

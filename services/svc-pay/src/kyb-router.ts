@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { kybDecisionBindingSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
   consumePayApproval,
+  readApprovalIds,
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb-decision-binding.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
@@ -81,6 +83,9 @@ function toTrpcError(err: unknown): unknown {
     if (err.code === 'pay.kyb_history_limit_unset' || err.code === 'pay.psp_pricing_history_limit_unset') {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
+    if (err.code === 'pay.kyb_identity_changed') {
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    }
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
   return err;
@@ -147,11 +152,35 @@ export function createKybPspRouter(
         ),
 
       /**
+       * Identity a compliance proposer reads before filing the approval that
+       * `kyb.decide` consumes. Same scope as that door. Returns the identity
+       * fields and `identityHash` only: a website or support-email edit does
+       * not change this binding.
+       */
+      decisionBinding: scopedProcedure('admin:compliance', { module: 'pay' })
+        .input(z.object({ merchantId: z.string().uuid() }))
+        .output(kybDecisionBindingSchema)
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            requireMfa(ctx.principal);
+            const binding = await kyb.decisionBinding(input.merchantId);
+            if (!binding) throw new KybError(`No merchant ${input.merchantId}`, 'pay.merchant_not_found');
+            return kybDecisionBindingView(binding);
+          }),
+        ),
+
+      /**
        * Operator decide — works under live-only. Replaces the invent gap the
        * stub refuses with `pay.kyb_operator_required`.
        *
        * Identity consume is the second person. Missing approval ids refuse —
        * one operator cannot unlock acquiring with a typed-in name.
+       *
+       * The approval hash is the live identity hash and the reason. A proposer
+       * reads `kyb.decisionBinding`, then files that hash (`kybApprovalFields`
+       * then `kybDecisionPayloadHash`). An older identity does not consume.
+       * The consume runs under the merchant row lock, after the live identity
+       * still matches, and before the status write.
        */
       decide: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
@@ -175,17 +204,30 @@ export function createKybPspRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.kyb_decide', {
-              merchantId: input.merchantId,
-              decision: input.decision,
-              reason: input.reason,
-            });
+            readApprovalIds(input);
+            const binding = await kyb.decisionBinding(input.merchantId);
+            if (!binding) throw new KybError(`No merchant ${input.merchantId}`, 'pay.merchant_not_found');
+            let confirmOperatorId = '';
             const result = await kyb.decide({
               merchantId: input.merchantId,
               decision: input.decision,
               reason: input.reason,
               actorId: ctx.principal.userId,
               actorScope: 'admin:compliance',
+              identityHash: binding.identityHash,
+              beforeWrite: async () => {
+                confirmOperatorId = await consumePayApproval(
+                  approvals,
+                  input,
+                  PAY_KYB_DECIDE,
+                  kybApprovalFields({
+                    merchantId: binding.merchantId,
+                    decision: input.decision,
+                    identityHash: binding.identityHash,
+                    reason: input.reason,
+                  }),
+                );
+              },
             });
             return {
               ...result,
