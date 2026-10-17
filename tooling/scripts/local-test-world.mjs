@@ -2766,7 +2766,8 @@ export function enrolledTestOperatorPair(file) {
 
 /** Operator A and B signed in with their TOTP (replay-safe, through gates). Sessions carry the admin-scoped approval token. */
 async function signInTestOperatorPair(gctx, gates) {
-  if (!enrolledTestOperatorPair(readJson(gctx.paths.operators, null))) return null;
+  const pair = enrolledTestOperatorPair(readJson(gctx.paths.operators, null));
+  if (!pair) return null;
   let sessions;
   try {
     sessions = await gates.operatorSessions(gctx);
@@ -2777,13 +2778,18 @@ async function signInTestOperatorPair(gctx, gates) {
   for (const letter of ['a', 'b']) {
     const sess = sessions[letter];
     const token = await sess.approvalToken();
-    let tier = 'none';
+    let claims = {};
     try {
-      tier = JSON.parse(Buffer.from(String(sess.token).split('.')[1], 'base64url').toString('utf8')).tier ?? 'none';
+      claims = JSON.parse(Buffer.from(String(sess.token).split('.')[1], 'base64url').toString('utf8'));
     } catch {
-      /* tier stays none */
+      /* unreadable token: the identity check below refuses */
     }
-    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier });
+    // Trust only the account the pair names: the signed-in subject must be that operator before any elevated token is used.
+    const expected = pair.find((p) => p.key === letter)?.userId;
+    if (!expected || claims.sub !== expected || sess.op.userId !== expected) {
+      return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (operator ${letter.toUpperCase()} signed in as a different account)` };
+    }
+    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier: claims.tier ?? 'none' });
   }
   return { ok: true, sessions: out };
 }

@@ -1064,6 +1064,15 @@ try {
     }
   }
 
+  // Operator pair: the signed-in subject must be the operator the pair names before any elevated token is used.
+  {
+    const src = readFileSync(new URL('./local-test-world.mjs', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('async function signInTestOperatorPair'), src.indexOf('function loadEnrolledFounders'));
+    assert.match(body, /claims\.sub !== expected/);
+    assert.match(body, /sess\.op\.userId !== expected/);
+    assert.ok(body.indexOf('claims.sub !== expected') < body.indexOf('out.push('), 'identity check runs before the session is used');
+  }
+
   console.log('local-test-world: all checks passed');
 } finally {
   rmSync(home, { recursive: true, force: true });
