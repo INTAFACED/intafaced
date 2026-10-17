@@ -17,7 +17,7 @@ const pageLimitSchema = z.number().int().min(1).max(200).optional();
  * Current hosted-checkout profile (`merchant.profile` / `payment_profiles`).
  * No row is `not_configured`. A row is the JSON and domains that write stored,
  * including an empty object or an empty domain list. This read does not fill
- * a fee, a domain, or a brand.
+ * a fee, a domain, or a brand. `feeRouting` is null when hidden for this role.
  */
 const checkoutSettingsRecordSchema = z.record(z.unknown());
 
@@ -34,7 +34,8 @@ export const payCheckoutSettingsSchema = z.discriminatedUnion('status', [
       status: z.literal('configured'),
       profileId: z.string().uuid(),
       checkoutConfig: checkoutSettingsRecordSchema,
-      feeRouting: checkoutSettingsRecordSchema,
+      /** Null = hidden for this role (never {}). An empty object is stored data. */
+      feeRouting: checkoutSettingsRecordSchema.nullable(),
       domains: z.array(z.string()),
       createdAt: payTimestampSchema,
     })

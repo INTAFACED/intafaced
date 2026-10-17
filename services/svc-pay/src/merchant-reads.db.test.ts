@@ -539,16 +539,24 @@ describe('merchant team reads, list pages, and stored detail', () => {
     const mine = await merchant(OWNER);
     const other = await merchant(FINANCE_B);
     await member(mine.id, VIEWER, 'viewer', 'active');
+    await member(mine.id, DEVELOPER, 'developer', 'active');
+    await member(mine.id, FINANCE, 'finance', 'active');
+    await member(mine.id, ADMIN, 'admin', 'active');
     const owner = router.createCaller(await ctx(['pay:read', 'pay:write'], OWNER));
     expect(await owner.merchant.checkoutSettings.get({ merchantId: mine.id })).toEqual({ status: 'not_configured' });
 
+    const storedRouting = { bearer: 'merchant' };
     const first = await owner.merchant.profile({
       merchantId: mine.id,
       domains: ['old.example'],
       checkoutConfig: { brandName: 'Old' },
-      feeRouting: { bearer: 'merchant' },
+      feeRouting: { bearer: 'customer' },
     });
-    const second = await owner.merchant.profile({ merchantId: mine.id, domains: ['checkout.example'] });
+    const second = await owner.merchant.profile({
+      merchantId: mine.id,
+      domains: ['checkout.example'],
+      feeRouting: storedRouting,
+    });
     await sql`UPDATE pay.payment_profiles SET created_at = now() - interval '1 minute' WHERE id = ${first.id}`;
     const current = await owner.merchant.checkoutSettings.get({ merchantId: mine.id });
     expect(current).toMatchObject({
@@ -556,13 +564,27 @@ describe('merchant team reads, list pages, and stored detail', () => {
       profileId: second.id,
       domains: ['checkout.example'],
       checkoutConfig: {},
-      feeRouting: {},
+      feeRouting: storedRouting,
     });
     expect(current).not.toMatchObject({ profileId: first.id });
     if (current.status === 'configured') expect(current.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-    const viewer = router.createCaller(await ctx(['pay:read'], VIEWER));
-    expect(await viewer.merchant.checkoutSettings.get({ merchantId: mine.id })).toMatchObject({ profileId: second.id });
+    for (const userId of [VIEWER, DEVELOPER]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      expect(await caller.merchant.checkoutSettings.get({ merchantId: mine.id })).toMatchObject({
+        profileId: second.id,
+        checkoutConfig: {},
+        feeRouting: null,
+      });
+    }
+    for (const userId of [FINANCE, ADMIN]) {
+      const caller = router.createCaller(await ctx(['pay:read'], userId));
+      expect(await caller.merchant.checkoutSettings.get({ merchantId: mine.id })).toMatchObject({
+        profileId: second.id,
+        checkoutConfig: {},
+        feeRouting: storedRouting,
+      });
+    }
 
     const otherOwner = router.createCaller(await ctx(['pay:read', 'pay:write'], FINANCE_B));
     const hidden = await otherOwner.merchant.profile({

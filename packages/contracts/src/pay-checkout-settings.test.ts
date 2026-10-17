@@ -42,5 +42,15 @@ describe('merchant.checkoutSettings.get', () => {
         feeBps: 250,
       }).success,
     ).toBe(false);
+    const hidden = payCheckoutSettingsSchema.parse({
+      status: 'configured',
+      profileId,
+      checkoutConfig: { brandName: 'North' },
+      feeRouting: null,
+      domains: ['checkout.example'],
+      createdAt: '2026-10-17T00:00:00.000Z',
+    });
+    expect(hidden.feeRouting).toBeNull();
+    expect(hidden.checkoutConfig).toEqual({ brandName: 'North' });
   });
 });
