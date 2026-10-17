@@ -83,7 +83,7 @@ const messages = {
   'Account not found': 'We couldn’t find that account. Check the Account ID and try again.',
   'Not sent': 'The payment wasn’t sent. Nothing left your account. Try again.',
   'Check amount and recipient': 'Check who you’re paying and the amount, then try again.',
-  'Balance locked': 'That balance is locked. Pick another.',
+  'Balance locked': 'That balance is time-locked. Pick another.',
   'No safe storage': 'This browser can’t keep a safe note of the payment, so we haven’t sent it. Use a current Chrome, Safari or Firefox.',
   'Sign in again': 'Your session ended. Sign in to carry on.',
   // Loading and errors

@@ -27,7 +27,7 @@ const en = {
   review: 'Review alert',
   reasonMarketsLoading: 'Switched off: the list of markets is still loading.',
   reasonMarketsFailed: 'Switched off: the list of markets could not be loaded. Reload the page to try again.',
-  reasonNoMarkets: 'Switched off: there are no markets to watch yet.',
+  reasonNoMarkets: 'Switched off: there are no markets to watch.',
   reasonListLoading: 'Switched off: your alerts are still loading.',
   reasonListFailed: 'Switched off: your alerts could not be loaded, so we cannot check for an alert like this one. Try again below.',
   reasonBusy: 'Switched off: another change is being sent. Wait for it to finish.',
@@ -125,7 +125,7 @@ const es = {
   review: 'Revisar alerta',
   reasonMarketsLoading: 'Desactivado: la lista de mercados aún se está cargando.',
   reasonMarketsFailed: 'Desactivado: no se pudo cargar la lista de mercados. Recarga la página para intentarlo de nuevo.',
-  reasonNoMarkets: 'Desactivado: todavía no hay mercados que vigilar.',
+  reasonNoMarkets: 'Desactivado: no hay mercados que vigilar.',
   reasonListLoading: 'Desactivado: tus alertas aún se están cargando.',
   reasonListFailed:
     'Desactivado: no se pudieron cargar tus alertas, así que no podemos comprobar si ya existe una igual. Inténtalo de nuevo más abajo.',
@@ -203,7 +203,7 @@ const fr = {
   businessNote: 'Les alertes de prix appartiennent à votre compte personnel. Passez à votre compte personnel pour les utiliser.',
   evalReady: 'Les contrôles de prix sont connectés. Une alerte se déclenche une fois, la première fois que le prix atteint votre niveau.',
   evalDark:
-    'Les contrôles de prix ne sont pas connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher tant que les contrôles de prix ne sont pas connectés.',
+    'Les contrôles de prix ne sont pas connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher, car les contrôles de prix ne sont pas connectés.',
   evalNoDelivery:
     'Les contrôles de prix sont connectés, mais les alertes ne peuvent pas être livrées. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher tant que les alertes ne peuvent pas être livrées.',
   newTitle: 'Nouvelle alerte',
@@ -220,7 +220,7 @@ const fr = {
   review: 'Vérifier l’alerte',
   reasonMarketsLoading: 'Désactivé : la liste des marchés est encore en cours de chargement.',
   reasonMarketsFailed: 'Désactivé : la liste des marchés n’a pas pu être chargée. Rechargez la page pour réessayer.',
-  reasonNoMarkets: 'Désactivé : il n’y a pas encore de marché à surveiller.',
+  reasonNoMarkets: 'Désactivé : il n’y a aucun marché à surveiller.',
   reasonListLoading: 'Désactivé : vos alertes sont encore en cours de chargement.',
   reasonListFailed:
     'Désactivé : vos alertes n’ont pas pu être chargées, donc nous ne pouvons pas vérifier s’il en existe une identique. Réessayez plus bas.',

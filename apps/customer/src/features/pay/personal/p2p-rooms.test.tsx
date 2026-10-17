@@ -84,7 +84,7 @@ it('lists the four dispute stages', () => {
 
 it('shows the whole chat and cannot send, with the reason', () => {
   const out = renderToString(<OrderChat />);
-  expect(out).toContain('Order chat isn’t connected');
+  expect(out).toContain('Order chat isn’t on this page');
   expect(out).toContain('No messages yet.');
   expect(out).toMatch(/<textarea[^>]*>/);
   expect(out).toMatch(/<button[^>]*disabled[^>]*>Send message/);

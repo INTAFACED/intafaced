@@ -3,7 +3,7 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
   'view.language.partial': '{language} is selected. Some interface labels use English.',
-  'view.language.fallback': '{language} is selected. English is shown until {language} interface translations are available.',
+  'view.language.fallback': '{language} is selected. English is shown where {language} interface translations are not available.',
   'view.language.visit.only': 'Selected for this visit only. This browser can’t save it.',
 
   'view.daily.start.zoned': 'My time zone',

@@ -6,7 +6,7 @@ export const contactCopy = defineCopy('public-contact', {
   titleRecovery: 'Locked out? A person can help',
   bodySignedOut:
     'Support requests belong to a signed-in account, so you cannot open one from here. Send us an email instead and a person will read it.',
-  bodyRecovery: 'There is no automatic password reset, so a person has to help. Support requests need a sign-in, so email us instead.',
+  bodyRecovery: 'If the reset above says it isn’t switched on, a person has to help. Support requests need a sign-in, so email us instead.',
   includeHeading: 'In your email, tell us',
   includeHandle: 'The email or handle on your account.',
   includeWhat: 'What happened, and what you saw on the screen.',

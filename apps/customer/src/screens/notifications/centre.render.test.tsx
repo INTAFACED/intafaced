@@ -59,6 +59,6 @@ describe('topic table', () => {
     const page = html(<TopicTable channels={channels} />);
     for (const topic of ['Trading', 'P2P', 'Account', 'Money', 'Token', 'Agents']) expect(page).toContain(topic);
     expect(page).toContain('Not set up');
-    expect(page).toContain('Switched off: choosing by topic is not available.');
+    expect(page).toContain('Switched off: this screen doesn’t offer choosing by topic.');
   });
 });

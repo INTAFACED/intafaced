@@ -58,7 +58,7 @@ const en = {
   rewardsMethod:
     'Method: each window’s reward, less the pool fee, is split in proportion to share weight (PPLNS, pay per last N shares). The fee rate and window size below come from the pool’s own settings.',
   rewardsExport: 'Export reward records',
-  rewardsExportReason: 'Unavailable: exporting reward records isn’t available.',
+  rewardsExportReason: 'Unavailable: the pool has no export of reward records.',
   rewardsDestination: 'Payout destination',
   rewardsDestinationBody: 'A paid window credits your account balance through the ledger. No external address is used.',
   support: 'Ask about mining access',
@@ -173,7 +173,7 @@ const es = {
   rewardsMethod:
     'Método: la recompensa de cada ventana, menos la comisión del pool, se reparte en proporción al peso de las aportaciones (PPLNS, pago por las últimas N aportaciones). La comisión y el tamaño de la ventana de abajo salen de los ajustes del propio pool.',
   rewardsExport: 'Exportar registros de recompensas',
-  rewardsExportReason: 'No disponible: exportar los registros de recompensas no está disponible.',
+  rewardsExportReason: 'No disponible: el pool no tiene exportación de registros de recompensas.',
   rewardsDestination: 'Destino del pago',
   rewardsDestinationBody:
     'Una ventana pagada acredita el saldo de tu cuenta a través del libro mayor. No se usa ninguna dirección externa.',
@@ -289,7 +289,7 @@ const fr = {
   rewardsMethod:
     'Méthode : la récompense de chaque fenêtre, moins les frais du pool, est répartie proportionnellement au poids des shares (PPLNS, paiement sur les N dernières shares). Le taux de frais et la taille de la fenêtre ci-dessous viennent des réglages du pool lui-même.',
   rewardsExport: 'Exporter les relevés de récompenses',
-  rewardsExportReason: 'Indisponible : l’export des relevés de récompenses n’est pas disponible.',
+  rewardsExportReason: 'Indisponible : le pool n’a pas d’export des relevés de récompenses.',
   rewardsDestination: 'Destination du paiement',
   rewardsDestinationBody: 'Une fenêtre payée crédite le solde de ton compte via le grand livre. Aucune adresse externe n’est utilisée.',
   support: 'Consulter l’accès au minage',

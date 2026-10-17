@@ -96,12 +96,12 @@ export const centreCopy = defineCopy('notifications-centre', {
   cellNoTarget: 'Needs address',
   cellUnverified: 'Needs code',
   perTopicTitle: 'Choose per topic',
-  perTopicReason: 'Switched off: choosing by topic is not available. The service keeps one setting for each way of reaching you.',
+  perTopicReason: 'Switched off: this screen doesn’t offer choosing by topic. It keeps one setting for each way of reaching you.',
   // Quiet hours
   quietTitle: 'Quiet hours and summaries',
   quietLabel: 'Delivery timing',
   quietValue: 'Send as they happen',
-  quietReason: 'Switched off: quiet hours and daily summaries are not available. Updates are sent as they happen.',
+  quietReason: 'Switched off: this screen doesn’t offer quiet hours or daily summaries. Updates are sent as they happen.',
   // Delivery history
   deliveryTitle: 'Delivery history',
   deliveryIntro: 'For each recent update, see where we tried to send it and what happened.',

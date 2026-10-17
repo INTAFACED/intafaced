@@ -133,7 +133,7 @@ describe('price alerts page', () => {
     reads.alerts = ready([]);
     expect(render()).toContain('Switched off: the list of markets could not be loaded.');
     reads.markets = { status: 'ready', markets: [] };
-    expect(render()).toContain('Switched off: there are no markets to watch yet.');
+    expect(render()).toContain('Switched off: there are no markets to watch.');
   });
 
   it('leaves a company account with a plain note, not a form', () => {

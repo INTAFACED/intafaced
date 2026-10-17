@@ -397,7 +397,7 @@ const messages = {
   'market.my.listings': 'My listings',
   'market.publish.a.strategy.subscription': 'Publish a strategy subscription',
   'market.the.house.commission.is.unpublished.the.service':
-    'The house commission is unpublished. The service refuses listing creation and purchases until it is configured.',
+    'The house commission is unpublished, so the service refuses listing creation and purchases.',
   'market.seller.application': 'Seller application',
   'market.seller': 'Seller',
   'market.status': 'Status',
@@ -709,7 +709,7 @@ const messages = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'Your stake and access readings show amounts only and do not name the token. Without a named token we do not guess which balance would move.',
   'token.your.existing.stake.records.remain.readable.a':
-    'You can still see your existing stake. Staking and unstaking stay off until the token balance is named.',
+    'You can still see your existing stake. Staking and unstaking are off because the token balance is not named.',
   'token.proposals': 'Proposals',
   'token.no.proposals.are.published': 'No proposals are published',
   'token.proposal': 'Proposal',
@@ -1330,7 +1330,7 @@ const es = {
   'market.my.listings': 'Mis listados',
   'market.publish.a.strategy.subscription': 'Publicar una suscripción de estrategia',
   'market.the.house.commission.is.unpublished.the.service':
-    'La comisión de la casa no está publicada. El servicio rechaza la creación de listados y las compras hasta que se configure.',
+    'La comisión de la casa no está publicada, así que el servicio rechaza la creación de listados y las compras.',
   'market.seller.application': 'Solicitud de vendedor',
   'market.seller': 'Vendedor',
   'market.status': 'Estado',
@@ -1657,7 +1657,7 @@ const es = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'Las lecturas de tu staking y acceso muestran solo importes y no nombran el token. Sin un token nombrado, no suponemos qué saldo se movería.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Sigues viendo tu stake actual. El staking y su retirada siguen desactivados hasta que se nombre el saldo de token.',
+    'Sigues viendo tu stake actual. El staking y su retirada están desactivados porque no se ha nombrado el saldo de token.',
   'token.proposals': 'Propuestas',
   'token.no.proposals.are.published': 'No hay propuestas publicadas',
   'token.proposal': 'Propuesta',
@@ -2286,7 +2286,7 @@ const fr = {
   'market.my.listings': 'Mes offres',
   'market.publish.a.strategy.subscription': 'Publier un abonnement à une stratégie',
   'market.the.house.commission.is.unpublished.the.service':
-    'La commission de la maison n’est pas publiée. Le service refuse la création d’offres et les achats tant qu’elle n’est pas configurée.',
+    'La commission de la maison n’est pas publiée : le service refuse la création d’offres et les achats.',
   'market.seller.application': 'Candidature de vendeur',
   'market.seller': 'Vendeur',
   'market.status': 'Statut',
@@ -2613,7 +2613,7 @@ const fr = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'Les relevés de ton staking et de ton accès n’affichent que des montants et ne nomment pas le token. Sans token nommé, nous ne devinons pas quel solde bougerait.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Tu vois toujours ton stake actuel. Le staking et son retrait restent désactivés tant que le solde de token n’est pas nommé.',
+    'Tu vois toujours ton stake actuel. Le staking et son retrait sont désactivés car le solde de token n’est pas nommé.',
   'token.proposals': 'Propositions',
   'token.no.proposals.are.published': 'Aucune proposition n’est publiée',
   'token.proposal': 'Proposition',

@@ -3,7 +3,7 @@ const en = {
   scope: 'Listed questions, result sources and outcome instruments',
   questions: 'Listed questions',
   empty: 'No questions are listed',
-  emptyBody: 'No questions are listed yet. Check again later. This is not an account position or settlement record.',
+  emptyBody: 'No questions are listed. This is not an account position or settlement record.',
   failedBody: 'A failed catalogue read does not establish that no questions are listed.',
   refresh: 'Refresh questions',
   closes: 'Closes',
@@ -32,8 +32,7 @@ const es = {
   scope: 'Preguntas publicadas, fuentes de resultados e instrumentos de resultados',
   questions: 'Preguntas publicadas',
   empty: 'No hay preguntas publicadas',
-  emptyBody:
-    'Aún no hay preguntas listadas. Vuelve a comprobarlo más tarde. Esto no es una posición de la cuenta ni un registro de liquidación.',
+  emptyBody: 'No hay preguntas listadas. Esto no es una posición de la cuenta ni un registro de liquidación.',
   failedBody: 'Un fallo al leer el catálogo no demuestra que no haya preguntas publicadas.',
   refresh: 'Actualizar las preguntas',
   closes: 'Cierre',
@@ -64,8 +63,7 @@ const fr = {
   scope: 'Questions publiées, sources des résultats et instruments de résultat',
   questions: 'Questions publiées',
   empty: 'Aucune question n’est publiée',
-  emptyBody:
-    'Aucune question n’est encore listée. Revenez plus tard. Ce n’est ni une position du compte ni un enregistrement de règlement.',
+  emptyBody: 'Aucune question n’est listée. Ce n’est ni une position du compte ni un enregistrement de règlement.',
   failedBody: 'Une lecture échouée du catalogue ne prouve pas qu’aucune question n’est publiée.',
   refresh: 'Actualiser les questions',
   closes: 'Clôture',

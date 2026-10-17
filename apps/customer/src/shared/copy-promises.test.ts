@@ -14,10 +14,31 @@ import { describe, expect, it } from 'vitest';
 const SRC = fileURLToPath(new URL('..', import.meta.url));
 
 const PROMISES: RegExp[] = [
+  // English: "isn't connected yet", "coming soon", "for now", "once it is".
   /\b(?:not|isn['’]t|aren['’]t|cannot|can['’]t)\b[^.]{0,60}\byet\b/i,
   /coming soon/i,
   /\bonce it is\b/i,
   /\bfor now\b/i,
+  // English: "There is no store app yet", "No card issuer is connected yet", "doesn't let customers … yet".
+  /\bthere (?:is|are) no\b[^.]{0,60}\byet\b/i,
+  /\b(?:doesn['’]t|don['’]t|hasn['’]t|haven['’]t|won['’]t)\b[^.]{0,60}\byet\b/i,
+  /\b(?:no|none)\b[^.]{0,60}\b(?:connected|service|issuer|partner|provider|available|way|lookup|switched|set up|supported)\b[^.]{0,40}\byet\b/i,
+  /\b(?:no|none)\b[^.]{0,60}\b(?:can|could|may|market|exists?)\b[^.]{0,40}\byet\b/i,
+  // English: "once custody is connected", "until one is", "until the minimum is published".
+  /\bonce\b[^.]{0,40}\b(?:is|are)\s+(?:connected|published|switched on|available|activated)\b/i,
+  /\buntil\b[^.]{0,60}\b(?:connected|published|available|activated|activation|configured|supplied)\b/i,
+  /\buntil (?:one|then) (?:is|are)\b/i,
+  // Spanish: "aún no está conectado", "hasta que se active", "hasta entonces". "Aún no hay …" and "Todavía no tienes …" are empty states.
+  /\b(?:aún|todavía) no (?!tienes?\b|has\b|ha\b|se ha\b|hemos\b|hay (?!ning[úu]n (?:proveedor|socio|emisor)|ninguno|ninguna (?:red|vía)|forma|un |una ))/i,
+  /\b(?:aún|todavía) no tiene (?:un|una) (?:servicio|consulta)/i,
+  /\bhasta que [^.]{0,40}\b(?:active|conecte|publique|configure)\b/i,
+  /\bhasta entonces\b/i,
+  /\bhasta que (?:se |lo |la |los |las )?(?:esté|estén|conect|public|activ|configur|abra|proporcion)/i,
+  // French: "pas encore connecté", "une fois la conservation connectée", "d'ici là". Empty states ("… pour l'instant") pass.
+  /\bpas encore\b(?!\s+(?:choisi|créé))(?!\s+de (?!service|consultation|\p{L}+er\b))(?!\s+d[’'](?!\p{L}+er\b))/iu,
+  /\bune fois (?:que )?(?:la |le |l[’'])?[^.]{0,40}\b(?:connect|activ|configur)/i,
+  /\bd[’']ici là\b/i,
+  /\btant que\b[^.]{0,60}\b(?:connect|publi|activ|configur|disponible|fournis|nommé)/i,
 ];
 
 /** Other lanes: Trade, and the merchant portal and merchant rooms of Pay. */
@@ -36,13 +57,23 @@ const FACTS: Array<[phrase: string, why: string]> = [
   ['You do not hold any asset yet', 'an empty balance, with the step to fix it'],
   ['You have not sent us a request yet', 'an empty list of the customer’s own requests'],
   ['You can rate a request once it is resolved or closed.', 'a rule about the request’s status, not a feature'],
-  ['Not yet checked', 'a check on one record has not run'],
   ['Saved, but not confirmed yet.', 'one address has not been confirmed by its owner'],
   ['Not confirmed yet', 'one value has not been confirmed'],
   [
     'Not yet run against a real svc-pay.',
     'a developer note in the feature registry about the merchant portal’s stand-in backend; never shown to customers',
   ],
+  ['No assets you can spend yet', 'an empty list of assets the customer holds'],
+  ['You don’t own any assets yet.', 'an empty portfolio'],
+  ['You don’t hold anything yet.', 'an empty balance'],
+  ['You haven’t made a request in this browser yet.', 'an empty list of the customer’s own requests'],
+  ['Aún no se cerró la sesión.', 'Spanish of the allowed “Not signed out yet” line'],
+  ['Vous n’êtes pas encore déconnecté.', 'French of the allowed “Not signed out yet” line'],
+  ['aún no tienen registro de progreso', 'Spanish: lessons with no progress record'],
+  ['pas encore d’enregistrement de progression', 'French: lessons with no progress record'],
+  ['Aún no se te ha pagado ningún crédito', 'Spanish: an empty payout list'],
+  ['Ne l’enregistrez pas encore une deuxième fois.', 'French of the allowed “Do not save it again yet”'],
+  ['Tu n’as pas encore de worker', 'French: an empty worker list'],
   ['Do not save it again yet.', 'an instruction while a duplicate check runs'],
 ];
 
@@ -61,14 +92,21 @@ const isCopyFile = (path: string): boolean => {
 
 const files = walk(SRC).filter(isCopyFile);
 
+/** The line with every allowed phrase cut out, so a second promise on the same line still counts. */
+const withoutFacts = (line: string): string => FACTS.reduce((rest, [phrase]) => rest.split(phrase).join(' '), line);
+
 const promisesIn = (text: string): string[] =>
   text
     .split('\n')
     .map((line, index) => ({ line, number: index + 1 }))
     .filter(({ line }) => !/^\s*(\/\/|\/\*|\*)/.test(line))
-    .filter(({ line }) => PROMISES.some((pattern) => pattern.test(line)))
-    .filter(({ line }) => !FACTS.some(([phrase]) => line.includes(phrase)))
-    .map(({ line, number }) => `${number}: ${line.trim().slice(0, 160)}`);
+    .flatMap(({ line, number }) => {
+      const rest = withoutFacts(line);
+      return PROMISES.flatMap((pattern) => {
+        const hit = pattern.exec(rest);
+        return hit ? [`${number}: “${hit[0]}” in ${line.trim().slice(0, 140)}`] : [];
+      });
+    });
 
 describe('customer copy never promises a later capability', () => {
   it('reads the copy catalogues outside the Trade and merchant-portal lanes', () => {
@@ -94,8 +132,23 @@ describe('customer copy never promises a later capability', () => {
       "  body: 'Coming soon',",
       "  body: 'These are the steps you will see once it is.',",
       "  body: 'That balance is locked for now.',",
+      "  appNoneTitle: 'There is no store app yet',",
+      "  blockNone: 'No card issuer is connected yet, so cards cannot be ordered.',",
+      "  workerRegisterReason: 'The pool doesn’t let customers register a worker yet.',",
+      "  assessmentReason: 'Academy has no assessment service yet.',",
+      "  pendingBody: 'Deposits on their way will show here once custody is connected.',",
+      "  addReason: 'Nothing is charged and no rate is shown until one is.',",
+      "  inactive: 'Payout is unavailable until an eligible live rail is connected.',",
+      "  blockNone: 'Todavía no hay un emisor de tarjetas conectado.',",
+      "  fReason: 'Enviar dinero fuera de INTAFACED aún no está conectado.',",
+      "  warning2: 'El mínimo se mostrará aquí hasta entonces.',",
+      "  blockNone: 'Aucun émetteur n’est connecté pour le moment : pas encore disponible.',",
+      "  addressBlocked: 'Une adresse ne peut être affichée qu’une fois la conservation connectée. D’ici là, rien.',",
     ])
-      expect(promisesIn(bad), bad).toHaveLength(1);
+      expect(promisesIn(bad), bad).not.toHaveLength(0);
+    // The allowed phrase is cut out of the line, so a second promise beside it still fails.
+    expect(promisesIn("  a: 'Not chosen yet. Bill pay isn’t connected yet.',")).toHaveLength(1);
+    expect(promisesIn("  a: 'Not chosen yet',")).toEqual([]);
     expect(promisesIn("  empty: 'No trades yet',")).toEqual([]);
   });
 

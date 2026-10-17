@@ -143,7 +143,6 @@ const PAY_SURFACE_KEYS = [
   'noP2pOrdersReturned',
   'theOrderReachedATerminalStateBut',
   'noPaymentDestinationHeadersReturned',
-  'thereIsNoPersonalRequestContractOr',
   'aPreviousTransferHasNotBeenConfirmed',
   'noBankSpacesReturned',
   'receiveNamedOnly',
