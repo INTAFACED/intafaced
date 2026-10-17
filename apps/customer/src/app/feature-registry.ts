@@ -224,10 +224,12 @@ export const features: readonly Feature[] = [
     id: 'business-pay',
     label: 'Business Pay and business account',
     paths: [...businessPaySlugs.map((slug) => `/pay/${slug}`), '/identbusiness'],
-    status: 'blocked',
-    reason: 'No verified business account contract',
-    unlock: 'contract',
+    status: 'live',
+    reason: 'The rooms open from the signed-in session: business access comes from merchant.myAccess, with no separate provider',
+    unlock: 'already live',
     tab: 'pay',
+    checked:
+      '2026-10-17, stand-in backend (apps/customer/src/features/pay/portal/mock/): every /pay room opens for an owner and shows "No business account yet" with Start setup for a person with none; pay-routes.test.tsx pins both. Not yet run against a real svc-pay.',
   },
   {
     id: 'more-rooms',

@@ -18,14 +18,12 @@ import { authorityFromAccess } from './access/authority';
  * The merchant portal shell (W3a). Every page here is scoped by the server from the signed session, so the
  * browser never names a merchant. `starterFeeBps` is the fee INTAFACED has published for new accounts: null
  * until one is, and a null fee means an account cannot be opened from onboarding.
- * `legacyHome` is the older rails and checkout-domain section, shown under the dashboard when it applies.
  * `MerchantAccessProvider` sits at the root: every page and the frame read who is signed in from it.
  */
 export function MerchantPortal(props: {
   path: string;
   authority?: PayBusinessAuthority | null;
   starterFeeBps?: number | null;
-  legacyHome?: ReactNode | ((authority: PayBusinessAuthority | null) => ReactNode);
 }) {
   return (
     <MerchantAccessProvider>
@@ -38,12 +36,10 @@ function PortalRooms({
   path,
   authority = null,
   starterFeeBps = null,
-  legacyHome = null,
 }: {
   path: string;
   authority?: PayBusinessAuthority | null;
   starterFeeBps?: number | null;
-  legacyHome?: ReactNode | ((authority: PayBusinessAuthority | null) => ReactNode);
 }) {
   const { api, userId } = useSession();
   const portal = useMemo(() => createPortalApi(api, userId), [api, userId]);
@@ -62,7 +58,6 @@ function PortalRooms({
         authority: effective,
         access,
         starterFeeBps,
-        legacyHome: typeof legacyHome === 'function' ? legacyHome(effective) : legacyHome,
       }}
     />
   );

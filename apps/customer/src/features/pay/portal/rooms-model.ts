@@ -11,7 +11,6 @@ export type RoomContext = {
   /** Who is signed in to which business, and what they may do. */
   access: MerchantAccessValue;
   starterFeeBps: number | null;
-  legacyHome: ReactNode;
 };
 export type RoomHeader = { title: string; purpose: string; action?: ReactNode };
 

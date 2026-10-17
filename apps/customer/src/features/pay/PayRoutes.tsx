@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { P2P } from './P2P';
-import { BusinessPay, BusinessHomeSection } from './BusinessPay';
+import { BusinessPay } from './BusinessPay';
 import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
 import { NoBusiness } from './portal/access/NoBusiness';
 import { isLegacyTool, parsePortalRoute, portalRedirect } from './portal/routes';
@@ -48,16 +48,8 @@ function PayRooms({ path }: { path: string }) {
     return <P2P key={path} path={path} />;
   const redirect = portalRedirect(path);
   if (redirect) return <Redirect to={redirect} />;
-  if (current === '/pay' && authority) return <BusinessPay path="/pay/merchant" authority={authority} />;
   if (parsePortalRoute(path))
-    return (
-      <MerchantPortal
-        key={path}
-        path={path}
-        authority={authority}
-        legacyHome={(effective) => (effective ? <BusinessHomeSection authority={effective} /> : null)}
-      />
-    );
+    return <MerchantPortal key={path} path={path} authority={authority} />;
   // The older sandbox tools stay reachable by address only (`?view=tools`).
   if (isLegacyTool(path))
     return (

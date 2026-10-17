@@ -16,6 +16,7 @@ import { MerchantBilling } from './MerchantBilling';
 import { MerchantNetwork, MerchantPermissions, MerchantDeveloper } from './MerchantNetwork';
 import * as s from './schemas';
 import { LayoutFrame } from './portal/home-layout/Frame';
+import { Redirect } from './portal/chrome/PortalNotFound';
 import './portal/portal.css';
 
 /** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
@@ -73,7 +74,7 @@ export function BusinessPay({ path, authority }: { path: string; authority: PayB
                   <PayCopy k="paymentsAcceptAnOpaqueCustomerReferenceBut" />
                 </PayNotice>
               ) : (
-                <MerchantHome pay={pay} merchant={record} />
+                <Redirect to="/pay" />
               )}
             </div>
           </div>
@@ -116,90 +117,6 @@ export const railHealthSchema = z.array(
     reason: z.string().optional(),
   }),
 );
-export function MerchantHome({ pay, merchant }: { pay: BusinessPayApi; merchant: s.Merchant }) {
-  const [domains, setDomains] = useState('');
-  const [profileCreated, setProfileCreated] = useState('');
-  const rails = useResource((signal) => pay.query('railHealth', undefined, railHealthSchema, signal), `pay:rails:${merchant.id}`);
-  return (
-    <div className="stack">
-      <PaySection title={payCopy.t('yourMerchantAccount')}>
-        <PayDetails
-          values={[
-            [payCopy.t('merchant'), merchant.id],
-            [payCopy.t('accountState'), <Status value={merchant.status} />],
-            [payCopy.t('businessVerification'), merchant.kybStatus],
-            [payCopy.t('acquiringMode'), merchant.mode],
-            [
-              payCopy.t('merchantFee'),
-              merchant.feeBps === null ? payCopy.t('notPublished') : payCopy.t('basisPoints', { feeBps: merchant.feeBps }),
-            ],
-          ]}
-        />
-      </PaySection>
-      <PaySection title={payCopy.t('paymentRailAvailability')}>
-        <PayState resource={rails.resource} retry={rails.reload} empty={payCopy.t('noPaymentRailsReturned')}>
-          {(rows) => (
-            <div>
-              {rows.map((rail) => (
-                <div className="pay-destination" key={rail.id}>
-                  <span>
-                    {rail.id}
-                    <small>{rail.reason ?? (rail.healthy ? payCopy.t('serviceHealthy') : payCopy.t('serviceUnhealthy'))}</small>
-                  </span>
-                  <span>
-                    {rail.mode} · {rail.usable ? payCopy.t('usable') : payCopy.t('unavailable')}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </PayState>
-      </PaySection>
-      <PaySection title={payCopy.t('checkoutDomains')} description={payCopy.t('saveDomainsForANewCheckoutProfile')}>
-        <div className="form-stack pay-form">
-          <Field
-            label={payCopy.t('domains')}
-            value={domains}
-            onChange={(event) => setDomains(event.target.value)}
-            hint={payCopy.t('commaSeparatedDomainsSuppliedByYourBusiness')}
-          />
-          <ReviewedAction
-            title={payCopy.t('createCheckoutProfile')}
-            description={payCopy.t('createAProfileForTheEnteredCheckout')}
-            review={<p>{domains}</p>}
-            perform={() =>
-              validatedMutation(
-                pay,
-                'merchant.profile',
-                {
-                  merchantId: merchant.id,
-                  domains: domains
-                    .split(',')
-                    .map((domain) => domain.trim())
-                    .filter(Boolean),
-                },
-                z.object({ merchantId: s.id, domains: z.array(z.string().min(1)).min(1) }),
-                z.object({ id: s.id, merchantId: s.id }),
-                'pay:write',
-                'profile-create',
-              )
-            }
-            disabled={!domains.trim() || Boolean(pay.access('pay:write'))}
-            onConfirmed={(data) => {
-              setProfileCreated(data.id);
-              setDomains('');
-            }}
-          />
-          {profileCreated && (
-            <p className="pay-confirmed" role="status">
-              <PayCopy k="checkoutProfileCreated" /> {profileCreated}
-            </p>
-          )}
-        </div>
-      </PaySection>
-    </div>
-  );
-}
 function MerchantBalance({ pay }: { pay: BusinessPayApi }) {
   const { hideBalances } = usePreferences();
   const [assetDraft, setAssetDraft] = useState('');
@@ -681,17 +598,5 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
         </PaySection>
       )}
     </div>
-  );
-}
-
-/** The checkout-domain and rail-availability section, for the merchant portal dashboard when a verified business account is supplied. */
-export function BusinessHomeSection({ authority }: { authority: PayBusinessAuthority }) {
-  const { api, userId } = useSession();
-  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
-  const merchant = useResource((signal) => pay.merchant(signal), `pay:home-section:${userId}:${authority.companyId}`);
-  return (
-    <PayState resource={merchant.resource} retry={merchant.reload}>
-      {(record) => <MerchantHome pay={pay} merchant={record} />}
-    </PayState>
   );
 }

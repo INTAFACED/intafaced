@@ -23,7 +23,7 @@ const none: MerchantAccessValue = {
   can: () => false,
   canOwnerWrite: false,
 };
-const ctx: RoomContext = { portal: {} as PortalApi, authority: null, access: none, starterFeeBps: null, legacyHome: null };
+const ctx: RoomContext = { portal: {} as PortalApi, authority: null, access: none, starterFeeBps: null };
 const show = (route: PortalRoute) => renderToString(<PortalPage route={route} ctx={ctx} />);
 
 /** Every portal address: each room once with an id, and the three setup steps. */
