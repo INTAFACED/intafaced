@@ -187,6 +187,11 @@ const messages = {
   'index.refresh': 'Refresh',
   'index.no.user.ledger.accounts.returned': 'No account balances yet',
   'index.an.empty.projection.is.not.a.complete': 'No balances to show. That doesn’t prove your account total is zero.',
+  'index.spaces.plus': 'Plus {amount} in named spaces',
+  'index.spaces.total': 'Total with named spaces: {amount}',
+  'index.spaces.heading': 'Including named spaces',
+  'index.spaces.note':
+    'Named spaces are kept apart from the account quantity above. These lines add them using only the balances the bank returned.',
   'index.your.spaces': 'Your spaces',
   'index.manage.spaces': 'Manage spaces ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Primary · included in your account balances',
@@ -411,7 +416,7 @@ const messages = {
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' loans in this risk calculation',
   'rooms.this.calculation.values.loans.only.its.response':
-    'This calculation values loans only. Its response does not supply valuation quote units or mark time. It cannot be treated as account wealth or a current dollar balance.',
+    'This figure covers your loans only. It doesn’t say which currency the values are in or when prices were taken, so don’t read it as your total wealth or a dollar balance.',
   'rooms.loan.products': 'Loan products',
   'rooms.borrow': 'Borrow ',
   'rooms.secure.with': ' · secure with ',
@@ -467,7 +472,7 @@ const messages = {
     'The service releases collateral only after verifying that nothing is owed. A read of zero is not a reservation.',
   'rooms.close.settled.loan': 'Close settled loan',
   'rooms.no.loans.returned': 'No loans yet',
-  'rooms.no.loan.balance.is.inferred.from.an': 'No loan balance is inferred from an empty list.',
+  'rooms.no.loan.balance.is.inferred.from.an': 'No loans are listed here, so there is no loan balance to show.',
   'rooms.card.decisions': 'Card decisions',
   'rooms.approvals.and.declines.remain.visible.including.the':
     'Approvals and declines remain visible, including the reason a payment was refused.',
@@ -548,6 +553,11 @@ const messages = {
   'rooms.net.movement': 'Net movement',
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' ledger movements. Transfers between your spaces may appear in both inflow and outflow; they net out. These figures are not gains, spending power or a complete valued portfolio.',
+  'rooms.money.in.deposits': 'Money in: deposits',
+  'rooms.money.in.note': 'Deposits are money coming in, so they are not counted in the outflow categories above.',
+  'rooms.money.in.inexact':
+    'The bank’s figures did not let us separate deposits from outflow exactly, so this is the deposits figure as the bank reported it.',
+  'rooms.deposit.outflow': 'Deposits (value that left)',
   'rooms.outflow.categories': 'Outflow categories',
   'rooms.no.outflow.categories.returned': 'No spending categories yet',
   'rooms.the.service.returned.no.categorized.outflow.for': 'No categorized spending for this asset and period.',
@@ -853,6 +863,11 @@ const es = {
   'index.refresh': 'Actualizar',
   'index.no.user.ledger.accounts.returned': 'Aún no hay saldos de cuenta',
   'index.an.empty.projection.is.not.a.complete': 'No hay saldos que mostrar. Eso no demuestra que el total de tu cuenta sea cero.',
+  'index.spaces.plus': 'Más {amount} en espacios con nombre',
+  'index.spaces.total': 'Total con espacios con nombre: {amount}',
+  'index.spaces.heading': 'Con los espacios con nombre',
+  'index.spaces.note':
+    'Los espacios con nombre se guardan aparte de la cantidad de la cuenta de arriba. Estas líneas los suman usando solo los saldos que devolvió el banco.',
   'index.your.spaces': 'Tus espacios',
   'index.manage.spaces': 'Gestionar espacios ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Principal · incluido en los saldos de tu cuenta',
@@ -1088,7 +1103,7 @@ const es = {
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' préstamos en este cálculo de riesgo',
   'rooms.this.calculation.values.loans.only.its.response':
-    'Este cálculo valora solo los préstamos. Su respuesta no aporta las unidades de valoración ni la hora de las cotizaciones. No puede tratarse como patrimonio de la cuenta ni como saldo actual en dólares.',
+    'Esta cifra cubre solo tus préstamos. No indica en qué moneda están los valores ni cuándo se tomaron los precios, así que no la tomes como tu patrimonio total ni como un saldo en dólares.',
   'rooms.loan.products': 'Productos de préstamo',
   'rooms.borrow': 'Pedir prestado ',
   'rooms.secure.with': ' · garantizar con ',
@@ -1144,7 +1159,7 @@ const es = {
     'El servicio libera la garantía solo después de verificar que no se debe nada. Una lectura de cero no es una reserva.',
   'rooms.close.settled.loan': 'Cerrar préstamo saldado',
   'rooms.no.loans.returned': 'Aún no hay préstamos',
-  'rooms.no.loan.balance.is.inferred.from.an': 'No se deduce ningún saldo de préstamo de una lista vacía.',
+  'rooms.no.loan.balance.is.inferred.from.an': 'No hay préstamos en la lista, así que no hay saldo de préstamo que mostrar.',
   'rooms.card.decisions': 'Decisiones de tarjeta',
   'rooms.approvals.and.declines.remain.visible.including.the':
     'Las aprobaciones y los rechazos permanecen visibles, incluido el motivo por el que se rechazó un pago.',
@@ -1230,6 +1245,11 @@ const es = {
   'rooms.net.movement': 'Movimiento neto',
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' movimientos del libro contable. Las transferencias entre tus espacios pueden aparecer tanto en entradas como en salidas; se compensan. Estas cifras no son ganancias, poder de gasto ni una cartera valorada completa.',
+  'rooms.money.in.deposits': 'Entradas: depósitos',
+  'rooms.money.in.note': 'Los depósitos son dinero que entra, así que no se cuentan en las categorías de salidas de arriba.',
+  'rooms.money.in.inexact':
+    'Con las cifras del banco no pudimos separar con exactitud los depósitos de las salidas, así que esta es la cifra de depósitos tal como la informó el banco.',
+  'rooms.deposit.outflow': 'Depósitos (valor que salió)',
   'rooms.outflow.categories': 'Categorías de salidas',
   'rooms.no.outflow.categories.returned': 'Aún no hay categorías de gasto',
   'rooms.the.service.returned.no.categorized.outflow.for': 'No hay gasto clasificado para este activo y este periodo.',
@@ -1536,6 +1556,11 @@ const fr = {
   'index.refresh': 'Actualiser',
   'index.no.user.ledger.accounts.returned': 'Aucun solde de compte pour l’instant',
   'index.an.empty.projection.is.not.a.complete': 'Aucun solde à afficher. Cela ne prouve pas que le total de ton compte est nul.',
+  'index.spaces.plus': 'Plus {amount} dans des espaces nommés',
+  'index.spaces.total': 'Total avec les espaces nommés : {amount}',
+  'index.spaces.heading': 'Avec les espaces nommés',
+  'index.spaces.note':
+    'Les espaces nommés sont conservés à part de la quantité du compte ci-dessus. Ces lignes les ajoutent en utilisant uniquement les soldes renvoyés par la banque.',
   'index.your.spaces': 'Tes espaces',
   'index.manage.spaces': 'Gérer les espaces ↗',
   'index.primary.already.in.the.user.ledger.projection': 'Principal · inclus dans les soldes de ton compte',
@@ -1770,7 +1795,7 @@ const fr = {
   'rooms.ltv': ' LTV',
   'rooms.loans.in.this.risk.calculation': ' prêts dans ce calcul de risque',
   'rooms.this.calculation.values.loans.only.its.response':
-    'Ce calcul valorise uniquement les prêts. Sa réponse ne fournit ni les unités de valorisation ni l’heure des prix de référence. Il ne peut pas être considéré comme le patrimoine du compte ou un solde actuel en dollars.',
+    'Ce chiffre ne concerne que tes prêts. Il n’indique pas dans quelle devise sont les valeurs ni quand les prix ont été relevés ; ne le prends donc pas pour ton patrimoine total ni pour un solde en dollars.',
   'rooms.loan.products': 'Produits de prêt',
   'rooms.borrow': 'Emprunter ',
   'rooms.secure.with': ' · garantir avec ',
@@ -1826,7 +1851,7 @@ const fr = {
     'Le service libère la garantie uniquement après avoir vérifié qu’aucune somme n’est due. Une lecture nulle n’est pas une réservation.',
   'rooms.close.settled.loan': 'Clore le prêt réglé',
   'rooms.no.loans.returned': 'Aucun prêt pour l’instant',
-  'rooms.no.loan.balance.is.inferred.from.an': 'Aucun solde de prêt n’est déduit d’une liste vide.',
+  'rooms.no.loan.balance.is.inferred.from.an': 'Aucun prêt n’est listé ici, donc il n’y a aucun solde de prêt à afficher.',
   'rooms.card.decisions': 'Décisions de carte',
   'rooms.approvals.and.declines.remain.visible.including.the':
     'Les approbations et les refus restent visibles, y compris la raison du refus d’un paiement.',
@@ -1913,6 +1938,11 @@ const fr = {
   'rooms.net.movement': 'Mouvement net',
   'rooms.ledger.movements.transfers.between.your.spaces.may':
     ' mouvements du grand livre. Les virements entre tes espaces peuvent apparaître dans les entrées et les sorties ; ils se compensent. Ces chiffres ne sont ni des gains, ni un pouvoir de dépense, ni un portefeuille valorisé complet.',
+  'rooms.money.in.deposits': 'Entrées : dépôts',
+  'rooms.money.in.note': 'Les dépôts sont de l’argent qui entre : ils ne sont donc pas comptés dans les catégories de sorties ci-dessus.',
+  'rooms.money.in.inexact':
+    'Les chiffres de la banque ne nous ont pas permis de séparer exactement les dépôts des sorties ; voici donc le chiffre des dépôts tel que la banque l’a indiqué.',
+  'rooms.deposit.outflow': 'Dépôts (valeur sortie)',
   'rooms.outflow.categories': 'Catégories de sorties',
   'rooms.no.outflow.categories.returned': 'Aucune catégorie de dépenses pour l’instant',
   'rooms.the.service.returned.no.categorized.outflow.for': 'Aucune dépense catégorisée pour cet actif et cette période.',

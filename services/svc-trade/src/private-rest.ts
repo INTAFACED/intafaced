@@ -153,8 +153,8 @@ export interface PrivateRestDeps {
    * self-only is enforced here at the edge of this surface.
    */
   userBalances(userId: string): Promise<readonly Balance[]>;
-  /** Open futures positions for the principal (empty [] when none). */
-  listPositions(principal: Principal, symbol?: string): Promise<Position[]>;
+  /** Open futures positions for the principal (empty [] when none). Optional clientOpenId is the caller's own key. */
+  listPositions(principal: Principal, symbol?: string, clientOpenId?: string): Promise<Position[]>;
   /** Closed/liquidated rows for the principal (empty [] when none). */
   listClosedPositions(principal: Principal, input: { symbol?: string; limit: number; sinceMs?: number }): Promise<Position[]>;
   /** One owned futures row. Missing / not theirs → 404, never another user's row. */
@@ -180,10 +180,24 @@ export interface PrivateRestDeps {
       collateralClass?: string;
       /** Required retry key — same as spot clientOrderId; see positionIdFor. */
       clientOpenId: string;
+      reduceOnly?: boolean;
+      positionMode?: 'one_way' | 'hedge';
     },
   ): Promise<Position>;
   /** Close at the current mark. No price parameter, for the same reason. */
   closePosition(principal: Principal, positionId: string): Promise<Position>;
+  /** Partial close. Quantity equal to the size is a full close. */
+  closePositionQuantity?(principal: Principal, positionId: string, input: { quantity: string; clientCloseId: string }): Promise<Position>;
+  closeAllPositions?(
+    principal: Principal,
+    input: { clientBatchId: string; market?: string },
+  ): Promise<{ results: readonly { positionId: string; status: 'closed' | 'refused'; code?: string; reason?: string }[] }>;
+  marginSummary?(principal: Principal): Promise<unknown>;
+  readAccountMode?(principal: Principal): Promise<{ mode: 'one_way' | 'hedge' | null; source: string; code?: string }>;
+  writeAccountMode?(
+    principal: Principal,
+    input: { mode: unknown; clientModeId: string },
+  ): Promise<{ mode: 'one_way' | 'hedge' | null; source: string; code?: string }>;
   /**
    * Isolated live re-leverage within the explicit owner/listing cap. Extra IM
    * via ledger recipes; missing position 404; over-cap / would-be liquidation / insufficient
@@ -1105,13 +1119,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * never invents leverage/mark. `closing` is a voluntary exit waiting on a mark
    * (ADR 2026-08-07) and must not look like a normal open. Optional ?symbol= filters.
    */
-  app.get<{ Querystring: { symbol?: string } }>('/api/v1/positions', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string; clientOpenId?: string } }>('/api/v1/positions', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
     try {
       requireScope(principal, 'trade:read');
-      const rows = await deps.listPositions(principal, req.query.symbol);
+      const rows = await deps.listPositions(principal, req.query.symbol, req.query.clientOpenId);
       return reply.code(200).send(presentOpenPositions(rows));
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -1199,6 +1213,27 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const marginMode = body.marginMode === 'isolated' ? ('isolated' as const) : undefined;
       const collateralClass = typeof body.collateralClass === 'string' ? body.collateralClass : undefined;
 
+      if (body.reduceOnly !== undefined && body.reduceOnly !== true && body.reduceOnly !== false) {
+        return reply.code(400).send({
+          ...badRequest('reduceOnly must be a boolean', 'trade.reduce_only_invalid').body,
+        });
+      }
+      const reduceOnly = body.reduceOnly === true;
+      let positionMode: 'one_way' | 'hedge' | undefined;
+      if (body.positionMode === 'one_way' || body.positionMode === 'hedge') positionMode = body.positionMode;
+      if (!positionMode && !reduceOnly && deps.readAccountMode) {
+        const state = await deps.readAccountMode(principal);
+        if (state.mode == null) {
+          return reply.code(400).send({
+            error: state.code ?? 'trade.position_mode_unset',
+            message: 'position mode is unset',
+            mode: null,
+            source: state.source,
+          });
+        }
+        positionMode = state.mode;
+      }
+
       if (!symbol || !side || !size) {
         return reply.code(400).send({
           ...badRequest('symbol, side, size|contracts required', 'trade.bad_request').body,
@@ -1221,6 +1256,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         leverage,
         marginMode,
         clientOpenId,
+        ...(reduceOnly ? { reduceOnly: true } : {}),
+        ...(positionMode !== undefined ? { positionMode } : {}),
         ...(collateralClass !== undefined ? { collateralClass } : {}),
       });
       return reply.code(200).send(pos);
@@ -1372,6 +1409,124 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (err instanceof FuturesError) {
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/close', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.closePositionQuantity) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'partial close is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const supplied = suppliedPriceFields(body);
+      if (supplied.length > 0) return reply.code(400).send(priceNotAcceptedBody(supplied));
+      if (typeof body.quantity !== 'string' || typeof body.clientCloseId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('quantity and clientCloseId are required decimal/string fields', 'trade.client_close_id_required').body,
+        });
+      }
+      const pos = await deps.closePositionQuantity(principal, req.params.id, {
+        quantity: body.quantity,
+        clientCloseId: body.clientCloseId,
+      });
+      return reply.code(200).send(pos);
+    } catch (err) {
+      if (err instanceof MoneyError) {
+        return reply.code(400).send({ error: 'trade.close_quantity_invalid', message: err.message });
+      }
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post('/api/v1/futures/positions/close-all', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.closeAllPositions) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'close-all is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.clientBatchId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('clientBatchId is required', 'trade.client_batch_id_required').body,
+        });
+      }
+      const market = typeof body.market === 'string' ? body.market : undefined;
+      const result = await deps.closeAllPositions(principal, { clientBatchId: body.clientBatchId, ...(market ? { market } : {}) });
+      return reply.code(200).send(result);
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/margin-summary', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.marginSummary) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'margin summary is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.marginSummary(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/position-mode', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.readAccountMode) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'position mode is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.readAccountMode(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.put('/api/v1/futures/position-mode', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.writeAccountMode) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'position mode is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.clientModeId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('clientModeId is required', 'trade.client_mode_id_required').body,
+        });
+      }
+      const state = await deps.writeAccountMode(principal, { mode: body.mode, clientModeId: body.clientModeId });
+      return reply.code(200).send(state);
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;

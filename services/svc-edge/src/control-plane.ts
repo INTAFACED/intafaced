@@ -127,15 +127,15 @@ export function registerKillSwitchGuard(app: FastifyInstance, killSwitches: Kill
     if (!pathname.startsWith('/api/')) return;
 
     /**
-     * S2S `/internal/*` is not a public route. Pay jobs, token stake, identity
+     * Service-to-service `/internal/*` is not a public route. Pay jobs, token stake, identity
      * rank, bank cron — all sit at that path behind a service secret the edge
      * does not hold and will not forward. Refuse here, before the kill-switch
-     * and before the proxy, so a live module cannot 200 an S2S job from the
+     * and before the proxy, so a live module cannot 200 a service job from the
      * internet. 404 + `edge.s2s_not_proxied`, never a green pass-through.
      */
     const routed = resolve(pathname);
     if (routed && isS2sPath(routed.path)) {
-      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — S2S path is not a public door');
+      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — service path is not a public door');
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 

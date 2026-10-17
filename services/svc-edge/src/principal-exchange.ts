@@ -210,7 +210,7 @@ export async function exchangeApiKeyForAccessToken(
   const presented = typeof accountId === 'string' && accountId.trim().length > 0 ? accountId.trim() : undefined;
   const namedProduct = typeof product === 'string' && product.trim().length > 0 ? product.trim() : undefined;
   const path = presented ? '/trpc/exchangeApiKeyForAccount' : namedProduct ? '/trpc/exchangeApiKeyForProduct' : '/trpc/apiKeys.exchange';
-  // Identity accepts the signed request field only from an S2S-authenticated edge.
+  // Identity accepts the signed request field only from a service-authenticated edge.
   // Without the dedicated key, omit the field so a public body cannot carry it.
   const attest = Boolean(requestSign && identityOwnershipSecret);
   const request = attest ? { request: requestSign } : {};

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import type { ApiClient } from '../shared/api';
-import { createActivityFeed, type ActivityFeed } from './activity';
+import { createActivityFeed, withDeviceHandle, withDeviceHandles, type ActivityFeed } from './activity';
 import type { Loadable } from './types';
 
 const item = (id: string, over: Record<string, unknown> = {}) => ({
@@ -155,5 +155,33 @@ describe('createActivityFeed', () => {
     const snap = await settled(feed, stops);
     expect(feed.getSnapshot()).toBe(snap);
     stops.forEach((stop) => stop());
+  });
+});
+
+describe('naming the other person from what this device kept', () => {
+  const out = { kind: 'transfer_out' as const, txId: 'tx-1', counterparty: null };
+  const sent = [
+    { ledgerTxId: 'tx-1', handle: 'maya_test' },
+    { ledgerTxId: 'tx-2', handle: null },
+  ];
+  it('fills the handle on a payment this device sent, matched on the ledger transaction', () => {
+    expect(withDeviceHandle(out, sent).counterparty).toEqual({ handle: 'maya_test' });
+  });
+  it('never overrides a name the bank gave', () => {
+    const named = { ...out, counterparty: { handle: 'from_bank' } };
+    expect(withDeviceHandle(named, sent)).toBe(named);
+  });
+  it('leaves a payment unnamed when the device has no record, or no handle, for it', () => {
+    expect(withDeviceHandle({ ...out, txId: 'tx-9' }, sent).counterparty).toBeNull();
+    expect(withDeviceHandle({ ...out, txId: 'tx-2' }, sent).counterparty).toBeNull();
+  });
+  it('only names payments sent, never money received', () => {
+    expect(withDeviceHandle({ ...out, kind: 'transfer_in' as never }, sent).counterparty).toBeNull();
+  });
+  it('maps a whole list without touching the input', () => {
+    const list = [out, { ...out, txId: 'tx-9' }];
+    const named = withDeviceHandles(list, sent);
+    expect(named.map((row) => row.counterparty)).toEqual([{ handle: 'maya_test' }, null]);
+    expect(list[0]!.counterparty).toBeNull();
   });
 });

@@ -26,7 +26,7 @@ export {
   HIDDEN_MASK,
 } from '@intafaced/ui';
 
-export { createActivityFeed, fmtAmount, refusalCopy } from '../../data';
+export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
 export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
 export { fractionDigits } from '../../data/decimal';

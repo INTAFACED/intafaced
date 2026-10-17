@@ -225,6 +225,21 @@ const schema = serviceEnvSchema
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.
        * A blank string is not a pin.
        */
+      /**
+       * When true, a trading restriction on accountControls.change needs a consumed
+       * `trading.restrict` approval. Unset, blank, false, off, or 0 stays off: identity
+       * does not start requiring two people, and does not apply trading restrictions.
+       * Any other string refuses boot. This ships off. Turning it on is a lead decision.
+       */
+      IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v !== 'string') return v;
+        const text = v.trim().toLowerCase();
+        if (text === '') return undefined;
+        if (text === '0' || text === 'false' || text === 'off') return false;
+        if (text === '1' || text === 'true' || text === 'on') return true;
+        return v;
+      }, z.boolean().optional()),
       INTAFACED_FLAG_WAITLIST_ENABLED: z.string().optional(),
       INTAFACED_FLAG_REFERRAL_QUEUE: z.string().optional(),
     }),

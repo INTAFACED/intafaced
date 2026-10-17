@@ -112,7 +112,7 @@ const stubPay = { fiat: pending, methods: pending, offer: pending } as unknown a
 
 it('shows the whole create form with saving off and the reason on screen', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="create" offerId={null} />);
-  expect(out).toContain('Offers can’t be published yet');
+  expect(out).toContain('Publishing offers is off');
   for (const label of [
     'Offer type',
     'Fiat currency',
@@ -127,15 +127,17 @@ it('shows the whole create form with saving off and the reason on screen', () =>
   expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="offer-submit"|<button[^>]*data-testid="offer-submit"[^>]*disabled/);
 });
 
-it('asks which offer to edit when none is chosen, and still shows the form', () => {
+it('asks which offer to edit when none is chosen, and shows no form', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="edit" offerId={null} />);
-  expect(out).toContain('Offers can’t be edited yet');
   expect(out).toContain('Pick an offer to edit');
-  expect(out).toContain('data-testid="offer-submit"');
+  expect(out).toContain('href="/uc/ad"');
+  expect(out).not.toContain('data-testid="offer-submit"');
+  expect(out).not.toContain('Editing a published offer is off');
+  expect(out).not.toContain('<input');
 });
 
 it('loads the live offer before showing the edit form', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="edit" offerId="a0000000-0000-4000-8000-000000000009" />);
-  expect(out).toContain('Offers can’t be edited yet');
+  expect(out).toContain('Editing a published offer is off');
   expect(out).not.toContain('data-testid="offer-submit"');
 });

@@ -1,35 +1,23 @@
 import type { ReactNode } from 'react';
+import { TradeSubNav, type TradeRoom } from '../TradeSubNav';
 import { Page, PageBody, PageHeader } from './ui';
 
 export type RoomMode = 'Spot' | 'Margin' | 'Futures' | 'Options' | 'Copy' | 'Bots' | 'Execution' | 'Quote desk';
 
-const MODES: ReadonlyArray<{ mode: RoomMode; href: string }> = [
-  { mode: 'Spot', href: '/trade' },
-  { mode: 'Margin', href: '/trade/margin' },
-  { mode: 'Futures', href: '/trade/futures' },
-  { mode: 'Options', href: '/trade/options' },
-  { mode: 'Copy', href: '/trade/copy' },
-  { mode: 'Bots', href: '/trade/bots' },
-  { mode: 'Execution', href: '/execution' },
-  { mode: 'Quote desk', href: '/otc' },
-];
+const ROOM_IDS: Record<RoomMode, TradeRoom> = {
+  Spot: 'spot',
+  Margin: 'margin',
+  Futures: 'futures',
+  Options: 'options',
+  Copy: 'copy',
+  Bots: 'bots',
+  Execution: 'execution',
+  'Quote desk': 'otc',
+};
 
-/** The strip every trade room carries, so a pro trader moves between rooms without going back to the menu (Binance/OKX mode row). */
+/** The strip every trade room carries, so a pro trader moves between rooms without going back to the menu. */
 export function ModeStrip({ active }: { active: RoomMode }) {
-  return (
-    <nav aria-label="Trading rooms" className="flex flex-wrap gap-x-5 gap-y-1 border-b border-line pb-2 text-sm">
-      {MODES.map(({ mode, href }) => (
-        <a
-          key={mode}
-          href={href}
-          aria-current={mode === active ? 'page' : undefined}
-          className={mode === active ? 'font-medium text-fg' : 'text-fg-2 hover:text-fg'}
-        >
-          {mode}
-        </a>
-      ))}
-    </nav>
-  );
+  return <TradeSubNav active={ROOM_IDS[active]} />;
 }
 
 /** Page chrome for a trade room: the mode strip, the title with its status chips, then the room. Dense, full width. */

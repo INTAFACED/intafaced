@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -13,13 +13,17 @@ import { createRegistryReader } from './read-api.js';
 import { KNOWN_VENUE_KEYS } from './service.js';
 
 /**
- * The registries against a real Postgres: the real migrations 0069 and 0070,
- * the real router and service, the real reader. Same arrangement as the other
- * svc-pay db suites: `TEST_DATABASE_URL`, or a Testcontainer when it is unset.
+ * The registries against a real Postgres: every forward migration, including
+ * 0069 and 0070, the real router and service, the real reader. Same arrangement
+ * as the other svc-pay db suites: `TEST_DATABASE_URL`, or a Testcontainer when
+ * it is unset.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-const drizzle = join(here, '..', '..', 'drizzle');
-const migrations = ['0069_pay_registries.sql', '0070_pay_registry_events.sql'].map((f) => readFileSync(join(drizzle, f), 'utf8'));
+const drizzleDir = join(here, '..', '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();

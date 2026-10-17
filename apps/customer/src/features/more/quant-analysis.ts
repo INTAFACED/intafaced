@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { signedDecimalSchema } from '../../shared/money';
+import type { StudioDraft } from './quant-draft';
 
 const iso = z
   .string()
@@ -54,4 +55,33 @@ export function utcInput(value: string): string | undefined {
   if (!Number.isFinite(date.getTime())) return undefined;
   const canonical = date.toISOString();
   return canonical.slice(0, 16) === value ? canonical : undefined;
+}
+
+/** The cost models the service accepts for each cost, in the order the form lists them. */
+export const COST_MODELS = {
+  fees: ['venue-schedule', 'tiered-venue-schedule'],
+  slippage: ['order-book-replay', 'measured-impact'],
+  latency: ['measured-distribution', 'event-replay'],
+} as const;
+export type CostKey = keyof typeof COST_MODELS;
+/** Plain-English copy key for each model the service accepts, so the raw model names never reach the page. */
+export const MODEL_COPY = {
+  'venue-schedule': 'feesVenue',
+  'tiered-venue-schedule': 'feesTiered',
+  'order-book-replay': 'slippageBook',
+  'measured-impact': 'slippageImpact',
+  'measured-distribution': 'latencyDistribution',
+  'event-replay': 'latencyEvents',
+} as const;
+export const HYPOTHESIS_COPY = { inconclusive: 'hypothesisNone', passed: 'hypothesisPassed', failed: 'hypothesisFailed' } as const;
+/** What the customer expects before the run. The service takes it as an input and does not compute a verdict yet. */
+export const HYPOTHESES = ['inconclusive', 'passed', 'failed'] as const;
+export type Hypothesis = (typeof HYPOTHESES)[number];
+/**
+ * Strategies that can be analysed: the named Studio draft kept on this device. The shared library is closed, so a
+ * strategy the customer never made can never be picked. An unnamed draft is not offered because it has no label.
+ */
+export function draftStrategyNames(draft: StudioDraft | null): string[] {
+  const name = draft?.name.trim();
+  return name ? [name] : [];
 }
