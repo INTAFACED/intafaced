@@ -218,3 +218,10 @@ describe('asset choices', () => {
     expect(out).not.toContain('For example USDT');
   });
 });
+
+it('says a billing cadence in words, never the raw value', async () => {
+  const { cadenceWord } = await import('../../MerchantBilling');
+  expect(cadenceWord('daily')).toBe('Daily');
+  expect(cadenceWord('weekly')).toBe('Weekly');
+  expect(cadenceWord('monthly')).toBe('Monthly');
+});

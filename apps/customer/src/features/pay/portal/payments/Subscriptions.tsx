@@ -666,6 +666,7 @@ function CreateSubscription({ portal, merchantId, pay }: { portal: PortalApi; me
       mandates={mandates.resource}
       posture={posture.resource}
       pay={pay}
+      portal={portal}
       reload={() => {
         mandates.reload();
         posture.reload();
@@ -677,11 +678,13 @@ export function CreateSubscriptionView({
   mandates,
   posture,
   pay,
+  portal,
   reload,
 }: {
   mandates: Resource<Mandate[]>;
   posture: Resource<z.infer<typeof subscriptionPostureSchema>>;
   pay: BusinessPayApi | null;
+  portal?: PortalApi;
   reload: () => void;
 }) {
   const [revision, setRevision] = useState(0);
@@ -816,7 +819,7 @@ export function CreateSubscriptionView({
           </a>
         )}
       </PaySection>
-      {pay && <CreateMandate pay={pay} refresh={reload} />}
+      {pay && <CreateMandate pay={pay} refresh={reload} portal={portal} />}
     </div>
   );
 }
