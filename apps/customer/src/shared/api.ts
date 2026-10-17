@@ -162,7 +162,7 @@ export function createApiClient(
                     ? 'serviceNotConnected'
                     : reason === 'uncertain'
                       ? 'gatewayUncertain'
-                      : response.status >= 500
+                      : reason === 'unreachable'
                         ? 'serviceNoAnswer'
                         : 'serviceRefusal',
                 },

@@ -142,7 +142,9 @@ function needs<K extends keyof ProtocolSnapshot>(
       return blocker('source_not_connected', { service: serviceName[key] });
     return blocker('source_down', {
       source: sourceName[key],
-      reason: source.status === 'down' ? inSentence(source.message) : 'still checking',
+      // An unreachable source's message is the generic "didn't answer, try again", which repeats the sentence and
+      // offers a button the blocker list doesn't have.
+      reason: source.status !== 'down' ? 'still checking' : source.reason === 'unreachable' ? 'no reply' : inSentence(source.message),
     });
   };
 }
