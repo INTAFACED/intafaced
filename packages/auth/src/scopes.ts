@@ -357,10 +357,12 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
 
-  // Operator scopes. Never on a user session, whatever the account.
-  // `admin:compliance` is the sharp one: it approves KYC records, so a session
-  // carrying it could verify itself to `institutional` and walk into every
-  // custodial module in the OS.
+  // Operator scopes. Not in SESSION_SCOPES. The four founder desk scopes
+  // (`support:ops`, `admin:read`, `admin:write`, `admin:treasury`) are added
+  // only to a live founder's interactive session by `scopesForFounderSession`.
+  // `admin:compliance` never is: it approves KYC records, so a session carrying
+  // it could verify itself to `institutional` and walk into every custodial
+  // module in the OS.
   'admin:read': 'Operator scope',
   'admin:write': 'Operator scope',
   'admin:treasury': 'Operator scope, and interactive-only (§9)',
