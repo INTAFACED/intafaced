@@ -65,6 +65,8 @@ export class ActionApprovalService {
     private readonly store: ActionApprovalStore,
     private readonly policy: ActionApprovalPolicy,
     private readonly clock: () => Date = () => new Date(),
+    /** Same-person consume writes the customer step-up audit. Absent in unit tests. */
+    private readonly onSamePersonConsumed?: (row: StoredApproval, at: Date) => Promise<void>,
   ) {}
 
   async propose(requesterId: string, input: ActionApprovalProposeInput): Promise<ActionApproval> {
@@ -223,7 +225,8 @@ export class ActionApprovalService {
     // here, not grandfathered. The result is attested to the target service on the returned row.
     const founderAttestation =
       audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
-    const next = await this.store.casConsume({ ...input, now: this.clock() });
+    const consumedAt = this.clock();
+    const next = await this.store.casConsume({ ...input, now: consumedAt });
     if (!next) {
       const again = await this.loadLive(input.approvalId);
       if (again.status === 'CONSUMED') {
@@ -231,7 +234,53 @@ export class ActionApprovalService {
       }
       throw this.terminal(again, 'action_approval.not_approved');
     }
+    if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
     return { ...toActionApproval(next), ...(founderAttestation ?? {}) };
+  }
+
+  /**
+   * Pending approvals this caller may decide, or the caller's own rows.
+   * `pending` is empty of founder-only rows unless the caller is a live founder,
+   * and empty of operator rows unless the caller is an operator. The router
+   * refuses the pending view entirely when the caller is neither.
+   */
+  async listForCaller(
+    callerId: string,
+    view: 'pending' | 'mine',
+    limit: number,
+    access: { readonly operator: boolean; readonly founder: boolean },
+  ): Promise<{ readonly approvals: ActionApproval[]; readonly pageFull: boolean }> {
+    if (view === 'mine') {
+      const rows = await this.store.listByRequester(callerId, limit);
+      return { approvals: rows.map(toActionApproval), pageFull: rows.length === limit };
+    }
+    const rows = await this.store.listPendingExcept(callerId, limit);
+    const visible = [];
+    for (const row of rows) {
+      const audience = audienceOfApproval(row);
+      if (audience === 'self') continue;
+      if (audience === 'founder' && access.founder) visible.push(toActionApproval(row));
+      else if (audience === 'operator' && access.operator) visible.push(toActionApproval(row));
+    }
+    return { approvals: visible, pageFull: rows.length === limit };
+  }
+
+  /**
+   * One approval the caller may read: their own row, or a pending/decided row
+   * whose audience they belong to. Anyone else is refused. Missing is not found.
+   */
+  async getForCaller(
+    callerId: string,
+    approvalId: string,
+    access: { readonly operator: boolean; readonly founder: boolean },
+  ): Promise<ActionApproval> {
+    const row = await this.store.get(approvalId);
+    if (!row) throw new ActionApprovalError('approval not found', 'action_approval.not_found');
+    if (row.requesterId === callerId) return toActionApproval(row);
+    const audience = audienceOfApproval(row);
+    const allowed = audience === 'founder' ? access.founder : audience === 'operator' ? access.operator : false;
+    if (!allowed) throw new ActionApprovalError('this approval is not visible to this session', 'action_approval.not_requester');
+    return toActionApproval(row);
   }
 
   /**

@@ -1,5 +1,5 @@
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { QUANT_CASH_UNSET, QUANT_STUDIO_RISK_BLOCK_REQUIRED, QuantError } from '../errors.js';
+import { QUANT_CASH_UNSET, QUANT_STUDIO_NOT_FOUND, QUANT_STUDIO_RISK_BLOCK_REQUIRED, QuantError } from '../errors.js';
 import { requireSimulatedStamp } from '../honesty.js';
 import type { SavedStrategy, StudioBlock, StudioRiskBlock, StudioStore } from './store.js';
 
@@ -41,7 +41,7 @@ export function compileStudioSource(blocks: StudioBlock[]): string {
   return blocks.map((block) => `oms.${block.side}(${JSON.stringify(block.symbol)}, ${JSON.stringify(block.qty)});`).join('\n');
 }
 
-export function saveStudio(input: StudioSaveInput, store: StudioStore): SavedStrategy {
+export function buildSavedStrategy(input: StudioSaveInput, id: string): SavedStrategy {
   const stamp = requireSimulatedStamp(input.environment, input.presentedAs);
   const risk = completeRisk(input.risk ?? null);
   if (!risk) {
@@ -70,8 +70,8 @@ export function saveStudio(input: StudioSaveInput, store: StudioStore): SavedStr
     return { side: block.side, symbol, qty };
   });
 
-  const saved: SavedStrategy = {
-    id: `studio_${crypto.randomUUID()}`,
+  return {
+    id,
     name,
     language: 'javascript',
     source: compileStudioSource(blocks),
@@ -80,5 +80,19 @@ export function saveStudio(input: StudioSaveInput, store: StudioStore): SavedStr
     risk,
     ...stamp,
   };
-  return store.save(saved);
+}
+
+export function saveStudio(input: StudioSaveInput, store: StudioStore, accountId: string): SavedStrategy {
+  return store.save(accountId, buildSavedStrategy(input, `studio_${crypto.randomUUID()}`));
+}
+
+/** Replace one strategy already stored for this account. A missing id is not found. */
+export function replaceStudio(input: StudioSaveInput, store: StudioStore, accountId: string, id: string): SavedStrategy {
+  if (!store.get(accountId, id)) {
+    throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+  }
+  const next = buildSavedStrategy(input, id);
+  const saved = store.replace(accountId, id, next);
+  if (!saved) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+  return saved;
 }

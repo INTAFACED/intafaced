@@ -9,7 +9,8 @@ import type { DeskRequest } from './approval-packet';
  *   - svc-edge   `edgeActionPayloadHash('edge.kill', { module, disabled: 'true'|'false', reason })`
  *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
- *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` `{ userId }`
+ *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
+ *     and `('academy.residency.decide', { id, decision })`
  * Both are `sha256(JSON.stringify({ actionType, ...fields }))` with fields in the order shown. Key order is part
  * of the hash, so do not reorder anything here. `approval-hash.test.ts` pins this against the services' own
  * functions so drift fails a test instead of silently making every approval unconsumable.
@@ -39,6 +40,10 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.freeze', { userId: request.userId, reason: request.reason });
     case 'academy.ambassador.unfreeze':
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
+    case 'academy.ambassador.appoint':
+      return sha('academy.ambassador.appoint', { userId: request.userId });
+    case 'academy.residency.decide':
+      return sha('academy.residency.decide', { id: request.id, decision: request.decision });
   }
 }
 
@@ -95,6 +100,8 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
       };
     case 'academy.ambassador.freeze':
     case 'academy.ambassador.unfreeze':
+    case 'academy.ambassador.appoint':
+    case 'academy.residency.decide':
       return {
         actionType: request.kind,
         targetService: 'svc-academy',

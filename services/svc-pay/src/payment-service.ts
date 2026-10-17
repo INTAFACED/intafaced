@@ -1,4 +1,5 @@
 import { postPayLedger } from './ledger-receipt.js';
+import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
 import {
   CaptureReconcileError,
   runCaptureReconcile,
@@ -423,8 +424,9 @@ export type PayErrorCode =
    */
   | 'pay.idempotency_required'
   /**
-   * This Idempotency-Key is already stored for a different subscription.create
-   * body. Replaying either result would be a guess.
+   * This Idempotency-Key is already stored for a different create body
+   * (subscription.create or merchant.createLink). Replaying either result
+   * would be a guess.
    */
   | 'pay.idempotency_conflict'
   /**
@@ -888,6 +890,12 @@ export interface PayServiceOptions {
   readonly linkMaxTtlDays?: number | null;
 
   /**
+   * Edge prefix for the hosted checkout path (`PAY_PUBLIC_BASE_PATH`).
+   * Empty or omitted means the service's own `/checkout` route. Never a host.
+   */
+  readonly checkoutPublicBasePath?: string;
+
+  /**
    * Open sessions allowed against one link at once. An anti-abuse floor, not a rate limiter.
    * Unset / null refuses open — never invent 25. Owner may pass 25 explicitly.
    */
@@ -1144,6 +1152,7 @@ export class PayService {
   private readonly checkoutSessionTtlSeconds: number | null;
   private readonly linkDefaultTtlDays: number | null;
   private readonly linkMaxTtlDays: number | null;
+  private readonly checkoutPublicBasePath: string;
   private readonly maxOpenSessionsPerLink: number | null;
   private readonly now: () => Date;
   private readonly afterPaymentEvent:
@@ -1179,6 +1188,7 @@ export class PayService {
     this.checkoutSessionTtlSeconds = options.checkoutSessionTtlSeconds ?? null;
     this.linkDefaultTtlDays = options.linkDefaultTtlDays ?? null;
     this.linkMaxTtlDays = options.linkMaxTtlDays ?? null;
+    this.checkoutPublicBasePath = options.checkoutPublicBasePath?.replace(/\/+$/, '') || '';
     this.maxOpenSessionsPerLink = options.maxOpenSessionsPerLink ?? null;
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
@@ -1658,8 +1668,20 @@ export class PayService {
   }
 
   /**
-   * Create a shareable payment link. The raw token is returned once.
+   * Create a shareable payment link.
    * Hosted page: GET /checkout?token= (see checkout-page.ts).
+   *
+   * THE TOKEN IS THE CHECKOUT CREDENTIAL. `resolvePaymentLink` and the hosted
+   * page hash it and treat possession as permission to pay. There is no second
+   * secret, so a separate public slug would be the same credential. The token
+   * is stored on the row (`checkout_token`) so a caller who can list the link
+   * can read the checkout path again. `token_hash` stays the public lookup
+   * key. A database copy of `checkout_token` is a set of payable URLs until
+   * the link expires or is deactivated.
+   *
+   * `idempotencyKey` is optional. Same key and same body returns the original
+   * link, including its token. Same key and a different body refuses
+   * `pay.idempotency_conflict`. The claim and the insert commit together.
    *
    * A PAYMENT LINK IS A CAPABILITY URL. Whoever holds one can pay against it,
    * and nobody has to log in to do so, so three properties are not optional:
@@ -1691,50 +1713,220 @@ export class PayService {
     expiresAt?: Date | null;
     /** Completed payments this link may take. Omit for unbounded. */
     maxUses?: number;
-  }): Promise<{ id: string; token: string; prefix: string; label: string; expiresAt: Date; maxUses: number | null }> {
-    // A suspended merchant already cannot open a public session or create a
-    // payment. Minting a fresh capability URL that only fails at pay-time is the
-    // same class of honesty hole as letting them settle after suspension.
-    this.assertMerchantActive(await this.getMerchant(input.merchantId));
-    if (input.profileId) {
-      const profiles = await this.sql<Array<{ id: string }>>`
-        SELECT id FROM pay.payment_profiles
-         WHERE id = ${input.profileId} AND merchant_id = ${input.merchantId}
-      `;
-      if (!profiles[0]) throw new PayError('payment profile not found for merchant', 'pay.profile_not_found');
+    /**
+     * Caller's Idempotency-Key. Omit it and each call mints a new link.
+     * Blank or over 255 characters is `pay.idempotency_required`.
+     */
+    idempotencyKey?: string;
+  }): Promise<{
+    id: string;
+    token: string;
+    prefix: string;
+    label: string;
+    expiresAt: Date;
+    maxUses: number | null;
+    checkoutUrl: string;
+  }> {
+    const key = paymentLinkCreateKey(input.idempotencyKey);
+    if (!key.ok) {
+      throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
     }
 
     if (input.maxUses !== undefined && (!Number.isInteger(input.maxUses) || input.maxUses < 1)) {
       throw new PayError(`maxUses must be a positive integer, got ${input.maxUses}`, 'pay.invalid_amount');
     }
 
-    const expiresAt = this.linkExpiryFor(input.expiresAt);
+    // The body the caller named. Computed before the claim so a retry matches
+    // even when the stored expiry was capped.
+    const fingerprint = key.key
+      ? paymentLinkCreateFingerprint({
+          merchantId: input.merchantId,
+          label: input.label,
+          profileId: input.profileId ?? null,
+          amount: input.amount === undefined ? null : formatAmount(input.amount),
+          currency: input.currency ?? null,
+          expiresAt: input.expiresAt === undefined ? 'default' : input.expiresAt === null ? 'null' : input.expiresAt.toISOString(),
+          maxUses: input.maxUses ?? null,
+        })
+      : null;
 
-    // 24 random bytes. Enumeration is not a threat model here, it is arithmetic
-    // — but the token is still only ever STORED as a hash, because a leaked
-    // database backup of payment links would otherwise be a wallet.
+    if (!key.key) {
+      // Merchant eligibility before the lifetime. An unapproved merchant is
+      // refused as `pay.kyb_required` even when the lifetime is also unset.
+      // A bad expiry still writes nothing, because there is no claim yet.
+      this.assertMerchantActive(await this.getMerchant(input.merchantId));
+      const expiresAt = this.linkExpiryFor(input.expiresAt);
+      await this.assertLinkProfile(this.sql, input.merchantId, input.profileId);
+      return this.insertPaymentLink(this.sql, { ...input, expiresAt });
+    }
+
+    const idempotencyKey = key.key;
+    return transaction(this.sql, async (tx) => {
+      const merchant = await this.lockMerchantForLinkCreate(tx, input.merchantId);
+      const claimed = await tx<Array<{ idempotency_key: string }>>`
+        INSERT INTO pay.payment_link_create_idempotency (
+          merchant_id, idempotency_key, request_fingerprint
+        ) VALUES (
+          ${merchant.id}, ${idempotencyKey}, ${fingerprint}
+        )
+        ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
+        RETURNING idempotency_key
+      `;
+      if (claimed.length === 0) {
+        const prior = await tx<Array<{ request_fingerprint: string; link_id: string | null }>>`
+          SELECT request_fingerprint, link_id
+            FROM pay.payment_link_create_idempotency
+           WHERE merchant_id = ${merchant.id}
+             AND idempotency_key = ${idempotencyKey}
+        `;
+        const row = prior[0];
+        if (!row || row.request_fingerprint !== fingerprint) {
+          throw new PayError('Idempotency-Key was already used with a different request body', 'pay.idempotency_conflict');
+        }
+        if (!row.link_id) {
+          throw new PayError('Payment link create idempotency claim has no link', 'pay.link_not_found');
+        }
+        return this.readCreatedLink(tx, merchant.id, row.link_id);
+      }
+
+      this.assertMerchantActive(merchant);
+      // After eligibility, before the link row. A throw here rolls the claim back.
+      const expiresAt = this.linkExpiryFor(input.expiresAt);
+      await this.assertLinkProfile(tx, input.merchantId, input.profileId);
+      const created = await this.insertPaymentLink(tx, { ...input, expiresAt });
+      const pointed = await tx`
+        UPDATE pay.payment_link_create_idempotency
+           SET link_id = ${created.id}
+         WHERE merchant_id = ${merchant.id}
+           AND idempotency_key = ${idempotencyKey}
+           AND link_id IS NULL
+      `;
+      if (pointed.count !== 1) {
+        throw new PayError('Payment link create idempotency claim was not stored', 'pay.link_not_found');
+      }
+      return created;
+    });
+  }
+
+  private async lockMerchantForLinkCreate(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+    const rows = await sql<MerchantRow[]>`
+      SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+        FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Merchant ${merchantId} not found`, 'pay.merchant_not_found');
+    return toMerchant(row);
+  }
+
+  private async assertLinkProfile(sql: Sql, merchantId: string, profileId: string | null | undefined): Promise<void> {
+    if (!profileId) return;
+    const profiles = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.payment_profiles
+       WHERE id = ${profileId} AND merchant_id = ${merchantId}
+    `;
+    if (!profiles[0]) throw new PayError('payment profile not found for merchant', 'pay.profile_not_found');
+  }
+
+  private checkoutUrl(token: string): string {
+    return checkoutUrlFor(token, this.checkoutPublicBasePath);
+  }
+
+  private async insertPaymentLink(
+    sql: Sql,
+    input: {
+      merchantId: string;
+      label: string;
+      profileId?: string | null;
+      amount?: Amount;
+      currency?: string;
+      expiresAt: Date;
+      maxUses?: number;
+    },
+  ): Promise<{
+    id: string;
+    token: string;
+    prefix: string;
+    label: string;
+    expiresAt: Date;
+    maxUses: number | null;
+    checkoutUrl: string;
+  }> {
+    // 24 random bytes. The hash is what public resolve looks up. The token
+    // itself is also stored so the merchant can read the checkout path later.
     const token = `pl_${randomBytes(24).toString('base64url')}`;
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const prefix = token.slice(0, 10);
-
-    const rows = await this.sql<Array<{ id: string }>>`
+    const rows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.payment_links (
-        merchant_id, profile_id, token_hash, token_prefix, label, amount, currency, expires_at, max_uses
+        merchant_id, profile_id, token_hash, token_prefix, checkout_token, label, amount, currency, expires_at, max_uses
       ) VALUES (
         ${input.merchantId},
         ${input.profileId ?? null},
         ${tokenHash},
         ${prefix},
+        ${token},
         ${input.label},
         ${input.amount === undefined ? null : formatAmount(input.amount)}::numeric,
         ${input.currency ?? null},
-        ${expiresAt},
+        ${input.expiresAt},
         ${input.maxUses ?? null}
       )
       RETURNING id
     `;
+    return {
+      id: rows[0]!.id,
+      token,
+      prefix,
+      label: input.label,
+      expiresAt: input.expiresAt,
+      maxUses: input.maxUses ?? null,
+      checkoutUrl: this.checkoutUrl(token),
+    };
+  }
 
-    return { id: rows[0]!.id, token, prefix, label: input.label, expiresAt, maxUses: input.maxUses ?? null };
+  /** Replay of a create. The token is the one stored with the link, not a new mint. */
+  private async readCreatedLink(
+    sql: Sql,
+    merchantId: string,
+    linkId: string,
+  ): Promise<{
+    id: string;
+    token: string;
+    prefix: string;
+    label: string;
+    expiresAt: Date;
+    maxUses: number | null;
+    checkoutUrl: string;
+  }> {
+    const rows = await sql<
+      Array<{
+        id: string;
+        merchant_id: string;
+        token_prefix: string;
+        checkout_token: string | null;
+        label: string;
+        expires_at: Date | null;
+        max_uses: number | null;
+      }>
+    >`
+      SELECT id, merchant_id, token_prefix, checkout_token, label, expires_at, max_uses
+        FROM pay.payment_links
+       WHERE id = ${linkId}
+         AND merchant_id = ${merchantId}
+    `;
+    const row = rows[0];
+    if (!row || row.merchant_id !== merchantId || !row.checkout_token || !row.expires_at) {
+      throw new PayError('Payment link create idempotency claim has no link', 'pay.link_not_found');
+    }
+    return {
+      id: row.id,
+      token: row.checkout_token,
+      prefix: row.token_prefix,
+      label: row.label,
+      expiresAt: row.expires_at,
+      maxUses: row.max_uses === null ? null : Number(row.max_uses),
+      checkoutUrl: this.checkoutUrl(row.checkout_token),
+    };
   }
 
   /**
@@ -1878,6 +2070,10 @@ export class PayService {
       maxUses: number | null;
       uses: number;
       createdAt: string;
+      /** Null when the link was minted before the checkout credential was stored. */
+      token: string | null;
+      /** Null when `token` is null. Path only — no invented host. */
+      checkoutUrl: string | null;
     }>;
     nextCursor: string | null;
   }> {
@@ -1891,6 +2087,7 @@ export class PayService {
       Array<{
         id: string;
         token_prefix: string;
+        checkout_token: string | null;
         label: string;
         amount: string | null;
         currency: string | null;
@@ -1902,7 +2099,7 @@ export class PayService {
         created_at_cursor: string;
       }>
     >`
-      SELECT id, token_prefix, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
+      SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payment_links
        WHERE merchant_id = ${merchantId}
@@ -1925,19 +2122,99 @@ export class PayService {
     const kept = rows.slice(0, page);
     const last = kept[kept.length - 1];
     return {
-      items: kept.map((r) => ({
-        id: r.id,
-        prefix: r.token_prefix,
-        label: r.label,
-        amount: r.amount,
-        currency: r.currency,
-        active: r.active,
-        expiresAt: r.expires_at?.toISOString() ?? null,
-        maxUses: r.max_uses === null ? null : Number(r.max_uses),
-        uses: Number(r.uses),
-        createdAt: r.created_at.toISOString(),
-      })),
+      items: kept.map((r) => this.toPaymentLinkListItem(r)),
       nextCursor: rows.length > page && last ? encodeListCursor(last.created_at_cursor, last.id) : null,
+    };
+  }
+
+  /**
+   * One link, for the merchant who already passed the list gate.
+   * A link id from another merchant is `pay.link_not_found` — the same answer
+   * as a missing id. The checkout token is included when it was stored.
+   */
+  async getPaymentLink(
+    merchantId: string,
+    linkId: string,
+  ): Promise<{
+    id: string;
+    prefix: string;
+    label: string;
+    amount: string | null;
+    currency: string | null;
+    active: boolean;
+    expiresAt: string | null;
+    maxUses: number | null;
+    uses: number;
+    createdAt: string;
+    token: string | null;
+    checkoutUrl: string | null;
+  }> {
+    await this.getMerchant(merchantId);
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        token_prefix: string;
+        checkout_token: string | null;
+        label: string;
+        amount: string | null;
+        currency: string | null;
+        active: boolean;
+        expires_at: Date | null;
+        max_uses: number | null;
+        uses: number;
+        created_at: Date;
+      }>
+    >`
+      SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at
+        FROM pay.payment_links
+       WHERE id = ${linkId}
+         AND merchant_id = ${merchantId}
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError('payment link not found', 'pay.link_not_found');
+    return this.toPaymentLinkListItem(row);
+  }
+
+  private toPaymentLinkListItem(r: {
+    id: string;
+    token_prefix: string;
+    checkout_token: string | null;
+    label: string;
+    amount: string | null;
+    currency: string | null;
+    active: boolean;
+    expires_at: Date | null;
+    max_uses: number | null;
+    uses: number;
+    created_at: Date;
+  }): {
+    id: string;
+    prefix: string;
+    label: string;
+    amount: string | null;
+    currency: string | null;
+    active: boolean;
+    expiresAt: string | null;
+    maxUses: number | null;
+    uses: number;
+    createdAt: string;
+    token: string | null;
+    checkoutUrl: string | null;
+  } {
+    const token = r.checkout_token;
+    return {
+      id: r.id,
+      prefix: r.token_prefix,
+      label: r.label,
+      amount: r.amount,
+      currency: r.currency,
+      active: r.active,
+      expiresAt: r.expires_at?.toISOString() ?? null,
+      maxUses: r.max_uses === null ? null : Number(r.max_uses),
+      uses: Number(r.uses),
+      createdAt: r.created_at.toISOString(),
+      token,
+      checkoutUrl: token ? this.checkoutUrl(token) : null,
     };
   }
 

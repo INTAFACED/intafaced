@@ -216,6 +216,7 @@ function stubService(): Stub {
       label: 'Invoice',
       expiresAt: new Date('2026-08-29T00:00:00.000Z'),
       maxUses: null,
+      checkoutUrl: '/checkout?token=pl_generated_token',
     })),
     resolvePaymentLink: record('resolvePaymentLink', () => ({
       id: LINK,
@@ -1782,6 +1783,26 @@ describe('payment links are capability URLs on the wire too', () => {
 
     const call = stub.calls.find((c) => c.method === 'createPaymentLink')!;
     expect((call.args[0] as { maxUses?: unknown }).maxUses).toBe(1);
+  });
+
+  it('refuses a blank idempotency key before minting', async () => {
+    const api = await caller(['pay:write']);
+    const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: '   ' }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('BAD_REQUEST');
+    expect((err as { message?: string }).message).toContain('pay.idempotency_required');
+    expect(stub.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(0);
+  });
+
+  it('forwards the idempotency key and maps a body conflict to CONFLICT', async () => {
+    const api = await caller(['pay:write']);
+    await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: ' link-1 ' });
+    expect(stub.calls.find((c) => c.method === 'createPaymentLink')!.args[0]).toMatchObject({ idempotencyKey: ' link-1 ' });
+
+    stub.fail(new PayError('Idempotency-Key was already used with a different request body', 'pay.idempotency_conflict'));
+    const err = await api.merchant
+      .createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: 'link-1' })
+      .catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
   });
 
   it('refuses a maxUses of zero rather than creating a link nobody can pay', async () => {

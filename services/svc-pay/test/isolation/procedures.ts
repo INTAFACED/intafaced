@@ -377,6 +377,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'merchant.createLink', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId, label: 'probe' }) },
   { path: 'merchant.listLinks', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   {
+    path: 'merchant.getLink',
+    scope: 'pay:read',
+    own: 'ok',
+    mixed: true,
+    input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
+  },
+  {
     path: 'merchant.deactivateLink',
     scope: 'pay:write',
     own: 'service',
@@ -952,6 +959,13 @@ export const REST_ROUTES: RestRoute[] = [
     req: (i) => ({ method: 'GET', url: `/v1/payment-links?merchantId=${i.merchantId}&limit=10` }),
   },
   {
+    name: 'GET /v1/payment-links/:id',
+    scope: 'pay:read',
+    own: 'ok',
+    mixed: true,
+    req: (i) => ({ method: 'GET', url: `/v1/payment-links/${i.linkId}?merchantId=${i.merchantId}` }),
+  },
+  {
     name: 'DELETE /v1/payment-links/:id',
     scope: 'pay:write',
     own: 'service',
@@ -1032,6 +1046,7 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'submerchant.list', area: 'submerchant', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'merchant.balances', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
   { path: 'merchant.listLinks', area: 'payment.link', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'merchant.getLink', area: 'payment.link', input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }) },
   { path: 'payment.get', area: 'payment', input: (i) => ({ paymentId: i.paymentId }) },
   { path: 'payment.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.list', area: 'settlement', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },

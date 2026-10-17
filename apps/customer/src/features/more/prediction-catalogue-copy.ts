@@ -3,7 +3,7 @@ const en = {
   scope: 'Listed questions, result sources and outcome instruments',
   questions: 'Listed questions',
   empty: 'No questions are listed',
-  emptyBody: 'The catalogue returned no questions. Check again for listings. This is not an account position or settlement record.',
+  emptyBody: 'No questions are listed yet. Check again later. This is not an account position or settlement record.',
   failedBody: 'A failed catalogue read does not establish that no questions are listed.',
   refresh: 'Refresh questions',
   closes: 'Closes',
@@ -18,7 +18,7 @@ const en = {
   admission: 'Outcome admission',
   admissionBody: 'An outcome-specific preview and permission check are unavailable.',
   pricing: 'Fees and precision',
-  pricingBody: 'Authoritative fees and instrument precision are unavailable.',
+  pricingBody: 'Confirmed fees and price precision are unavailable.',
   placement: 'Order placement',
   placementBody: 'Ledger-backed outcome order placement is not connected. A listing or indicative book is not permission to order.',
   reviewBoundary:
@@ -34,7 +34,7 @@ const es = {
   questions: 'Preguntas publicadas',
   empty: 'No hay preguntas publicadas',
   emptyBody:
-    'El catálogo no devolvió ninguna pregunta. Consulta de nuevo si hay publicaciones. Esto no es un registro de posiciones ni de liquidaciones de la cuenta.',
+    'Aún no hay preguntas listadas. Vuelve a comprobarlo más tarde. Esto no es una posición de la cuenta ni un registro de liquidación.',
   failedBody: 'Un fallo al leer el catálogo no demuestra que no haya preguntas publicadas.',
   refresh: 'Actualizar las preguntas',
   closes: 'Cierre',
@@ -49,7 +49,7 @@ const es = {
   admission: 'Admisión de resultados',
   admissionBody: 'No están disponibles una vista previa específica del resultado ni una comprobación de permisos.',
   pricing: 'Comisiones y precisión',
-  pricingBody: 'Las comisiones autorizadas y la precisión del instrumento no están disponibles.',
+  pricingBody: 'Las comisiones confirmadas y la precisión de precios no están disponibles.',
   placement: 'Envío de órdenes',
   placementBody:
     'El envío de órdenes de resultados respaldado por el libro mayor no está conectado. Una publicación o un libro indicativo no autorizan una orden.',
@@ -66,7 +66,7 @@ const fr = {
   questions: 'Questions publiées',
   empty: 'Aucune question n’est publiée',
   emptyBody:
-    'Le catalogue n’a renvoyé aucune question. Consulte-le à nouveau pour voir les publications. Ce n’est pas un registre des positions ni des règlements du compte.',
+    'Aucune question n’est encore listée. Revenez plus tard. Ce n’est ni une position du compte ni un enregistrement de règlement.',
   failedBody: 'Une lecture échouée du catalogue ne prouve pas qu’aucune question n’est publiée.',
   refresh: 'Actualiser les questions',
   closes: 'Clôture',
@@ -81,14 +81,14 @@ const fr = {
   admission: 'Admission des résultats',
   admissionBody: 'Un aperçu propre au résultat et une vérification des permissions sont indisponibles.',
   pricing: 'Frais et précision',
-  pricingBody: 'Les frais faisant autorité et la précision de l’instrument sont indisponibles.',
+  pricingBody: 'Les frais confirmés et la précision des prix ne sont pas disponibles.',
   placement: 'Placement d’ordres',
   placementBody:
     'Le placement d’ordres de résultat adossé au grand livre n’est pas connecté. Une publication ou un carnet indicatif n’autorisent pas un ordre.',
   reviewBoundary:
     'Une cotation au comptant utilise une retenue différente et ne permet pas de consentir à un ordre de résultat. Les résultats et le règlement requièrent la source publiée et le service de règlement autorisé.',
   planning: 'Planifier la garantie',
-  quantityError: 'Saisis une quantité décimale exacte positive.',
+  quantityError: 'Saisissez une quantité décimale exacte positive.',
   planningBody:
     'Calcule la règle publiée d’une unité de garantie pour une quantité positive de contrats. Les frais, l’admission et la retenue finale restent indisponibles.',
   more: 'Explorer More →',

@@ -78,6 +78,8 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/p2p-ops')).toBe('p2p-ops');
     expect(moduleForApi('/api/academy-ops')).toBe('academy-ops');
     expect(moduleForApi('/api/more-ops')).toBe('more-ops');
+    expect(moduleForApi('/api/protocol-ops')).toBe('protocol-ops');
+    expect(moduleForPage('/protocol-ops')).toBe('protocol-ops');
     expect(moduleForApi('/api/session')).toBeNull();
     expect(moduleForApi('/api/session/passkey')).toBeNull();
   });

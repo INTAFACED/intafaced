@@ -279,7 +279,7 @@ const messages = {
     'Configured dependencies are unprobed. Process liveness does not confirm a working ledger, accepted shares or a payout.',
   'availabilityrooms.your.mining.activity': 'Your mining activity',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'The pool has a signed service endpoint for submitting observed shares and scheduled PPLNS payout jobs. It publishes no customer worker registration, owned share history, hashrate projection, reward balance or payout read.',
+    'The mining pool can accept shares and scheduled payouts, but it doesn’t yet show you your workers, share history, hashrate, reward balance or payouts.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
     'Those customer capabilities must be connected before this room can show your miners or accept an instruction. The internal submitShare job is not a customer form.',
   'availabilityrooms.ask.about.pool.access': 'Ask about pool access',
@@ -346,7 +346,7 @@ const messages = {
   'blueprint.review.permanent.erasure': 'Review permanent erasure',
   'blueprint.guided.blueprint.session': 'Guided Blueprint session',
   'blueprint.provide.keyed.answers.for.the.neural.engine':
-    'Provide keyed answers for the Neural Engine. Raw answers and optional birth data are forwarded, then dropped by the service. Birth data clears when submitted.',
+    'Answer the questions for the Neural Engine. Your answers and optional birth details are sent to get your reading and then discarded by the service. Birth details clear from this form when you submit.',
   'blueprint.review.blueprint.session': 'Review Blueprint session',
   'blueprint.run.blueprint.session': 'Run Blueprint session',
   'blueprint.blueprint.session.completed': 'Blueprint session completed',
@@ -386,7 +386,7 @@ const messages = {
   'campaigns.the.service.publishes.draft.assessment.but.no':
     'The service publishes draft assessment, but no customer campaign catalogue, participation history, reward budget or publication endpoint. These records cannot be shown as an empty list of completed campaigns.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
-    'Email, push and SMS campaign delivery require a published channel configuration and audience permission contract. This room cannot trigger an operator broadcast.',
+    'Email, push and SMS campaigns need a configured delivery channel and audience permission. This room can’t send a broadcast.',
   'campaigns.open.public.campaigns': 'Open public campaigns',
   'market.subscription.period.is.missing': 'Subscription period is missing',
   'market.original.purchase.is.still.pending.settlement.is': 'Original purchase is still pending. Settlement is not confirmed.',
@@ -394,7 +394,7 @@ const messages = {
     'The original settlement evidence is incomplete. Keep its purchase reference.',
   'market.purchase.list.belongs.to.another.account': 'Purchase list belongs to another account',
   'market.the.original.purchase.is.not.present.in':
-    'The original purchase is not present in this bounded history. Absence does not prove it was refused. No retry was sent.',
+    'We can’t find the original purchase in the recent history shown. That doesn’t mean it was refused. Nothing was sent again.',
   'market.seller.ownership.does.not.match.this.account': 'Seller ownership does not match this account',
   'market.listing.ownership.does.not.match.this.seller': 'Listing ownership does not match this seller',
   'market.purchase.ownership.does.not.match.this.account': 'Purchase ownership does not match this account',
@@ -487,7 +487,7 @@ const messages = {
   'moreroutes.mining': 'Mining',
   'moreroutes.pool.connection.and.the.customer.activity.contracts': 'Pool connection and the customer activity contracts still needed.',
   'moreroutes.token': 'Token',
-  'moreroutes.your.exact.stake.projection.access.and.governance': 'Your exact stake projection, access and governance proposals.',
+  'moreroutes.your.exact.stake.projection.access.and.governance': 'Your stake, access and governance proposals.',
   'moreroutes.blueprint': 'Blueprint',
   'moreroutes.your.profile.share.card.mentor.shortlist.and': 'Your profile, share card, mentor shortlist and data controls.',
   'moreroutes.support': 'Support',
@@ -503,7 +503,7 @@ const messages = {
   'moreroutes.more': 'More',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explore the rooms behind your everyday account.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Learn, practise and join hosted sessions.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permissions, bounded engine sessions and your activity log.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permissions, engine sessions and your activity log.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'A profile you can keep private, share, export and erase.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prepare a grounded proposal for human review.',
@@ -557,11 +557,11 @@ const messages = {
   'prediction.outcome.order.review': 'Outcome order review',
   'prediction.outcome.order.preview.is.not.published.no': 'Outcome order preview is not published. No order can be sent from this room.',
   'prediction.the.post.contract.names.a.fully.collateralized':
-    'The POST contract names a fully collateralized hold, but provides no outcome-specific admission, fee quote, precision or preview. A spot preview would size its hold differently and cannot establish this consent.',
+    'This order holds the full collateral, but no fee quote, precision or preview is available for this outcome. A spot preview would size the hold differently, so it can’t stand in for your consent.',
   'prediction.outcome.contract.quantity': 'Outcome contract quantity',
   'prediction.instrument': 'Instrument',
   'prediction.full.collateral.by.published.rule': 'Full collateral by published rule',
-  'prediction.authoritative.fee': 'Authoritative fee',
+  'prediction.authoritative.fee': 'Confirmed fee',
   'prediction.order.admission': 'Order admission',
   'prediction.closing.or.settling.an.event.is.not': 'Closing or settling an event is not a customer control.',
   'quant.sandbox': 'Sandbox',
@@ -570,8 +570,10 @@ const messages = {
   'quant.execution': 'Execution',
   'quant.simulated.no.live.trading.authority': 'Simulated · no live trading authority',
   'quant.strategy.sandbox': 'Strategy sandbox',
-  'quant.isolate': 'Isolate: ',
-  'quant.trade.only.vault': '. Trade-only vault: ',
+  'quant.isolate': 'The strategy runner is connected.',
+  'quant.runner.off': 'The strategy runner is not connected yet, so simulations can’t run.',
+  'quant.trade.only.vault': "Trade-only exchange access for strategies is set up (it can't withdraw).",
+  'quant.exchange.off': 'Exchange access for strategies is not set up yet.',
   'quant.review.simulated.run': 'Review simulated run',
   'quant.run.simulation': 'Run simulation',
   'quant.simulation.received': 'Simulation received',
@@ -582,8 +584,7 @@ const messages = {
   'quant.user.supplied.simulation.input.separate.from.your': 'User-supplied simulation input, separate from your ledger balance.',
   'quant.strategy.source': 'Strategy source',
   'quant.review.simulation': 'Review simulation',
-  'quant.live.deployment.requires.a.separate.approved.execution':
-    'Live deployment requires a separate, approved execution contract. This sandbox does not grant it.',
+  'quant.live.deployment.requires.a.separate.approved.execution': 'Going live needs a separate approval. This sandbox can’t do it.',
   'quant.simulation.result': 'Simulation result',
   'quant.cash': 'Cash',
   'quant.p.l': 'P&L',
@@ -595,7 +596,7 @@ const messages = {
   'quant.simulated.fills': 'Simulated fills',
   'quant.position': 'Position',
   'quant.simulated.positions': 'Simulated positions',
-  'quant.run.the.connected.isolate.to.receive.its': 'Run the connected isolate to receive its logs, fills, and positions.',
+  'quant.run.the.connected.isolate.to.receive.its': 'Run a simulation to see its logs, fills and positions here.',
   'quant.build.a.strategy': 'Build a strategy',
   'quant.review.strategy': 'Review strategy',
   'quant.save.strategy': 'Save strategy',
@@ -643,9 +644,8 @@ const messages = {
     'This service stores a shared in-process catalogue. It publishes no private per-account storage or durable history.',
   'quant.no.strategies.are.saved': 'No strategies are saved',
   'quant.use': 'Use ',
-  'sessionmedia.the.service.returned.an.expired.media.credential':
-    'The service returned an expired media credential. No connection was started.',
-  'sessionmedia.the.service.media.url.is.not.secure': 'The service media URL is not secure. No credential was sent to it.',
+  'sessionmedia.the.service.returned.an.expired.media.credential': 'The connection details have expired, so no connection was started.',
+  'sessionmedia.the.service.media.url.is.not.secure': 'The media address isn’t secure, so nothing was sent to it.',
   'sessionmedia.the.audio.video.server.could.not.establish':
     'The audio/video server could not establish a connection. Your session seat and scene are separate.',
   'sessionmedia.session.audio.could.not.be.started.check': 'Session audio could not be started. Check the browser audio permission.',
@@ -727,7 +727,7 @@ const messages = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'The token asset is deployment-configurable. Stake and access responses contain amounts but no asset binding. A default name cannot establish which ledger asset will move.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Your existing stake records remain readable. A published asset identity and authoritative movement review are needed before these actions can open.',
+    'You can still see your existing stake. These actions open once the token is published and its movements have been reviewed.',
   'token.proposals': 'Proposals',
   'token.no.proposals.are.published': 'No proposals are published',
   'token.proposal': 'Proposal',
@@ -794,7 +794,7 @@ const messages = {
   'workbook.quantity': 'Quantity',
   'workbook.published.simulated.fills': 'Published simulated fills',
   'workbook.a.maximum.of.100.fills.can.be':
-    'A maximum of 100 fills can be read for this symbol. No fill price, quantity or future mark is typed into this drill. The last traded price is not substituted for an authoritative mark.',
+    'Up to 100 fills can be loaded for this symbol. No fill price, quantity or future price is typed into this drill, and the last traded price isn’t used in place of a confirmed price.',
   'workbook.read.drill.result': 'Read drill result',
   'workbook.progress': 'Progress',
   'workbook.complete': 'Complete',
@@ -804,11 +804,11 @@ const messages = {
   'workbook.unrealised.p.l': 'Unrealised P&L',
   'workbook.total.p.l': 'Total P&L',
   'common.showing': 'Showing ',
-  'common.requested.limit': ' · requested limit ',
-  'common.this.service.publishes.no.continuation.cursor': '. This service publishes no continuation cursor.',
-  'common.load.a.larger.window': 'Load a larger window',
-  'common.the.published.limit.is': 'The published limit is ',
-  'common.older.rows.cannot.be.requested.here': '; older rows cannot be requested here.',
+  'common.requested.limit': ' · up to ',
+  'common.this.service.publishes.no.continuation.cursor': ' at a time.',
+  'common.load.a.larger.window': 'Show more',
+  'common.the.published.limit.is': 'The most that can be shown is ',
+  'common.older.rows.cannot.be.requested.here': '; older entries can’t be loaded here.',
   'common.earlier.request.with.unreadable.recovery.metadata': 'earlier request with unreadable recovery metadata',
   'common.the.account.or.pending.request.changed.review': 'The account or pending request changed. Review again.',
   'common.recovery.storage.is.unavailable.no.action.was': 'Recovery storage is unavailable. No action was sent.',
@@ -828,8 +828,7 @@ const messages = {
   'common.acting.as.account': 'Acting as account ',
   'common.the.service.enforces.your.scope.and.jurisdiction': '. The service applies its access and jurisdiction rules.',
   'common.back': 'Back',
-  'academy.authoritative.identity.rank.perks.returned.academy.holds':
-    'Authoritative identity-rank perks returned; Academy holds no perk money',
+  'academy.authoritative.identity.rank.perks.returned.academy.holds': 'Perks from your identity rank. Academy holds no perk money.',
   'academyprogrammes.no.decision.recorded': 'No decision recorded',
   'academyprogrammes.end.not.supplied': 'End not supplied',
   'academyrooms.no.client.adapter.is.published.for.provider': 'No client adapter is published for provider {value1}.',
@@ -839,13 +838,13 @@ const messages = {
   'agents.product.boundaries': 'Product boundaries',
   'agents.a.spend.cap.or.its.fee.asset': 'A spend cap or its fee asset is unavailable',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'The runSession contracts require a caller-supplied tier matrix. No authoritative customer tier-law publication is mounted. A customer cannot declare their own entitlement matrix, so grounded tool runs remain unavailable.',
+    'Tool runs need a tier plan that isn’t published yet, and you can’t set your own, so tool runs stay unavailable.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'Signal ranking also requires a sealed input law and tier matrix. Neither is published through a customer-owned read. No quotes, ranking recipe, or signal count is invented.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'A published threshold, minimum sample count, rail allowlist, and owned merchant metrics context are required. These are not available as a customer configuration contract.',
+    'This needs published thresholds, a minimum sample size, an approved list of payment routes and your merchant metrics. None of these can be set from here yet.',
   'agents.leader.fixtures.must.come.from.the.live':
-    'Leader fixtures must come from the live source with an allowlist. User-typed P&L is not an authoritative input. Copy grants and actual leader data are on Trade.',
+    'Leader data must come from the live source with an approved list. Profit and loss you type in isn’t accepted. Copy settings and real leader data are on Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
     'The service portfolio port is unconnected. No holdings, target order legs or live rebalancing are manufactured.',
   'agents.draft.assessment.is.not.issuance.screening.list':
@@ -856,7 +855,7 @@ const messages = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Missing a round service, published sale terms, jurisdiction/tier admission, scoped participation records and ledger subscribe/allocate recipes.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Chain work has not started yet. No chain or deployment procedure is called by this room.',
+    'Chain work has not started yet. This room doesn’t start any chain or deployment.',
   'blueprint.identity.blueprint.card': '{value1} Identity Blueprint card',
   'blueprint.answer.key.2': 'Answer {value1} key',
   'blueprint.your.answer.2': 'Your answer {value1}',
@@ -903,10 +902,10 @@ const messages = {
   'token.open.proposal': 'Open proposal {value1}',
   'token.hidden.asset.identity.unavailable': 'Hidden · asset identity unavailable',
   'token.service.policy': 'Service policy',
-  'token.determined.by.your.authoritative.stake.when.cast': 'Determined by your authoritative stake when cast',
+  'token.determined.by.your.authoritative.stake.when.cast': 'Set by your stake at the moment you vote',
   'workbook.attach.fill': 'Attach fill {value1}',
   'workbook.quote.asset.identity.unavailable': 'quote asset identity unavailable',
-  'workbook.unavailable.no.authoritative.mark': 'Unavailable: no authoritative mark',
+  'workbook.unavailable.no.authoritative.mark': 'Unavailable: no confirmed price',
   'academy.learning': 'Learning',
   'academy.certificates': 'Certificates',
   'academy.rooms': 'Rooms',
@@ -1226,7 +1225,7 @@ const es = {
     'Las dependencias configuradas no se han comprobado. Que el proceso esté activo no confirma un libro contable operativo, participaciones de trabajo aceptadas ni un pago.',
   'availabilityrooms.your.mining.activity': 'Tu actividad de minería',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'El pool tiene un endpoint de servicio firmado para enviar participaciones de trabajo observadas y tareas programadas de pago PPLNS. No publica registro de trabajadores para clientes, historial propio de participaciones, proyección de hashrate, saldo de recompensas ni consulta de pagos.',
+    'El pool de minería puede aceptar shares y pagos programados, pero aún no te muestra tus workers, historial de shares, hashrate, saldo de recompensas ni pagos.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
     'Estas capacidades para clientes deben estar conectadas antes de que esta sala pueda mostrar tus mineros o aceptar una instrucción. La tarea interna submitShare no es un formulario para clientes.',
   'availabilityrooms.ask.about.pool.access': 'Consultar sobre el acceso al pool',
@@ -1294,7 +1293,7 @@ const es = {
   'blueprint.review.permanent.erasure': 'Revisar borrado permanente',
   'blueprint.guided.blueprint.session': 'Sesión guiada de Blueprint',
   'blueprint.provide.keyed.answers.for.the.neural.engine':
-    'Proporciona respuestas con clave para Neural Engine. Las respuestas originales y los datos de nacimiento opcionales se transmiten y después el servicio los descarta. Los datos de nacimiento se borran al enviarlos.',
+    'Responde las preguntas para el Neural Engine. Tus respuestas y los datos de nacimiento opcionales se envían para obtener tu lectura y el servicio los descarta después. Los datos de nacimiento se borran de este formulario al enviarlo.',
   'blueprint.review.blueprint.session': 'Revisar sesión de Blueprint',
   'blueprint.run.blueprint.session': 'Ejecutar sesión de Blueprint',
   'blueprint.blueprint.session.completed': 'Sesión de Blueprint completada',
@@ -1334,7 +1333,7 @@ const es = {
   'campaigns.the.service.publishes.draft.assessment.but.no':
     'El servicio publica evaluaciones de borradores, pero no un catálogo de campañas para clientes, historial de participación, presupuesto de recompensas ni endpoint de publicación. Estos registros no pueden mostrarse como una lista vacía de campañas completadas.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
-    'El envío de campañas por correo, notificaciones push y SMS requiere una configuración de canales publicada y un contrato de permisos de audiencia. Esta sala no puede iniciar una difusión de operador.',
+    'Las campañas por correo, notificaciones push y SMS necesitan un canal de envío configurado y permiso de la audiencia. Esta sala no puede enviar difusiones.',
   'campaigns.open.public.campaigns': 'Abrir campañas públicas',
   'market.subscription.period.is.missing': 'Falta el periodo de suscripción',
   'market.original.purchase.is.still.pending.settlement.is': 'La compra original sigue pendiente. La liquidación no está confirmada.',
@@ -1342,7 +1341,7 @@ const es = {
     'Las pruebas de la liquidación original están incompletas. Conserva la referencia de la compra.',
   'market.purchase.list.belongs.to.another.account': 'La lista de compras pertenece a otra cuenta',
   'market.the.original.purchase.is.not.present.in':
-    'La compra original no aparece en este historial limitado. Su ausencia no demuestra que se rechazara. No se ha enviado ningún reintento.',
+    'No encontramos la compra original en el historial reciente mostrado. Eso no significa que se haya rechazado. No se reenvió nada.',
   'market.seller.ownership.does.not.match.this.account': 'La titularidad del vendedor no coincide con esta cuenta',
   'market.listing.ownership.does.not.match.this.seller': 'La titularidad del listado no coincide con este vendedor',
   'market.purchase.ownership.does.not.match.this.account': 'La titularidad de la compra no coincide con esta cuenta',
@@ -1441,7 +1440,7 @@ const es = {
   'moreroutes.pool.connection.and.the.customer.activity.contracts':
     'Conexión al pool y contratos de actividad del cliente que aún se necesitan.',
   'moreroutes.token': 'Token',
-  'moreroutes.your.exact.stake.projection.access.and.governance': 'Tu proyección exacta de staking, acceso y propuestas de gobernanza.',
+  'moreroutes.your.exact.stake.projection.access.and.governance': 'Tu stake, tu acceso y las propuestas de gobernanza.',
   'moreroutes.blueprint': 'Blueprint',
   'moreroutes.your.profile.share.card.mentor.shortlist.and': 'Tu perfil, tarjeta para compartir, lista de mentores y controles de datos.',
   'moreroutes.support': 'Support',
@@ -1459,7 +1458,7 @@ const es = {
   'moreroutes.more': 'Más',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explora las salas que acompañan a tu cuenta cotidiana.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Aprende, practica y únete a sesiones alojadas.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permisos, sesiones limitadas del motor y tu registro de actividad.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Permisos, sesiones del motor y tu registro de actividad.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'Un perfil que puedes mantener privado, compartir, exportar y borrar.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prepara una propuesta fundamentada para revisión humana.',
@@ -1517,11 +1516,11 @@ const es = {
   'prediction.outcome.order.preview.is.not.published.no':
     'No se publica una vista previa de las órdenes del resultado. No se puede enviar ninguna orden desde esta sala.',
   'prediction.the.post.contract.names.a.fully.collateralized':
-    'El contrato POST indica una retención totalmente colateralizada, pero no proporciona admisión, cotización de comisiones, precisión ni vista previa específicas del resultado. Una vista previa al contado calcularía su retención de otra forma y no puede establecer este consentimiento.',
+    'Esta orden retiene la garantía completa, pero no hay cotización de comisión, precisión ni vista previa para este resultado. Una vista previa de spot dimensionaría la retención de otra forma, así que no puede sustituir tu consentimiento.',
   'prediction.outcome.contract.quantity': 'Cantidad de contratos del resultado',
   'prediction.instrument': 'Instrumento',
   'prediction.full.collateral.by.published.rule': 'Colateral completo según la regla publicada',
-  'prediction.authoritative.fee': 'Comisión oficial',
+  'prediction.authoritative.fee': 'Comisión confirmada',
   'prediction.order.admission': 'Admisión de órdenes',
   'prediction.closing.or.settling.an.event.is.not': 'Cerrar o liquidar un evento no es un control del cliente.',
   'quant.sandbox': 'Entorno de pruebas',
@@ -1530,8 +1529,10 @@ const es = {
   'quant.execution': 'Ejecución',
   'quant.simulated.no.live.trading.authority': 'Simulado · sin autoridad de trading real',
   'quant.strategy.sandbox': 'Entorno de pruebas de estrategias',
-  'quant.isolate': 'Entorno aislado: ',
-  'quant.trade.only.vault': '. Bóveda solo para trading: ',
+  'quant.isolate': 'El ejecutor de estrategias está conectado.',
+  'quant.runner.off': 'El ejecutor de estrategias aún no está conectado, así que no se pueden ejecutar simulaciones.',
+  'quant.trade.only.vault': 'El acceso al mercado solo para operar está configurado para las estrategias (no puede retirar fondos).',
+  'quant.exchange.off': 'El acceso al mercado para las estrategias aún no está configurado.',
   'quant.review.simulated.run': 'Revisar ejecución simulada',
   'quant.run.simulation': 'Ejecutar simulación',
   'quant.simulation.received': 'Simulación recibida',
@@ -1544,7 +1545,7 @@ const es = {
   'quant.strategy.source': 'Código de la estrategia',
   'quant.review.simulation': 'Revisar simulación',
   'quant.live.deployment.requires.a.separate.approved.execution':
-    'El despliegue real requiere un contrato de ejecución independiente y aprobado. Este entorno de pruebas no lo concede.',
+    'Pasar a real necesita una aprobación aparte. Este entorno de pruebas no puede hacerlo.',
   'quant.simulation.result': 'Resultado de la simulación',
   'quant.cash': 'Efectivo',
   'quant.p.l': 'Pérdidas y ganancias',
@@ -1556,8 +1557,7 @@ const es = {
   'quant.simulated.fills': 'Ejecuciones simuladas',
   'quant.position': 'Posición',
   'quant.simulated.positions': 'Posiciones simuladas',
-  'quant.run.the.connected.isolate.to.receive.its':
-    'Ejecuta el entorno aislado conectado para recibir sus registros, ejecuciones y posiciones.',
+  'quant.run.the.connected.isolate.to.receive.its': 'Ejecuta una simulación para ver aquí sus registros, ejecuciones y posiciones.',
   'quant.build.a.strategy': 'Crear una estrategia',
   'quant.review.strategy': 'Revisar estrategia',
   'quant.save.strategy': 'Guardar estrategia',
@@ -1606,9 +1606,8 @@ const es = {
   'quant.no.strategies.are.saved': 'No hay estrategias guardadas',
   'quant.use': 'Usar ',
   'sessionmedia.the.service.returned.an.expired.media.credential':
-    'El servicio ha devuelto una credencial multimedia vencida. No se ha iniciado ninguna conexión.',
-  'sessionmedia.the.service.media.url.is.not.secure':
-    'La URL multimedia del servicio no es segura. No se le ha enviado ninguna credencial.',
+    'Los datos de conexión han caducado, así que no se inició ninguna conexión.',
+  'sessionmedia.the.service.media.url.is.not.secure': 'La dirección de los medios no es segura, así que no se le envió nada.',
   'sessionmedia.the.audio.video.server.could.not.establish':
     'El servidor de audio y vídeo no ha podido establecer una conexión. Tu plaza y la escena de la sesión son independientes.',
   'sessionmedia.session.audio.could.not.be.started.check':
@@ -1691,7 +1690,7 @@ const es = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'El activo del token se puede configurar en el despliegue. Las respuestas de staking y acceso contienen importes, pero no vinculan un activo. Un nombre predeterminado no puede establecer qué activo del libro contable se moverá.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Tus registros de staking existentes siguen disponibles para consulta. Se necesitan una identidad de activo publicada y una revisión oficial del movimiento antes de abrir estas acciones.',
+    'Sigues viendo tu stake actual. Estas acciones se abrirán cuando el token esté publicado y sus movimientos se hayan revisado.',
   'token.proposals': 'Propuestas',
   'token.no.proposals.are.published': 'No hay propuestas publicadas',
   'token.proposal': 'Propuesta',
@@ -1758,7 +1757,7 @@ const es = {
   'workbook.quantity': 'Cantidad',
   'workbook.published.simulated.fills': 'Ejecuciones simuladas publicadas',
   'workbook.a.maximum.of.100.fills.can.be':
-    'Se puede consultar un máximo de 100 ejecuciones para este símbolo. En este ejercicio no se introduce ningún precio de ejecución, cantidad ni valoración futura. El último precio negociado no sustituye una valoración oficial.',
+    'Se pueden cargar hasta 100 ejecuciones de este símbolo. En este ejercicio no se escribe ningún precio de ejecución, cantidad ni precio futuro, y el último precio negociado no sustituye a un precio confirmado.',
   'workbook.read.drill.result': 'Consultar resultado del ejercicio',
   'workbook.progress': 'Progreso',
   'workbook.complete': 'Completo',
@@ -1768,11 +1767,11 @@ const es = {
   'workbook.unrealised.p.l': 'Pérdidas y ganancias no realizadas',
   'workbook.total.p.l': 'Pérdidas y ganancias totales',
   'common.showing': 'Mostrando ',
-  'common.requested.limit': ' · límite solicitado ',
-  'common.this.service.publishes.no.continuation.cursor': '. Este servicio no publica ningún cursor de continuación.',
-  'common.load.a.larger.window': 'Cargar un intervalo mayor',
-  'common.the.published.limit.is': 'El límite publicado es ',
-  'common.older.rows.cannot.be.requested.here': '; no se pueden solicitar filas anteriores aquí.',
+  'common.requested.limit': ' · hasta ',
+  'common.this.service.publishes.no.continuation.cursor': ' a la vez.',
+  'common.load.a.larger.window': 'Mostrar más',
+  'common.the.published.limit.is': 'Lo máximo que se puede mostrar es ',
+  'common.older.rows.cannot.be.requested.here': '; aquí no se pueden cargar entradas anteriores.',
   'common.earlier.request.with.unreadable.recovery.metadata': 'solicitud anterior con metadatos de recuperación ilegibles',
   'common.the.account.or.pending.request.changed.review': 'La cuenta o la solicitud pendiente han cambiado. Revisa de nuevo.',
   'common.recovery.storage.is.unavailable.no.action.was':
@@ -1796,7 +1795,7 @@ const es = {
   'common.the.service.enforces.your.scope.and.jurisdiction': '. El servicio aplica sus reglas de acceso y jurisdicción.',
   'common.back': 'Volver',
   'academy.authoritative.identity.rank.perks.returned.academy.holds':
-    'Ventajas oficiales del rango de identidad recibidas; Academy no conserva dinero de ventajas',
+    'Ventajas de tu rango de identidad. La Academia no guarda dinero de ventajas.',
   'academyprogrammes.no.decision.recorded': 'No hay decisión registrada',
   'academyprogrammes.end.not.supplied': 'Fin no proporcionado',
   'academyrooms.no.client.adapter.is.published.for.provider': 'No se publica ningún adaptador de cliente para el proveedor {value1}.',
@@ -1806,13 +1805,13 @@ const es = {
   'agents.product.boundaries': 'Límites del producto',
   'agents.a.spend.cap.or.its.fee.asset': 'No está disponible un límite de gasto o su activo de comisión',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'Los contratos runSession requieren una matriz de niveles proporcionada por quien llama al servicio. No hay una publicación oficial de reglas de niveles para clientes conectada. Un cliente no puede declarar su propia matriz de derechos, por lo que las ejecuciones fundamentadas de herramientas siguen sin estar disponibles.',
+    'Las ejecuciones de herramientas necesitan un plan de niveles que aún no está publicado, y no puedes definir el tuyo, así que siguen sin estar disponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'La clasificación de señales también requiere reglas de entrada selladas y una matriz de niveles. Ninguna se publica mediante una consulta propia del cliente. No se inventan cotizaciones, reglas de clasificación ni recuentos de señales.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'Se requieren un umbral publicado, un número mínimo de muestras, una lista de canales permitidos y un contexto de métricas propias del comerciante. No están disponibles como contrato de configuración para clientes.',
+    'Esto necesita umbrales publicados, un tamaño mínimo de muestra, una lista aprobada de vías de pago y tus métricas de comercio. Por ahora no se puede definir nada de esto desde aquí.',
   'agents.leader.fixtures.must.come.from.the.live':
-    'Los datos de líderes deben provenir de la fuente activa con una lista de permitidos. Las pérdidas y ganancias introducidas por el usuario no son una entrada oficial. Las autorizaciones de Copy y los datos reales de líderes están en Trade.',
+    'Los datos de líderes deben venir de la fuente en vivo con una lista aprobada. No se acepta el resultado que escribas a mano. Los ajustes de copia y los datos reales de líderes están en Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
     'La conexión de cartera del servicio está desconectada. No se fabrican tenencias, tramos de órdenes objetivo ni rebalanceos reales.',
   'agents.draft.assessment.is.not.issuance.screening.list':
@@ -1823,7 +1822,7 @@ const es = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Faltan un servicio de rondas, condiciones de venta publicadas, admisión por jurisdicción y nivel, registros de participación delimitados y operaciones de suscripción y asignación del libro contable.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'El trabajo de cadena aún no ha comenzado. Esta sala no llama a ningún procedimiento de cadena ni de despliegue.',
+    'El trabajo de cadena aún no ha comenzado. Esta sala no inicia ninguna cadena ni despliegue.',
   'blueprint.identity.blueprint.card': 'Tarjeta Identity Blueprint de {value1}',
   'blueprint.answer.key.2': 'Clave de la respuesta {value1}',
   'blueprint.your.answer.2': 'Tu respuesta {value1}',
@@ -1871,10 +1870,10 @@ const es = {
   'token.open.proposal': 'Abrir propuesta {value1}',
   'token.hidden.asset.identity.unavailable': 'Oculto · identidad del activo no disponible',
   'token.service.policy': 'Política del servicio',
-  'token.determined.by.your.authoritative.stake.when.cast': 'Determinado por tu staking oficial al emitir el voto',
+  'token.determined.by.your.authoritative.stake.when.cast': 'Se fija con tu stake en el momento de votar',
   'workbook.attach.fill': 'Adjuntar ejecución {value1}',
   'workbook.quote.asset.identity.unavailable': 'identidad del activo de cotización no disponible',
-  'workbook.unavailable.no.authoritative.mark': 'No disponible: sin valoración oficial',
+  'workbook.unavailable.no.authoritative.mark': 'No disponible: sin precio confirmado',
   'academy.learning': 'Aprendizaje',
   'academy.certificates': 'Certificados',
   'academy.rooms': 'Salas',
@@ -2197,7 +2196,7 @@ const fr = {
     'Les dépendances configurées n’ont pas été testées. Un processus actif ne confirme ni un grand livre opérationnel, ni des preuves de travail acceptées, ni un paiement.',
   'availabilityrooms.your.mining.activity': 'Ton activité de minage',
   'availabilityrooms.the.pool.has.a.signed.service.endpoint':
-    'Le pool dispose d’un endpoint de service signé pour soumettre des preuves de travail observées et des tâches programmées de paiement PPLNS. Il ne publie ni inscription de workers pour les clients, ni historique de leurs preuves de travail, ni projection du hashrate, ni solde de récompenses, ni consultation des paiements.',
+    'Le pool de minage peut accepter des parts et des paiements planifiés, mais il ne t’affiche pas encore tes workers, ton historique de parts, ton hashrate, ton solde de récompenses ni tes paiements.',
   'availabilityrooms.those.customer.capabilities.must.be.connected.before':
     'Ces capacités destinées aux clients doivent être connectées avant que ce salon puisse afficher tes mineurs ou accepter une instruction. La tâche interne submitShare n’est pas un formulaire client.',
   'availabilityrooms.ask.about.pool.access': 'Se renseigner sur l’accès au pool',
@@ -2266,7 +2265,7 @@ const fr = {
   'blueprint.review.permanent.erasure': 'Vérifier l’effacement définitif',
   'blueprint.guided.blueprint.session': 'Session guidée de Blueprint',
   'blueprint.provide.keyed.answers.for.the.neural.engine':
-    'Fournis des réponses associées à des clés pour Neural Engine. Les réponses brutes et les données de naissance facultatives sont transmises, puis supprimées par le service. Les données de naissance sont effacées lors de l’envoi.',
+    'Réponds aux questions pour le Neural Engine. Tes réponses et tes informations de naissance facultatives sont envoyées pour obtenir ta lecture, puis écartées par le service. Les informations de naissance sont effacées de ce formulaire à l’envoi.',
   'blueprint.review.blueprint.session': 'Vérifier la session de Blueprint',
   'blueprint.run.blueprint.session': 'Exécuter la session de Blueprint',
   'blueprint.blueprint.session.completed': 'Session de Blueprint terminée',
@@ -2306,30 +2305,30 @@ const fr = {
   'campaigns.the.service.publishes.draft.assessment.but.no':
     'Le service publie des évaluations de brouillons, mais aucun catalogue de campagnes client, historique de participation, budget de récompenses ou endpoint de publication. Ces enregistrements ne peuvent pas être présentés comme une liste vide de campagnes terminées.',
   'campaigns.email.push.and.sms.campaign.delivery.require':
-    'L’envoi de campagnes par e-mail, notifications push et SMS nécessite une configuration de canaux publiée et un contrat d’autorisation du public. Ce salon ne peut pas déclencher une diffusion d’opérateur.',
+    'Les campagnes par e-mail, notification push et SMS nécessitent un canal d’envoi configuré et l’autorisation de l’audience. Cette salle ne peut pas envoyer de diffusion.',
   'campaigns.open.public.campaigns': 'Ouvrir les campagnes publiques',
   'market.subscription.period.is.missing': 'La période d’abonnement est absente',
   'market.original.purchase.is.still.pending.settlement.is': 'L’achat initial est toujours en attente. Le règlement n’est pas confirmé.',
   'market.the.original.settlement.evidence.is.incomplete.keep':
-    'Les preuves du règlement initial sont incomplètes. Conserve la référence de l’achat.',
+    'Les preuves du règlement initial sont incomplètes. Conservez la référence de l’achat.',
   'market.purchase.list.belongs.to.another.account': 'La liste d’achats appartient à un autre compte',
   'market.the.original.purchase.is.not.present.in':
-    'L’achat initial ne figure pas dans cet historique limité. Son absence ne prouve pas qu’il a été refusé. Aucune nouvelle tentative n’a été envoyée.',
+    'Nous ne trouvons pas l’achat initial dans l’historique récent affiché. Cela ne veut pas dire qu’il a été refusé. Rien n’a été renvoyé.',
   'market.seller.ownership.does.not.match.this.account': 'Le vendeur n’appartient pas à ce compte',
   'market.listing.ownership.does.not.match.this.seller': 'L’offre n’appartient pas à ce vendeur',
   'market.purchase.ownership.does.not.match.this.account': 'L’achat n’appartient pas à ce compte',
   'market.review.purchase': 'Vérifier l’achat',
   'market.confirm.purchase': 'Confirmer l’achat',
-  'market.purchase.outcome.received.read.its.settlement.status': 'Résultat de l’achat reçu. Consulte son état de règlement ci-dessous.',
+  'market.purchase.outcome.received.read.its.settlement.status': 'Résultat de l’achat reçu. Consultez son état de règlement ci-dessous.',
   'market.listing': 'Offre',
   'market.price': 'Prix',
   'market.access': 'Accès',
   'market.renewal': 'Renouvellement',
   'market.the.listing.terms.changed.reload.the.catalogue':
     'Les conditions de l’offre ont changé. Recharge le catalogue et vérifie à nouveau.',
-  'market.the.account.changed.review.this.purchase.again': 'Le compte a changé. Vérifie à nouveau cet achat.',
+  'market.the.account.changed.review.this.purchase.again': 'Le compte a changé. Vérifiez à nouveau cet achat.',
   'market.purchase.response.does.not.match.the.reviewed': 'La réponse de l’achat ne correspond pas à la demande vérifiée',
-  'market.check.the.original.purchase.record.before.another': ' Vérifie l’enregistrement de l’achat initial avant un autre achat.',
+  'market.check.the.original.purchase.record.before.another': ' Vérifiez l’enregistrement de l’achat initial avant un autre achat.',
   'market.catalogue': 'Catalogue',
   'market.my.listings': 'Mes offres',
   'market.publish.a.strategy.subscription': 'Publier un abonnement à une stratégie',
@@ -2371,9 +2370,9 @@ const fr = {
   'market.offer.type': 'Type d’offre',
   'market.price.asset.id': 'ID de l’actif du prix',
   'market.paid.period.in.seconds': 'Période payée en secondes',
-  'market.your.listings': 'Tes offres',
+  'market.your.listings': 'Vos offres',
   'market.browse.listings': 'Parcourir les offres',
-  'market.you.have.no.listings': 'Tu n’as aucune offre',
+  'market.you.have.no.listings': 'Vous n’avez aucune offre',
   'market.no.listings.are.available': 'Aucune offre n’est disponible',
   'market.archive.listing': 'Archiver l’offre',
   'market.listing.archived': 'Offre archivée',
@@ -2381,8 +2380,8 @@ const fr = {
   'market.archive': 'Archiver',
   'market.buy.one.period': 'Acheter une période',
   'market.buy': 'Acheter',
-  'market.your.purchases': 'Tes achats',
-  'market.you.have.no.purchases': 'Tu n’as aucun achat',
+  'market.your.purchases': 'Vos achats',
+  'market.you.have.no.purchases': 'Vous n’avez aucun achat',
   'market.purchase': 'Achat',
   'market.amount': 'Montant',
   'market.settlement': 'Règlement',
@@ -2411,8 +2410,7 @@ const fr = {
   'moreroutes.mining': 'Minage',
   'moreroutes.pool.connection.and.the.customer.activity.contracts': 'Connexion au pool et contrats d’activité client encore nécessaires.',
   'moreroutes.token': 'Token',
-  'moreroutes.your.exact.stake.projection.access.and.governance':
-    'Ta projection exacte de staking, ton accès et tes propositions de gouvernance.',
+  'moreroutes.your.exact.stake.projection.access.and.governance': 'Ton stake, ton accès et les propositions de gouvernance.',
   'moreroutes.blueprint': 'Blueprint',
   'moreroutes.your.profile.share.card.mentor.shortlist.and':
     'Ton profil, ta carte de partage, ta sélection de mentors et tes contrôles de données.',
@@ -2432,8 +2430,7 @@ const fr = {
   'moreroutes.more': 'Plus',
   'moreroutes.explore.the.rooms.behind.your.everyday.account': 'Explore les salons qui accompagnent ton compte au quotidien.',
   'moreroutes.learn.practise.and.join.hosted.sessions': 'Apprends, entraîne-toi et rejoins des sessions hébergées.',
-  'moreroutes.permissions.bounded.engine.sessions.and.your.activity':
-    'Autorisations, sessions limitées du moteur et ton journal d’activité.',
+  'moreroutes.permissions.bounded.engine.sessions.and.your.activity': 'Autorisations, sessions du moteur et ton journal d’activité.',
   'moreroutes.identity.blueprint': 'Identity Blueprint',
   'moreroutes.a.profile.you.can.keep.private.share': 'Un profil que tu peux garder privé, partager, exporter et effacer.',
   'moreroutes.prepare.a.grounded.proposal.for.human.review': 'Prépare une proposition étayée pour une vérification humaine.',
@@ -2481,7 +2478,7 @@ const fr = {
   'prediction.price': 'Prix',
   'prediction.quantity': 'Quantité',
   'prediction.outcome.public.trades': 'Transactions publiques du résultat',
-  'prediction.your.outcome.fills': 'Tes exécutions sur ce résultat',
+  'prediction.your.outcome.fills': 'Vos exécutions sur ce résultat',
   'prediction.no.fills.for.this.outcome': 'Aucune exécution pour ce résultat',
   'prediction.fill': 'Exécution',
   'prediction.fee': 'Frais',
@@ -2490,11 +2487,11 @@ const fr = {
   'prediction.outcome.order.preview.is.not.published.no':
     'Aucun aperçu d’ordre du résultat n’est publié. Aucun ordre ne peut être envoyé depuis ce salon.',
   'prediction.the.post.contract.names.a.fully.collateralized':
-    'Le contrat POST décrit une retenue entièrement collatéralisée, mais ne fournit ni admission, ni devis de frais, ni précision, ni aperçu propres au résultat. Un aperçu au comptant dimensionnerait sa retenue différemment et ne peut pas établir ce consentement.',
+    'Cet ordre bloque la garantie complète, mais aucune cotation de frais, précision ni aperçu n’est disponible pour ce résultat. Un aperçu spot dimensionnerait le blocage autrement et ne peut donc pas remplacer votre consentement.',
   'prediction.outcome.contract.quantity': 'Quantité de contrats du résultat',
   'prediction.instrument': 'Instrument',
   'prediction.full.collateral.by.published.rule': 'Collatéral intégral selon la règle publiée',
-  'prediction.authoritative.fee': 'Frais faisant autorité',
+  'prediction.authoritative.fee': 'Frais confirmés',
   'prediction.order.admission': 'Admission des ordres',
   'prediction.closing.or.settling.an.event.is.not': 'Clôturer ou régler un événement n’est pas un contrôle client.',
   'quant.sandbox': 'Bac à sable',
@@ -2503,8 +2500,10 @@ const fr = {
   'quant.execution': 'Exécution',
   'quant.simulated.no.live.trading.authority': 'Simulé · aucune autorité de trading réel',
   'quant.strategy.sandbox': 'Bac à sable de stratégies',
-  'quant.isolate': 'Environnement isolé : ',
-  'quant.trade.only.vault': '. Coffre réservé au trading : ',
+  'quant.isolate': 'L’exécuteur de stratégies est connecté.',
+  'quant.runner.off': 'L’exécuteur de stratégies n’est pas encore connecté : les simulations ne peuvent pas s’exécuter.',
+  'quant.trade.only.vault': 'L’accès au marché réservé au trading est configuré pour les stratégies (il ne peut pas retirer de fonds).',
+  'quant.exchange.off': 'L’accès au marché pour les stratégies n’est pas encore configuré.',
   'quant.review.simulated.run': 'Vérifier l’exécution simulée',
   'quant.run.simulation': 'Exécuter la simulation',
   'quant.simulation.received': 'Simulation reçue',
@@ -2517,7 +2516,7 @@ const fr = {
   'quant.strategy.source': 'Code source de la stratégie',
   'quant.review.simulation': 'Vérifier la simulation',
   'quant.live.deployment.requires.a.separate.approved.execution':
-    'Le déploiement réel nécessite un contrat d’exécution distinct et approuvé. Ce bac à sable ne l’accorde pas.',
+    'Passer en réel nécessite une approbation distincte. Ce bac à sable ne peut pas le faire.',
   'quant.simulation.result': 'Résultat de la simulation',
   'quant.cash': 'Liquidités',
   'quant.p.l': 'Pertes et profits',
@@ -2529,8 +2528,7 @@ const fr = {
   'quant.simulated.fills': 'Exécutions simulées',
   'quant.position': 'Position',
   'quant.simulated.positions': 'Positions simulées',
-  'quant.run.the.connected.isolate.to.receive.its':
-    'Exécute l’environnement isolé connecté pour recevoir ses journaux, exécutions et positions.',
+  'quant.run.the.connected.isolate.to.receive.its': 'Lance une simulation pour voir ici ses journaux, ses exécutions et ses positions.',
   'quant.build.a.strategy': 'Créer une stratégie',
   'quant.review.strategy': 'Vérifier la stratégie',
   'quant.save.strategy': 'Enregistrer la stratégie',
@@ -2579,9 +2577,8 @@ const fr = {
   'quant.no.strategies.are.saved': 'Aucune stratégie n’est enregistrée',
   'quant.use': 'Utiliser ',
   'sessionmedia.the.service.returned.an.expired.media.credential':
-    'Le service a renvoyé un identifiant d’accès multimédia expiré. Aucune connexion n’a été démarrée.',
-  'sessionmedia.the.service.media.url.is.not.secure':
-    'L’URL multimédia du service n’est pas sécurisée. Aucun identifiant d’accès ne lui a été envoyé.',
+    'Les informations de connexion ont expiré, aucune connexion n’a donc été lancée.',
+  'sessionmedia.the.service.media.url.is.not.secure': 'L’adresse du média n’est pas sécurisée : rien ne lui a été envoyé.',
   'sessionmedia.the.audio.video.server.could.not.establish':
     'Le serveur audio et vidéo n’a pas pu établir de connexion. Ta place et la scène de la session sont distinctes.',
   'sessionmedia.session.audio.could.not.be.started.check':
@@ -2664,7 +2661,7 @@ const fr = {
   'token.the.token.asset.is.deployment.configurable.stake':
     'L’actif du token est configurable au déploiement. Les réponses de staking et d’accès contiennent des montants, mais aucune association à un actif. Un nom par défaut ne peut pas établir quel actif du grand livre sera déplacé.',
   'token.your.existing.stake.records.remain.readable.a':
-    'Tes enregistrements de staking existants restent consultables. Une identité d’actif publiée et une vérification du mouvement faisant autorité sont nécessaires avant d’ouvrir ces actions.',
+    'Tu vois toujours ton stake actuel. Ces actions s’ouvriront une fois le token publié et ses mouvements examinés.',
   'token.proposals': 'Propositions',
   'token.no.proposals.are.published': 'Aucune proposition n’est publiée',
   'token.proposal': 'Proposition',
@@ -2731,7 +2728,7 @@ const fr = {
   'workbook.quantity': 'Quantité',
   'workbook.published.simulated.fills': 'Exécutions simulées publiées',
   'workbook.a.maximum.of.100.fills.can.be':
-    'Un maximum de 100 exécutions peut être consulté pour ce symbole. Aucun prix d’exécution, aucune quantité ni valorisation future n’est saisi dans cet exercice. Le dernier prix négocié ne remplace pas une valorisation faisant autorité.',
+    'Jusqu’à 100 exécutions peuvent être chargées pour ce symbole. Aucun prix d’exécution, quantité ni prix futur n’est saisi dans cet exercice, et le dernier prix négocié ne remplace pas un prix confirmé.',
   'workbook.read.drill.result': 'Consulter le résultat de l’exercice',
   'workbook.progress': 'Progression',
   'workbook.complete': 'Terminé',
@@ -2741,11 +2738,11 @@ const fr = {
   'workbook.unrealised.p.l': 'Pertes et profits latents',
   'workbook.total.p.l': 'Pertes et profits totaux',
   'common.showing': 'Affichage de ',
-  'common.requested.limit': ' · limite demandée ',
-  'common.this.service.publishes.no.continuation.cursor': '. Ce service ne publie aucun curseur de continuation.',
-  'common.load.a.larger.window': 'Charger une fenêtre plus grande',
-  'common.the.published.limit.is': 'La limite publiée est ',
-  'common.older.rows.cannot.be.requested.here': ' ; les lignes plus anciennes ne peuvent pas être demandées ici.',
+  'common.requested.limit': ' · jusqu’à ',
+  'common.this.service.publishes.no.continuation.cursor': ' à la fois.',
+  'common.load.a.larger.window': 'Afficher plus',
+  'common.the.published.limit.is': 'Le maximum affichable est de ',
+  'common.older.rows.cannot.be.requested.here': ' ; les entrées plus anciennes ne peuvent pas être chargées ici.',
   'common.earlier.request.with.unreadable.recovery.metadata': 'demande antérieure avec des métadonnées de récupération illisibles',
   'common.the.account.or.pending.request.changed.review': 'Le compte ou la demande en attente a changé. Vérifie à nouveau.',
   'common.recovery.storage.is.unavailable.no.action.was': 'Le stockage de récupération est indisponible. Aucune action n’a été envoyée.',
@@ -2768,7 +2765,7 @@ const fr = {
   'common.the.service.enforces.your.scope.and.jurisdiction': '. Le service applique ses règles d’accès et de juridiction.',
   'common.back': 'Retour',
   'academy.authoritative.identity.rank.perks.returned.academy.holds':
-    'Avantages du rang d’identité faisant autorité reçus ; Academy ne détient aucun fonds lié aux avantages',
+    'Avantages de ton rang d’identité. L’Académie ne détient aucun argent d’avantages.',
   'academyprogrammes.no.decision.recorded': 'Aucune décision enregistrée',
   'academyprogrammes.end.not.supplied': 'Fin non fournie',
   'academyrooms.no.client.adapter.is.published.for.provider': 'Aucun adaptateur client n’est publié pour le fournisseur {value1}.',
@@ -2778,13 +2775,13 @@ const fr = {
   'agents.product.boundaries': 'Limites du produit',
   'agents.a.spend.cap.or.its.fee.asset': 'Un plafond de dépenses ou son actif de frais est indisponible',
   'agents.the.runsession.contracts.require.a.caller.supplied':
-    'Les contrats runSession nécessitent une matrice de niveaux fournie par l’appelant. Aucune publication des règles de niveaux client faisant autorité n’est connectée. Un client ne peut pas déclarer sa propre matrice de droits ; les exécutions étayées d’outils restent donc indisponibles.',
+    'Les exécutions d’outils nécessitent un plan de niveaux qui n’est pas encore publié, et tu ne peux pas définir le tien : elles restent donc indisponibles.',
   'agents.signal.ranking.also.requires.a.sealed.input':
     'Le classement des signaux nécessite également des règles d’entrée scellées et une matrice de niveaux. Aucun des deux n’est publié via une consultation propre au client. Aucun cours, aucune règle de classement ni aucun nombre de signaux n’est inventé.',
   'agents.a.published.threshold.minimum.sample.count.rail':
-    'Un seuil publié, un nombre minimal d’échantillons, une liste de canaux autorisés et un contexte de métriques propres au marchand sont nécessaires. Ils ne sont pas disponibles en tant que contrat de configuration client.',
+    'Cela nécessite des seuils publiés, une taille d’échantillon minimale, une liste approuvée de voies de paiement et tes indicateurs de commerçant. Rien de tout cela ne peut encore être défini ici.',
   'agents.leader.fixtures.must.come.from.the.live':
-    'Les données des leaders doivent provenir de la source active avec une liste d’autorisation. Les pertes et profits saisis par l’utilisateur ne sont pas une donnée faisant autorité. Les habilitations de Copy et les données réelles des leaders se trouvent dans Trade.',
+    'Les données des leaders doivent provenir de la source en direct avec une liste approuvée. Un résultat saisi à la main n’est pas accepté. Les réglages de copie et les vraies données des leaders se trouvent dans Trade.',
   'agents.the.service.portfolio.port.is.unconnected.no':
     'Le port de portefeuille du service est déconnecté. Aucune position détenue, aucune jambe d’ordre cible ni aucun rééquilibrage réel n’est fabriqué.',
   'agents.draft.assessment.is.not.issuance.screening.list':
@@ -2795,7 +2792,7 @@ const fr = {
   'availabilityrooms.missing.a.round.service.published.sale.terms':
     'Il manque un service de tours, des conditions de vente publiées, une admission par juridiction et niveau, des enregistrements de participation délimités et des opérations de souscription et d’allocation du grand livre.',
   'availabilityrooms.parked.chain.work.remains.unstarted.no.chain':
-    'Le travail de chaîne n’a pas encore démarré. Ce salon n’appelle aucune procédure de chaîne ni de déploiement.',
+    'Le travail de chaîne n’a pas encore démarré. Ce salon ne lance aucune chaîne ni aucun déploiement.',
   'blueprint.identity.blueprint.card': 'Carte Identity Blueprint de {value1}',
   'blueprint.answer.key.2': 'Clé de la réponse {value1}',
   'blueprint.your.answer.2': 'Ta réponse {value1}',
@@ -2843,10 +2840,10 @@ const fr = {
   'token.open.proposal': 'Ouvrir la proposition {value1}',
   'token.hidden.asset.identity.unavailable': 'Masqué · identité de l’actif indisponible',
   'token.service.policy': 'Politique du service',
-  'token.determined.by.your.authoritative.stake.when.cast': 'Déterminé par ton staking faisant autorité au moment du vote',
+  'token.determined.by.your.authoritative.stake.when.cast': 'Fixé par ton stake au moment du vote',
   'workbook.attach.fill': 'Joindre l’exécution {value1}',
   'workbook.quote.asset.identity.unavailable': 'identité de l’actif de cotation indisponible',
-  'workbook.unavailable.no.authoritative.mark': 'Indisponible : aucune valorisation faisant autorité',
+  'workbook.unavailable.no.authoritative.mark': 'Indisponible : aucun prix confirmé',
   'academy.learning': 'Apprentissage',
   'academy.certificates': 'Certificats',
   'academy.rooms': 'Salons',

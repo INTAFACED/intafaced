@@ -1377,6 +1377,9 @@ export class TradeService {
     }
     const orderType: OrderType = requireSupportedType(input.type);
     let tif: TimeInForce = input.seeded === true ? 'PO' : (input.tif ?? 'GTC');
+    if (tif === 'MOC') {
+      throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
+    }
     const expectedSeeded = market.paper ? false : seeded;
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);
@@ -2848,7 +2851,7 @@ export class TradeService {
     // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
     const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
     if (makerIsHouseMm || makerIsHouseMmRow) {
-      const rates = this.ratesForFill(0, taker.feeDiscountBps);
+      const rates = this.ratesForFill(0, taker.feeDiscountBps, market.kind);
       const takerBuys = fill.takerSide === 'buy';
       // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
       // (recipe throws; re-run throws). Inserting first left remainingHold
@@ -3013,7 +3016,7 @@ export class TradeService {
     // Both rates in one place: `tradeFill` posts them in one six-entry
     // transaction, and resolving them apart would let one side's rounding drift
     // from the other's without anything failing.
-    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps);
+    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind);
 
     const takerBuys = fill.takerSide === 'buy';
     // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe
@@ -3233,12 +3236,16 @@ export class TradeService {
     }
   }
 
-  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number) {
+  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number, kind: 'spot' | 'futures' | 'options' = 'spot') {
+    if (kind === 'options') {
+      throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
+    }
     try {
-      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps);
+      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps, kind === 'futures' ? 'perpetual' : 'spot');
     } catch (err) {
       if (err instanceof FeeScheduleError) {
-        throw new TradeError(err.message, 'trade.fee_schedule_blank');
+        const code = err.code === 'trade.fee_product_unpublished' ? 'trade.fee_product_unpublished' : 'trade.fee_schedule_blank';
+        throw new TradeError(err.message, code);
       }
       throw err;
     }

@@ -11,6 +11,8 @@ export interface PayOperations {
   getPaymentLinks(input: PayCallInput): Promise<PayPaymentLinkPage>;
   /** Create a payment link */
   postPaymentLinks(input: PayCallInput): Promise<PayResponse>;
+  /** Read one payment link, including its checkout path when stored */
+  getPaymentLinksById(input: PayCallInput & { readonly params: { readonly id: string } }): Promise<PayResponse>;
   /** Deactivate a payment link */
   deletePaymentLinksById(input: PayCallInput & { readonly params: { readonly id: string } }): Promise<PayResponse>;
   /** List a merchant’s payments, newest first */
@@ -58,6 +60,9 @@ export function bindOperations(client: PayClient): PayOperations {
     },
     postPaymentLinks(input) {
       return client.call({ ...input, method: 'POST', path: '/payment-links', idempotency: true });
+    },
+    getPaymentLinksById(input) {
+      return client.call({ ...input, method: 'GET', path: '/payment-links/{id}', idempotency: false });
     },
     deletePaymentLinksById(input) {
       return client.call({ ...input, method: 'DELETE', path: '/payment-links/{id}', idempotency: false });

@@ -1,7 +1,14 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
-import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
+import {
+  assertDelegatableScopes,
+  issueAccessToken,
+  scopesForFounderSession,
+  SESSION_SCOPES,
+  type Scope,
+  type TokenConfig,
+} from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import {
   assertPasswordShape,
@@ -346,6 +353,8 @@ export class AuthService {
    * ordinary session.
    */
   private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
+  /** Live founder directory. Unset means no founder desk scopes (fail closed). */
+  private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -404,6 +413,30 @@ export class AuthService {
   /** Test clock. Production uses the real clock. */
   usePasswordResetClock(now: () => Date): void {
     this.passwordResetNow = now;
+  }
+
+  /** Founder desk scopes are added only when this directory says the user is a live founder. */
+  useFounderDirectory(directory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined): void {
+    this.founderDirectory = directory;
+  }
+
+  private async founderScopesOn(base: readonly Scope[], userId: string, mfa: boolean, query?: Sql): Promise<Scope[]> {
+    let founder = false;
+    try {
+      founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
+    } catch {
+      founder = false;
+    }
+    return scopesForFounderSession(base, { founder, mfa });
+  }
+
+  /**
+   * Session scopes, the owner pay grant, then founder desk scopes.
+   * The pay lookup is a network call. Do not call this inside a session transaction.
+   */
+  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    const pay = await this.scopesForNewAccessToken(userId);
+    return this.founderScopesOn([...pay, ...extra], userId, mfa, query);
   }
 
   private resetDeps() {
@@ -654,7 +687,7 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesForNewAccessToken(userId);
+    const scopes = await this.scopesFor(userId, options.mfa);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
@@ -733,7 +766,9 @@ export class AuthService {
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
-      const scopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
+      // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
+      const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
+      const scopes = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
@@ -1541,6 +1576,85 @@ export class AuthService {
     });
   }
 
+  /**
+   * What the customer step-up sheet can ask for. A passkey challenge issued here
+   * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
+   * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
+   */
+  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+    const rows = await this.sql<
+      Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const credentials = asCredentialList(user.webauthn_creds);
+    const totpEnrolled = typeof user.totp_secret === 'string' && user.totp_secret.length > 0;
+    if (!totpEnrolled && credentials.length === 0) {
+      throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+    }
+    return { totp: totpEnrolled, credentials };
+  }
+
+  passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * Prove a fresh factor for a customer step-up. Does not mint a token.
+   * A recovery code is refused and is not spent. The passkey challenge must be
+   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   */
+  async proveFreshFactor(input: {
+    userId: string;
+    sessionId: string;
+    totpCode?: string;
+    webauthn?: AuthenticationResponseJSON;
+    webauthnChallenge?: string;
+  }): Promise<void> {
+    const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
+    if (hasTotp === hasWebauthn) {
+      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    }
+    const users = await this.sql<
+      Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
+    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const user = users[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const sessions = await this.sql<
+      Array<{ id: string }>
+    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasTotp) {
+      if (!/^\d{6}$/.test(input.totpCode!)) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      if (!user.totp_secret) {
+        throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+      }
+      await this.reserve(input.userId, 'mfa');
+      const secret = this.tryOpenTotpSecret(input.userId, user.totp_secret);
+      if (secret === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.consumeTotpCode(input.userId, secret, input.totpCode!);
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
+    const expected = input.webauthnChallenge;
+    if (!expected) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    if (asCredentialList(user.webauthn_creds).length === 0) {
+      throw new AuthError('Enrol a security key before confirming with a passkey', 'auth.webauthn_not_enrolled');
+    }
+    const clientChallenge = readClientChallenge(input.webauthn!.response.clientDataJSON);
+    if (!clientChallenge || clientChallenge !== expected) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    });
+  }
+
   async stepUp(input: {
     userId: string;
     sessionId: string;
@@ -1585,7 +1699,7 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes: Scope[] = [...(await this.scopesForNewAccessToken(input.userId)), ...STEP_UP_SCOPES];
+    const scopes = await this.scopesFor(input.userId, true, STEP_UP_SCOPES);
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },

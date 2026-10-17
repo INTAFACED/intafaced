@@ -147,6 +147,10 @@ describe('CandleHub — the current candle', () => {
     const a = new FakeSink();
     expect(hub({ maxLagTicks: undefined }).attach('B', '1m', a, T0)).toBeNull();
     expect(a.closed?.code).toBe(CLOSE_POLICY);
+    const noMax = new FakeSink();
+    expect(hub({ maxConnections: undefined }).attach('B', '1m', noMax, T0)).toBeNull();
+    expect(noMax.closed?.code).toBe(CLOSE_POLICY);
+    expect(noMax.closed?.reason).toContain('mux_max_seats_unset');
     const h = hub({ maxConnections: 1 });
     h.attach('B', '1m', new FakeSink(), T0);
     const b = new FakeSink();

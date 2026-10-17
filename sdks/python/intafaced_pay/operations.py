@@ -79,6 +79,27 @@ class PayOperations:
             max_retries=max_retries,
         )
 
+    def get_payment_links_by_id(
+        self,
+        *,
+        body=None,
+        query=None,
+        params=None,
+        idempotency_key=None,
+        max_retries=None,
+    ):
+        """GET /payment-links/{id} — Read one payment link, including its checkout path when stored"""
+        return self._client.call(
+            "GET",
+            "/payment-links/{id}",
+            body=body,
+            query=query,
+            params=params,
+            idempotency=False,
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+        )
+
     def delete_payment_links_by_id(
         self,
         *,

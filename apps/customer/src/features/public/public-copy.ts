@@ -7,6 +7,7 @@ const messages = {
   About: 'About',
   'Create account': 'Create account',
   'Sign in': 'Sign in',
+  'Open your account': 'Open your account',
   Notices: 'Notices',
   Partners: 'Partners',
   'Your money. Your decisions.': 'Your money. Your decisions.',
@@ -107,9 +108,6 @@ const messages = {
   'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
   'Create an account ↗': 'Create an account ↗',
-  'Password recovery is not connected': 'Password recovery is not connected',
-  'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.',
   'Contact support': 'Contact support',
   'No public announcements service is connected': 'No public announcements service is connected',
   'Account notifications belong to your private inbox. They are not public announcements.':
@@ -124,7 +122,7 @@ const messages = {
     'A published partner contact or intake form is not available. This screen does not submit an application.',
   'Campaign catalogue is not connected': 'Campaign catalogue is not connected',
   'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-    'No public campaign contract or published campaign list is available. There are no invented promotions here.',
+    'No promotions are published yet, and none are made up here.',
   'Invite from your account': 'Invite from your account',
   'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.',
@@ -141,6 +139,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     About: 'Acerca de',
     'Create account': 'Crear cuenta',
     'Sign in': 'Iniciar sesión',
+    'Open your account': 'Abrir tu cuenta',
     Notices: 'Avisos',
     Partners: 'Socios',
     'Your money. Your decisions.': 'Tu dinero. Tus decisiones.',
@@ -242,9 +241,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
     'Create an account ↗': 'Crear una cuenta ↗',
-    'Password recovery is not connected': 'La recuperación de contraseña no está conectada',
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-      'El servicio de identidad ofrece inicio de sesión, renovación y seguridad, pero no un contrato para restablecer contraseñas de clientes. Aún no se puede solicitar aquí un correo de restablecimiento.',
     'Contact support': 'Contactar con soporte',
     'No public announcements service is connected': 'No hay un servicio de anuncios públicos conectado',
     'Account notifications belong to your private inbox. They are not public announcements.':
@@ -259,7 +255,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'No hay un contacto publicado para socios ni un formulario de solicitud disponible. Esta pantalla no envía solicitudes.',
     'Campaign catalogue is not connected': 'El catálogo de campañas no está conectado',
     'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-      'No hay un contrato de campañas públicas ni una lista de campañas publicada. Aquí no se inventan promociones.',
+      'Aún no hay promociones publicadas y aquí no se inventa ninguna.',
     'Invite from your account': 'Invita desde tu cuenta',
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
       'Las relaciones de referidos y la actividad de invitaciones pertenecen a la cuenta con sesión iniciada. Inicia sesión para ver las herramientas de referidos disponibles.',
@@ -274,6 +270,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     About: 'À propos',
     'Create account': 'Créer un compte',
     'Sign in': 'Se connecter',
+    'Open your account': 'Ouvrir votre compte',
     Notices: 'Annonces',
     Partners: 'Partenaires',
     'Your money. Your decisions.': 'Votre argent. Vos décisions.',
@@ -375,9 +372,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
     'Create an account ↗': 'Créer un compte ↗',
-    'Password recovery is not connected': 'La récupération du mot de passe n’est pas connectée',
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-      'Le service d’identité propose la connexion, le renouvellement et la sécurité, mais aucun contrat de réinitialisation de mot de passe client. Aucun e-mail de réinitialisation ne peut encore être demandé ici.',
     'Contact support': 'Contacter l’assistance',
     'No public announcements service is connected': 'Aucun service d’annonces publiques n’est connecté',
     'Account notifications belong to your private inbox. They are not public announcements.':
@@ -392,7 +386,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Aucun contact partenaire publié ni formulaire de demande n’est disponible. Cet écran n’envoie aucune candidature.',
     'Campaign catalogue is not connected': 'Le catalogue des campagnes n’est pas connecté',
     'No public campaign contract or published campaign list is available. There are no invented promotions here.':
-      'Aucun contrat de campagne publique ni liste de campagnes publiée n’est disponible. Aucune promotion n’est inventée ici.',
+      'Aucune promotion n’est encore publiée, et aucune n’est inventée ici.',
     'Invite from your account': 'Invitez depuis votre compte',
     'Referral relationships and invitation activity belong to the signed-in account. Sign in to view the supported referral tools.':
       'Les liens de parrainage et l’activité des invitations appartiennent au compte connecté. Connectez-vous pour consulter les outils de parrainage disponibles.',

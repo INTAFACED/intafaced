@@ -49,6 +49,10 @@ export type ConsumeCas = {
 export interface ActionApprovalStore {
   insert(row: StoredApproval): Promise<StoredApproval>;
   get(approvalId: string): Promise<StoredApproval | null>;
+  /** Newest first. The caller's own rows, any status. */
+  listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]>;
+  /** Newest first. PENDING rows somebody else filed. Audience filtering is the service's job. */
+  listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]>;
   casExpire(approvalId: string, now: Date): Promise<StoredApproval | null>;
   casApprove(approvalId: string, approverId: string, now: Date): Promise<StoredApproval | null>;
   casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
@@ -90,6 +94,20 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
 
   async get(approvalId: string): Promise<StoredApproval | null> {
     return this.rows.get(approvalId) ?? null;
+  }
+
+  async listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.requesterId === requesterId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.approvalId.localeCompare(b.approvalId))
+      .slice(0, limit);
+  }
+
+  async listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.status === 'PENDING' && row.requesterId !== requesterId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.approvalId.localeCompare(b.approvalId))
+      .slice(0, limit);
   }
 
   async casExpire(approvalId: string, now: Date): Promise<StoredApproval | null> {
@@ -233,6 +251,26 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
       SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals WHERE approval_id = ${approvalId} LIMIT 1
     `;
     return rows[0] ? fromDb(rows[0]) : null;
+  }
+
+  async listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    const rows = await this.sql<DbRow[]>`
+      SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals
+      WHERE requester_id = ${requesterId}
+      ORDER BY created_at DESC, approval_id ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(fromDb);
+  }
+
+  async listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    const rows = await this.sql<DbRow[]>`
+      SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals
+      WHERE status = 'PENDING' AND requester_id <> ${requesterId}
+      ORDER BY created_at DESC, approval_id ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(fromDb);
   }
 
   async casExpire(approvalId: string, now: Date): Promise<StoredApproval | null> {

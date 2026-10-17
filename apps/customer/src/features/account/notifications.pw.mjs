@@ -169,7 +169,7 @@ test('selected original survives loading, failed, empty and restored inbox reads
     await expect(page.getByRole('region', { name: 'Selected notification' })).toContainText(first);
     await expect(page.getByRole('region', { name: 'Delivery details' })).toHaveCount(0);
     await expect(
-      page.getByText(value === 'empty' ? 'No notifications returned' : 'Notification source unavailable', { exact: true }),
+      page.getByText(value === 'empty' ? 'No notifications yet' : 'Notification source unavailable', { exact: true }),
     ).toBeVisible();
   }
   state = 'ready';
@@ -209,7 +209,7 @@ test('uncertain mute is not success and another change waits for a fresh current
   expect(calls.writes.filter((call) => call.procedure === 'notify.setMute')).toHaveLength(1);
   fail = false;
   await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
-  await expect(page.getByText('The service returned the current account preferences.', { exact: true })).toBeVisible();
+  await expect(page.getByText('These are your current notification preferences.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mute Email', exact: true })).toBeEnabled();
   expect(calls.writes.filter((call) => call.procedure === 'notify.setMute')).toHaveLength(1);
   await page.getByRole('button', { name: 'Mute Email', exact: true }).click();
@@ -223,7 +223,7 @@ test('delivery empty and malformed results never claim message delivery', async 
   });
   await signIn(page);
   await page.getByRole('button', { name: 'Inspect delivery', exact: true }).click();
-  await expect(page.getByText('No delivery records returned')).toBeVisible();
+  await expect(page.getByText('No delivery records yet')).toBeVisible();
   state = 'bad';
   await page.getByRole('button', { name: 'Refresh delivery details', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Delivery details' })).toContainText('could not be verified');
@@ -368,12 +368,12 @@ test('missing preferences and empty copy stay unknown instead of becoming an unm
   await expect(page.getByRole('article', { name: 'Notification text is unavailable' })).toContainText(
     'This notification’s details are not published.',
   );
-  const controls = page.getByRole('button', { name: 'Preference not returned', exact: true });
+  const controls = page.getByRole('button', { name: 'No preference saved', exact: true });
   await expect(controls).toHaveCount(3);
   for (const control of await controls.all()) {
     await expect(control).toBeDisabled();
     await expect(control).not.toHaveAttribute('aria-pressed');
   }
-  await expect(page.getByText('Channel status not returned', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('Channel status unavailable', { exact: true })).toHaveCount(3);
   expect(calls.writes.filter((call) => call.procedure.startsWith('notify.'))).toEqual([]);
 });
