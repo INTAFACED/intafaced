@@ -86,6 +86,29 @@ describe('D26-P1-P5 fraud review queue', () => {
     expect(q.listOpen('m1', 50)).toHaveLength(0);
   });
 
+  it('refuses another merchant the same id and returns nothing of the case', () => {
+    const q = new MemoryFraudReviewQueue();
+    const decision = evaluateFraud({
+      merchantId: 'm1',
+      amount: '100',
+      assetId: 'USDT',
+      recentPaymentCount: 9,
+      thresholds: { maxPaymentsInWindow: 2 },
+    });
+    const owned = q.enqueue({ id: 'rev-foreign', merchantId: 'm1', amount: '100', assetId: 'USDT', decision });
+    let refused: unknown;
+    try {
+      q.enqueue({ id: 'rev-foreign', merchantId: 'm2', amount: '1', assetId: 'USDT', decision });
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(FraudReviewError);
+    expect((refused as FraudReviewError).code).toBe('pay.fraud_review_not_found');
+    expect((refused as FraudReviewError).message).not.toContain('m1');
+    expect((refused as FraudReviewError).message).not.toContain('100');
+    expect(q.get('rev-foreign')).toEqual(owned);
+  });
+
   it('claim is idempotent for the same operator and refuses a second operator', () => {
     const q = new MemoryFraudReviewQueue();
     const decision = evaluateFraud({

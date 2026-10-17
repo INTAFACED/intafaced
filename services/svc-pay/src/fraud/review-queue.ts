@@ -101,6 +101,8 @@ export interface FraudReviewQueue {
 /** Process-local queue. Production reads and writes `PostgresFraudReviewQueue`. */
 export class MemoryFraudReviewQueue implements FraudReviewQueue {
   private readonly cases = new Map<string, FraudReviewCase>();
+  /** Memory cases are merchant fraud reviews. A found id with another merchant or source is not found. */
+  private readonly sources = new Map<string, 'fraud.review'>();
 
   enqueue(input: EnqueueFraudReviewInput): FraudReviewCase {
     if (input.decision.outcome !== 'review') {
@@ -110,7 +112,12 @@ export class MemoryFraudReviewQueue implements FraudReviewQueue {
       throw new FraudReviewError('Review cases require explainable reasons (SPEC §3)', 'pay.fraud_review_not_review');
     }
     const existing = this.cases.get(input.id);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.merchantId !== input.merchantId || this.sources.get(input.id) !== 'fraud.review') {
+        throw new FraudReviewError(`No fraud review case ${input.id}`, 'pay.fraud_review_not_found');
+      }
+      return existing;
+    }
 
     const createdAt = (input.now ?? new Date()).toISOString();
     const createdBy = input.createdBy?.trim() || 'enqueue';
@@ -137,6 +144,7 @@ export class MemoryFraudReviewQueue implements FraudReviewQueue {
       resolutionNote: null,
     };
     this.cases.set(row.id, row);
+    this.sources.set(row.id, 'fraud.review');
     return row;
   }
 

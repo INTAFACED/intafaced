@@ -3,7 +3,7 @@
 --
 -- A held or flagged payment keeps a case across process restart. The case row
 -- is the current status. pay.fraud_review_decisions is the append-only record
--- of enqueue, claim, allow, and decline. One payment_ref has one case.
+-- of enqueue, claim, allow, and decline. One source and payment_ref has one case.
 
 CREATE TABLE IF NOT EXISTS "pay"."fraud_review_cases" (
   "id" text PRIMARY KEY,
@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS "pay"."fraud_review_cases" (
     )
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS "fraud_review_cases_payment_ref_uidx"
-  ON "pay"."fraud_review_cases" ("payment_ref")
+CREATE UNIQUE INDEX IF NOT EXISTS "fraud_review_cases_source_payment_ref_uidx"
+  ON "pay"."fraud_review_cases" ("source", "payment_ref")
   WHERE "payment_ref" IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS "fraud_review_cases_open_idx"

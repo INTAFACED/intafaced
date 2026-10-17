@@ -1544,6 +1544,12 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.fraud.enqueueReview');
+            if (input.paymentId) {
+              const payment = await pay.getPayment(input.paymentId);
+              if (payment.merchantId !== input.merchantId) {
+                throw new PayError(`Payment ${input.paymentId} not found`, 'pay.payment_not_found');
+              }
+            }
             try {
               const decision = evaluateFraud({
                 merchantId: input.merchantId,
@@ -1584,7 +1590,11 @@ export function createPayRouter(
               };
             } catch (e) {
               if (e instanceof FraudReviewError) {
-                throw new TRPCError({ code: 'BAD_REQUEST', message: `${e.code}: ${e.message}`, cause: e });
+                throw new TRPCError({
+                  code: e.code === 'pay.fraud_review_not_found' ? 'NOT_FOUND' : 'BAD_REQUEST',
+                  message: `${e.code}: ${e.message}`,
+                  cause: e,
+                });
               }
               throw e;
             }

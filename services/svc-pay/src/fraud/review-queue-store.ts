@@ -6,9 +6,10 @@ import { assertFraudReviewListLimit, FraudReviewError, type FraudReviewStatus } 
 /**
  * Durable fraud review queue.
  *
- * One row per payment ref. A second flag or a second screening review of the
- * same ref returns the row that is already there. Decisions are inserted once
- * per effect; a repeated allow or decline does not write another row.
+ * One row per source and payment ref. A second flag or a second screening
+ * review of the same source and ref returns the row that is already there.
+ * A merchant fraud review does not occupy the system hold. Decisions are
+ * inserted once per effect; a repeated allow or decline does not write another row.
  *
  * The case row holds the current status. `pay.fraud_review_decisions` is
  * append-only.
@@ -155,13 +156,38 @@ async function readById(query: Query, id: string): Promise<DurableReviewCase | n
   return rows[0] ? toCase(rows[0]) : null;
 }
 
-async function readByRef(query: Query, paymentRef: string): Promise<DurableReviewCase | null> {
+async function readBySourceAndRef(query: Query, source: ReviewSource, paymentRef: string): Promise<DurableReviewCase | null> {
   const rows = await query<CaseRow[]>`
     SELECT id, merchant_id, payment_ref, amount::text AS amount, asset_id, status, reason, reasons, source,
            created_by, created_at, claimed_by, claimed_at, decided_by, decided_at, resolution_note
       FROM pay.fraud_review_cases
-     WHERE payment_ref = ${paymentRef}`;
+     WHERE source = ${source} AND payment_ref = ${paymentRef}`;
   return rows[0] ? toCase(rows[0]) : null;
+}
+
+async function readAllByRef(query: Query, paymentRef: string): Promise<DurableReviewCase[]> {
+  const rows = await query<CaseRow[]>`
+    SELECT id, merchant_id, payment_ref, amount::text AS amount, asset_id, status, reason, reasons, source,
+           created_by, created_at, claimed_by, claimed_at, decided_by, decided_at, resolution_note
+      FROM pay.fraud_review_cases
+     WHERE payment_ref = ${paymentRef}
+     ORDER BY source, id`;
+  return rows.map(toCase);
+}
+
+/** A merchant enqueue may return only its own fraud.review row. Anything else is not found. */
+function adoptFraudReview(rows: readonly DurableReviewCase[], merchantId: string, reportedId: string): DurableReviewCase | null {
+  if (rows.length === 0) return null;
+  const own = rows.find((row) => row.source === 'fraud.review' && row.merchantId === merchantId);
+  if (own) return own;
+  throw new FraudReviewError(`No fraud review case ${reportedId}`, 'pay.fraud_review_not_found');
+}
+
+function requireOwnFraudReview(found: DurableReviewCase, merchantId: string, reportedId: string): DurableReviewCase {
+  if (found.merchantId !== merchantId || found.source !== 'fraud.review') {
+    throw new FraudReviewError(`No fraud review case ${reportedId}`, 'pay.fraud_review_not_found');
+  }
+  return found;
 }
 
 async function lockById(query: Query, id: string): Promise<DurableReviewCase | null> {
@@ -175,8 +201,9 @@ async function lockById(query: Query, id: string): Promise<DurableReviewCase | n
 }
 
 /**
- * Open one case for a held or flagged payment. A second call with the same
- * payment ref returns the existing case and writes no second enqueue decision.
+ * Open one case for a held or flagged payment of this source. A second call
+ * with the same source and payment ref returns that case and writes no second
+ * enqueue decision. A fraud.review row on the same ref is not this case.
  */
 export async function enqueueHeldPayment(query: Query, input: HeldPaymentInput): Promise<DurableReviewCase> {
   const paymentRef = requiredText(input.paymentRef, 'payment ref');
@@ -189,28 +216,52 @@ export async function enqueueHeldPayment(query: Query, input: HeldPaymentInput):
     throw new FraudReviewError('A held or flagged payment needs an explainable reason', 'pay.fraud_review_not_review');
   }
   const amount = money(input.amount);
-  const id = `held:${paymentRef}`;
   const createdAt = input.now ?? new Date();
-  const existing = await readByRef(query, paymentRef);
+  const existing = await readBySourceAndRef(query, input.source, paymentRef);
   if (existing) return existing;
-  const inserted = await query<CaseRow[]>`
-    INSERT INTO pay.fraud_review_cases (
-      id, merchant_id, payment_ref, amount, asset_id, status, reason, reasons, source, created_by, created_at
-    ) VALUES (
-      ${id}, ${merchantId}, ${paymentRef}, ${amount}, ${assetId}, 'open', ${reason},
-      ${query.json(reasons as never)}, ${input.source}, ${createdBy}, ${createdAt}
-    )
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id, merchant_id, payment_ref, amount::text AS amount, asset_id, status, reason, reasons, source,
-              created_by, created_at, claimed_by, claimed_at, decided_by, decided_at, resolution_note`;
-  const row = inserted[0] ? toCase(inserted[0]) : await readById(query, id);
-  if (!row) throw new FraudReviewError(`No fraud review case ${id}`, 'pay.fraud_review_not_found');
-  if (inserted[0]) {
+  const id = await heldCaseId(query, input.source, paymentRef);
+  try {
+    const inserted = await query<CaseRow[]>`
+      INSERT INTO pay.fraud_review_cases (
+        id, merchant_id, payment_ref, amount, asset_id, status, reason, reasons, source, created_by, created_at
+      ) VALUES (
+        ${id}, ${merchantId}, ${paymentRef}, ${amount}, ${assetId}, 'open', ${reason},
+        ${query.json(reasons as never)}, ${input.source}, ${createdBy}, ${createdAt}
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id, merchant_id, payment_ref, amount::text AS amount, asset_id, status, reason, reasons, source,
+                created_by, created_at, claimed_by, claimed_at, decided_by, decided_at, resolution_note`;
+    if (!inserted[0]) {
+      const again = await readBySourceAndRef(query, input.source, paymentRef);
+      if (again) return again;
+      throw new FraudReviewError(`No fraud review case ${id}`, 'pay.fraud_review_not_found');
+    }
+    const row = toCase(inserted[0]);
+    if (row.source !== input.source || row.paymentRef !== paymentRef) {
+      throw new FraudReviewError(`No fraud review case ${id}`, 'pay.fraud_review_not_found');
+    }
     await query`
       INSERT INTO pay.fraud_review_decisions (case_id, effect, actor_id, note, decided_at)
       VALUES (${row.id}, 'enqueue', ${createdBy}, ${reason}, ${createdAt})`;
+    return row;
+  } catch (error) {
+    if (error instanceof FraudReviewError) throw error;
+    if (pgCode(error) === '23505') {
+      const again = await readBySourceAndRef(query, input.source, paymentRef);
+      if (again) return again;
+    }
+    throw error;
   }
-  return row;
+}
+
+/** Prefer `held:<ref>`. If a merchant already took that id, use a source-qualified id. Never adopt their row. */
+async function heldCaseId(query: Query, source: ReviewSource, paymentRef: string): Promise<string> {
+  const candidates = [`held:${paymentRef}`, `held:${source}:${paymentRef}`];
+  for (const id of candidates) {
+    const owner = await readById(query, id);
+    if (!owner || (owner.source === source && owner.paymentRef === paymentRef)) return id;
+  }
+  throw new FraudReviewError(`No fraud review case held:${paymentRef}`, 'pay.fraud_review_not_found');
 }
 
 export async function assertScreeningReviewHasCase(query: Query, subjectKind: string, subjectKey: string): Promise<void> {
@@ -219,7 +270,7 @@ export async function assertScreeningReviewHasCase(query: Query, subjectKind: st
      WHERE subject_kind = ${subjectKind} AND subject_key = ${subjectKey}`;
   if (held[0]?.status !== 'review') return;
   const paymentRef = `screening:${subjectKind}:${subjectKey}`;
-  const found = await readByRef(query, paymentRef);
+  const found = await readBySourceAndRef(query, 'screening.review', paymentRef);
   if (!found) {
     throw new FraudReviewError(`held payment ${paymentRef} has no fraud review case`, 'pay.fraud_review_missing_case');
   }
@@ -232,7 +283,7 @@ export async function assertFlaggedPaymentHasCase(query: Query, paymentId: strin
        AND outcome = 'flagged'
        AND after->>'paymentId' = ${paymentId}`;
   if (!flags[0]) return;
-  const found = await readByRef(query, paymentId);
+  const found = await readBySourceAndRef(query, 'control.captured_over_cap', paymentId);
   if (!found) {
     throw new FraudReviewError(`held payment ${paymentId} has no fraud review case`, 'pay.fraud_review_missing_case');
   }
@@ -254,27 +305,30 @@ export class PostgresFraudReviewQueue {
     if (input.decision.outcome !== 'review' || input.decision.reasons.length === 0) {
       throw new FraudReviewError('Only evaluate outcomes of review may enter the fraud review queue', 'pay.fraud_review_not_review');
     }
+    const merchantId = requiredText(input.merchantId, 'merchant');
     const paymentRef = input.paymentId?.trim() || null;
     if (paymentRef) {
-      const existing = await readByRef(this.sql, paymentRef);
-      if (existing) return existing;
+      const adopted = adoptFraudReview(await readAllByRef(this.sql, paymentRef), merchantId, input.id);
+      if (adopted) return adopted;
     }
     const byId = await readById(this.sql, input.id);
-    if (byId) return byId;
+    if (byId) return requireOwnFraudReview(byId, merchantId, input.id);
     const reason = input.decision.reasons.map((item) => item.detail).join('; ');
     const createdBy = input.createdBy?.trim() || 'fraud.enqueue';
     try {
       return await this.sql.begin(async (tx) => {
         if (paymentRef) {
-          const raced = await readByRef(tx, paymentRef);
-          if (raced) return raced;
+          const adopted = adoptFraudReview(await readAllByRef(tx, paymentRef), merchantId, input.id);
+          if (adopted) return adopted;
         }
+        const racedId = await readById(tx, input.id);
+        if (racedId) return requireOwnFraudReview(racedId, merchantId, input.id);
         const createdAt = input.now ?? new Date();
         const inserted = await tx<CaseRow[]>`
           INSERT INTO pay.fraud_review_cases (
             id, merchant_id, payment_ref, amount, asset_id, status, reason, reasons, source, created_by, created_at
           ) VALUES (
-            ${input.id}, ${requiredText(input.merchantId, 'merchant')}, ${paymentRef}, ${money(input.amount)},
+            ${input.id}, ${merchantId}, ${paymentRef}, ${money(input.amount)},
             ${requiredText(input.assetId, 'asset')}, 'open', ${requiredText(reason, 'reason')},
             ${tx.json(input.decision.reasons as never)}, 'fraud.review', ${createdBy}, ${createdAt}
           )
@@ -282,9 +336,13 @@ export class PostgresFraudReviewQueue {
           RETURNING id, merchant_id, payment_ref, amount::text AS amount, asset_id, status, reason, reasons, source,
                     created_by, created_at, claimed_by, claimed_at, decided_by, decided_at, resolution_note`;
         if (!inserted[0]) {
-          const again = (paymentRef ? await readByRef(tx, paymentRef) : null) ?? (await readById(tx, input.id));
+          if (paymentRef) {
+            const adopted = adoptFraudReview(await readAllByRef(tx, paymentRef), merchantId, input.id);
+            if (adopted) return adopted;
+          }
+          const again = await readById(tx, input.id);
           if (!again) throw new FraudReviewError(`No fraud review case ${input.id}`, 'pay.fraud_review_not_found');
-          return again;
+          return requireOwnFraudReview(again, merchantId, input.id);
         }
         await tx`
           INSERT INTO pay.fraud_review_decisions (case_id, effect, actor_id, note, decided_at)
@@ -292,9 +350,14 @@ export class PostgresFraudReviewQueue {
         return toCase(inserted[0]);
       });
     } catch (error) {
-      if (pgCode(error) === '23505' && paymentRef) {
-        const existing = await readByRef(this.sql, paymentRef);
-        if (existing) return existing;
+      if (error instanceof FraudReviewError) throw error;
+      if (pgCode(error) === '23505') {
+        if (paymentRef) {
+          const adopted = adoptFraudReview(await readAllByRef(this.sql, paymentRef), merchantId, input.id);
+          if (adopted) return adopted;
+        }
+        const again = await readById(this.sql, input.id);
+        if (again) return requireOwnFraudReview(again, merchantId, input.id);
       }
       throw error;
     }
@@ -304,8 +367,9 @@ export class PostgresFraudReviewQueue {
     return readById(this.sql, id);
   }
 
-  getByPaymentRef(paymentRef: string): Promise<DurableReviewCase | null> {
-    return readByRef(this.sql, paymentRef);
+  async getByPaymentRef(paymentRef: string): Promise<DurableReviewCase | null> {
+    const rows = await readAllByRef(this.sql, paymentRef);
+    return rows.find((row) => row.source === 'fraud.review') ?? (rows.length === 1 ? rows[0]! : null);
   }
 
   async listOpen(merchantId: string | undefined, limit: number | undefined): Promise<readonly DurableReviewCase[]> {
