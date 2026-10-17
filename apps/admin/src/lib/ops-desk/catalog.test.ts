@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MODULE_IDS, moduleForApi, moduleForPage } from '@/lib/modules';
 import { ACCOUNT_GAPS } from './accounts-gaps';
-import { DESKS, DESK_IDS, allReads } from './catalog';
+import { DESKS, DESK_IDS, PAY_TRANSFER_DETAIL, allReads } from './catalog';
 import type { DeskSpec, ReadSpec } from './types';
 
 const ROUTER: Record<ReadSpec['module'], string | null> = {
@@ -24,10 +24,16 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   support: null,
   notify: null,
 };
+const personalPayRouter = () =>
+  readFileSync(fileURLToPath(new URL('../../../../../services/svc-bank/src/personal-pay/router.ts', import.meta.url)), 'utf8');
 const source = (service: string) =>
   readFileSync(fileURLToPath(new URL(`../../../../../services/${service}/src/router.ts`, import.meta.url)), 'utf8');
 
-const all = DESK_IDS.flatMap((id) => allReads(DESKS[id]).map((read) => ({ desk: DESKS[id] as DeskSpec, read })));
+// The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
+const all = [
+  ...DESK_IDS.flatMap((id) => allReads(DESKS[id]).map((read) => ({ desk: DESKS[id] as DeskSpec, read }))),
+  { desk: DESKS.pay as DeskSpec, read: PAY_TRANSFER_DETAIL },
+];
 
 describe('every desk is a real console module', () => {
   it.each(DESK_IDS)('%s: page, API and nav belong to its module', (id) => {
@@ -140,6 +146,96 @@ describe('the desks cover what the product order asks for', () => {
       );
     }
   });
+  it('pay: lists lead, then the metrics with their window, then actions; every read is svc-bank’s own operator read', () => {
+    expect(sections('pay')).toEqual(['failures', 'bills', 'global', 'health', 'actions']);
+    const reads = allReads(DESKS.pay);
+    expect(reads.every((r) => r.module === 'bank')).toBe(true);
+    expect(new Set(reads.map((r) => r.procedure))).toEqual(
+      new Set([
+        'ops.failedTransfers',
+        'bills.ops.failed',
+        'bills.ops.summary',
+        'global.ops.failed',
+        'global.ops.summary',
+        'ops.transferHealth',
+      ]),
+    );
+    expect(PAY_TRANSFER_DETAIL.procedure).toBe('ops.transferDetail');
+    expect(DESKS.pay.module).toBe('pay-ops');
+    expect(DESKS.pay.endpoint).toBe('/api/pay-ops');
+  });
+  it('pay: the health reads send the window svc-bank requires, and the titles say it', () => {
+    const health = allReads(DESKS.pay).filter((r) => r.procedure === 'ops.transferHealth');
+    expect(health.map((r) => r.id).sort()).toEqual(
+      ['pay.bills-24h', 'pay.bills-7d', 'pay.oneoff-24h', 'pay.oneoff-7d', 'pay.p2p-pointer', 'pay.standing-24h', 'pay.standing-7d'].sort(),
+    );
+    for (const r of health.filter((x) => x.id !== 'pay.p2p-pointer')) {
+      const hours = r.input?.windowHours;
+      expect(hours === 24 || hours === 168, r.id).toBe(true);
+      expect(r.title, r.id).toMatch(hours === 24 ? /last 24 hours/ : /last 7 days/);
+      // svc-bank refuses a window outside 1 to 720 hours.
+      expect(hours as number).toBeGreaterThanOrEqual(1);
+      expect(hours as number).toBeLessThanOrEqual(720);
+      // Every block states the time svc-bank computed it.
+      expect(
+        r.columns.find((c) => c.key === 'asOf'),
+        r.id,
+      ).toMatchObject({ kind: 'time' });
+    }
+    const failed = allReads(DESKS.pay).find((r) => r.id === 'pay.failed-standing')!;
+    expect(failed.input).toEqual({ windowHours: 168, limit: 50 });
+    expect(failed.page).toBe(50);
+    expect(failed.rowAction).toBe('pay.transfer.detail');
+    expect(failed.forbiddenText).toMatch(/admin:compliance/);
+  });
+  it('pay: the lists that svc-bank pages by size ask for one, because it refuses a blank page size', () => {
+    for (const id of ['pay.bills-failed', 'pay.global-failed']) {
+      const r = allReads(DESKS.pay).find((x) => x.id === id)!;
+      expect(r.input).toEqual({ limit: 50 });
+      expect(r.page).toBe(50);
+    }
+  });
+  it('pay: a one-off failure rate is a dash with its reason, and the P2P pointer is pinned to what svc-bank states', () => {
+    const oneOff = allReads(DESKS.pay).find((r) => r.id === 'pay.oneoff-24h')!;
+    expect(oneOff.columns.find((c) => c.key === 'oneOff.failureRate')).toMatchObject({ kind: 'text', nullable: true, alwaysNull: true });
+    expect(oneOff.columns.find((c) => c.key === 'oneOff.failureRateReason')).toMatchObject({ mustBe: 'failures_not_recorded' });
+    const p2p = allReads(DESKS.pay).find((r) => r.id === 'pay.p2p-pointer')!;
+    expect(p2p.columns.find((c) => c.key === 'p2p.available')).toMatchObject({ kind: 'bool', mustBe: false });
+    expect(p2p.columns.find((c) => c.key === 'p2p.reason')).toMatchObject({ mustBe: 'served_by_p2p_ops' });
+  });
+  it('pay: no action is offered, because svc-bank has none; each is switched off with the real reason and none says "yet" or "soon"', () => {
+    const sectionsOf = DESKS.pay.sections;
+    expect(sectionsOf.flatMap((s) => (s.sectionAction ? [s.sectionAction] : []))).toEqual(['pay.transfer.lookup']);
+    const disabled = sectionsOf.flatMap((s) => s.disabledActions);
+    expect(disabled.map((a) => a.id)).toEqual(['pay.standing-cancel', 'pay.execution-retry', 'pay.oneoff-reverse', 'pay.bill-refund']);
+    for (const text of sectionsOf.flatMap((s) => [
+      ...s.disabledActions.map((a) => a.reason),
+      ...s.unavailable.map((u) => u.reason),
+      s.intro,
+    ])) {
+      expect(text).not.toMatch(/\b(yet|soon|later|coming|todo)\b/i);
+    }
+  });
+  it('pay: every figure svc-bank cannot give names its back-end need (40 onward) and is not also a read', () => {
+    const unavailable = DESKS.pay.sections.flatMap((s) => s.unavailable);
+    expect(unavailable.map((u) => [u.id, u.need])).toEqual([
+      ['pay.pending-transfers', 41],
+      ['pay.bills-returned', 42],
+      ['pay.global-health', 43],
+      ['pay.oneoff-failures', 40],
+    ]);
+  });
+  it('pay: every typed refusal is a sentence that states a reason', () => {
+    for (const r of [...allReads(DESKS.pay), PAY_TRANSFER_DETAIL]) {
+      for (const [code, sentence] of Object.entries(r.refusals ?? {})) {
+        expect(code, r.id).toMatch(/^bank\.[a-z_]+$/);
+        expect(sentence.length, code).toBeGreaterThan(40);
+        expect(sentence, code).not.toMatch(/\b(yet|soon|coming)\b/i);
+      }
+    }
+    expect(PAY_TRANSFER_DETAIL.refusals).toHaveProperty('bank.ops_transfer_not_found');
+    expect(allReads(DESKS.pay).find((r) => r.id === 'pay.failed-standing')!.refusals).toHaveProperty('bank.party_handles_unset');
+  });
   it('more: mining, market sales and takedown, and quant strategies are wired', () => {
     const more = allReads(DESKS.more);
     expect(more.filter((r) => r.module === 'mining').map((r) => r.procedure)).toEqual([
@@ -231,10 +327,19 @@ describe('every read names a QUERY that exists in the owning router (drift guard
   it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
-    const text = source(service!);
+    // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
+    const nested = read.procedure.split('.').length === 3;
+    const text = nested ? personalPayRouter() : source(service!);
     const parts = read.procedure.split('.');
     let from = 0;
-    if (parts.length === 2) {
+    if (nested) {
+      const factory = parts[0] === 'bills' ? 'createBillsRouter' : 'createGlobalRouter';
+      const start = text.indexOf(`export function ${factory}(`);
+      expect(start, `personal-pay router has ${factory}`).toBeGreaterThanOrEqual(0);
+      const ops = /\bops: router\(/.exec(text.slice(start));
+      expect(ops, `${factory} has an ops group`).not.toBeNull();
+      from = start + ops!.index;
+    } else if (parts.length === 2) {
       const group = new RegExp(`(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\()`).exec(text);
       expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
       from = group!.index;

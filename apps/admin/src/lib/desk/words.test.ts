@@ -8,6 +8,13 @@ describe('desk words', () => {
     );
     expect(codeWords('p2p.moderation_unreachable')).toBe('No moderators are set up');
   });
+  it('words the Personal Pay reason codes and transfer kinds', () => {
+    expect(codeWords('served_by_p2p_ops')).toBe('Counted on the P2P desk; svc-bank gives no P2P figure');
+    expect(codeWords('failures_not_recorded')).toBe('svc-bank does not record a refused one-off send, so it has no failure figure');
+    expect(codeWords('standing_order')).toBe('Standing order');
+    expect(codeWords('one_off')).toBe('One-off send');
+    expect(codeWords('ledger.insufficient_funds')).toBe('Insufficient funds');
+  });
   it('words any other service code by its last part, and leaves ordinary values alone', () => {
     expect(codeWords('pay.halt_store_unavailable')).toBe('Halt store unavailable');
     expect(codeWords('USD')).toBe('USD');

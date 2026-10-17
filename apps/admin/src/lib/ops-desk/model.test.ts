@@ -187,3 +187,20 @@ describe('a read with a time window', () => {
     expect(list.rows.map((r) => r.id)).toEqual(['0', '1']);
   });
 });
+
+describe('a field the service promises is always null', () => {
+  const spec: ReadSpec = {
+    ...base,
+    shape: 'record',
+    columns: [{ key: 'rate', label: 'Rate', kind: 'text', nullable: true, alwaysNull: true }],
+  };
+  it('reads null as a dash', () => {
+    const data = readData(spec, { rate: null });
+    if (data?.shape !== 'record') throw new Error('record expected');
+    expect(formatCell(data.cells[0]!)).toBe('—');
+  });
+  it('any other value, including a zero, makes the whole read unreadable instead of being printed', () => {
+    for (const rate of ['0', '0.5', '', 0]) expect(readData(spec, { rate }), String(rate)).toBeNull();
+    expect(readData(spec, {})).toBeNull();
+  });
+});

@@ -31,6 +31,7 @@ function pick(source: Record<string, unknown>, path: string, nullThrough = false
 function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
   const { found, value } = pick(source, column.key, column.parentNullable === true && column.nullable === true);
   if (!found) return null;
+  if (column.alwaysNull === true && value !== null) return null;
   const make = (v: CellValue): Cell => ({
     key: column.key,
     label: column.label,

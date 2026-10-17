@@ -12,6 +12,7 @@ import {
   ResidencyActions,
   VendorActions,
 } from '@/components/ops-actions';
+import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk } from '@/lib/ops-desk/browser';
@@ -99,6 +100,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'academy.residency' && <ResidencyActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'market.listing.takedown' && <ListingActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'p2p.dispute.escalate' && <DisputeActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'pay.transfer.detail' && <TransferRecord key={row.id} id={row.id} />}
     </div>
   );
 }
@@ -264,6 +266,7 @@ export function SectionView({
       )}
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'pay.transfer.lookup' && <TransferLookup />}
       {section.disabledActions.length > 0 && (
         <div className="dk-stack" data-testid="disabled-actions">
           {section.disabledActions.map((a) => (

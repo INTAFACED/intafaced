@@ -13,6 +13,10 @@ const CODE_WORDS: Readonly<Record<string, string>> = {
   no_heartbeat: 'The service gives no heartbeat',
   fee_unconfigured: 'No fee is configured',
   window_size_unconfigured: 'No window size is configured',
+  served_by_p2p_ops: 'Counted on the P2P desk; svc-bank gives no P2P figure',
+  failures_not_recorded: 'svc-bank does not record a refused one-off send, so it has no failure figure',
+  standing_order: 'Standing order',
+  one_off: 'One-off send',
 };
 
 /** Prefixes of the typed codes our own services use. Free text and ordinary values (a currency, a domain) never match. */

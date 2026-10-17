@@ -9,7 +9,7 @@ import { DESKS } from './catalog';
 import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
-import { loadDesk } from './server';
+import { loadDesk, loadTransferDetail } from './server';
 import type { OpsDeskId } from './types';
 
 /**
@@ -71,4 +71,22 @@ export async function deskDirectPost(request: Request, deskId: OpsDeskId): Promi
   return stepResponse(
     reply.ok ? { ok: true, step: 'execute', detail: reply.detail } : { ok: false, step: 'execute', refusal: reply.refusal },
   );
+}
+
+/** A transfer id as svc-bank issues one: a UUID for a standing-order execution, a client-chosen printable token for a one-off send. */
+export const TRANSFER_ID = /^[\x21-\x7e]{1,64}$/;
+
+/**
+ * GET one transfer's full record (svc-bank `ops.transferDetail`) as the signed-in founder. The id comes from the query string, is
+ * checked here only so a request line cannot carry anything but a short printable token, and is otherwise the service's to judge:
+ * an unknown id and a malformed one get the same answer from it.
+ */
+export async function payTransferGet(request: Request): Promise<Response> {
+  const disabled = moduleDisabledResponse(DESKS.pay.module);
+  if (disabled) return disabled;
+  const session = await adminBffSession(request);
+  if (session instanceof Response) return session;
+  const id = new URL(request.url).searchParams.get('id')?.trim() ?? '';
+  if (!TRANSFER_ID.test(id)) return Response.json({ error: 'transfer_id_invalid' }, { status: 400, headers: NO_STORE });
+  return Response.json(await loadTransferDetail(session, id), { headers: NO_STORE });
 }
