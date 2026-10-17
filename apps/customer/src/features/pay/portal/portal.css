@@ -6,6 +6,42 @@
     .plo .text-link {
       color: var(--if-fg);
     }
+    /* Status chips: the word carries the meaning; the dot and the soft tone only back it up. Completed is green, never lime. */
+    .pp-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: var(--if-r-xs);
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+      color: var(--if-fg-2);
+      background: var(--if-raised);
+    }
+    .pp-chip::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.8;
+    }
+    .pp-chip--done {
+      color: var(--if-up-text);
+      background: var(--if-up-bg-soft);
+    }
+    .pp-chip--action {
+      color: var(--if-warn-text);
+      background: transparent;
+      outline: 1px solid var(--if-warn);
+      outline-offset: -1px;
+    }
+    .pp-chip--failed {
+      color: var(--if-down-text);
+      background: var(--if-down-bg);
+    }
     .pp .pp-sr {
       position: absolute;
       width: 1px;
@@ -759,4 +795,90 @@
 .pp .pp-wrap {
   overflow-wrap: anywhere;
   min-width: 0;
+}
+
+@layer components {
+  .if-business {
+    /* EntityList: a table from 720 px, two-line cards below. The whole row is a link. */
+    .pe-list .pe-cards {
+      display: none;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .pe-row {
+      position: relative;
+    }
+    .pe-row:hover {
+      background: var(--if-hover);
+    }
+    .pe-open::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+    }
+    .pe-card {
+      border-top: 1px solid var(--if-line);
+    }
+    .pe-card-link {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 4px;
+      color: var(--if-fg);
+      text-decoration: none;
+    }
+    .pe-card-main,
+    .pe-card-side {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+      min-width: 0;
+    }
+    .pe-card-side {
+      justify-items: end;
+      text-align: right;
+    }
+    .pe-card-amount {
+      white-space: nowrap;
+    }
+    .pp-nowrap {
+      white-space: nowrap;
+    }
+    .pp-detail-head {
+      display: grid;
+      gap: 8px;
+    }
+    .pp-detail-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .pp-detail-title h2 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 500;
+    }
+    .pp-related ul {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 20px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .pp-filterbar {
+      display: grid;
+      gap: 8px;
+    }
+    @media (max-width: 719px) {
+      .pe-list .pe-table {
+        display: none;
+      }
+      .pe-list .pe-cards {
+        display: block;
+      }
+    }
+  }
 }

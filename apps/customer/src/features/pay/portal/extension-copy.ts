@@ -1,15 +1,14 @@
 import { defineCopy } from '../../../shared/i18n';
 
-export const extensionCopy = defineCopy('pay.portal.w3c2', {
+const en = {
   loadedWindow: 'Showing your newest 200 records. Search and sorting work within these; full search and date filters are coming soon.',
   readAt: 'Updated',
-  readLag: 'Read time is not a computation or delivery timestamp. Source lag is unavailable.',
-  staleRead: 'This view was read more than five minutes ago. Refresh before acting.',
+  staleRead: 'These figures are more than five minutes old. Refresh before you act.',
   refresh: 'Refresh',
-  search: 'Search loaded records',
+  search: 'Search these records',
   status: 'Status',
   all: 'All statuses',
-  sort: 'Sort loaded records',
+  sort: 'Sort these records',
   newest: 'Newest first',
   oldest: 'Oldest first',
   nameSort: 'Name / reference',
@@ -47,14 +46,12 @@ export const extensionCopy = defineCopy('pay.portal.w3c2', {
   history: 'Recorded history',
   created: 'Created',
   eventId: 'Event ID',
-  deliveryId: 'Delivery ID',
   draftWarning: 'Leave this page and discard the unsaved draft?',
   accountId: 'Merchant ID',
   accountStatus: 'Account status',
   invited: 'Invited',
   removed: 'Removed',
   unavailable: 'Coming soon',
-  submittedByMerchant: 'Submitted by your merchant account',
   createSubscription: 'Create subscription',
   paused: 'Paused',
   cancelled: 'Cancelled',
@@ -94,18 +91,14 @@ export const extensionCopy = defineCopy('pay.portal.w3c2', {
   openEnded: 'Open ended',
   rate: 'Exchange rate',
   fee: 'Fee',
-  conversionOrderRecords: 'Conversion orders',
   cadence: 'Billing cadence',
-  settlementTime: 'Settlement recorded at',
-  noSettlementTime: 'No settlement time recorded',
   arrives: 'Coming soon',
   backHome: 'Back to overview',
-  invoiceActions: 'Invoice actions',
-  invoiceActionsGap: 'You’ll be able to create, send and follow up on invoices here.',
-  createInvoice: 'Create invoice',
-  invoiceReason: 'Invoices are coming soon.',
   reference: 'Reference',
   copy: 'Copy reference',
   copied: 'Copied',
   copyFailed: 'Copy failed. Select the reference and copy it manually.',
-});
+} as const;
+export const extensionCopy = defineCopy('pay.portal.w3c2', en);
+/** The wording as written, for the copy lint. */
+export const extensionMessages: Record<string, string> = en;

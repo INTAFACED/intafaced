@@ -127,7 +127,7 @@ describe('payments list (P06)', () => {
   it('keeps filters in view: status, asset, dates, search, sort and a note on what search covers', () => {
     const out = view();
     for (const label of ['Status', 'Asset', 'From (UTC day)', 'To (UTC day)', 'Search', 'Sort by']) expect(out).toContain(label);
-    expect(out).toContain('Looks through the payments loaded below');
+    expect(out).toContain('Looks through the payments shown below');
   });
   it('says there is more to load while the page is full, and points at exports once the cap is reached', () => {
     expect(view({ limit: 2 })).toContain('2 shown so far. More are available.');
@@ -139,7 +139,7 @@ describe('payments list (P06)', () => {
     expect(view({ list: ready<p.Payment[]>([]) })).toContain('No payments yet');
     expect(view({ list: ready<p.Payment[]>([]), status: 'failed' })).toContain('No payments with that status');
     const none = view({ filters: { q: 'zzz', asset: '', from: '', to: '' } });
-    expect(none).toContain('No loaded payment matches');
+    expect(none).toContain('No payment shown matches');
     expect(none).toContain('Clear filters');
   });
   it('shows loading, an unreachable service with a retry, a refusal in plain words, and arrives-soon', () => {

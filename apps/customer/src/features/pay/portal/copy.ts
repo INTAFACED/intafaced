@@ -6,16 +6,8 @@ import { defineCopy } from '../../../shared/i18n';
  * number that was not published by INTAFACED.
  */
 const en = {
-  navConversion: 'Conversion',
   rSubscriptionNotFound:
     'We could not find that subscription or its mandate in your account. Open your subscriptions list and check the reference.',
-  navCompliance: 'Compliance',
-  navSettings: 'Business settings',
-  navRefunds: 'Refunds',
-  // shell
-  navOnboarding: 'Set up your account',
-  navTeam: 'Team and roles',
-  navExports: 'Exports',
   // common words
   loading: 'Loading',
   tryAgain: 'Try again',
@@ -40,9 +32,6 @@ const en = {
   lagMinutes: '{n} min behind',
   lagHours: '{n} h behind',
   staleWarning: 'older than expected, so recent payments may be missing',
-  comingSoonTag: 'Coming soon',
-  comingSoonTitle: 'More for your business',
-  comingSoonBody: 'You’ll be able to manage this part of your business here.',
   noPaymentsInPeriod: 'No payments in this period',
 
   colAmount: 'Amount',
@@ -79,11 +68,6 @@ const en = {
   err_website: 'Enter a full web address starting with https://',
   err_email: 'Enter a valid email address.',
   err_volume: 'Keep this under 200 characters.',
-  factSandbox: 'Sandbox',
-  summaryTitle: 'You are live in sandbox',
-  summaryBody: 'You can take test payments now. Nothing here moves real money.',
-  sandboxReady: 'Ready',
-  liveReady: 'Verification approved; INTAFACED switches live on',
   accept: 'Accept',
   decline: 'Decline',
   remove: 'Remove',
@@ -107,7 +91,7 @@ const en = {
   contest: 'Contest the dispute',
   // exports
   requestTitle: 'Request an export',
-  requestBody: 'Your report is built on the server from your own records, then kept for you to download. It includes only your data.',
+  requestBody: 'Your report is prepared from your own records, then kept for you to download. It includes only your data.',
   exportKind_settlements: 'Settlements',
   exportKind_payouts: 'Payouts',
   exportHint_settlements: 'Each settlement with gross, fees and net.',
@@ -236,14 +220,10 @@ const en = {
   rThresholdUnsupported: 'A threshold can only be set for limit alerts.',
   rCursorInvalid: 'This list moved on. Reload it from the start.',
   rMetricsWindow: 'That date range cannot be shown. Pick a standard period.',
-  rBalanceUnavailable: 'Balances cannot be read right now, so none are shown. Try again shortly.',
+  rBalanceUnavailable: 'We can’t show your balances right now. Try again shortly.',
   rDestinationRef: 'That address or bank code is not in a valid format.',
   rDestinationKind: 'That payout method does not accept this kind of destination.',
 
-  // ---- W3b: payments, settlements, payouts, approvals, pricing, limits ----
-  navApprovals: 'Payout approvals',
-  navPricing: 'Pricing and fees',
-  navLimits: 'Limits and tier',
   // shared
   readAt: 'As of',
   notConfigured: 'Not configured',
@@ -345,7 +325,6 @@ const en = {
   block_status: 'This request has already been decided.',
   approve: 'Approve payout',
   block_checked: 'A teammate has already approved this. It is waiting for INTAFACED’s sign-off, so there is nothing more for you to do.',
-  ownerOnlyTitle: 'Only the account owner can open this',
   ownerOnlyBody: 'Only the account owner can open this page.',
   noRoleTitle: 'Your role can’t open this page',
   noRoleBody: 'Ask the account owner to change your role if you need it.',
@@ -353,7 +332,6 @@ const en = {
   notRecorded: 'Not recorded',
   layer_tier: 'Set for your tier',
   layer_merchant: 'Agreed for your account',
-  calcResult: 'Result',
   limitKind_per_payment: 'Largest single payment',
   limitKind_monthly_intake: 'Money in per month',
   limitKind_daily_payout: 'Payouts per day',
@@ -376,7 +354,7 @@ const en = {
   rApprovalState: 'That request is no longer in a state where it can be decided. Refresh the page.',
   rPricingUnconfigured: 'No price is set for that asset on your account yet, so no fee can be worked out.',
   rControlInvalid: 'Those numbers cannot be priced. Check the amount and try again.',
-  rControlUnavailable: 'Your limits and prices cannot be read right now, so nothing is shown. Try again shortly.',
+  rControlUnavailable: 'We can’t show your limits and prices right now. Try again shortly.',
   rTierUnassigned: 'Your account has no tier yet, so no limits apply and none are shown.',
   rApprovalVoidedResult:
     'The request was voided because the payout changed, so your decision did not count. Nothing was approved or rejected. Refresh the page and ask again if you still need it.',
@@ -386,6 +364,8 @@ const en = {
 } as const;
 
 export const portalCopy = defineCopy('pay.portal', en);
+/** The wording as written, for the copy lint. */
+export const portalMessages: Record<string, string> = en;
 export type PortalKey = keyof typeof en;
 /** Keys whose text has no placeholders, so they can be chosen at run time and passed to `t` with no parameters. */
 export type PlainKey = { [K in PortalKey]: (typeof en)[K] extends `${string}{${string}` ? never : K }[PortalKey];

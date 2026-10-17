@@ -64,7 +64,7 @@ describe('Pay redesign boundary', () => {
   });
   it('retains status words and explanations independently of colour', () => {
     const out = renderToString(<Chip kind="payment" value="captured" />);
-    expect(out).toContain('data-slot="status-tag"');
+    expect(out).toContain('class="pp-chip pp-chip--');
     expect(out).toContain('Paid');
     expect(out).toContain('title=');
   });

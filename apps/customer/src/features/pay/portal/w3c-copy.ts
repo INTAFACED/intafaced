@@ -1,6 +1,6 @@
 import { defineCopy } from '../../../shared/i18n';
 
-export const w3cCopy = defineCopy('pay.portal.w3c', {
+const en = {
   refundsTitle: 'Refunds',
   lookup: 'Look up payment',
   notFound: 'Refund not found',
@@ -26,16 +26,15 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   expiry: 'Expiry (UTC)',
   payerChooses: 'Customer chooses',
   uses: 'Completed payments',
-  remaining: 'Remaining uses',
   created: 'Created',
   active: 'Available',
   inactive: 'Deactivated',
   expired: 'Expired',
   unknown: 'Availability unknown',
-  activeTip: 'Enabled and within the expiry and use-count cap in the loaded records.',
+  activeTip: 'Turned on and within its expiry and use limit in the records shown.',
   expiredTip: 'This link is past its expiry and cannot take another payment.',
   exhaustedTip: 'This link has reached its completed-payment cap.',
-  unknownTip: 'The loaded expiry could not be verified. Refresh before sharing the link.',
+  unknownTip: 'The expiry couldn’t be verified. Refresh before sharing the link.',
   refresh: 'Refresh records',
   statementTitle: 'Balance activity',
   openStatement: 'Open balance activity',
@@ -52,6 +51,8 @@ export const w3cCopy = defineCopy('pay.portal.w3c', {
   payoutsContents: 'Payout records supplied by the export service, with status and settlement references.',
   exportJobs: 'Export jobs',
   backMerchant: 'Back to merchant dashboard',
-  nextBackend: 'Coming soon',
   unsaved: 'Leave this page? Your unsaved entries will be lost.',
-});
+} as const;
+export const w3cCopy = defineCopy('pay.portal.w3c', en);
+/** The wording as written, for the copy lint. */
+export const w3cMessages: Record<string, string> = en;

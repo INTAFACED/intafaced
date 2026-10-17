@@ -1,6 +1,6 @@
 import { defineCopy } from '../../../../shared/i18n';
 
-export const layoutCopy = defineCopy('pay.portal.layouts', {
+const en = {
   overview: 'Overview',
   summary: 'Summary',
   paymentReference: 'Payment · {id}',
@@ -62,4 +62,7 @@ export const layoutCopy = defineCopy('pay.portal.layouts', {
   activity: 'Activity',
   destinations: 'Destinations',
   security: 'Security',
-} as const);
+} as const;
+export const layoutCopy = defineCopy('pay.portal.layouts', en);
+/** The wording as written, for the copy lint. */
+export const layoutMessages: Record<string, string> = en;

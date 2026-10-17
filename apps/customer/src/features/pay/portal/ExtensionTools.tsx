@@ -16,28 +16,7 @@ export function PortalBack({ href = '/pay/merchant', children }: { href?: string
     </a>
   );
 }
-export function CopyReference({ value }: { value: string }) {
-  const [state, setState] = useState<'copy' | 'copied' | 'copyFailed'>('copy');
-  return (
-    <div className="pp-actions">
-      <code className="pp-wrap">{value}</code>
-      <Button
-        variant="ghost"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            setState('copied');
-          } catch {
-            setState('copyFailed');
-          }
-        }}
-      >
-        {c.t('copy')}
-      </Button>
-      <span role="status">{state === 'copy' ? '' : c.t(state)}</span>
-    </div>
-  );
-}
+export { CopyReference } from './ui/CopyReference';
 
 // Keep list-window affordances shared across the extension pages.
 

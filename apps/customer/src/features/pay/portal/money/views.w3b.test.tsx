@@ -159,7 +159,7 @@ describe('settlements list (P26)', () => {
   it('explains empty, filtered-empty, loading, unreachable and refused', () => {
     expect(view({ list: ready<p.Settlement[]>([]) })).toContain('No settlements yet');
     expect(view({ list: ready<p.Settlement[]>([]), status: 'failed' })).toContain('No settlements with that status');
-    expect(view({ q: 'nope' })).toContain('No loaded settlement matches');
+    expect(view({ q: 'nope' })).toContain('No settlement shown matches');
     expect(view({ list: loading })).toContain('aria-busy="true"');
     expect(view({ list: down })).toContain('Try again');
     expect(view({ list: forbidden })).toContain('Your account does not have access to this.');

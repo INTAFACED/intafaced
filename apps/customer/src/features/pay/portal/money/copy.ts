@@ -52,22 +52,22 @@ const en = {
   settlementsKpiBody: 'What was settled in the period, per asset. Fees are taken before the net reaches you.',
   kpiGross: 'Gross',
   kpiWaiting: 'Waiting to be paid out',
-  kpiWaitingNote: 'Counted from the {count} settlements loaded below',
+  kpiWaitingNote: 'Counted from the {count} settlements shown below',
   kpiFailedSettlements: 'Failed settlements',
   settlementsTitle: 'All settlements',
   settlementsBody: 'One statement per window and asset. Open one to see its totals.',
   settlementsFilters: 'Settlement filters',
   searchSettlements: 'Search',
-  searchSettlementsHint: 'Looks through the settlements loaded below: id, window, payout reference.',
+  searchSettlementsHint: 'Looks through the settlements shown below: id, window, payout reference.',
   settlementsNoDates: 'You’ll be able to filter settlements by date.',
-  settlementsNarrowed: '{shown} of the {loaded} loaded settlements match.',
+  settlementsNarrowed: '{shown} of the {loaded} settlements shown match.',
   settlementsEmptyTitle: 'No settlements yet',
   settlementsEmptyBody:
     'A settlement is created when a window of paid-in money is gathered up. Your first appears after your first payments are paid.',
   settlementsNoStatusTitle: 'No settlements with that status',
   settlementsNoStatusBody: 'Nothing on your account has this status. Clear the filter to see everything.',
-  settlementsNoMatchTitle: 'No loaded settlement matches',
-  settlementsNoMatchBody: 'None of the {count} loaded settlements match these filters.',
+  settlementsNoMatchTitle: 'No settlement shown matches',
+  settlementsNoMatchBody: 'None of the {count} settlements shown match these filters.',
   openSettlementAria: 'Open the settlement for window {window}',
   // settlement detail
   settlementFactsBody: 'Which window this covers and whether it has been paid out.',
@@ -103,11 +103,11 @@ const en = {
 
   // payouts
   payoutsKpiTitle: 'Payouts at a glance',
-  payoutsKpiBody: 'Counted from your settlements and payout approvals as loaded now.',
+  payoutsKpiBody: 'Counted from your settlements and payout approvals as shown now.',
   kpiPaidOut: 'Paid out',
   kpiPaidOutNote: 'Payouts that completed',
   kpiPaidOutAmount: 'Paid out, total',
-  kpiLoadedNote: 'From the {count} payouts loaded below',
+  kpiLoadedNote: 'From the {count} payouts shown below',
   kpiInApproval: 'Waiting for approval',
   kpiApprovalUnknown: 'Approvals could not be read',
   kpiFailedPayouts: 'Failed',
@@ -117,7 +117,7 @@ const en = {
   payoutsBody: 'Each payout is the second half of a settlement. Open one for its approval trail.',
   payoutsFilters: 'Payout filters',
   searchPayouts: 'Search',
-  searchPayoutsHint: 'Looks through the payouts loaded below: id, window, transaction reference.',
+  searchPayoutsHint: 'Looks through the payouts shown below: id, window, transaction reference.',
   payoutsDestinationSoon: 'You’ll be able to filter payouts by destination.',
   payoutsApprovalsUnavailable:
     'Approval states could not be read, so a payout that could be waiting shows as “Approval unknown” instead of ready. Try again before you act.',
@@ -162,7 +162,7 @@ const en = {
 
   // approvals
   approvalsKpiTitle: 'Waiting on your team',
-  approvalsKpiBody: 'Payout requests that need a second person. Counted from every request loaded below.',
+  approvalsKpiBody: 'Payout requests that need a second person. Counted from every request shown below.',
   kpiWaitingDecision: 'Waiting for a decision',
   kpiForYou: 'Waiting for you',
   kpiForYouNote: 'Requested by someone else',
@@ -304,7 +304,7 @@ const en = {
   refundId: 'Refund ID',
   countShown: '{count} refunds shown for this payment.',
   reversedCount: 'Reversed',
-  historyPeriod: 'Loaded payment history',
+  historyPeriod: 'Payment history shown',
   downloadRefunds: 'Download shown refunds (CSV)',
   refundHistory: 'Refund history',
   refundPosted: 'Refund booked',
@@ -364,6 +364,8 @@ const en = {
 } as const;
 
 export const moneyCopy = defineCopy('pay.portal.money', en);
+/** The wording as written, for the copy lint. */
+export const moneyMessages: Record<string, string> = en;
 
 /** The four catalogs the pages already read, each merged with this package's words. */
 export const portalCopy = mergeCopy(sharedPortalCopy, moneyCopy, en);

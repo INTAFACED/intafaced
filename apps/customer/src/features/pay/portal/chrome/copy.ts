@@ -1,7 +1,7 @@
 import { defineCopy } from '../../../../shared/i18n';
 
 /** Words in the portal frame: the top bar, the business switcher, the search menu and the Coming soon card. */
-export const chromeCopy = defineCopy('pay.portal.chrome', {
+const en = {
   comingSoon: 'Coming soon',
   comingSoonDefault: 'You’ll be able to use this part of your business here soon.',
   comingSoonPage: 'This page isn’t open yet',
@@ -32,5 +32,7 @@ export const chromeCopy = defineCopy('pay.portal.chrome', {
   notFoundTitle: 'Page not found',
   notFoundBody: 'That page doesn’t exist in your business account. It may have moved.',
   notFoundAction: 'Go to Overview',
-  testData: 'Test data',
-});
+} as const;
+export const chromeCopy = defineCopy('pay.portal.chrome', en);
+/** The wording as written, for the copy lint. */
+export const chromeMessages: Record<string, string> = en;

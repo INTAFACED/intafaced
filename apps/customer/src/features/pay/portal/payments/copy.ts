@@ -203,17 +203,17 @@ const en = {
   kpiFailed: 'Failed',
   kpiDisputed: 'Disputed',
   paymentsTitle: 'All payments',
-  paymentsBody: 'Newest first. Pick a status to ask the service for only those; the other filters narrow what is loaded below.',
+  paymentsBody: 'Newest first. Pick a status to ask for only those; the other filters narrow what is shown below.',
   paymentsFilters: 'Payment filters',
   searchPayments: 'Search',
-  searchPaymentsHint: 'Looks through the payments loaded below: id, rail reference, method.',
-  paymentsNarrowed: '{shown} of the {loaded} loaded payments match.',
+  searchPaymentsHint: 'Looks through the payments shown below: id, rail reference, method.',
+  paymentsNarrowed: '{shown} of the {loaded} payments shown match.',
   paymentsEmptyTitle: 'No payments yet',
   paymentsEmptyBody: 'Create a payment link and share it. When someone pays, the payment appears here within a minute or so.',
   paymentsNoStatusTitle: 'No payments with that status',
   paymentsNoStatusBody: 'Nothing on your account has this status. Clear the filter to see everything.',
-  paymentsNoMatchTitle: 'No loaded payment matches',
-  paymentsNoMatchBody: 'None of the {count} loaded payments match these filters. Clear them to see every loaded payment.',
+  paymentsNoMatchTitle: 'No payment shown matches',
+  paymentsNoMatchBody: 'None of the {count} payments shown match these filters. Clear them to see every payment shown.',
   openPaymentAria: 'Open payment {id}',
 
   // payment detail
@@ -227,7 +227,7 @@ const en = {
   timelineEmpty: 'No history has been recorded for this payment yet.',
   step_created: 'Payment created',
   refundsBody: 'Money sent back to the customer.',
-  refundsAfterHistory: 'Refunds show once the history has loaded.',
+  refundsAfterHistory: 'Refunds show once the payment history is ready.',
   refundsEmptyTitle: 'No refunds',
   refundsEmptyBody: 'Nothing has been refunded on this payment.',
   refundState_completed: 'Completed',
@@ -259,7 +259,7 @@ const en = {
   linksGap: 'You’ll be able to search your links by date and see how each one performs.',
   linkAuthorityGap: 'You’ll be able to create and turn off payment links from here.',
   backLinks: 'Back to payment links',
-  linkNotFound: 'Link not in the loaded records',
+  linkNotFound: 'Link not in the records shown',
   linkNotFoundBody:
     'This link was not returned among your newest 200 links. It may be older or unavailable to your account. Open the payment links list to check your records.',
   linkLabelHint: 'A customer-facing description, from 1 to 120 characters.',
@@ -284,17 +284,17 @@ const en = {
   linkId: 'Link ID',
   exhausted: 'Use cap reached',
   inactiveTip: 'This link has been deactivated.',
-  loadedLinks: 'Loaded links',
-  linksPeriod: 'Newest loaded records',
-  linkCount: '{shown} shown from {loaded} loaded links.',
-  searchLinks: 'Search loaded links',
+  loadedLinks: 'Links shown',
+  linksPeriod: 'Newest records shown',
+  linkCount: '{shown} shown from {loaded} links.',
+  searchLinks: 'Search links',
   linkStatus: 'Availability',
   linkNoMatches: 'No links match these filters',
-  linkNoMatchesBody: 'Change the search or availability filter to inspect the other loaded links.',
+  linkNoMatchesBody: 'Change the search or availability filter to see the other links.',
   linkEmpty: 'No payment links returned',
   linkEmptyBody: 'Create a payment link when account writes are available. New links will appear here after the service records them.',
   loadMoreLinks: 'Load more links',
-  linkAtLimit: 'The read is capped at the newest 200 links. Older records arrive with backend pagination.',
+  linkAtLimit: 'Only the newest 200 links are shown. Older ones will be available with paging.',
   exportLinks: 'Download shown links (CSV)',
   deactivateLink: 'Deactivate link',
   deactivateBody: 'Customers will no longer be able to start a new checkout with this link. Existing payment records are retained.',
@@ -314,11 +314,11 @@ const en = {
   completedSubscriptions: 'Completed',
   subscriptionSearch: 'Search customer or subscription ID',
   subscriptionWindow:
-    'Newest records only, up to the selected limit. Search, status and sort apply to the loaded window. Server cursors and date filters arrive with the next backend update.',
+    'Newest records only, up to the selected limit. Search, status and sort apply to the records shown. Paging and date filters are coming.',
   subscriptionId: 'Subscription ID',
   noNextRun: 'No further run while this schedule is inactive',
   emptySubscriptions: 'No subscriptions in this view',
-  emptySubscriptionsBody: 'Create a schedule from an active customer mandate, or clear the filters to see the rest of the loaded records.',
+  emptySubscriptionsBody: 'Create a schedule from an active customer mandate, or clear the filters to see the rest of the records.',
   subscriptionAuthority:
     'Creating or changing a schedule requires verified company membership and pay:write. That authority is not connected to this app yet. No subscription has been changed.',
   subscriptionAuditGap: 'You’ll be able to review changes to each subscription.',
@@ -396,6 +396,8 @@ const en = {
 } as const;
 
 export const paymentsCopy = defineCopy('pay.portal.payments', en);
+/** The wording as written, for the copy lint. */
+export const paymentsMessages: Record<string, string> = en;
 
 /** The four catalogs the pages already read, each merged with this package's words. */
 export const portalCopy = mergeCopy(sharedPortalCopy, paymentsCopy, en);

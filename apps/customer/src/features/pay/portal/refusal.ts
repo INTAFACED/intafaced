@@ -88,17 +88,43 @@ const codeOf = (result: Failed) => {
   return m?.[1] ?? raw;
 };
 
+const registered = new Map<string, () => string>();
+const notLive = new Set<string>();
+
+/**
+ * A package gives its own service codes their plain words, in its own copy file, without touching the shared table.
+ * Each value is a function so the words follow the reader's language. A code registered twice, or one the shared table
+ * already knows, throws when the module loads: the same code must never read two ways.
+ */
+export function registerRefusals(map: Record<string, () => string>): void {
+  for (const [code, words] of Object.entries(map)) {
+    if (registered.has(code) || code in byCode) throw new Error(`Refusal code registered twice: ${code}`);
+    registered.set(code, words);
+  }
+}
+/** Codes that mean "this feature is switched off", so the page shows the Coming soon card instead of a refusal (for example sandbox conversion). */
+export function registerNotLive(codes: readonly string[]): void {
+  for (const code of codes) notLive.add(code);
+}
+/** For tests: the codes that have words, from the shared table and from packages. */
+export function knownRefusalCodes(): string[] {
+  return [...Object.keys(byCode), ...registered.keys()];
+}
+
 /** The procedure exists on the wire but nothing sits behind it yet, or the gateway has not mounted it. */
 export function isComingSoon(result: Failed): boolean {
   const code = codeOf(result);
-  if (code === 'pay.not_built') return true;
+  if (code === 'pay.not_built' || notLive.has(code)) return true;
   return result.reason === 'not_mounted' && !code.startsWith('pay.');
 }
 
 export function refusalText(result: Failed): string {
   if (result.code === 'portal.local') return result.message;
-  const key = byCode[codeOf(result)];
+  const code = codeOf(result);
+  const key = byCode[code];
   if (key) return portalCopy.t(key);
+  const own = registered.get(code);
+  if (own) return own();
   // Our own authored gateway messages (offline, timeouts) are already plain English.
   if (result.messageCopy) return result.message;
   return portalCopy.t(byReason[result.reason]);

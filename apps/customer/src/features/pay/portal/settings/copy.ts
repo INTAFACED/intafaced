@@ -16,8 +16,6 @@ const en = {
   pageTeam: 'Team and roles',
   purposeTeam: 'Who can see and do what on this account.',
   actInvite: 'Invite someone',
-  pageExports: 'Exports',
-  purposeExports: 'Ask for a report of your payments, settlements or payouts and download it when it is ready.',
   actRequestExport: 'Request an export',
   pageNotifications: 'Notifications',
   purposeNotifications: 'What needs your attention, and which kinds of message you want.',
@@ -263,7 +261,7 @@ const en = {
     'Register an HTTPS receiver below, or clear the filters. Endpoints are actual receivers; there is no separate sandbox endpoint mode.',
   emptyDeliveries: 'No deliveries in this view',
   emptyDeliveriesBody:
-    'Recorded attempts appear after a subscribed merchant event is queued. Clear the filters to inspect the rest of the loaded window.',
+    'Recorded attempts appear after a subscribed merchant event is queued. Clear the filters to see the rest of the attempts shown.',
   keysHeader: 'Name / prefix',
   neverUsed: 'Not used',
   revokeKey: 'Revoke sandbox key',
@@ -280,7 +278,7 @@ const en = {
   deliveryAccepted: 'Delivery accepted',
   deliveryFacts: 'Delivery facts',
   secretGap: 'Signing secrets cannot be recovered from a list or detail read. They appear once when an endpoint is created.',
-  signatureGap: 'A signature header example will appear with the published signing contract. No header format is guessed here.',
+  signatureGap: 'A signature header example will appear once the signing format is published. No header format is guessed here.',
   sandboxOnly: 'Sandbox credentials only',
   sandboxOnlyBody: 'Only sandbox Pay keys belonging to your login are shown. Never paste a secret into an endpoint URL or a search field.',
   settingsTitle: 'Business profile',
@@ -356,6 +354,8 @@ const en = {
 } as const;
 
 export const settingsCopy = defineCopy('pay.portal.settings', en);
+/** The wording as written, for the copy lint. */
+export const settingsMessages: Record<string, string> = en;
 
 /** The four catalogs the pages already read, each merged with this package's words. */
 export const portalCopy = mergeCopy(sharedPortalCopy, settingsCopy, en);
