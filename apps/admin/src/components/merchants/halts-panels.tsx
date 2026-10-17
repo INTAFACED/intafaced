@@ -1,7 +1,8 @@
-import type { PayHaltAutoTrip, PayHaltEvent, PayHaltState } from '@intafaced/contracts';
+import type { PayHaltAutoTrip, PayHaltEvent, PayHaltPendingClear, PayHaltState } from '@intafaced/contracts';
 import { haltChip, type ChipSpec } from '@/lib/merchants/chips';
+import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';
-import { shortId, StateBlock, StatusChip } from './ui';
+import { FailureState, shortId, StateBlock, StatusChip } from './ui';
 
 /** Shared halt views: used by the merchant's Halts tab and the Treasury and halts page. */
 
@@ -70,13 +71,88 @@ export function AutoTripCard({ autoTrip }: { autoTrip: PayHaltAutoTrip }) {
   );
 }
 
-export function PendingClearsGap() {
+/**
+ * Clears that one founder proposed and a different founder has not confirmed yet (`payHalts.pendingClears`). Read only
+ * here: confirming happens on the Ledger halts desk (/ledger), which repeats the same request as the second founder. Every row's halt is
+ * STILL ON until then.
+ */
+export function PendingClearsPanel({
+  result,
+  currentUserId,
+  merchantId,
+  retryHref,
+}: {
+  result: PayCallResult<{ proposals: readonly PayHaltPendingClear[]; nextCursor: string | null }>;
+  currentUserId?: string | undefined;
+  /** On a merchant page only the clears that cover that merchant are listed. */
+  merchantId?: string | undefined;
+  retryHref: string;
+}) {
+  if (result.kind !== 'ok') return <FailureState failure={result} what="Clears waiting for a second founder" retryHref={retryHref} />;
+  const rows = merchantId ? result.data.proposals.filter((p) => haltAppliesToMerchant(p.target, merchantId)) : result.data.proposals;
+  if (rows.length === 0)
+    return (
+      <StateBlock kind="empty" title="No clear is waiting for a second founder">
+        When one founder proposes clearing a halt, it is listed here until a different founder confirms it. A halt stays on until then.
+      </StateBlock>
+    );
   return (
-    <StateBlock kind="not_built" title="Pending halt clears are not available yet">
-      Clearing a halt takes two founders: the first records a proposal, a different founder repeats it to apply it. The service keeps that
-      proposal but has no read for it, so this page cannot list proposals that are waiting for a second founder. Until it does, a cleared
-      halt appears in the history below with the second founder named, and a halt that is still on stays on.
-    </StateBlock>
+    <>
+      <div
+        className="mp-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Clears waiting for a second founder, scrolls sideways on small screens"
+      >
+        <table className="mp-table mp-table--rows">
+          <caption className="mp-visually-hidden">Halt clears waiting for a second founder</caption>
+          <thead>
+            <tr>
+              <th scope="col">Operation</th>
+              <th scope="col">Covers</th>
+              <th scope="col">Reason given</th>
+              <th scope="col">Proposed by</th>
+              <th scope="col">Proposed at</th>
+              <th scope="col">Your part</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => {
+              const mine = currentUserId !== undefined && p.requestedByUserId.toLowerCase() === currentUserId.toLowerCase();
+              return (
+                <tr key={p.requestId} data-testid="pending-clear">
+                  <th scope="row" title={HALT_SCOPE[p.scope]?.hint}>
+                    {scopeLabel(p.scope)}
+                  </th>
+                  <td>{haltCoversLabel(p.target)}</td>
+                  <td>{p.reason}</td>
+                  <td>
+                    <code title={p.requestedByUserId}>{shortId(p.requestedByUserId)}</code>
+                    {mine ? ' (you)' : ''}
+                  </td>
+                  <td className="mp-num">{formatUtc(p.requestedAt)}</td>
+                  <td>
+                    {currentUserId === undefined ? (
+                      <span className="mp-muted">A different founder from the proposer confirms it</span>
+                    ) : mine ? (
+                      <span className="mp-muted">You proposed it. A different founder has to confirm</span>
+                    ) : (
+                      <a className="mp-btn mp-btn--small" href="/ledger">
+                        Review and confirm on the Ledger halts desk
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mp-footnote mp-mt">
+        The halt is still on for every row above. A proposal older than the store&apos;s confirm window is not listed, because it can no
+        longer be confirmed.{result.data.nextCursor ? ' More proposals exist than are shown; confirm these first.' : ''}
+      </p>
+    </>
   );
 }
 

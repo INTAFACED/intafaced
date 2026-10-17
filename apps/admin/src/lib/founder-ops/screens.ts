@@ -37,7 +37,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'MONITOR',
     'Follow payments from intake through ledger posting, settlement and delivery.',
     ['Payments received', 'Ledger posted', 'Settled', 'Payouts sent', 'Conversions', 'Webhooks delivered'],
-    'The event stream, duplicate markers, pipeline counters and queue ages have no founder read yet.',
+    'The live summary counts payments, payouts and refunds by state and gives queue ages. The event stream, duplicate markers, ledger-posted, conversion and webhook counters are not in it yet, so they are not shown.',
   ),
   screen(
     'F03',
@@ -46,7 +46,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DASH',
     'Review exposure, merchant concentration and operational failures before acting.',
     ['Exposure and reserves', 'Merchant concentration', 'Failed workflows', 'Liquidity pressure'],
-    'Concentration, execution failures and risk thresholds have no combined founder projection yet.',
+    'Concentration and failed workflows are live. Risk thresholds have not been agreed, and venue health needs the conversion readers, so neither is shown.',
   ),
   screen(
     'F05',
@@ -55,7 +55,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'FORM',
     'Prepare a merchant account with an owner, verification path and effective controls.',
     ['Business and owner', 'Archetype and tier', 'Pricing and caps', 'Review and second founder'],
-    'The existing merchant creation procedure creates for the caller; a founder invitation and owner assignment flow is not available.',
+    'The pay service creates a merchant only for the signed-in caller. A founder invitation with owner assignment is not in the pay service yet, so this page lists merchants and cannot create one for someone else.',
     'Create merchant',
   ),
   screen(
@@ -122,7 +122,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'QUEUE',
     'Prioritise cross-merchant disputes by response deadline and evidence status.',
     ['Dispute', 'Merchant', 'Amount at risk', 'Response deadline', 'Status'],
-    'The backend has per-case reads but no founder-wide dispute list or due-date projection.',
+    'The list is live. Contesting or resolving a dispute stays on the merchant page.',
   ),
   screen(
     'F33',
@@ -169,7 +169,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Track outgoing merchant funds, approval stages and delivery failures.',
     ['Payout', 'Merchant', 'Amount', 'Approval state', 'Destination', 'Status'],
-    'There is no founder-wide payout list. The approvals queue contains only pending approvals, not all payouts.',
+    'The list is live. The two-founder approval state and masked destination are not in this read; they are on the approvals queue.',
   ),
   screen(
     'F38',
@@ -485,6 +485,13 @@ export function resolveScreen(path: string): { screen: FounderScreen; resourceId
   }
   return null;
 }
+const DRILLDOWN_GAP: Record<string, string> = {
+  conversion: 'The conversion order reader (workstream W6) is not built, so quotes, fills and venue order identifiers cannot be read.',
+  pricing: 'Effective pricing rules and history are read in the merchant Controls tab.',
+  limits: 'Cap usage, tier and overrides are read in the merchant Controls tab.',
+  operator: 'Notes are read from the operator notes service.',
+  edit: 'Status, archetype, pricing profile and caps change in the Controls tab, where every change is hash-bound and needs a second founder. This page shows the current profile and KYB state read from the pay service.',
+};
 export function drilldownScreen(section: string): FounderScreen | null {
   const row = DRILLDOWN.find((r) => r[1] === section);
   return row
@@ -495,7 +502,7 @@ export function drilldownScreen(section: string): FounderScreen | null {
         section === 'edit' ? 'FORM' : 'DETAIL',
         `Inspect this merchant’s ${row[2].toLowerCase()} in founder mode.`,
         [row[3], 'Related merchant records', 'Lifecycle and audit history'],
-        'The merchant drilldown procedure is still unimplemented. Merchant-scoped reads are not reused under founder authority.',
+        DRILLDOWN_GAP[section] ?? 'Read from the founder merchant section reads.',
         section === 'edit' ? 'Review changes' : 'Refresh',
       )
     : null;
