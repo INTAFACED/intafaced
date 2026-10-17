@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSessionController, createSessionRefresher, mapRefreshResult, requestLogout, type LockManagerLike } from './session-restore';
+import {
+  REFRESH_RETRY_MS,
+  REFRESH_TIMEOUT_MS,
+  createSessionController,
+  createSessionRefresher,
+  mapRefreshResult,
+  requestLogout,
+  type ChannelLike,
+  type LockManagerLike,
+} from './session-restore';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const SECRET = 'rt-secret-that-must-never-reach-the-page';
@@ -42,7 +51,7 @@ const headers = (call: Call) => (call.init.headers ?? {}) as Record<string, stri
 describe('boot refresh request', () => {
   it('posts to identity auth.refresh with credentials included, an empty body and no bearer', async () => {
     const { calls, fetcher } = fakeFetch(() => ok(session('a1')));
-    const outcome = await createSessionRefresher({ fetch: fetcher, locks: null }).refresh();
+    const outcome = await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh();
     expect(outcome).toMatchObject({ kind: 'session', session: { accessToken: 'a1', userId: USER } });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('/api/identity/trpc/auth.refresh');
@@ -53,7 +62,7 @@ describe('boot refresh request', () => {
   });
   it('ignores a refreshToken in the reply: it is not in the session object', async () => {
     const { fetcher } = fakeFetch(() => ok({ ...session('a1'), refreshToken: SECRET }));
-    const outcome = await createSessionRefresher({ fetch: fetcher, locks: null }).refresh();
+    const outcome = await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh();
     expect(outcome.kind).toBe('session');
     expect(JSON.stringify(outcome)).not.toContain(SECRET);
     if (outcome.kind === 'session') expect('refreshToken' in outcome.session).toBe(false);
@@ -75,11 +84,11 @@ describe('refresh error mapping', () => {
   for (const [label, answer, kind] of cases)
     it(label + ' is ' + kind, async () => {
       const { fetcher } = fakeFetch(answer);
-      expect((await createSessionRefresher({ fetch: fetcher, locks: null }).refresh()).kind).toBe(kind);
+      expect((await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh()).kind).toBe(kind);
     });
   it('carries the service code for a refusal', async () => {
     const { fetcher } = fakeFetch(() => refusal(401, 'auth.session_reused'));
-    expect(await createSessionRefresher({ fetch: fetcher, locks: null }).refresh()).toEqual({
+    expect(await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh()).toEqual({
       kind: 'signed_out',
       code: 'auth.session_reused',
     });
@@ -97,7 +106,7 @@ describe('single flight', () => {
       await gate;
       return ok(session('t' + n));
     });
-    const refresher = createSessionRefresher({ fetch: fetcher, locks: null });
+    const refresher = createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 });
     const first = refresher.refresh();
     const second = refresher.refresh();
     release();
@@ -116,8 +125,8 @@ describe('single flight', () => {
       active -= 1;
       return ok(session('tab' + n));
     });
-    const tabA = createSessionRefresher({ fetch: fetcher, locks: manager });
-    const tabB = createSessionRefresher({ fetch: fetcher, locks: manager });
+    const tabA = createSessionRefresher({ fetch: fetcher, locks: manager, retryDelayMs: 0 });
+    const tabB = createSessionRefresher({ fetch: fetcher, locks: manager, retryDelayMs: 0 });
     const outcomes = await Promise.all([tabA.refresh(), tabB.refresh()]);
     expect(outcomes.map((o) => o.kind)).toEqual(['session', 'session']);
     expect(calls).toHaveLength(2);
@@ -126,14 +135,14 @@ describe('single flight', () => {
   });
   it('still refreshes once where Web Locks is missing', async () => {
     const { calls, fetcher } = fakeFetch(() => ok(session('a')));
-    const refresher = createSessionRefresher({ fetch: fetcher, locks: null });
+    const refresher = createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 });
     await Promise.all([refresher.refresh(), refresher.refresh()]);
     expect(calls).toHaveLength(1);
   });
   it('falls back to a direct refresh when the lock cannot be taken, and never runs twice', async () => {
     const blocked: LockManagerLike = { request: () => Promise.reject(new DOMException('denied', 'SecurityError')) };
     const { calls, fetcher } = fakeFetch(() => ok(session('a')));
-    expect((await createSessionRefresher({ fetch: fetcher, locks: blocked }).refresh()).kind).toBe('session');
+    expect((await createSessionRefresher({ fetch: fetcher, locks: blocked, retryDelayMs: 0 }).refresh()).kind).toBe('session');
     expect(calls).toHaveLength(1);
     const late: LockManagerLike = {
       request: async (_name, callback) => {
@@ -142,7 +151,7 @@ describe('single flight', () => {
       },
     };
     const again = fakeFetch(() => ok(session('b')));
-    expect((await createSessionRefresher({ fetch: again.fetcher, locks: late }).refresh()).kind).toBe('unavailable');
+    expect((await createSessionRefresher({ fetch: again.fetcher, locks: late, retryDelayMs: 0 }).refresh()).kind).toBe('unavailable');
     expect(again.calls).toHaveLength(1);
   });
 });
@@ -153,18 +162,23 @@ describe('session controller', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+  // retryDelayMs 0: the refresher's own in-grace retry is tested separately; here an outage costs exactly two calls.
   function build(
     answer: (call: Call, n: number) => Response | Promise<Response>,
     logout = vi.fn(async () => ({ ok: true as const, data: { ok: true as const } })),
   ) {
     const net = fakeFetch(answer);
-    const controller = createSessionController({ refresher: createSessionRefresher({ fetch: net.fetcher, locks: null }), logout });
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: net.fetcher, locks: null, retryDelayMs: 0 }),
+      logout,
+      openChannel: () => null,
+    });
     return { ...net, controller, logout };
   }
 
   it('starts restoring, and a valid cookie becomes an in-memory session', async () => {
     const { controller, calls } = build(() => ok(session('boot')));
-    expect(controller.getState()).toEqual({ session: null, restoring: true });
+    expect(controller.getState()).toEqual({ session: null, restoring: true, restoreFailed: false, notice: null });
     await controller.start();
     expect(controller.getState().restoring).toBe(false);
     expect(controller.getState().session?.accessToken).toBe('boot');
@@ -181,11 +195,10 @@ describe('session controller', () => {
     ['session_invalid', () => refusal(401, 'auth.session_invalid')],
     ['session_reused', () => refusal(401, 'auth.session_reused')],
     ['403', () => refusal(403, 'edge.origin_not_allowed')],
-    ['outage', () => new Response('', { status: 503 })],
   ])('boot %s ends signed out without a session and stops waiting', async (_label, answer) => {
     const { controller } = build(answer);
     await controller.start();
-    expect(controller.getState()).toEqual({ session: null, restoring: false });
+    expect(controller.getState()).toMatchObject({ session: null, restoring: false, restoreFailed: false });
     controller.stop();
   });
   it('a sign-in during the boot refresh wins over the late answer', async () => {
@@ -213,7 +226,7 @@ describe('session controller', () => {
     controller.clear();
     release();
     await booting;
-    expect(controller.getState()).toEqual({ session: null, restoring: false });
+    expect(controller.getState()).toMatchObject({ session: null, restoring: false });
     controller.stop();
   });
   it('refreshes silently 30 seconds before the access token expires, with the cookie only', async () => {
@@ -236,16 +249,27 @@ describe('session controller', () => {
     expect(refused.controller.getState().session).toBeNull();
     refused.controller.stop();
 
+    // One silent attempt = two calls (the refresher's own retry). Then the pauses grow: 5 s, 10 s, 20 s.
     const outage = build((_call, n) =>
-      n === 1 ? ok(session('t1', 60_000)) : n === 2 ? new Response('', { status: 503 }) : ok(session('t3', 900_000)),
+      n === 1 ? ok(session('t1', 60_000)) : n <= 7 ? new Response('', { status: 503 }) : ok(session('t8', 900_000)),
     );
     await outage.controller.start();
-    await vi.advanceTimersByTimeAsync(31_000);
-    expect(outage.calls).toHaveLength(2);
-    expect(outage.controller.getState().session?.accessToken).toBe('t1');
-    await vi.advanceTimersByTimeAsync(10_500);
+    await vi.advanceTimersByTimeAsync(31_050);
     expect(outage.calls).toHaveLength(3);
-    expect(outage.controller.getState().session?.accessToken).toBe('t3');
+    expect(outage.controller.getState().session?.accessToken).toBe('t1');
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(outage.calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(outage.calls).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(outage.calls).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(outage.calls).toHaveLength(7);
+    await vi.advanceTimersByTimeAsync(18_000);
+    expect(outage.calls).toHaveLength(7);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(outage.calls).toHaveLength(8);
+    expect(outage.controller.getState().session?.accessToken).toBe('t8');
     outage.controller.stop();
   });
   it('stops the silent refresh once stopped or signed out', async () => {
@@ -263,7 +287,7 @@ describe('session controller', () => {
     const result = await controller.logout();
     expect(result.ok).toBe(true);
     expect(logout).toHaveBeenCalledTimes(1);
-    expect(controller.getState()).toEqual({ session: null, restoring: false });
+    expect(controller.getState()).toMatchObject({ session: null, restoring: false });
     expect(seen).toEqual([undefined]);
     controller.stop();
   });
@@ -319,6 +343,205 @@ describe('session controller', () => {
     for (const spy of logs) expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
     controller.stop();
     logs.forEach((spy) => spy.mockRestore());
+  });
+});
+
+describe('lost reply recovery (server reuse grace is 10 s)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  it('gives up on a silent request after 5 s, not 15 s, and retries once 1.5 s later', async () => {
+    expect([REFRESH_TIMEOUT_MS, REFRESH_RETRY_MS]).toEqual([5_000, 1_500]);
+    const sent: number[] = [];
+    const t0 = Date.now();
+    const aborted: boolean[] = [];
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      sent.push(Date.now() - t0);
+      if (sent.length > 1) return ok(session('recovered'));
+      return new Promise<Response>((_resolve, reject) =>
+        init.signal?.addEventListener('abort', () => {
+          aborted.push(true);
+          reject(new DOMException('aborted', 'AbortError'));
+        }),
+      );
+    }) as unknown as typeof fetch;
+    const pending = createSessionRefresher({ fetch: fetcher, locks: null }).refresh();
+    await vi.advanceTimersByTimeAsync(4_900);
+    expect(aborted).toEqual([]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(aborted).toEqual([true]);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(await pending).toMatchObject({ kind: 'session', session: { accessToken: 'recovered' } });
+    expect(sent).toEqual([0, 6_500]);
+    // 6.5 s after the first send: inside the 10 s grace.
+    expect(sent[1]!).toBeLessThan(10_000);
+  });
+  it('retries only once per flight, and not after a definite answer', async () => {
+    const down = fakeFetch(() => new Response('', { status: 503 }));
+    const flight = createSessionRefresher({ fetch: down.fetcher, locks: null }).refresh();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await flight).toEqual({ kind: 'unavailable' });
+    expect(down.calls).toHaveLength(2);
+    const refused = fakeFetch(() => refusal(401, 'auth.session_invalid'));
+    await createSessionRefresher({ fetch: refused.fetcher, locks: null }).refresh();
+    expect(refused.calls).toHaveLength(1);
+  });
+});
+
+describe('server-ended sessions and boot outages', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  function build(answer: (n: number) => Response) {
+    const net = fakeFetch((_call, n) => answer(n));
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: net.fetcher, locks: null, retryDelayMs: 0 }),
+      openChannel: () => null,
+    });
+    return { ...net, controller };
+  }
+  it.each([
+    ['auth.session_reused', 401, 'reused'],
+    ['auth.account_frozen', 403, 'frozen'],
+  ])('boot %s is surfaced as a notice', async (code, status, notice) => {
+    const { controller } = build(() => refusal(status, code));
+    await controller.start();
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: false, notice });
+    controller.commit(session('signed-in-again'));
+    expect(controller.getState().notice).toBeNull();
+    controller.stop();
+  });
+  it('an ordinary session_invalid carries no notice', async () => {
+    const { controller } = build(() => refusal(401, 'auth.session_invalid'));
+    await controller.start();
+    expect(controller.getState().notice).toBeNull();
+    controller.stop();
+  });
+  it('a silent refresh answered with session_reused signs out with the notice', async () => {
+    const { controller } = build((n) => (n === 1 ? ok(session('t1', 60_000)) : refusal(401, 'auth.session_reused')));
+    await controller.start();
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(controller.getState()).toMatchObject({ session: null, notice: 'reused' });
+    controller.stop();
+  });
+  it('a boot outage keeps the cookie and offers Retry; Retry restores', async () => {
+    const { controller, calls } = build((n) => (n <= 2 ? new Response('', { status: 503 }) : ok(session('back'))));
+    await controller.start();
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: true, notice: null });
+    const retrying = controller.retryRestore();
+    expect(controller.getState()).toMatchObject({ restoring: true, restoreFailed: false });
+    await retrying;
+    expect(controller.getState().session?.accessToken).toBe('back');
+    expect(calls).toHaveLength(3);
+    controller.stop();
+  });
+});
+
+describe('tabs talking over the session channel', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  /** BroadcastChannel stand-in: a message reaches every other open channel, never the sender. */
+  function bus() {
+    const open = new Set<ChannelLike>();
+    return () => {
+      const channel: ChannelLike = {
+        onmessage: null,
+        postMessage(message) {
+          for (const other of open) if (other !== channel) other.onmessage?.({ data: message });
+        },
+        close() {
+          open.delete(channel);
+        },
+      };
+      open.add(channel);
+      return channel;
+    };
+  }
+  function tab(open: () => ChannelLike, answer: (n: number) => Response) {
+    const net = fakeFetch((_call, n) => answer(n));
+    const logout = vi.fn(async () => ({ ok: true as const, data: { ok: true as const } }));
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: net.fetcher, locks: null, retryDelayMs: 0 }),
+      logout,
+      openChannel: open,
+    });
+    return { ...net, controller, logout };
+  }
+  it('logout in one tab signs the other tab out without a second server call', async () => {
+    const open = bus();
+    const a = tab(open, () => ok(session('a'))),
+      b = tab(open, () => ok(session('b')));
+    await Promise.all([a.controller.start(), b.controller.start()]);
+    await a.controller.logout();
+    expect(b.controller.getState().session).toBeNull();
+    expect(a.logout).toHaveBeenCalledTimes(1);
+    expect(b.logout).not.toHaveBeenCalled();
+    a.controller.stop();
+    b.controller.stop();
+  });
+  it('shares a rotated access token for the same user, so the other tab does not refresh itself', async () => {
+    const open = bus();
+    const a = tab(open, (n) => (n === 1 ? ok(session('a1', 60_000)) : ok(session('a2-rotated', 900_000))));
+    const b = tab(open, () => refusal(401, 'auth.session_invalid'));
+    b.controller.commit(session('b-own', 900_000));
+    await Promise.all([a.controller.start(), b.controller.start()]);
+    await vi.advanceTimersByTimeAsync(31_050);
+    expect(a.controller.getState().session?.accessToken).toBe('a2-rotated');
+    expect(b.controller.getState().session?.accessToken).toBe('a2-rotated');
+    expect(b.calls).toHaveLength(0);
+    a.controller.stop();
+    b.controller.stop();
+  });
+  it('adopts a newer token for the same user and ignores another user, an older expiry and junk', async () => {
+    const open = bus();
+    const a = tab(open, () => ok(session('a', 900_000)));
+    const outside = open();
+    await a.controller.start();
+    const send = (data: unknown) => outside.postMessage(data);
+    send({ type: 'session', session: { ...session('stranger'), userId: '22222222-2222-4222-8222-222222222222' } });
+    send({ type: 'session', session: session('older', 1_000) });
+    send({ type: 'session', session: { accessToken: 'x' } });
+    send({ type: 'nonsense' });
+    send('text');
+    expect(a.controller.getState().session?.accessToken).toBe('a');
+    send({ type: 'session', session: session('newer', 1_800_000) });
+    expect(a.controller.getState().session?.accessToken).toBe('newer');
+    a.controller.stop();
+  });
+  it('does not broadcast a refresh token, and closes its channel on stop', async () => {
+    const posted: unknown[] = [];
+    let closed = false;
+    const spy: ChannelLike = { onmessage: null, postMessage: (m) => void posted.push(m), close: () => void (closed = true) };
+    const a = tab(
+      () => spy,
+      (n) => ok({ ...session('a' + n, 60_000), refreshToken: SECRET }),
+    );
+    await a.controller.start();
+    await vi.advanceTimersByTimeAsync(31_000);
+    await a.controller.logout();
+    expect(posted.map((m) => (m as { type: string }).type)).toEqual(['session', 'logout']);
+    expect(JSON.stringify(posted)).not.toContain(SECRET);
+    a.controller.stop();
+    expect(closed).toBe(true);
+  });
+});
+
+describe('logout that the server did not confirm', () => {
+  it('can be asked again, and reports the failure', async () => {
+    const logout = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, reason: 'unreachable', message: 'down' })
+      .mockResolvedValueOnce({ ok: true, data: { ok: true } });
+    const net = fakeFetch(() => ok(session('a')));
+    const controller = createSessionController({
+      refresher: createSessionRefresher({ fetch: net.fetcher, locks: null, retryDelayMs: 0 }),
+      logout,
+      openChannel: () => null,
+    });
+    await controller.start();
+    expect((await controller.logout()).ok).toBe(false);
+    expect(controller.getState().session).toBeNull();
+    expect((await controller.retryLogout()).ok).toBe(true);
+    expect(logout).toHaveBeenCalledTimes(2);
+    controller.stop();
   });
 });
 

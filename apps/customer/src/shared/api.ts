@@ -53,6 +53,8 @@ export function createApiClient(
     fetch?: typeof fetch;
     /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
     credentials?: 'same-origin' | 'include';
+    /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
+    timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;
   } = {},
 ) {
@@ -76,7 +78,7 @@ export function createApiClient(
     const cancel = () => controller.abort(requestOptions.signal?.reason);
     if (requestOptions.signal?.aborted) cancel();
     else requestOptions.signal?.addEventListener('abort', cancel, { once: true });
-    const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), 15_000);
+    const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), options.timeoutMs ?? 15_000);
     try {
       const response = await fetcher(url, {
         method,
