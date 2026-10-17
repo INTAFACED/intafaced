@@ -768,3 +768,65 @@ describe('the stand-in restores a sign-in the way the cookie would', () => {
     expect(((await identity('auth.refresh', {}, false)) as Any).status).toBe(200);
   });
 });
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+describe('what the stand-in mints is shaped like what the service mints', () => {
+  it('gives every refund it makes a real uuid, so the refunds-issued figure can be read', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const target = (await all(mock, 'payment.list', { status: 'captured' }))[0];
+    await call(mock, 'payment.refund', { paymentId: target.id, amount: '10', refundId: 'TEST-refund-uuid' });
+    const rows = await all(mock, 'payment.refunds.list', {});
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.id, 'refund id').toMatch(UUID);
+      if (row.ledgerEffect?.ledgerTxId) expect(row.ledgerEffect.ledgerTxId, 'ledger tx id').toMatch(UUID);
+    }
+    // a refund of "10" reads "10.00", as every amount does
+    expect(rows.find((r) => r.refundId === 'TEST-refund-uuid').amount).toBe('10.00');
+  });
+  it('gives links, subscriptions, approvals and quotes real uuids', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const link = await call(mock, 'merchant.createLink', { merchantId: MERCHANT, label: 'TEST uuid link' });
+    expect(link.id ?? link.link?.id).toMatch(UUID);
+    const quote = await call(mock, 'conversion.quote', { settlementId: 'x', fromAsset: 'USDT', toAsset: 'USD', fromAmount: '100' });
+    expect(quote.quoteId).toMatch(UUID);
+    for (const a of await all(mock, 'merchantControl.approvals.list', {})) expect(a.approvalId).toMatch(UUID);
+  });
+  it('dates a new link 30 days from when it is made', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const before = Date.now();
+    const made = await call(mock, 'merchant.createLink', { merchantId: MERCHANT, label: 'TEST expiry' });
+    const expires = Date.parse((made.link ?? made).expiresAt);
+    expect(expires - before).toBeGreaterThanOrEqual(30 * DAY - 1000);
+    expect(expires - Date.now()).toBeLessThanOrEqual(30 * DAY);
+  });
+  it('shows no billing history for a subscription it does not know, never another one’s', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const unknown = '99999999-9999-4999-8999-999999999999';
+    expect(await call(mock, 'subscription.listExecutions', { subscriptionId: unknown })).toEqual([]);
+    expect((await call(mock, 'subscription.cycles', { subscriptionId: unknown })).cycles).toEqual([]);
+    const known = (await all(mock, 'subscription.list', {}))[0];
+    expect((await call(mock, 'subscription.listExecutions', { subscriptionId: known.id })).length).toBeGreaterThan(0);
+  });
+});
+
+describe('an approval the owner can decide and then send', () => {
+  it('lets the owner approve a teammate’s request that fits today’s limit, and then send it', async () => {
+    const mock = createPortalMock('active', { now: NOW });
+    const usage = await call(mock, 'merchantControl.usage', { merchantId: MERCHANT });
+    const left = micro(usage.rows.find((r: Any) => r.kind === 'daily_payout').remaining);
+    const waiting = (await all(mock, 'merchantControl.approvals.list', { status: 'pending' })).filter(
+      (a) => a.makerUserId !== '22222222-2222-4222-8222-222222222222' && micro(a.amount) <= left,
+    );
+    expect(waiting.length, 'a request the owner can approve and send under the limit').toBeGreaterThan(0);
+    const a = waiting[0];
+    await call(mock, 'merchantControl.approvals.decide', {
+      approvalId: a.approvalId,
+      decision: 'approve',
+      expectedPayloadHash: a.payloadHash,
+      reason: 'TEST approve',
+    });
+    const sent = await call(mock, 'settlement.payout', { settlementId: a.settlementId, railId: a.railId });
+    expect(sent.status).toBe('paid_out');
+  });
+});

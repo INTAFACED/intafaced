@@ -115,7 +115,7 @@ describe('business details', () => {
   });
   it('names the blocker when the details read is not switched on, and keeps the facts', () => {
     const out = html({ profile: failed('pay.not_built', 501, 'not_supported') });
-    expect(out).toContain('Profile changes not connected yet');
+    expect(out).toContain('Profile changes are not connected here');
     expect(out).toContain('TEST Shop');
     expect(out).not.toContain('Coming soon');
   });
@@ -160,7 +160,7 @@ describe('second approval and the name', () => {
     // nothing tells it whether the setting is on: the page says so and offers no toggle that would guess
     expect(out).not.toContain('Turn on second approval');
     expect(out).not.toContain('Turn off second approval');
-    expect(out).toContain('We can’t read this setting yet');
+    expect(out).toContain('We can’t read this setting');
     expect(out).toContain('It can’t be changed until we can read it');
   });
   it('shows the state, and the opposite action, when the service reports it', () => {

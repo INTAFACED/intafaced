@@ -171,6 +171,8 @@ export function createAccountMock(ctx) {
       add(e.completedAt ?? e.createdAt, e.requestedBy, `export_${e.status === 'failed' ? 'failed' : 'ready'}`, 'export', e.jobId, {
         status: e.status,
       });
+    // The real feed has one row per approval, from its current status, at the time it was asked for (svc-pay activity.ts):
+    // no row per approve or send, and no destination rows (destinations are not a feed object type). The stand-in keeps to that.
     for (const a of state.approvals ?? [])
       add(a.createdAt, a.makerUserId, `payout_${a.status === 'pending' ? 'pending' : a.status}`, 'approval', a.approvalId, {
         status: a.status,

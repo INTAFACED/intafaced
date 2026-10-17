@@ -119,7 +119,7 @@ describe('allowed addresses', () => {
   });
   it('warns that saving replaces the list and that the saved one cannot be read', () => {
     const out = renderToString(<AllowedIps api={api} keyId="TEST-key-1" />);
-    expect(out).toContain('We cannot show what is saved for this key yet');
+    expect(out).toContain('We cannot show what is saved for this key');
     expect(out).toContain('Replace allowed addresses');
   });
 });
@@ -189,7 +189,7 @@ describe('signing', () => {
     expect(out).toContain('Python');
   });
   it('names why the signature check is not there', () => {
-    expect(renderToString(<Recipe />)).toContain('no way yet to check a signature');
+    expect(renderToString(<Recipe />)).toContain('no way to check a signature');
   });
   it('writes the same canonical string the service verifies, in both languages', () => {
     for (const code of Object.values(signingSnippets)) {
@@ -286,7 +286,7 @@ describe('test mode and the guide', () => {
     const out = renderToString(<Docs />);
     expect(out).not.toMatch(new RegExp(['founder', 'Admin'].join(''), 'i'));
     expect(out).not.toMatch(/operator|admin:/i);
-    expect(out).toContain('Libraries are not published yet');
+    expect(out).toContain('Libraries are not published');
   });
 });
 

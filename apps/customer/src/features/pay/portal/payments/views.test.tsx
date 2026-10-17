@@ -257,7 +257,7 @@ describe('disputes', () => {
     expect(out).toContain('href="/pay/payments/pay-0001-aaaa-bbbb"');
     expect(out).toContain('Contest the dispute');
     expect(out).toContain('Accept liability');
-    expect(out).toContain('Not recorded yet');
+    expect(out).toContain('Not recorded');
     expectPlain(out);
   });
   it('blocks contesting until there is evidence, and says why', () => {

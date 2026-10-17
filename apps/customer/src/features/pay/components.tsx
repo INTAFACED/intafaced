@@ -241,11 +241,20 @@ export function Status({ value }: { value: string }) {
     />
   );
 }
-export function MutationResult({ result, title }: { result: ApiResult<unknown> | null; title: string }) {
+/** `refreshed`: the page already shows the new state itself, so it does not tell the person to refresh. */
+export function MutationResult({
+  result,
+  title,
+  refreshed = false,
+}: {
+  result: ApiResult<unknown> | null;
+  title: string;
+  refreshed?: boolean;
+}) {
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">
-      <PayCopy k="theServiceConfirmedTheActionRefreshThe" params={{ title }} />
+      <PayCopy k={refreshed ? 'theServiceConfirmedTheAction' : 'theServiceConfirmedTheActionRefreshThe'} params={{ title }} />
     </p>
   ) : (
     <PayFailure result={result} />
@@ -325,7 +334,7 @@ export function ReviewedAction<T>({
       >
         {title}
       </Button>
-      <MutationResult result={result} title={title} />
+      <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
         <Dialog
           closeLabel={uiCopy.t('closeDialog')}
@@ -341,7 +350,7 @@ export function ReviewedAction<T>({
           <div className="form-stack">
             <p className="muted">{description}</p>
             {review}
-            <MutationResult result={result} title={title} />
+            <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
             <Button
               variant={variant}
               disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}

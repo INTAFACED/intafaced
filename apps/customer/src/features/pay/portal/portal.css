@@ -793,6 +793,12 @@
   }
 }
 @layer components {
+  .if-business .pp-kpi-value.pp-kpi-value--text,
+  .if-business .plo .pp-kpi .pp-kpi-value.pp-kpi-value--text {
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 500;
+  }
   .if-business .pp-kpi-label em {
     color: var(--if-fg-2);
   }

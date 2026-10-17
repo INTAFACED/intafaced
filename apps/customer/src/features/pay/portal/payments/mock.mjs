@@ -96,7 +96,7 @@ export function createPaymentsMock(ctx) {
     const link = {
       id: invoice.paymentLinkId,
       prefix,
-      expiresAt: iso(now + 30 * DAY),
+      expiresAt: iso(Date.now() + 30 * DAY),
       maxUses: 1,
       token: `TEST-token-${invoice.id.slice(0, 8)}`,
       alreadyIssued: false,
@@ -113,7 +113,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: 0,
       createdAt: iso(Date.now()),
-      checkoutUrl: `https://checkout.example.test/pay/checkout?token=${link.token}`,
+      checkoutUrl: `/pay/checkout?token=${link.token}`,
     };
     const at = world.links.findIndex((l) => l.id === record.id);
     if (at >= 0) world.links.splice(at, 1);
@@ -147,7 +147,7 @@ export function createPaymentsMock(ctx) {
       maxUses: 1,
       uses: paidVia ? 1 : 0,
       createdAt: invoice.sentAt,
-      checkoutUrl: `https://checkout.example.test/pay/checkout?token=TEST-token-${prefix}`,
+      checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
     });
   }
   // exact 18-place arithmetic, so a refused product is refused for the same reason the service refuses it

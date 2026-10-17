@@ -21,9 +21,10 @@ export function RefundsIssuedValue({ portal, merchantId, when }: { portal: Porta
   if (read.resource.status === 'loading') return <span className="pp-none">…</span>;
   if (read.resource.status === 'failed')
     return (
-      <span className="pp-none" title={t('refundsIssuedFailed')}>
-        —
-      </span>
+      <>
+        <span className="pp-none">—</span>
+        <small className="pp-kpi-note"> {t('refundsIssuedFailed')}</small>
+      </>
     );
   const { rows, complete } = read.resource.data;
   const totals = refundsIssuedTotals(rows);

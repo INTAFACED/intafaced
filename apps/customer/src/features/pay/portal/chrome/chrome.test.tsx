@@ -29,9 +29,9 @@ describe('portal chrome', () => {
 describe('NotLiveCard', () => {
   it('names what it is waiting for first, then what the feature will do, in plain words', () => {
     const html = renderToStaticMarkup(<NotLiveCard reason={reason('reasonFees')}>You’ll be able to send invoices.</NotLiveCard>);
-    expect(html).toContain('Pricing not set yet: INTAFACED is finalising merchant fees');
+    expect(html).toContain('Pricing is not set for this account: INTAFACED sets merchant fees');
     expect(html).toContain('You’ll be able to send invoices.');
-    expect(html.indexOf('Pricing not set yet')).toBeLessThan(html.indexOf('send invoices'));
+    expect(html.indexOf('Pricing is not set for this account')).toBeLessThan(html.indexOf('send invoices'));
     expect(html).not.toMatch(/coming soon|backend|Arrives|\(W\d\)/i);
   });
 });

@@ -20,6 +20,7 @@ import { dateRange, FilterRow, useListFilters, type DatePreset } from '../ui/Fil
 import { Freshness } from '../ui/Freshness';
 import { PortalReview } from '../ui/PortalReview';
 import { RelatedLinks } from '../ui/RelatedLinks';
+import { addressOf } from './Links';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
@@ -31,7 +32,6 @@ import {
   draftAmount,
   draftProblems,
   dueAtOf,
-  hostedLinkUrl,
   invoiceEvents,
   invoiceName,
   isOverdue,
@@ -594,7 +594,7 @@ export function InvoiceDetailView({
       )}
       {minted?.token && (
         <PaySection title={t('inv_linkShownOnce')} description={t('inv_linkShownOnceBody')}>
-          <CopyReference value={hostedLinkUrl(globalThis.location?.origin ?? '', minted.token)} what={t('inv_relLink')} />
+          <CopyReference value={addressOf({ token: minted.token }) ?? ''} what={t('inv_relLink')} />
         </PaySection>
       )}
       <PaySection title={t('inv_detailsTitle')}>

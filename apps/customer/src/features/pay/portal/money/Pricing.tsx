@@ -60,7 +60,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                     period: t('mnPeriodNow'),
                     href: '/pay/pricing',
                     value: first ? bpsPercent(first.feeBps) : <NotConfigured />,
-                    note: first && rules.length > 1 ? t('priceRateNote') : undefined,
+                    note: first && rules.length > 1 ? t('priceRateNote', { asset: rules[0]!.assetCode }) : undefined,
                   },
                   { label: t('priceAssets'), period: t('mnPeriodNow'), href: '/pay/pricing', value: String(assets.length) },
                   {
@@ -68,6 +68,7 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                     period: t('mnPeriodNow'),
                     href: '/pay/pricing',
                     value: profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
+                    size: 'text',
                   },
                 ]}
               />

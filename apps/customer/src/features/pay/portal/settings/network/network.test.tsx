@@ -84,7 +84,7 @@ describe('network', () => {
     const out = renderToString(
       <NetworkView portal={{} as PortalApi} merchantId="m" subs={failed('pay.not_built', 501, 'not_supported')} reload={noop} mayCreate />,
     );
-    expect(out).toContain('the network pages aren’t connected yet');
+    expect(out).toContain('the network pages are not connected here');
     expect(out).not.toContain('Coming soon');
   });
   it('turns a typed fee into whole basis points, and refuses anything else', () => {
@@ -127,7 +127,7 @@ describe('one business in the network', () => {
     const out = renderToString(
       <NetworkChildView node={ready(node(A))} summary={failed('pay.not_built', 501, 'not_supported')} reload={noop} />,
     );
-    expect(out).toContain('Summary not connected yet');
+    expect(out).toContain('Summary is not connected here');
     expect(out).toContain('1.50%');
   });
 });

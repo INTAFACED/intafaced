@@ -31,7 +31,7 @@ describe('security', () => {
   });
   it('names the team-wide rules as waiting, not as a pass', () => {
     const out = renderToString(<SecurityView role="owner" interactive verified />);
-    expect(out).toContain('Security settings not connected yet');
+    expect(out).toContain('Security settings are not connected here');
     expect(out).not.toContain('Coming soon');
   });
 });

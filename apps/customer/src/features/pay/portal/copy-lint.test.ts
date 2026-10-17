@@ -43,6 +43,10 @@ const banned: Array<[name: string, pattern: RegExp]> = [
   ['"fixture"', /\bfixtures?\b/i],
   ['"arrives"', /\barrives?\b/i],
   ['"coming soon"', /\bcoming soon\b/i],
+  [
+    'a promise of later ("not connected yet", "available yet", "on the way", "soon"): say what is true now and what blocks it',
+    /\b(not connected yet|available yet|on the way|coming soon|soon)\b/i,
+  ],
   ['"soon" as a promise', /\b(?:available|here|open|live) soon\b/i],
   ['a snake_case word', /\b[a-z]+(?:_[a-z0-9]+)+\b/],
   ['a service code', /\bpay\.[a-z_]+/],
@@ -69,6 +73,13 @@ describe('merchant portal copy', () => {
   });
   it('finds a banned word when there is one (the check can fail)', () => {
     expect(banned.some(([, pattern]) => pattern.test('Loaded from the backend'))).toBe(true);
+    for (const promise of ['Not connected yet', 'Not available yet', 'Invitations are on the way', 'We’ll try again soon'])
+      expect(
+        banned.some(([, pattern]) => pattern.test(promise)),
+        promise,
+      ).toBe(true);
+    // a status is not a promise
+    expect(banned.some(([, pattern]) => pattern.test('Not paid out yet'))).toBe(false);
     expect(banned.some(([, pattern]) => pattern.test('Your payments are in the list'))).toBe(false);
   });
 });

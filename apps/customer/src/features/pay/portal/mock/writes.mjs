@@ -58,11 +58,11 @@ export function createWritesMock(ctx) {
           // The network confirms a refund as it is posted, so the payment already says refunded (or part refunded). Every refund,
           // a part refund too, is one row here; the payment history reads these rows (payments/mock.mjs).
           world.refunds.unshift({
-            id: uuid('cc3', world.refunds.length + 1),
+            id: uuid('c3', world.refunds.length + 1),
             refundId: input.refundId,
             paymentId: p.id,
             merchantId: MERCHANT_ID,
-            amount: input.amount,
+            amount: fromU(toU(input.amount)),
             assetId: p.assetId,
             reason: null,
             actor: USER_ID,
@@ -73,7 +73,7 @@ export function createWritesMock(ctx) {
             ledgerEffect: {
               recorded: true,
               pot: fromSettled ? 'merchantProceeds' : 'clearing',
-              ledgerTxId: uuid('cc4', world.refunds.length + 1),
+              ledgerTxId: uuid('c4', world.refunds.length + 1),
               direction: 'credit',
             },
             payment: { paymentId: p.id, status: p.status },
@@ -88,7 +88,8 @@ export function createWritesMock(ctx) {
           if (seenLink) return ok(route, seenLink);
           const n = world.links.length + 1;
           const prefix = `TESTl${n}`;
-          const expiresAt = input.expiresAt ?? iso(now + 30 * DAY);
+          // 30 days from the moment the link is made, not from when the stand-in started.
+          const expiresAt = input.expiresAt ?? iso(Date.now() + 30 * DAY);
           const link = {
             id: uuid('1c', n),
             prefix,
@@ -100,7 +101,7 @@ export function createWritesMock(ctx) {
             maxUses: input.maxUses ?? null,
             uses: 0,
             createdAt: iso(Date.now()),
-            checkoutUrl: `https://checkout.example.test/pay/checkout?token=TEST-token-${prefix}`,
+            checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
           };
           world.links.unshift(link);
           const made = {

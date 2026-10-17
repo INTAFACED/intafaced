@@ -15,16 +15,18 @@ export type KpiTileProps = {
   value: ReactNode;
   note?: ReactNode;
   tone?: 'attention';
+  /** `text`: the value is a date or a few words, not a figure, so it is set smaller and cannot wrap over three lines. */
+  size?: 'text';
 };
 
-export function KpiTile({ label, period, href, value, note, tone }: KpiTileProps) {
+export function KpiTile({ label, period, href, value, note, tone, size }: KpiTileProps) {
   return (
     <a className={`pp-kpi pp-kpi--link${tone ? ` pp-kpi--${tone}` : ''}`} href={href}>
       <span className="pp-kpi-label">
         {label}
         <em>{period}</em>
       </span>
-      <strong className="pp-kpi-value numeric">{value}</strong>
+      <strong className={`pp-kpi-value numeric${size === 'text' ? ' pp-kpi-value--text' : ''}`}>{value}</strong>
       {note && <small className="pp-kpi-note">{note}</small>}
     </a>
   );

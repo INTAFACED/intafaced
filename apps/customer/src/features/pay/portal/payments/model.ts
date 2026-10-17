@@ -28,6 +28,12 @@ export const hasActivity = (snapshot: Snapshot) =>
   snapshot.balances.some((b) => !isZeroAmount(b.available) || !isZeroAmount(b.clearing));
 
 export const seriesAssets = (series: Series) => [...new Set(series.points.map((p) => p.assetCode))].sort();
+/** The asset with the most volume in the series, which the chart opens on; ties and an empty series fall back to the first by name. */
+export function largestAsset(series: Series): string | undefined {
+  const totals = new Map<string, number>();
+  for (const p of series.points) totals.set(p.assetCode, (totals.get(p.assetCode) ?? 0) + Number(p.volume));
+  return seriesAssets(series).sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0))[0];
+}
 
 /** Share of payments in each status, as whole-number percentages that are only used to size a bar. */
 export function mixShares(mix: Snapshot['statusMix']): Array<{ status: string; count: number; pct: number }> {

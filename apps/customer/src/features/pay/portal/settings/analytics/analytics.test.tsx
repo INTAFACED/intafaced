@@ -181,11 +181,11 @@ describe('fees page', () => {
     const out = renderToString(<FeesPage resource={{ status: 'ready', data: data() }} />);
     expect(out).toContain('Effective fee rate by asset');
     expect(out.match(/2\.90%/g)).toHaveLength(2); // 1.45 / 50 (USD) and 11.60 / 400 (USDT), never mixed
-    expect(out).not.toContain('No rate shown yet');
+    expect(out).not.toContain('No rate shown');
   });
   it('names what is missing when the figures are cut short, instead of a partial rate', () => {
     const out = renderToString(<FeesPage resource={{ status: 'ready', data: data({ complete: false }) }} />);
-    expect(out).toContain('No rate shown yet');
+    expect(out).toContain('No rate shown');
     expect(out).not.toMatch(/\d\.\d+%/);
   });
   it('shows a rate only when the service sends one', () => {
@@ -200,8 +200,8 @@ describe('fees page', () => {
         }}
       />,
     );
-    expect(out).toContain('Fee analytics are not switched on yet');
-    expect(out).toContain('Not connected yet');
+    expect(out).toContain('Fee analytics are not switched on');
+    expect(out).toContain('Not connected here');
   });
 });
 

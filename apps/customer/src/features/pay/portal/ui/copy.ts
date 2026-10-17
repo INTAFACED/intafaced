@@ -89,7 +89,7 @@ const en = {
   chipDelivery_delivered: 'Delivered',
   tipDelivery_delivered: 'Your system accepted the event.',
   chipDelivery_pending: 'Waiting',
-  tipDelivery_pending: 'We’ll try again soon.',
+  tipDelivery_pending: 'We try again automatically.',
   chipDelivery_failed: 'Failed',
   tipDelivery_failed: 'Your system didn’t accept the event.',
   chipKey_active: 'Active',

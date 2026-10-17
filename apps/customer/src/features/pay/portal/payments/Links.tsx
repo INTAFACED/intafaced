@@ -44,8 +44,8 @@ export function linkState(link: Link, now: number) {
 export function addressOf(link: { checkoutUrl?: string | null; token?: string | null }): string | null {
   if (link.checkoutUrl && isWebAddress(link.checkoutUrl)) return link.checkoutUrl;
   // The service sends a path from its public base; the browser's own origin completes it.
-  if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${location.origin}${link.checkoutUrl}`;
-  if (link.token) return `${location.origin}/pay/checkout?token=${encodeURIComponent(link.token)}`;
+  if (link.checkoutUrl && link.checkoutUrl.startsWith('/')) return `${globalThis.location?.origin ?? ''}${link.checkoutUrl}`;
+  if (link.token) return `${globalThis.location?.origin ?? ''}/pay/checkout?token=${encodeURIComponent(link.token)}`;
   return null;
 }
 

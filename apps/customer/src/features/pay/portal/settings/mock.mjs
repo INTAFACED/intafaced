@@ -48,7 +48,7 @@ export function createSettingsMock(ctx) {
         userId: TEAM.invited.userId,
         role: 'viewer',
         status: 'invited',
-        label: null,
+        label: TEAM.invited.label,
         invitedBy: USER_ID,
         createdAt: iso(now - 1 * DAY),
         activatedAt: null,

@@ -68,6 +68,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
             period: t('mnPeriodNow'),
             href: '/pay/payouts?status=paid_out',
             value: lastUsed ? <DateTime value={lastUsed} /> : '—',
+            size: 'text',
           },
           { label: t('dstScreening'), period: t('mnPeriodNow'), href: '/pay/payouts/destinations', value: t('notRecorded') },
         ]}

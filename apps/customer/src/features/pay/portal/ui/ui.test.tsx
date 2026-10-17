@@ -213,7 +213,7 @@ describe('failures and refusals', () => {
     expect(renderToString(<PortalFailure result={failure({ code: 'pay.test_feature_off' })} notLive="Page-specific reason" />)).toContain(
       'Page-specific reason',
     );
-    expect(renderToString(<PortalFailure result={failure({ code: 'pay.not_built' })} />)).toContain('INTAFACED hasn’t switched this on');
+    expect(renderToString(<PortalFailure result={failure({ code: 'pay.not_built' })} />)).toContain('INTAFACED has not switched this on');
   });
 });
 

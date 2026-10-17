@@ -111,7 +111,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
           },
           {
             label: t('apvExpiring'),
-            period: t('mnPeriodToday'),
+            period: t('mnPeriodNext24'),
             href: '/pay/approvals?status=pending',
             value: expiring === null ? '—' : String(expiring),
           },

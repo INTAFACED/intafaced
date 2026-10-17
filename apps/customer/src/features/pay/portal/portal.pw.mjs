@@ -132,7 +132,7 @@ test('dashboard: no merchant yet leads to setup; operations not switched on says
   const soon = await page.context().newPage();
   await setup(soon, 'soon');
   await signIn(soon, '/pay/merchant');
-  await expect(soon.getByText('Not connected yet').first()).toBeVisible();
+  await expect(soon.getByText('Not connected here').first()).toBeVisible();
   await snap(soon, '05-dashboard-arrives-soon');
 });
 
@@ -172,7 +172,7 @@ test('onboarding: step 1 refuses to open an account while no starting fee is pub
   await page.getByLabel('Country code *').fill('gb');
   await page.getByLabel('Type of business *').fill('Online shop');
   await page.getByLabel('Contact email *').fill('ops@test.invalid');
-  await expect(page.getByText('Opening new accounts isn’t available yet')).toBeVisible();
+  await expect(page.getByText('Opening new accounts isn’t possible here')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create my account' })).toBeDisabled();
   await snap(page, '09-onboarding-business');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -545,6 +545,8 @@ test('payout detail: the checker approves with a reason, the service gets the fi
 
 test('payout detail: the person who asked cannot approve, and can take the request back', async ({ page }) => {
   const { mock } = await setup(page);
+  // The seeded request on this payout was asked for by a teammate (so the owner can approve it); here it is the owner's own.
+  mock.state.approvals.find((a) => a.settlementId === STL_OWN).makerUserId = USER_ID;
   await signIn(page, `/pay/payouts/${STL_OWN}`);
   await expect(page.getByRole('button', { name: 'Approve payout' })).toBeDisabled();
   await expect(page.getByText('You asked for this payout, so someone else on your team has to decide it.')).toBeVisible();
@@ -553,6 +555,23 @@ test('payout detail: the person who asked cannot approve, and can take the reque
   await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.approvals.cancel').input).toMatchObject({ reason: 'Wrong amount' });
+});
+
+test('payout detail: an approved payout over what is left of today’s limit says so instead of offering to send it', async ({ page }) => {
+  await setup(page);
+  // Both seeded requests were asked for by a teammate, so the owner can approve them. This one is larger than what is left today.
+  await signIn(page, `/pay/payouts/${STL_WAITING}`);
+  await page.getByLabel('Your reason *').fill('Checked the destination');
+  await page.getByRole('button', { name: 'Approve payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByText('more than you have left of today’s payout limit, so it cannot be sent yet')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Send this payout' })).toHaveCount(0);
+  // The other one fits under the limit, so the owner can approve it and go on to send it.
+  await signIn(page, `/pay/payouts/${STL_OWN}`);
+  await page.getByLabel('Your reason *').fill('Checked the destination');
+  await page.getByRole('button', { name: 'Approve payout' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByRole('link', { name: 'Send this payout' }).first()).toBeVisible();
 });
 
 test('approvals: the queue with ages, where each payout goes, and a row that opens the request', async ({ page }) => {

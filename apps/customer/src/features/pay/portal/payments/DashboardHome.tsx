@@ -8,7 +8,7 @@ import { DashboardInsights, type DashboardData } from './Dashboard';
 import { AsOf, Chip, Gate, HaltBanner, Money, MoneyLines, ReadAt } from '../components';
 import { useReadAt } from '../hooks';
 import { bars } from '../model';
-import { seriesAssets } from './model';
+import { largestAsset, seriesAssets } from './model';
 import type { MemberRole, MerchantRecord, MetricPreset, Payment, Series, Snapshot } from '../schemas';
 import { layoutCopy as c, portalCopy } from './copy';
 import { MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
@@ -312,7 +312,6 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
   return (
     <section className="plo-volume">
       <div className="plo-section-head">
-        <h2>{t('volume')}</h2>
         <ChoiceGroup
           items={['1', '7', '30']}
           value={days}
@@ -324,7 +323,7 @@ function VolumeChart({ resource, retry, todayDay }: { resource: Resource<Series>
       <Gate resource={resource} retry={retry} rows={4}>
         {(series) => {
           const assets = seriesAssets(series);
-          const asset = assets.includes(pick) ? pick : assets[0];
+          const asset = assets.includes(pick) ? pick : largestAsset(series);
           if (!asset)
             return (
               <>

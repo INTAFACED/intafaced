@@ -29,13 +29,14 @@ import {
   isApprovedToSend,
   latestApproval,
   limitRows,
+  overRemaining,
   payoutHeadroom,
   payoutRowState,
   payoutState,
   waitingFrom,
   type RoleLike,
 } from './model';
-import { PAYOUT_STATUSES, pictureCount, usePayoutPicture } from './payout-picture';
+import { pictureCount, usePayoutPicture } from './payout-picture';
 import { settlementHref } from './Settlements';
 import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
 import type { Lifecycle, PayoutItem } from './schemas';
@@ -43,7 +44,18 @@ import { Facts, NotConfigured, UsageBar } from '../components';
 import type { PayoutState } from '../model';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 
-const stateOfStatus = { pending: 'not_ready', posted: 'ready', paid_out: 'paid_out', failed: 'failed' } as const;
+/**
+ * The status filter offers the same states as the tiles, in the tiles' words. The service filters by its own four
+ * statuses; "ready", "waiting" and "approved" are all `posted` there, so the page narrows those by the state it shows.
+ */
+const FILTER_STATES = [
+  ['ready', 'payReady', 'posted'],
+  ['awaiting_approval', 'payWaiting', 'posted'],
+  ['approved', 'payApproved', 'posted'],
+  ['paid_out', 'payPaid', 'paid_out'],
+  ['failed', 'payFailed', 'failed'],
+  ['not_ready', 'payNotReady', 'pending'],
+] as const;
 
 /** `/pay/payouts`: money leaving your balance, and where each payout is in approval. */
 export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
@@ -51,7 +63,8 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
   const filters = useListFilters();
-  const query = useListQuery(filters);
+  const stateFilter = FILTER_STATES.find(([state]) => state === filters.status) ?? null;
+  const query = useListQuery(filters, stateFilter ? { status: stateFilter[2] } : {});
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   // One read behind the counts and every row's state, shared with Settlements and Balances.
   const picture = usePayoutPicture(portal, merchantId);
@@ -94,10 +107,13 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
     (p: PayoutItem) => p.id,
   );
   const readAt = useReadAt(list.state.status === 'ready', list.state);
-  const rows = list.state.status === 'ready' ? list.state.items : [];
-  const assets = [...new Set(rows.map((r) => r.assetId))].sort();
   const pic = picture.resource.status === 'ready' ? picture.resource.data : null;
   const approvals = pic?.approvals ?? null;
+  const rows = (list.state.status === 'ready' ? list.state.items : []).filter(
+    (r) => !stateFilter || payoutRowState(r, approvals) === stateFilter[0],
+  );
+  const shownState = list.state.status === 'ready' ? { ...list.state, items: rows } : list.state;
+  const assets = [...new Set(rows.map((r) => r.assetId))].sort();
   const count = (state: 'ready' | 'awaiting_approval' | 'approved' | 'paid_out' | 'failed' | 'not_ready') => {
     if (!pic) return '—';
     const c = pictureCount(pic, state);
@@ -111,7 +127,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
       <KpiStrip
         label={t('payTiles')}
         tiles={[
-          { label: t('payReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=posted', value: count('ready') },
+          { label: t('payReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=ready', value: count('ready') },
           {
             label: t('payWaiting'),
             period: t('mnPeriodNow'),
@@ -135,15 +151,13 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
             value: count('failed'),
             tone: pic && pic.tally.failed > 0 ? 'attention' : undefined,
           },
-          { label: t('payNotReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=pending', value: count('not_ready') },
+          { label: t('payNotReady'), period: t('mnPeriodNow'), href: '/pay/payouts?status=not_ready', value: count('not_ready') },
         ]}
       />
       <FilterRow
         filters={filters}
         label={t('payFilters')}
-        statuses={PAYOUT_STATUSES.map(
-          (s) => [s, s === 'posted' ? t('payFilterPosted') : t(`chipPayout_${stateOfStatus[s]}` as 'chipPayout_ready')] as const,
-        )}
+        statuses={FILTER_STATES.map(([state, word]) => [state, t(word)] as const)}
         assets={assets}
         shown={rows.length}
         hasMore={list.state.status === 'ready' && list.state.hasMore}
@@ -172,7 +186,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
         }
       />
       <ListBody
-        state={list.state}
+        state={shownState}
         retry={() => list.reload()}
         onMore={list.loadMore}
         filtered={{
@@ -210,7 +224,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
               );
             },
           },
-          { header: t('mnColCreated'), cell: (r) => <DateTime value={r.createdAt} /> },
+          { header: t('payColSettled'), cell: (r) => <DateTime value={r.createdAt} /> },
           {
             header: t('colTransaction'),
             cell: (r) =>
@@ -334,8 +348,11 @@ export function PayoutDetailView({
           // The account owner is the only person who can send a payout; a role we could not read is left to the service.
           const maySend = role === null || role === 'owner';
           const waitingToSend = state === 'approved' && isApprovedToSend(latest);
+          // Approved, but more than is left of today's payout limit: say so instead of leading into a form that cannot send it.
+          const left = usage.status === 'ready' ? (payoutHeadroom(usage.data, s.assetId)?.remaining ?? null) : null;
+          const overLimit = waitingToSend && maySend && left !== null && overRemaining(s.net, left);
           const action =
-            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) || (waitingToSend && maySend) ? (
+            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) || (waitingToSend && maySend && !overLimit) ? (
               <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
                 {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
               </LinkButton>
@@ -347,7 +364,13 @@ export function PayoutDetailView({
                 back={{ href: '/pay/payouts', label: t('mnBackPayouts') }}
                 title={<MoneyText value={s.net} asset={s.assetId} />}
                 status={<StatusChip entity="payout" value={state} />}
-                subtitle={payoutName(t, locale, { createdAt: s.createdAt ?? s.settledAt ?? s.sentAt ?? new Date(0).toISOString() }, latest)}
+                subtitle={payoutName(
+                  t,
+                  locale,
+                  { createdAt: s.createdAt ?? s.settledAt ?? s.sentAt ?? new Date(0).toISOString() },
+                  // A payout sent without an approval is still named for where it went (the lifecycle's destination).
+                  latest ?? lc?.destination ?? null,
+                )}
                 action={action}
               />
               <TestBanner />
@@ -361,6 +384,14 @@ export function PayoutDetailView({
                 <p className="pp-callout" role="note">
                   {t('apvApprovedBy', { who: whoIs(latest.checkerUserId ?? latest.makerUserId, me, names, t('mnMe')) })}{' '}
                   {maySend ? t('apvSendBefore') : t('apvAskOwner')} <DateTime value={latest.expiresAt} />.
+                </p>
+              )}
+              {overLimit && left !== null && (
+                <p className="pp-callout pp-callout--warn" role="alert">
+                  {t('pdoOverLimit')} (<MoneyText value={left} asset={s.assetId} test={test} /> {t('pnLimitLeft')}.) {t('pdoOverLimitHow')}{' '}
+                  <a className="text-link" href="/pay/limits">
+                    {t('pdoOverLimitLink')}
+                  </a>
                 </p>
               )}
               {state === 'failed' && (

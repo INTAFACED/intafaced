@@ -139,7 +139,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   {
                     label: t('balReady'),
                     period: t('mnPeriodNow'),
-                    href: '/pay/payouts?status=posted',
+                    href: '/pay/payouts?status=ready',
                     value: countOf('ready'),
                   },
                   {

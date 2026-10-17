@@ -206,7 +206,7 @@ describe('approval review', () => {
         onDone={noop}
       />,
     );
-    expect(out).toContain('Not shown here yet');
+    expect(out).toContain('Not shown here');
   });
   const decide = (remaining: string | null) =>
     renderToString(
@@ -327,14 +327,14 @@ describe('an approved payout is not a dead end', () => {
     expiresAt: '2026-10-17T10:00:00.000Z',
   });
   const posted = settlement({ status: 'posted', settledAt: null, sentAt: null, payoutMethod: null, payoutRef: null });
-  const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved]) =>
+  const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved], usage: typeof noUsage = noUsage) =>
     renderToString(
       <PayoutDetailView
         portal={portal}
         settlement={ready(posted)}
         lifecycle={noLifecycle}
         approvals={ready(approvals)}
-        usage={noUsage}
+        usage={usage}
         halts={noHalts}
         role={role}
         now={NOW}
@@ -351,6 +351,22 @@ describe('an approved payout is not a dead end', () => {
     expect(out).toContain('The money has not been sent yet.');
     expect(out).toContain('Send it before');
     expect(out).not.toContain('Request this payout');
+  });
+  it('says an approved payout is over what is left of today’s limit, next to a missing send button', () => {
+    const row = (remaining: string) => ({
+      kind: 'daily_payout',
+      assetCode: posted.assetId,
+      limit: '2000',
+      used: '0',
+      remaining,
+      resetsAt: null,
+    });
+    const tight = ready<Usage>({ merchantId: 'm', tierId: null, asOf: '2026-10-15T11:59:00.000Z', rows: [row('1.00')] as never });
+    const out = render('owner', [approved], tight).replace(/<!-- -->/g, '');
+    expect(out).toContain('more than you have left of today’s payout limit, so it cannot be sent yet');
+    expect(out).not.toContain('href="/pay/payouts/new');
+    const roomy = ready<Usage>({ merchantId: 'm', tierId: null, asOf: '2026-10-15T11:59:00.000Z', rows: [row('999999999')] as never });
+    expect(render('owner', [approved], roomy)).toContain('href="/pay/payouts/new');
   });
   it('tells anyone but the owner that only the owner can send it, and offers no button', () => {
     const out = render('finance').replace(/<!-- -->/g, '');

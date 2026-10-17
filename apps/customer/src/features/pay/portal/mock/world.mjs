@@ -152,7 +152,7 @@ function populate(world, now) {
     createdAt: iso(now - (50 + i) * DAY),
     // The address the link takes a payer to. The real service will hand this back to the owner; the portal shows it
     // when the field is present.
-    checkoutUrl: `https://checkout.example.test/pay/checkout?token=TEST-token-TESTl${i + 1}`,
+    checkoutUrl: `/pay/checkout?token=TEST-token-TESTl${i + 1}`,
   }));
   const openLinks = [0, 2, 4, 6];
   const fixedLinks = [1, 3, 5, 7];
@@ -421,11 +421,12 @@ function populate(world, now) {
   }
   /** Billing runs for one subscription: the page's "cycles" and "executions" views are both drawn from this one list. */
   world.executionsOf = (subscriptionId) => {
-    const i = Math.max(
-      0,
-      world.subscriptions.findIndex((x) => x.id === subscriptionId),
-    );
-    const charge = world.payments[119 + i];
+    const i = world.subscriptions.findIndex((x) => x.id === subscriptionId);
+    // An unknown subscription has no billing history; never show another subscription's.
+    if (i < 0) return [];
+    // A subscription made since boot (past the four seeded) has not been billed yet.
+    const charge = i < 4 ? world.payments[119 + i] : undefined;
+    if (!charge) return [];
     const first = Date.parse(charge.createdAt);
     return [
       {

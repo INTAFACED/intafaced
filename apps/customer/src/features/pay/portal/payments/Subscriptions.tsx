@@ -506,8 +506,9 @@ function SubscriptionRecovery({
   }, []);
   return (
     <div className="stack">
+      {/* One message about the unconfirmed request: the latest check's answer replaces the general notice. */}
       <p className="pp-callout" role="status">
-        {c.t('unresolvedSubscription')}
+        {message || c.t('unresolvedSubscription')}
       </p>
       <Button
         disabled={busy}
@@ -532,7 +533,6 @@ function SubscriptionRecovery({
       >
         {c.t('checkSubscriptionOriginal')}
       </Button>
-      {message && <p role="status">{message}</p>}
     </div>
   );
 }

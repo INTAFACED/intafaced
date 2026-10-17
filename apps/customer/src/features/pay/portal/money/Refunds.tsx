@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PaymentCell } from '../payments/PaymentCell';
+import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
 import { useSession } from '../../../session/session';
@@ -119,6 +120,13 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             href: '/pay/refunds?date=30d',
             value: snap ? <MoneyList items={snap.refunded} emptyLabel={t('noPaymentsInPeriod')} /> : '—',
             note: t('rfRefundedNote'),
+          },
+          {
+            label: t('rfIssuedTile'),
+            period: t('mnPeriod30'),
+            href: '/pay/refunds?date=30d',
+            value: <RefundsIssuedValue portal={portal} merchantId={merchantId} when="30d" />,
+            note: t('rfIssuedTileNote'),
           },
           {
             label: t('rfCaptured'),

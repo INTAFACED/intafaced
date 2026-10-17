@@ -29,11 +29,16 @@ export function createMoneyMock(ctx) {
   // asked for again and then approved: the rejected request and the approved one are on the same settlement.
   // The failed USD payout was asked for, approved and sent before the bank refused it, in that order after its statement.
   const failedUsd = activity ? settlementNo('bb000005') : null;
-  if (failedUsd) Object.assign(failedUsd, { sentAt: iso(after('bb000005', 4)), failedAt: iso(after('bb000005', 5)) });
+  if (failedUsd)
+    Object.assign(failedUsd, {
+      payoutMethod: destFor(failedUsd.assetId).railId,
+      sentAt: iso(after('bb000005', 4)),
+      failedAt: iso(after('bb000005', 5)),
+    });
   const approvals = activity
     ? [
         ['cc000001', 'bb000003', 'pending', finance, null, ago(5), null, 'a'],
-        ['cc000002', 'bb000004', 'pending', USER_ID, null, ago(1.5), null, 'b', now + 22 * 3600_000],
+        ['cc000002', 'bb000004', 'pending', finance, null, ago(1.5), null, 'b', now + 22 * 3600_000],
         ['cc000003', 'bb000002', 'consumed', finance, USER_ID, after('bb000002', 5), after('bb000002', 20), 'c'],
         ['cc000004', 'bb000005', 'consumed', USER_ID, finance, after('bb000005', 1), after('bb000005', 3), 'd'],
         ['cc000005', 'bb000002', 'rejected', USER_ID, finance, after('bb000002', 1), after('bb000002', 3), 'e'],
@@ -711,7 +716,7 @@ export function createMoneyMock(ctx) {
         }
         case 'conversion.quote': {
           const q = {
-            quoteId: hex('ee3', orders.length + 1),
+            quoteId: hex('e3', orders.length + 1),
             mode: 'sandbox',
             merchantId: MERCHANT_ID,
             settlementId: input.settlementId,
@@ -732,7 +737,7 @@ export function createMoneyMock(ctx) {
           const q = state.quote;
           if (!q || q.quoteId !== input.quoteId) return refuse(route, 412, 'pay.conversion_quote_consumed');
           const o = {
-            conversionId: hex('ee1', orders.length + 1),
+            conversionId: hex('e1', orders.length + 1),
             requestId: input.requestId,
             mode: 'sandbox',
             merchantId: MERCHANT_ID,

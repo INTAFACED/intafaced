@@ -79,7 +79,7 @@ const en = {
   testOnlyTitle: 'Test keys only.',
   testOnlyBody: 'Keys made here work with test money. Live keys open once INTAFACED has approved your business.',
   testOnlyBodyApproved:
-    'Keys made here work with test money. Your business is approved; INTAFACED hasn’t opened live keys yet, and there is nothing for you to do.',
+    'Keys made here work with test money. Your business is approved; INTAFACED has not opened live keys, and there is nothing for you to do.',
   keysBody: 'Revoking a key stops it working straight away. Open a key to sign its requests or limit where it can be used.',
   keysCount: 'Showing {shown} of {total} keys',
   newestKeys: '{n} keys shown',
@@ -118,7 +118,7 @@ const en = {
   signedTitle: 'Signed requests',
   signedBody:
     'When on, every call with this key must carry a signature made with a secret only you hold. A stolen key alone is then no use.',
-  settingNotReadable: 'We cannot show what is saved for this key yet. Saving applies exactly what you choose here.',
+  settingNotReadable: 'We cannot show what is saved for this key. Saving applies exactly what you choose here.',
   requireSigned: 'Require signed requests',
   requireSignedHint: 'Calls without a valid signature are refused.',
   requireIp: 'Also require at least one allowed IP address',
@@ -152,7 +152,7 @@ const en = {
   ipsEffect: 'After this, only these addresses can use the key:',
   ipsEffectEmpty: 'After this, the list is empty and the key works from any address.',
   ipsSigningWarning:
-    'Careful: saving address rules can change whether this key needs signed requests, and we can’t show the key’s current signing setting yet. Check the signing section above after you save.',
+    'Careful: saving address rules can change whether this key needs signed requests, and we can’t show the key’s current signing setting. Check the signing section above after you save.',
   ipsRemoveLabel: 'Remove one address',
   ipsRemove: 'Remove address',
   ipsRemoveReview: 'The key stops working from this address.',
@@ -169,7 +169,7 @@ const en = {
   recipeCanonical: 'Text that is signed',
   recipeWindow: 'A signature is accepted for 5 minutes either side of the time you signed, and each nonce works once.',
   testToolTitle: 'Signature check',
-  testToolBody: 'There is no way yet to check a signature without making a real call. Make a test call with a test key to try yours.',
+  testToolBody: 'There is no way to check a signature without making a real call. Make a test call with a test key to try yours.',
   // webhooks
   endpointsBody: 'Each address gets every event for your account. Open one to see its deliveries or change it.',
   endpointSearchHint: 'The start of the address, or the full reference.',
@@ -199,7 +199,7 @@ const en = {
   allEventTypes: 'Every event for your account',
   errUrl_empty: 'Enter an address.',
   errUrl_invalid: 'This is not a web address.',
-  errUrl_https: 'Use https:// so events cannot be read on the way.',
+  errUrl_https: 'Use https:// so events cannot be read in transit.',
   errUrl_credentials: 'Remove the user name and password from the address.',
   errUrl_private: 'This address is private or internal, so we cannot send events to it. Use a public address.',
   endpointSecretTitle: 'Signing secret for the new endpoint',
@@ -252,7 +252,7 @@ const en = {
   delivery_delivered: 'Delivered',
   delivery_failed: 'Failed',
   delivery_dead: 'Gave up',
-  deliveryTip_pending: 'We will try again soon.',
+  deliveryTip_pending: 'We try again automatically.',
   deliveryTip_delivered: 'Your system accepted the event.',
   deliveryTip_failed: 'Your system did not accept the event. You can send it again.',
   deliveryTip_dead: 'We stopped trying. You can send it again.',
@@ -305,7 +305,7 @@ const en = {
   docsEventsSecret: 'The signature is HMAC-SHA256 of the timestamp, a dot and the raw body, made with your endpoint’s signing secret.',
   docsEventsLink: 'Manage your endpoints',
   docsSdkTitle: 'Libraries',
-  docsSdkCardTitle: 'Libraries are not published yet',
+  docsSdkCardTitle: 'Libraries are not published',
   docsSdkBody:
     'Official libraries for TypeScript and Python exist but are not published. Until INTAFACED decides to publish them, call the API directly using the steps above.',
 } as const;
@@ -320,10 +320,10 @@ registerRefusals({
   'pay.webhook_delivery_not_found': () => 'That delivery was not found.',
   'pay.webhook_step_up_required': () =>
     'Changing a webhook needs a verified sign-in session. Sign in again with your passkey or code, then retry.',
-  'pay.webhook_retry_unconfigured': () => 'Sending again is not switched on for your account yet. INTAFACED has to set a limit first.',
+  'pay.webhook_retry_unconfigured': () => 'Sending again is not switched on for your account. INTAFACED has to set a limit first.',
   'pay.webhook_retry_rate_limited': () => 'You have sent too many events again for now. Wait a little and try again.',
   'pay.webhook_retry_not_failed': () => 'Only a failed delivery can be sent again. This one is no longer failed.',
-  'auth.not_configured': () => 'Signed requests are not switched on for this environment yet.',
+  'auth.not_configured': () => 'Signed requests are not switched on for this environment.',
   'auth.signature_not_required': () => 'Turn on signed requests for this key first. Then you can replace its secret.',
   'auth.ip_invalid': () => 'One of the addresses is not a valid IP address.',
 });
