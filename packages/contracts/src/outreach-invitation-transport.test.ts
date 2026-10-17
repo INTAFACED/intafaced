@@ -7,8 +7,12 @@ import {
   outreachContinuationTokenSchema,
   outreachDraftSchema,
   type OutreachAudience,
-} from './outreach-crm';
-import { mutate } from '../../../apps/invitation/src/vendored/config/intafaced.js';
+} from './outreach-crm.js';
+
+const transportPath = '../../../apps/invitation/src/vendored/config/intafaced.js';
+const { mutate } = (await import(/* @vite-ignore */ transportPath)) as {
+  mutate(m: string, p: string, i: unknown, t: null): Promise<unknown>;
+};
 
 const require = createRequire(import.meta.url);
 const intake = require('../../../apps/invitation/src/vendored/assets/js/outreach-intake.js') as {

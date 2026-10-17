@@ -442,6 +442,7 @@ function selfTest() {
   {
     const posixPath = (f) => f.split(sep).join('/');
     const walked = [...walk(join(ROOT, 'apps', 'invitation', 'src', 'vendored'))].map(posixPath);
+    assert(!SKIP_DIRS.has('vendored'), 'vendored must not be a skipped directory name');
     assert(
       walked.some((f) => f.endsWith('/vendored/assets/js/outreach-intake.js')) &&
         walked.some((f) => f.endsWith('/vendored/config/intafaced.js')),
