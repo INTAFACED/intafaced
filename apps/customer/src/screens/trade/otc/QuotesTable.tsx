@@ -9,6 +9,9 @@ import { atOf, lifecycleOf, phaseOf } from './model';
 import { otcCopy } from './copy';
 import { LifecycleChip } from './QuoteCard';
 
+/** Sum of the column widths: a narrow screen scrolls the table sideways (Quote id stays in view) instead of cutting the headers. */
+const QUOTES_MIN_WIDTH = 1016;
+
 interface Row {
   id: string;
   entry: QuoteEntry;
@@ -72,6 +75,7 @@ export function QuotesTable({
     return [
       {
         id: 'id',
+        width: 132,
         header: t('Quote id'),
         pin: 'start',
         value: (r) => r.id,
@@ -83,15 +87,17 @@ export function QuotesTable({
         sortable: true,
         sortType: 'text',
       },
-      { id: 'pair', header: t('Pair'), value: (r) => (q(r) ? `${q(r)?.baseAsset}/${q(r)?.quoteAsset}` : null), sortable: true },
+      { id: 'pair', width: 104, header: t('Pair'), value: (r) => (q(r) ? `${q(r)?.baseAsset}/${q(r)?.quoteAsset}` : null), sortable: true },
       {
         id: 'side',
+        width: 56,
         header: t('Side'),
         value: (r) => q(r)?.side ?? null,
         cell: (r) => (q(r) ? (q(r)?.side === 'buy' ? t('Buy') : t('Sell')) : '—'),
       },
       {
         id: 'qty',
+        width: 92,
         header: t('Quantity'),
         numeric: true,
         value: (r) => q(r)?.qty ?? null,
@@ -100,6 +106,7 @@ export function QuotesTable({
       },
       {
         id: 'price',
+        width: 116,
         header: t('Quoted price'),
         numeric: true,
         value: (r) => q(r)?.quotedPrice ?? null,
@@ -108,17 +115,18 @@ export function QuotesTable({
       },
       {
         id: 'value',
+        width: 88,
         header: t('Value'),
         numeric: true,
         value: (r) => q(r)?.userNotional ?? null,
         cell: (r) => fmtAmount(q(r)?.userNotional),
         sortable: true,
       },
-      { id: 'cp', header: t('Counterparty'), value: (r) => q(r)?.counterparty ?? null },
+      { id: 'cp', width: 112, header: t('Counterparty'), value: (r) => q(r)?.counterparty ?? null },
       {
         id: 'when',
         header: t('Expires or settled'),
-        width: 190,
+        width: 140,
         value: (r) => {
           const quote = q(r);
           if (!quote) return null;
@@ -127,6 +135,7 @@ export function QuotesTable({
       },
       {
         id: 'life',
+        width: 104,
         header: t('Status'),
         value: (r) => {
           const quote = q(r);
@@ -142,6 +151,7 @@ export function QuotesTable({
       },
       {
         id: 'actions',
+        width: 72,
         header: t('Actions'),
         headerLabel: t('Actions'),
         align: 'end',
@@ -192,6 +202,7 @@ export function QuotesTable({
         getRowId={(r) => r.id}
         status={anyLoading && rows.every((r) => r.entry.status === 'loading') ? 'loading' : 'ready'}
         loadingRows={3}
+        minWidth={QUOTES_MIN_WIDTH}
         sort={sort}
         onSortChange={setSort}
         selection="single"

@@ -15,6 +15,7 @@ import { AlgoDetail, AlgoList, type AlgoAction } from './AlgoList';
 import { AlgoForm, valuesFrom, type AlgoFormValues } from './AlgoForm';
 import { execCopy } from './copy';
 import { useParents, useRefreshParents, type ExecMarket } from './data';
+import { ownsNote } from './model';
 import { ConfirmDialog, Why, useStoredIds } from './parts';
 
 const ACTIONS: readonly AlgoAction[] = ['pause', 'resume', 'cancel'];
@@ -58,6 +59,10 @@ export function AlgoTab({
 
   /** Read the original back. Any answer from the service proves the state, so the note is dropped; a failed read keeps the lock. */
   async function check(id: string) {
+    if (writer.note.state === 'pending' && !ownsNote('algo', writer.note.pending)) {
+      setCheckNote(t('Check in another room'));
+      return;
+    }
     const colon = id.indexOf(':');
     const parentId = colon > 0 && ACTIONS.includes(id.slice(0, colon) as AlgoAction) ? id.slice(colon + 1) : id;
     const result = await room.algoGet(parentId);

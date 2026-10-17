@@ -1,10 +1,11 @@
 // Walks the TEST-labelled states of the Options, Execution and Quote desk rooms in the harness page, with the API mocked
 // from the rooms' own fixtures (rooms.mock.mjs). Every scenario ends with the same three checks: no console errors, no
-// banned words in the visible text, and every screenshot non-empty. Shots go to ROOMS_SHOTS at 1440x900 and 1280x800.
+// banned words in the visible text, and every screenshot non-empty. Shots go to ROOMS_SHOTS at 1440x900 and 1280x800
+// (the three landing pages also at 390 wide).
 import { test, expect } from '@playwright/test';
 import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { installMock, EXEC_NOW, OTC_NOW, TEST_QUOTES } from './rooms.mock.mjs';
+import { installMock, EXEC_NOW, OTC_NOW, TEST_QUOTES, USER_ID } from './rooms.mock.mjs';
 
 const shots = process.env.ROOMS_SHOTS ?? '/Users/Nitro/.codex/context/work/design/trade-rooms/TROPT/harness/';
 mkdirSync(shots, { recursive: true });
@@ -19,10 +20,12 @@ const SIZES = [
   [1280, 800],
 ];
 
-/** One screenshot at both sizes; each file must exist and not be empty. */
-async function shot(page, name, { full = true } = {}) {
+const PHONE = [390, 844];
+
+/** One screenshot at both sizes (and phone width when `phone`); each file must exist and not be empty. */
+async function shot(page, name, { full = true, phone = false } = {}) {
   await page.waitForTimeout(400); // let dialogs and fades finish
-  for (const [width, height] of SIZES) {
+  for (const [width, height] of phone ? [...SIZES, PHONE] : SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(150);
     const file = join(shots, `${name}-${width}.png`);
@@ -42,12 +45,28 @@ async function clean(page, mock) {
   expect(mock.errors, 'console errors').toEqual([]);
 }
 
-async function start(page, room, { at, url, ...options } = {}) {
+/** `before(mock)` runs once the mock is installed and before the page loads, to shape what the service already holds. */
+async function start(page, room, { at, url, before, ...options } = {}) {
   const mock = await installMock(page, { room, now: at, ...options });
+  await before?.(mock);
   await page.clock.setFixedTime(at);
   await page.goto(url ?? `/?room=${room}`);
   return mock;
 }
+
+/** Put a device note in storage before the page loads, once per tab, as another trading screen would have left it. */
+async function seedNote(page, note) {
+  await page.addInitScript(
+    ({ key, value }) => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem(key, value);
+      }
+    },
+    { key: `trade-pending:${USER_ID}`, value: JSON.stringify(note) },
+  );
+}
+const noteOf = (page) => page.evaluate((key) => localStorage.getItem(key), `trade-pending:${USER_ID}`);
 
 const dialog = (page) => page.getByRole('alertdialog');
 /** The kit renders a selectable table as role=grid and a plain one as role=table. */
@@ -65,7 +84,7 @@ test.describe('Options', () => {
     await expect(table.getByText('TEST-BTC-NOTERMS-C')).toBeVisible();
     await expect(table.getByText('Terms incomplete')).toBeVisible();
     await expect(table.getByText('TEST-BTC-CLOSED-80000-C')).toBeVisible();
-    await shot(page, 'options-01-chain');
+    await shot(page, 'options-01-chain', { phone: true });
     await clean(page, mock);
   });
 
@@ -132,6 +151,31 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
+  test('orders: an order the service is still recovering shows Needs recovery with Check status', async ({ page }) => {
+    const mock = await start(page, 'options', {
+      at: OTC_NOW,
+      before: (m) => {
+        const order = m.exchange.commit({
+          clientOrderId: 'TEST-recovering-1',
+          symbol: 'TEST-BTC-25DEC26-60000-C',
+          type: 'limit',
+          side: 'buy',
+          timeInForce: 'GTC',
+          price: '500',
+          amount: '1',
+        });
+        Object.assign(order, { recoveryRequired: true, recoveryReason: 'TEST: the service is still settling this order' });
+      },
+    });
+    await page.getByRole('tab', { name: 'Orders' }).click();
+    const open = grid(page, 'Open orders');
+    await expect(open.getByText('TEST-BTC-25DEC26-60000-C')).toBeVisible();
+    await expect(open.getByText('Needs recovery')).toBeVisible();
+    await expect(open.getByRole('button', { name: 'Check status' })).toBeVisible();
+    await shot(page, 'options-09-orders-needs-recovery');
+    await clean(page, mock);
+  });
+
   test('strategy: payoff, Greeks answered ok then refused', async ({ page }) => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     await page.getByRole('tab', { name: 'Strategy builder' }).click();
@@ -183,7 +227,7 @@ test.describe('Execution', () => {
     await expect(page.getByText('Scheduler running')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeEnabled();
-    await shot(page, 'exec-01-algo-form');
+    await shot(page, 'exec-01-algo-form', { phone: true });
     await page.getByRole('button', { name: 'Review schedule' }).click();
     await expect(dialog(page).getByText('Create this schedule?')).toBeVisible();
     await shot(page, 'exec-02-algo-confirm');
@@ -273,6 +317,56 @@ test.describe('Execution', () => {
     await shot(page, 'exec-14-blotter');
     await clean(page, mock);
   });
+
+  test('algo request with an unknown outcome: locked, then Check status finds nothing was created', async ({ page }) => {
+    const mock = await start(page, 'execution', { at: EXEC_NOW });
+    await expect(page.getByText('Scheduler running')).toBeVisible();
+    await page.getByLabel('Total size (BTC)').fill('0.12');
+    const requestId = await page.getByLabel('Request id').inputValue();
+    mock.state.abortOnce.set('algo.createTwap', { landed: false });
+    await page.getByRole('button', { name: 'Review schedule' }).click();
+    await dialog(page).getByRole('button', { name: 'Create schedule' }).click();
+    await expect(page.getByText('Unconfirmed request', { exact: false })).toBeVisible();
+    await expect(page.getByText('New requests stay locked until it is checked.', { exact: false })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
+    expect(await noteOf(page)).toContain(requestId);
+    await shot(page, 'exec-15-algo-unknown-locked');
+    await page.getByRole('button', { name: 'Check status' }).first().click();
+    await expect(page.getByText('Checked: no schedule has that id, so nothing was created')).toBeVisible();
+    await expect(page.getByText('Unconfirmed request', { exact: false })).toHaveCount(0);
+    expect(await noteOf(page)).toBeNull();
+    expect(mock.called('algo.get').some((c) => c.body?.algoId === requestId)).toBe(true);
+    await shot(page, 'exec-16-algo-unknown-checked');
+    await clean(page, mock);
+  });
+
+  // The device note is shared with the spot desk, Buy and Convert. A room's Check status may release only its own.
+  test('a note from another screen survives Check status in Scaled and Algo', async ({ page }) => {
+    await seedNote(page, { kind: 'place', symbol: 'BTC/USDT', id: 'desk:earlier', startedAt: 1 });
+    const mock = await start(page, 'execution', { at: EXEC_NOW });
+    const other = page.getByText('This request belongs to another trading screen. Check it there.');
+
+    await page.getByRole('tab', { name: 'Scaled' }).click();
+    await expect(page.getByText('desk:earlier')).toBeVisible();
+    const orderReads = mock.called('orders').length;
+    await page.getByRole('button', { name: 'Check status' }).click();
+    await expect(other).toBeVisible();
+    expect(await noteOf(page)).toContain('desk:earlier');
+    await expect(page.getByText('desk:earlier')).toBeVisible();
+    expect(mock.called('orders').length).toBe(orderReads);
+    await shot(page, 'exec-17-foreign-note-scaled');
+
+    await page.getByRole('tab', { name: 'Algo orders' }).click();
+    await expect(other).toHaveCount(0);
+    const algoReads = mock.called('algo.get').length;
+    await page.getByRole('button', { name: 'Check status' }).first().click();
+    await expect(other).toBeVisible();
+    expect(await noteOf(page)).toContain('desk:earlier');
+    await expect(page.getByText('desk:earlier')).toBeVisible();
+    expect(mock.called('algo.get').length).toBe(algoReads);
+    await shot(page, 'exec-18-foreign-note-algo');
+    await clean(page, mock);
+  });
 });
 
 // ==================================================================================== Quote desk
@@ -289,7 +383,7 @@ test.describe('Quote desk', () => {
   test('desk open, request, open quote card with countdown', async ({ page }) => {
     const mock = await start(page, 'otc', { at: OTC_NOW });
     await expect(page.getByRole('region', { name: 'Desk status' })).toBeVisible();
-    await shot(page, 'otc-01-desk-open');
+    await shot(page, 'otc-01-desk-open', { phone: true });
     const card = await ask(page);
     await expect(card.getByText('0:30 left', { exact: false })).toBeVisible();
     await expect(card.getByText('This price is firm until the time runs out', { exact: false })).toBeVisible();
@@ -355,6 +449,25 @@ test.describe('Quote desk', () => {
     await expect(page.getByText(`Confirmed: the original request for ${id} went through.`, { exact: false })).toBeVisible();
     await expect(page.getByText('Unconfirmed request', { exact: false })).toHaveCount(0);
     await shot(page, 'otc-09-unknown-checked');
+    await clean(page, mock);
+  });
+
+  test('a desk reading that stops arriving turns Stale', async ({ page }) => {
+    const mock = await start(page, 'otc', { at: OTC_NOW });
+    const desk = page.getByRole('region', { name: 'Desk status' });
+    await expect(desk).toBeVisible();
+    const chip = page.getByRole('status').filter({ hasText: /^Live/ }).first();
+    await expect(chip).toBeVisible();
+    await shot(page, 'otc-10-reading-live');
+    // The next poll is 30 s away; the device clock moves a minute on, so the last good reading is now too old.
+    await page.clock.setFixedTime(OTC_NOW + 60_000);
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: /^Stale/ })
+        .first(),
+    ).toBeVisible({ timeout: 8000 });
+    await shot(page, 'otc-11-reading-stale');
     await clean(page, mock);
   });
 });
