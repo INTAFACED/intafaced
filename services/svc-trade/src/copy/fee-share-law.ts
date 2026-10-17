@@ -13,6 +13,7 @@
  */
 
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './errors.js';
 
 export type CopyFeeShareLaw =
@@ -187,11 +188,8 @@ export function parseCopyJurisdictionLawJson(raw: string | null | undefined): Co
 
 export function requirePublishedCopyFeeShareLaw(law: CopyFeeShareLaw | null | undefined): Extract<CopyFeeShareLaw, { published: true }> {
   if (!law || law.published !== true) {
-    throw new CopyError(
-      'Copy fee-share is refuse-closed until owner publishes DIRECTION §8 / D26-P0-02 leader_share_bps',
-      'trade.copy_fee_share_blank',
-      COPY_FEE_SHARE_RESIDUAL,
-    );
+    logRefusalSpec('trade.copy_fee_share_blank');
+    throw new CopyError(COPY_FEE_SHARE_RESIDUAL, 'trade.copy_fee_share_blank', COPY_FEE_SHARE_RESIDUAL);
   }
   return law;
 }
@@ -200,23 +198,21 @@ export function requirePublishedCopyJurisdictionLaw(
   law: CopyJurisdictionLaw | null | undefined,
 ): Extract<CopyJurisdictionLaw, { published: true }> {
   if (!law || law.published !== true) {
-    throw new CopyError(
-      'Copy follow is refuse-closed until owner publishes DIRECTION §8 / D26-P0-15 served-jurisdiction list',
-      'trade.copy_jurisdiction_blank',
-      COPY_JURISDICTION_RESIDUAL,
-    );
+    logRefusalSpec('trade.copy_jurisdiction_blank');
+    throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
   }
   return law;
 }
 
 /** Combined status — both blanks named (P0-02 rates · P0-15 jurisdictions). */
 export function copyLawStatusLine(fee: CopyFeeShareLaw, jurisdiction: CopyJurisdictionLaw): string {
-  const feePart =
-    fee.published === true ? `feeShare=1 leaderShareBps=${fee.leaderShareBps}` : 'feeShare=0 residual=D26-P0-02_leader_share_bps';
+  if (fee.published !== true) logRefusalSpec('trade.copy_fee_share_blank');
+  if (jurisdiction.published !== true) logRefusalSpec('trade.copy_jurisdiction_blank');
+  const feePart = fee.published === true ? `feeShare=1 leaderShareBps=${fee.leaderShareBps}` : 'feeShare=0 residual=leader_fee_share_unset';
   const jurPart =
     jurisdiction.published === true
       ? `jurisdiction=1 regions=${jurisdiction.allowedRegions.length}`
-      : 'jurisdiction=0 residual=D26-P0-15_jurisdiction';
+      : 'jurisdiction=0 residual=served_regions_unset';
   return `${feePart} ${jurPart}`;
 }
 

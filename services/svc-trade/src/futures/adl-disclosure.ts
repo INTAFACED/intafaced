@@ -17,6 +17,7 @@
  * invents no numbers.
  */
 import type { Sql } from 'postgres';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_REQUIRED, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
 
 export { ADL_DISCLOSURE_COPY, ADL_DISCLOSURE_REQUIRED, ADL_DISCLOSURE_VERSION } from './futures-policy.js';
@@ -58,11 +59,11 @@ export async function assertAdlDisclosureAcked(
 ): Promise<AdlDisclosureAck> {
   const ack = await store.getAck(userId, version);
   if (!ack || ack.version !== version) {
+    logRefusalSpec('trade.adl_disclosure_required');
     throw new AdlDisclosureError(
       ADL_DISCLOSURE_REQUIRED,
-      'Futures position open refused — acknowledge in-product ADL disclosure first ' +
-        `(POST /api/v1/futures/adl-disclosure/ack, version ${version}). ` +
-        'DIRECTION:34 forbids opening without prior disclosure.',
+      'Futures cannot be opened yet: acknowledge the auto-deleveraging disclosure first ' +
+        `(POST /api/v1/futures/adl-disclosure/ack, version ${version}).`,
     );
   }
   return ack;

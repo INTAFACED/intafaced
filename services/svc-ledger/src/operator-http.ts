@@ -174,6 +174,15 @@ export function registerOperatorHttp(
         if (err instanceof LedgerError && err.code === 'ledger.freeze_attributed') {
           return reply.code(409).send({ message: err.message, code: err.code });
         }
+        // Another reconciliation holds the single-flight lock: nothing ran, nothing changed.
+        if (err instanceof LedgerError && err.code === 'ledger.reconcile_in_progress') {
+          return reply.code(409).send({ message: err.message, code: err.code });
+        }
+        // The proof could not reach a verdict (timeout, lost connection). The book is NOT frozen by
+        // this and NOT verified: not a 400 the operator would read as a bad request, not an `ok: false`.
+        if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
+          return reply.code(503).send({ message: err.message, code: err.code });
+        }
         const message = err instanceof Error ? err.message : 'operator request failed';
         // 400 rather than 500: everything reachable here is either a validation
         // failure or a constraint the database refused, and both are the

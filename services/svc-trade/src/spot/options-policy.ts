@@ -5,7 +5,9 @@
  * Does not invent live set, settlement asset, refuse matrix, D7 fixing source, or IV surface.
  */
 
-/** §13 socket — options/forex settlement asset law (D26-P0-05). */
+import { logRefusalSpec } from '../refusal-spec-log.js';
+
+/** Settlement-asset law socket. The spec id stays in the server log. */
 export const OPTIONS_SETTLEMENT_SOCKET = 'socket.options-settlement-asset-law' as const;
 
 /** SOCKET §13 pin — keep this code; do not invent a second refuse. */
@@ -18,7 +20,7 @@ export const OPTIONS_FIXING_UNCONFIGURED = 'trade.options_fixing_unconfigured' a
 export const OPTIONS_TERMS_INCOMPLETE = 'trade.options_terms_incomplete' as const;
 
 export const OPTIONS_SETTLEMENT_RESIDUAL =
-  'D26-P0-05 settlement asset law + D7 fixing + complete European terms — refuse-closed (never invent live set / settlement asset / matrix / IV)';
+  'Options stay closed until the settlement asset, the fixing source, and complete European terms are set.';
 
 export type OptionType = 'call' | 'put';
 
@@ -34,7 +36,7 @@ export type OptionsPolicySummary = {
   readonly settlementFixingConfigured: boolean;
   readonly statusLine: string;
   readonly residual: typeof OPTIONS_SETTLEMENT_RESIDUAL;
-  readonly blockers: readonly ['D26-P0-05', 'D7_fixing', 'complete_european_terms'];
+  readonly blockers: readonly ['settlement_asset_law', 'settlement_fixing', 'european_terms'];
   readonly allowed: {
     readonly nonOptionsListing: true;
     readonly optionsListing: boolean;
@@ -59,6 +61,8 @@ export function describeOptionsPolicy(input?: {
 }): OptionsPolicySummary {
   const lawStamped = (input?.settlementAssetLawConfigured ?? '').trim().length > 0;
   const fixingConfigured = (input?.settlementFixingConfigured ?? '').trim().length > 0;
+  if (!lawStamped) logRefusalSpec('trade.options_settlement_law_unset');
+  if (!fixingConfigured) logRefusalSpec('trade.options_fixing_unconfigured');
   const listingAllowed = lawStamped && fixingConfigured;
   return {
     socket: OPTIONS_SETTLEMENT_SOCKET,
@@ -69,7 +73,7 @@ export function describeOptionsPolicy(input?: {
     settlementFixingConfigured: fixingConfigured,
     statusLine: `socket=${OPTIONS_SETTLEMENT_SOCKET} lawStamped=${lawStamped ? 1 : 0} fixingConfigured=${fixingConfigured ? 1 : 0}`,
     residual: OPTIONS_SETTLEMENT_RESIDUAL,
-    blockers: ['D26-P0-05', 'D7_fixing', 'complete_european_terms'],
+    blockers: ['settlement_asset_law', 'settlement_fixing', 'european_terms'],
     allowed: {
       nonOptionsListing: true,
       optionsListing: listingAllowed,
