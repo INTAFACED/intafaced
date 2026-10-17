@@ -402,7 +402,7 @@ describe('ChatStore: sending without double-posting', () => {
     h.send.mockResolvedValueOnce(refuse('forbidden', { code: 'FORBIDDEN', status: 403 }));
     expect(await h.store.send('hello')).toEqual({ ok: false, kind: 'readOnly' });
     expect(h.store.getState().pending).toMatchObject([{ status: 'failed', failure: 'readOnly', text: 'hello' }]);
-    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'hello' });
+    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'hello', clientId: 'id-1' });
     expect(h.store.getState().pending).toEqual([]);
     expect(await h.store.take('id-1')).toEqual({ status: 'sent' });
     h.store.stop();
@@ -426,7 +426,7 @@ describe('ChatStore: sending without double-posting', () => {
     h.send.mockResolvedValueOnce(refuse('uncertain'));
     await h.store.send('paid');
     h.list.mockResolvedValueOnce(page([]));
-    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'paid' });
+    expect(await h.store.take('id-1')).toEqual({ status: 'text', text: 'paid', clientId: 'id-1' });
     expect(h.store.getState().pending).toEqual([]);
     h.store.stop();
   });
@@ -633,6 +633,36 @@ describe('follow and block', () => {
   });
 });
 
+describe('text handed back after an unconfirmed send', () => {
+  it('keeps its message id, so sending it unchanged cannot post twice even if the service finished saving late', async () => {
+    const h = harness();
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    h.send.mockResolvedValueOnce(refuse('uncertain'));
+    await h.store.send('paid');
+    // The check finds nothing (the row had not committed yet), so the text is released with its id.
+    h.list.mockResolvedValueOnce(page([]));
+    const taken = await h.store.take('id-1');
+    expect(taken).toEqual({ status: 'text', text: 'paid', clientId: 'id-1' });
+    // Sent again unchanged under that id: the service, which has by now stored the first, answers created:false.
+    h.send.mockImplementationOnce(async (text, clientId) => sent(msg({ senderId: ME, text, clientId }), { created: false }));
+    if (taken.status === 'text') await h.store.send(taken.text, taken.clientId);
+    expect(h.send.mock.calls.map((call) => call[1])).toEqual(['id-1', 'id-1']);
+    expect(h.store.getState().messages).toHaveLength(1);
+    h.store.stop();
+  });
+
+  it('uses a fresh id for a new message', async () => {
+    const h = harness();
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await h.store.send('one');
+    await h.store.send('two');
+    expect(h.send.mock.calls.map((call) => call[1])).toEqual(['id-1', 'id-2']);
+    h.store.stop();
+  });
+});
+
 describe('reading only what is on screen', () => {
   function viewing() {
     let inView = false;
@@ -688,6 +718,32 @@ describe('reading only what is on screen', () => {
     await vi.advanceTimersByTimeAsync(40_000);
     expect(h.list.mock.calls.length).toBe(reads);
     expect(h.unread).toHaveBeenCalled();
+    h.store.stop();
+  });
+
+  it.each([
+    ['notParty', refuse('error', { code: 'p2p.trade_not_found', status: 404 })],
+    ['signIn', refuse('unauthorized', { status: 401 })],
+  ] as const)('stops counting unread after %s', async (_name, failure) => {
+    const h = viewing();
+    h.unread.mockResolvedValue(failure);
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.unread).toHaveBeenCalledTimes(1);
+    expect(h.store.getState().nextReadMs).toBeNull();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(h.unread).toHaveBeenCalledTimes(1);
+    h.store.stop();
+  });
+
+  it('keeps counting after a failure that can pass', async () => {
+    const h = viewing();
+    h.unread.mockResolvedValueOnce(refuse('unreachable'));
+    h.store.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.store.getState().nextReadMs).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(h.unread.mock.calls.length).toBeGreaterThan(1);
     h.store.stop();
   });
 

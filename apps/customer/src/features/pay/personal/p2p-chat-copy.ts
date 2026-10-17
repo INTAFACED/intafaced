@@ -30,6 +30,8 @@ const en = {
   closedCancelledNote:
     'This order is cancelled. Messages still reach the other person. If you paid and the order was cancelled, ask for the refund here and keep your proof.',
   closedReleasedNote: 'This order is released. Messages still reach the other person.',
+  buyerAndSeller: 'Buyer and seller',
+  blockPartial: 'You no longer follow them, but the block didn’t go through.',
   sellerWarning: 'Don’t release until the money is in your account. Check your bank, not a screenshot.',
   quickLabel: 'Quick replies',
   quickPaid: 'I have paid',
@@ -118,6 +120,8 @@ const es = {
   closedCancelledNote:
     'Este pedido está cancelado. Los mensajes siguen llegando a la otra persona. Si pagaste y el pedido se canceló, pide aquí el reembolso y guarda tu comprobante.',
   closedReleasedNote: 'Este pedido está liberado. Los mensajes siguen llegando a la otra persona.',
+  buyerAndSeller: 'Comprador y vendedor',
+  blockPartial: 'Ya no lo sigues, pero el bloqueo no se completó.',
   sellerWarning: 'No liberes hasta que el dinero esté en tu cuenta. Revisa tu banco, no una captura de pantalla.',
   quickLabel: 'Respuestas rápidas',
   quickPaid: 'Ya pagué',
@@ -204,6 +208,8 @@ const fr = {
   closedCancelledNote:
     'Cette commande est annulée. Les messages parviennent toujours à l’autre personne. Si vous avez payé et que la commande a été annulée, demandez le remboursement ici et gardez votre preuve.',
   closedReleasedNote: 'Cette commande est libérée. Les messages parviennent toujours à l’autre personne.',
+  buyerAndSeller: 'Acheteur et vendeur',
+  blockPartial: 'Vous ne le suivez plus, mais le blocage n’a pas abouti.',
   sellerWarning: 'Ne libérez pas avant que l’argent soit sur votre compte. Vérifiez votre banque, pas une capture d’écran.',
   quickLabel: 'Réponses rapides',
   quickPaid: 'J’ai payé',

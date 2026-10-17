@@ -201,7 +201,8 @@ export type ReadOutcome = 'ok' | 'failed' | 'stale';
 /** A reply that no retry will change: the person has to act, so reading stops until they ask again. */
 const FINAL_FAILURES: ReadonlySet<ServiceFailure> = new Set(['notParty', 'signIn', 'verify', 'region']);
 
-export type TakeOutcome = { status: 'text'; text: string } | { status: 'sent' } | { status: 'unchecked'; kind: ServiceFailure };
+export type TakeOutcome =
+  { status: 'text'; text: string; clientId: string } | { status: 'sent' } | { status: 'unchecked'; kind: ServiceFailure };
 
 export type SendOutcome = { ok: true } | { ok: false; kind: 'empty' | 'tooLong' | ServiceFailure };
 
@@ -326,7 +327,10 @@ export class ChatStore {
     if (signal.aborted) return 'stale';
     if (!result.ok) {
       this.failures += 1;
-      this.schedule();
+      if (FINAL_FAILURES.has(serviceFailureKind(result))) {
+        this.clearTimer();
+        this.set({ nextReadMs: null });
+      } else this.schedule();
       return 'failed';
     }
     this.failures = 0;
@@ -397,11 +401,13 @@ export class ChatStore {
   }
 
   /** Send a new message. The text is shown at once as sending, and is kept until the service has it. */
-  send(text: string): Promise<SendOutcome> {
+  send(text: string, reuseClientId?: string): Promise<SendOutcome> {
     const trimmed = text.trim();
     if (!trimmed) return Promise.resolve({ ok: false, kind: 'empty' });
     if (trimmed.length > MAX_CHAT_TEXT) return Promise.resolve({ ok: false, kind: 'tooLong' });
-    const clientId = this.ports.newId();
+    // Text taken back from a message whose reply was lost keeps that message's id, so sending it unchanged cannot post
+    // twice even if the service finished saving it after the check.
+    const clientId = reuseClientId ?? this.ports.newId();
     this.set({ pending: [...this.state.pending, { clientId, text: trimmed, status: 'sending', failure: null }] });
     return this.dispatch(clientId);
   }
@@ -466,7 +472,7 @@ export class ChatStore {
     if (!item) return { status: 'sent' };
     if (item.status === 'failed') {
       this.set({ pending: this.state.pending.filter((candidate) => candidate.clientId !== clientId) });
-      return { status: 'text', text: item.text };
+      return { status: 'text', text: item.text, clientId };
     }
     this.patchPending(clientId, { status: 'sending', failure: null });
     const outcome = await this.refresh();
@@ -478,7 +484,7 @@ export class ChatStore {
       return { status: 'unchecked', kind };
     }
     this.set({ pending: this.state.pending.filter((candidate) => candidate.clientId !== clientId) });
-    return { status: 'text', text: held.text };
+    return { status: 'text', text: held.text, clientId };
   }
 }
 

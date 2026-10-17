@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from 'react';
 import { Button, StateBlock } from '@intafaced/ui';
 import { uiCopy } from '../../../shared/ui-copy';
 import { PaySection } from '../components';
@@ -127,6 +127,7 @@ export function ChatView({
   viewer,
   now,
   counterparty,
+  watch,
   draft,
   onDraft,
   onQuick,
@@ -142,6 +143,8 @@ export function ChatView({
   now: number;
   /** The other side's name: a handle or a plain word, never an account id. */
   counterparty: ReactNode;
+  /** Put on the box that holds the messages: the conversation counts as seen only while that box is on screen. */
+  watch?: Ref<HTMLDivElement>;
   draft: string;
   onDraft: (value: string) => void;
   /** Put a ready-made sentence in the box. Nothing is sent until the person sends it. */
@@ -174,12 +177,20 @@ export function ChatView({
   const empty = draft.trim().length === 0;
   const me = viewer === trade.buyerId ? 'buyer' : viewer === trade.sellerId ? 'seller' : null;
   const closed = trade.status === 'released' || trade.status === 'cancelled';
-  const quick = me === 'buyer' ? [t('quickPaid'), t('quickRelease')] : me === 'seller' ? [t('quickReceived'), t('quickProof')] : [];
+  // A ready-made sentence is offered only when it is true of the order's stage: "I have paid" before escrow, or
+  // "Payment received" before payment was marked sent, would be a false claim one tap away.
+  const funded = trade.status === 'escrowed' || trade.status === 'fiat_sent';
+  const quick =
+    me === 'buyer' && funded
+      ? [t('quickPaid'), t('quickRelease')]
+      : me === 'seller'
+        ? [...(trade.status === 'fiat_sent' ? [t('quickReceived')] : []), ...(funded ? [t('quickProof')] : [])]
+        : [];
   const hint = state.phase === 'loading' ? t('loading') : state.phase === 'failed' ? t('composeOffLoad') : t('composeHint');
   return (
     <div className="p2p-chat" data-testid="order-chat" lang={languageFor('title')} dir={directionFor('title')}>
       <div className="p2p-chat-head" data-testid="chat-head">
-        <strong>{counterparty}</strong>
+        <strong>{me ? counterparty : t('buyerAndSeller')}</strong>
         {me ? <span className="muted">{me === 'buyer' ? t('roleSeller') : t('roleBuyer')}</span> : null}
         <TradeStatus status={trade.status} />
       </div>
@@ -194,76 +205,78 @@ export function ChatView({
           {t('unreadBelow', { count: state.unreadBelow })}
         </p>
       ) : null}
-      {state.phase === 'loading' ? <StateBlock kind="loading" label={ui.t('loading')} /> : null}
-      {state.phase === 'failed' ? (
-        <div className="p2p-chat-problem" role="alert" data-testid="chat-load-failed">
-          <h3>{t('loadFailedTitle')}</h3>
-          <p>
-            <FailureText kind={state.loadFailure ?? 'generic'} />
-          </p>
-          <Button variant="secondary" onClick={onRefresh}>
-            {t('retry')}
-          </Button>
-        </div>
-      ) : null}
-      {ready ? (
-        <div
-          className="p2p-chat-thread"
-          ref={thread}
-          role="log"
-          tabIndex={0}
-          aria-live="polite"
-          aria-relevant="additions"
-          aria-label={t('threadLabel')}
-          onScroll={(event) => {
-            const node = event.currentTarget;
-            stuck.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
-          }}
-        >
-          {count === 0 ? (
-            <p className="muted" data-testid="chat-empty">
-              {depth.t('chatEmpty')} {t('emptyHint')}
+      <div ref={watch} className="p2p-chat-frame">
+        {state.phase === 'loading' ? <StateBlock kind="loading" label={ui.t('loading')} /> : null}
+        {state.phase === 'failed' ? (
+          <div className="p2p-chat-problem" role="alert" data-testid="chat-load-failed">
+            <h3>{t('loadFailedTitle')}</h3>
+            <p>
+              <FailureText kind={state.loadFailure ?? 'generic'} />
             </p>
-          ) : (
-            <ol className="p2p-chat-list">
-              {state.messages.map((message) => {
-                const role = senderRole(message.senderId, trade, viewer);
-                return (
-                  <li key={message.id} className="p2p-chat-item">
-                    {message.id === state.firstUnread && state.unreadAtOpen > 0 ? (
-                      <p className="p2p-chat-new" data-testid="chat-new-divider">
-                        {t('newDivider', { count: state.unreadAtOpen })}
-                      </p>
-                    ) : null}
-                    <div className="p2p-chat-msg" data-own={role === 'you'} data-role={role} data-testid="chat-message">
-                      <div className="p2p-chat-meta">
-                        <strong>
-                          {role === 'you'
-                            ? t('roleYou')
-                            : role === 'buyer'
-                              ? t('roleBuyer')
-                              : role === 'seller'
-                                ? t('roleSeller')
-                                : t('roleModerator')}
-                        </strong>
-                        <time className="muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
-                          {chatTime(message.createdAt, requestedLocale, now)}
-                        </time>
+            <Button variant="secondary" onClick={onRefresh}>
+              {t('retry')}
+            </Button>
+          </div>
+        ) : null}
+        {ready ? (
+          <div
+            className="p2p-chat-thread"
+            ref={thread}
+            role="log"
+            tabIndex={0}
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-label={t('threadLabel')}
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              stuck.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+            }}
+          >
+            {count === 0 ? (
+              <p className="muted" data-testid="chat-empty">
+                {depth.t('chatEmpty')} {t('emptyHint')}
+              </p>
+            ) : (
+              <ol className="p2p-chat-list">
+                {state.messages.map((message) => {
+                  const role = senderRole(message.senderId, trade, viewer);
+                  return (
+                    <li key={message.id} className="p2p-chat-item">
+                      {message.id === state.firstUnread && state.unreadAtOpen > 0 ? (
+                        <p className="p2p-chat-new" data-testid="chat-new-divider">
+                          {t('newDivider', { count: state.unreadAtOpen })}
+                        </p>
+                      ) : null}
+                      <div className="p2p-chat-msg" data-own={role === 'you'} data-role={role} data-testid="chat-message">
+                        <div className="p2p-chat-meta">
+                          <strong>
+                            {role === 'you'
+                              ? t('roleYou')
+                              : role === 'buyer'
+                                ? t('roleBuyer')
+                                : role === 'seller'
+                                  ? t('roleSeller')
+                                  : t('roleModerator')}
+                          </strong>
+                          <time className="muted" dateTime={message.createdAt} title={message.createdAt} lang={requestedLocale}>
+                            {chatTime(message.createdAt, requestedLocale, now)}
+                          </time>
+                        </div>
+                        <p className="p2p-chat-text" lang="und">
+                          {message.text}
+                        </p>
                       </div>
-                      <p className="p2p-chat-text" lang="und">
-                        {message.text}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-              {state.pending.map((item) => (
-                <PendingItem key={item.clientId} item={item} onResend={onResend} onEdit={onEdit} onDiscard={onDiscard} />
-              ))}
-            </ol>
-          )}
-        </div>
-      ) : null}
+                    </li>
+                  );
+                })}
+                {state.pending.map((item) => (
+                  <PendingItem key={item.clientId} item={item} onResend={onResend} onEdit={onEdit} onDiscard={onDiscard} />
+                ))}
+              </ol>
+            )}
+          </div>
+        ) : null}
+      </div>
       {ready && state.refreshFailure ? (
         <p className="p2p-chat-problem" role="status" data-testid="chat-refresh-failed">
           {t('refreshFailed')} <FailureText kind={state.refreshFailure} />{' '}
@@ -317,7 +330,7 @@ export function ChatView({
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => {
               // Enter sends and Shift+Enter starts a new line. A key that confirms an input method's text is left alone.
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && ready && !empty) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229 && ready && !empty) {
                 event.preventDefault();
                 onSend();
               }
@@ -356,6 +369,8 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
   // Reading the thread marks it read, so it is read only while it is on screen. Without a way to tell, it counts as seen.
   const inView = useRef(typeof IntersectionObserver === 'undefined');
   const frame = useRef<HTMLDivElement>(null);
+  // Text handed back for editing keeps its message's id, so sending it unchanged cannot post twice.
+  const released = useRef(new Map<string, string>());
   const store = useMemo(
     () =>
       new ChatStore({
@@ -403,13 +418,14 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
     return () => clearInterval(timer);
   }, []);
   const otherId = trade.buyerId === userId ? trade.sellerId : trade.buyerId;
-  const traders = useTraders(pay, [otherId]);
+  const party = userId === trade.buyerId || userId === trade.sellerId;
+  const traders = useTraders(pay, party ? [otherId] : []);
   const setBox = (value: string) => {
     taken.current = value;
     setDraft(value);
   };
   return (
-    <div ref={frame}>
+    <>
       <PaySection title={t('title')}>
         <ChatView
           state={state}
@@ -417,6 +433,7 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
           viewer={userId}
           now={now}
           counterparty={<TraderName record={traders[otherId.toLowerCase()] ?? null} />}
+          watch={frame}
           draft={draft}
           onDraft={setBox}
           onQuick={(text) => setBox(draft.trim() ? `${draft.trimEnd()} ${text}` : text)}
@@ -424,18 +441,22 @@ export function OrderChat({ pay, trade, userId }: { pay: PersonalPayApi; trade: 
             const text = taken.current || draft;
             if (!text.trim()) return;
             setBox('');
-            void store.send(text);
+            const reuse = released.current.get(text.trim());
+            released.current.delete(text.trim());
+            void store.send(text, reuse);
           }}
           onRefresh={() => void store.refresh()}
           onResend={(clientId) => void store.resend(clientId)}
           onEdit={(clientId) =>
             void store.take(clientId).then((outcome) => {
-              if (outcome.status === 'text') setBox(draft ? `${outcome.text}\n${draft}` : outcome.text);
+              if (outcome.status !== 'text') return;
+              released.current.set(outcome.text.trim(), outcome.clientId);
+              setBox(draft ? `${outcome.text}\n${draft}` : outcome.text);
             })
           }
           onDiscard={(clientId) => void store.take(clientId)}
         />
       </PaySection>
-    </div>
+    </>
   );
 }

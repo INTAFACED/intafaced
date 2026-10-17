@@ -31,6 +31,7 @@ export function ContactButtons({
   busy,
   saved,
   failure,
+  partial = false,
   onChange,
   onAskBlock,
   onReload,
@@ -40,6 +41,8 @@ export function ContactButtons({
   busy: ContactChange | null;
   saved: ContactChange | null;
   failure: ServiceFailure | null;
+  /** The unfollow that came before a block went through, but the block did not. */
+  partial?: boolean;
   onChange: (change: ContactChange) => void;
   onAskBlock: () => void;
   onReload: () => void;
@@ -114,6 +117,7 @@ export function ContactButtons({
       ) : null}
       {failure ? (
         <p role="alert" className="p2p-contact-problem" data-testid="contact-failure">
+          {partial ? <>{t('blockPartial')} </> : null}
           <FailureText kind={failure} />
         </p>
       ) : null}
@@ -125,11 +129,13 @@ export function ContactButtons({
 export function BlockConfirmBody({
   busy,
   failure,
+  partial = false,
   onConfirm,
   onCancel,
 }: {
   busy: boolean;
   failure: ServiceFailure | null;
+  partial?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -139,6 +145,7 @@ export function BlockConfirmBody({
       <p>{t('blockBody')}</p>
       {failure ? (
         <p role="alert" className="p2p-contact-problem">
+          {partial ? <>{t('blockPartial')} </> : null}
           <FailureText kind={failure} />
         </p>
       ) : null}
@@ -163,6 +170,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
   const [busy, setBusy] = useState<ContactChange | null>(null);
   const [saved, setSaved] = useState<ContactChange | null>(null);
   const [failure, setFailure] = useState<ServiceFailure | null>(null);
+  const [partial, setPartial] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const keys = useRef(new Map<string, string>());
   const inFlight = useRef(false);
@@ -179,6 +187,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
     inFlight.current = true;
     setBusy(next);
     setFailure(null);
+    setPartial(false);
     setSaved(null);
     try {
       const outcome =
@@ -191,6 +200,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
         setConfirming(false);
       } else {
         if (outcome.contacts) setLists(outcome.contacts);
+        setPartial(outcome.contacts !== undefined);
         setFailure(outcome.kind);
         // After a lost reply the real state is unknown: read it again rather than leave the old buttons standing.
         if (outcome.kind === 'unconfirmed') {
@@ -212,6 +222,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
         busy={busy}
         saved={saved}
         failure={confirming ? null : failure}
+        partial={partial}
         onChange={(next) => void change(next)}
         onAskBlock={() => {
           setFailure(null);
@@ -234,6 +245,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
           <BlockConfirmBody
             busy={busy === 'block'}
             failure={failure}
+            partial={partial}
             onConfirm={() => void change('block')}
             onCancel={() => setConfirming(false)}
           />

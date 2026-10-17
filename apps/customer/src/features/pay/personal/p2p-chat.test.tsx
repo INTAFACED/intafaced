@@ -262,6 +262,17 @@ const buttons = (over: Partial<Parameters<typeof ContactButtons>[0]> = {}) =>
   );
 const disabledCount = (html: string) => (html.match(/<button[^>]*\sdisabled/g) ?? []).length;
 
+describe('a block that only half went through', () => {
+  it('says the unfollow happened and the block did not', () => {
+    const out = renderToString(<BlockConfirmBody busy={false} failure="unconfirmed" partial onConfirm={() => {}} onCancel={() => {}} />);
+    expect(out).toContain('You no longer follow them, but the block didn’t go through.');
+    expect(renderToString(<BlockConfirmBody busy={false} failure="unconfirmed" onConfirm={() => {}} onCancel={() => {}} />)).not.toContain(
+      'no longer follow',
+    );
+    expect(buttons({ failure: 'unconfirmed', partial: true })).toContain('You no longer follow them');
+  });
+});
+
 describe('follow and block', () => {
   it('offers both while neither is set, with the note on what following means', () => {
     const out = buttons();
@@ -532,11 +543,33 @@ describe('the chat header, quick replies and warning', () => {
     expect(out).toMatch(/<button type="button">I have paid<\/button>/);
   });
 
-  it('offers the seller “Payment received” and “Please send the payment proof in chat”', () => {
-    const out = view({ viewer: THEM });
-    expect(out).toContain('>Payment received<');
-    expect(out).toContain('>Please send the payment proof in chat<');
-    expect(out).not.toContain('>I have paid<');
+  it('offers the seller “Payment received” only once payment is marked sent', () => {
+    const paid = view({ viewer: THEM, trade: { ...trade, status: 'fiat_sent' } });
+    expect(paid).toContain('>Payment received<');
+    expect(paid).toContain('>Please send the payment proof in chat<');
+    expect(paid).not.toContain('>I have paid<');
+    const waiting = view({ viewer: THEM });
+    expect(waiting).not.toContain('>Payment received<');
+    expect(waiting).toContain('>Please send the payment proof in chat<');
+  });
+
+  it('offers no ready-made claim before escrow, after close, or in a dispute', () => {
+    for (const status of ['created', 'released', 'cancelled', 'disputed'] as const) {
+      for (const viewer of [ME, THEM]) {
+        const out = view({ viewer, trade: { ...trade, status } });
+        expect(out).not.toContain('>I have paid<');
+        expect(out).not.toContain('>Please release<');
+        expect(out).not.toContain('>Payment received<');
+      }
+    }
+    expect(view({ trade: { ...trade, status: 'fiat_sent' } })).toContain('>I have paid<');
+  });
+
+  it('shows a moderator “Buyer and seller” instead of one side’s name, and no quick replies', () => {
+    const out = view({ viewer: MOD, trade: { ...trade, status: 'disputed' } });
+    expect(out).toContain('Buyer and seller');
+    expect(out).not.toContain('@test_friend');
+    expect(out).not.toContain('data-testid="chat-quick"');
   });
 
   it('warns the seller, and only the seller, before releasing', () => {
@@ -550,7 +583,16 @@ describe('the chat header, quick replies and warning', () => {
   it('shows the quick replies and warning in Spanish and French too', () => {
     for (const locale of ['es', 'fr'] as const) {
       const copy = p2pChatCopy.forLocale(locale);
-      for (const key of ['quickPaid', 'quickRelease', 'quickReceived', 'quickProof', 'sellerWarning', 'closedCancelledNote'] as const)
+      for (const key of [
+        'buyerAndSeller',
+        'blockPartial',
+        'quickPaid',
+        'quickRelease',
+        'quickReceived',
+        'quickProof',
+        'sellerWarning',
+        'closedCancelledNote',
+      ] as const)
         expect(copy.t(key)).not.toBe(p2pChatCopy.forLocale('en').t(key));
     }
   });
