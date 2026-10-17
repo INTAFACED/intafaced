@@ -1,5 +1,6 @@
 import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
+import { requireModulePage } from '@/lib/module-page-guard';
 import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { HealthRooms } from '@/components/trade-ops/health-rooms';
 import { HealthTile } from '@/components/trade-ops/health-tile';
@@ -24,6 +25,7 @@ const codeOf = (o: Problem): string | undefined => (o.kind === 'refused' ? o.cod
 const at = (o: Outcome<unknown>): string => (o.kind === 'ok' ? clockUtc(o.asOf) : 'not read');
 
 export default async function HealthPage() {
+  requireModulePage('tradeops');
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
   const [kill, bundle] = await Promise.all([readKillSwitchSnapshot(), loadMarkets(ctx)]);
