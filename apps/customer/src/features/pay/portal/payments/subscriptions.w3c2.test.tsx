@@ -4,6 +4,8 @@ vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
+import { useListFilters } from '../ui/FilterRow';
+import type { ListState } from '../hooks';
 import { CreateSubscriptionView, SubscriptionDetailView, SubscriptionsView, SubscriptionTerms } from './Subscriptions';
 import { createApiClient } from '../../../../shared/api';
 import { createPortalApi } from '../api';
@@ -52,20 +54,30 @@ it('registers list, detail and creation routes', () => {
   expect(parsePortalRoute('/pay/subscriptions/new')).toEqual({ room: 'subscription-new' });
   expect(parsePortalRoute(`/pay/subscriptions/${S}`)).toEqual({ room: 'subscription', param: S });
 });
-it('shows only recorded schedule metrics without estimating recurring revenue', () => {
-  const out = renderToString(<SubscriptionsView resource={ready([subscription])} reload={noop} limit={50} setLimit={noop} />);
+function Harness(props: { list: ListState<typeof subscription>; mandateId?: string }) {
+  const filters = useListFilters();
+  return (
+    <SubscriptionsView
+      list={props.list}
+      filters={filters}
+      {...(props.mandateId ? { mandateId: props.mandateId } : {})}
+      loadMore={noop}
+      reload={noop}
+    />
+  );
+}
+const listOf = <T,>(items: T[], hasMore = false): ListState<T> => ({ status: 'ready', items, hasMore, more: 'idle' });
+it('lists recorded schedules with server filters and no estimated revenue or placeholder card', () => {
+  const out = renderToString(<Harness list={listOf([subscription])} />);
   expect(out).toContain(`/pay/subscriptions/${S}`);
   expect(out).toContain('TEST-customer');
-  expect(out).toContain('recurring revenue and subscription trends');
-  expect(out).toContain('1 records shown');
+  expect(out).not.toContain('recurring revenue and subscription trends');
+  expect(out).toContain('Newest 1');
+  expect(out).toContain('Active');
 });
 it('renders an empty state and a loading skeleton', () => {
-  expect(renderToString(<SubscriptionsView resource={ready([])} reload={noop} limit={50} setLimit={noop} />)).toContain(
-    'No subscriptions in this view',
-  );
-  expect(renderToString(<SubscriptionsView resource={{ status: 'loading' }} reload={noop} limit={50} setLimit={noop} />)).toContain(
-    'aria-busy="true"',
-  );
+  expect(renderToString(<Harness list={listOf([])} />)).toContain('No subscriptions in this view');
+  expect(renderToString(<Harness list={{ status: 'loading' }} />)).toContain('aria-busy="true"');
 });
 it('keeps money exact and separates invoice creation from payment', () => {
   const out = renderToString(
@@ -234,14 +246,12 @@ it('filters the subscriptions link to its mandate', () => {
   vi.stubGlobal('location', { search: `?mandateId=${D}` });
   try {
     const out = renderToString(
-      <SubscriptionsView
-        resource={ready([
+      <Harness
+        list={listOf([
           subscription,
           { ...subscription, id: 'TEST-other-subscription', mandateId: 'TEST-other-mandate', customerId: 'TEST-other-customer' },
         ])}
-        reload={noop}
-        limit={50}
-        setLimit={noop}
+        mandateId={D}
       />,
     );
     expect(out).toContain('TEST-customer');

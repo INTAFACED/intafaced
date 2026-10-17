@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { reason } from '../chrome/copy';
 import { useSession } from '../../../session/session';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
+import { StatusTag, Button, DataTable, EmptyState } from '@intafaced/ui';
 import { PayDetails, PaySection, PayTime } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
 import { CreateMandate } from '../../MerchantBilling';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import { executionSchema, mandateSchema, subscriptionSchema, subscriptionPostureSchema, id } from '../../schemas';
-import { Arrives, CopyReference, PortalBack, ReadStamp, WindowExport } from '../ExtensionTools';
-import { Gate, Kpi, KpiGrid, Money, SelectField, Timeline } from '../components';
-import { useReadAt, useUrlParam } from '../hooks';
+import { CopyReference, PortalBack, ReadStamp, WindowExport } from '../ExtensionTools';
+import { Gate, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
+import { DateTime } from '../ui/DateTime';
+import { EntityList } from '../ui/EntityList';
+import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
+import { Freshness } from '../ui/Freshness';
+import { StatusChip } from '../ui/StatusChip';
+import { useServerList } from '../ui/useServerList';
+import { useReadAt, useUrlParam, type ListState } from '../hooks';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { extensionCopy as c } from './copy';
 import type { PortalApi } from '../api';
@@ -83,142 +88,108 @@ export function Subscriptions({
   );
 }
 function SubscriptionsPage({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
-  const [limitParam, setLimit] = useUrlParam('limit', '50');
-  const limit = ['25', '50', '100', '200'].includes(limitParam) ? Number(limitParam) : 50;
-  const rows = useResource((signal) => portal.subscriptions(merchantId, limit, signal), `portal:subscriptions:${merchantId}:${limit}`);
-  return <SubscriptionsView resource={rows.resource} reload={rows.reload} limit={limit} setLimit={setLimit} />;
+  const filters = useListFilters();
+  const [mandateFilter] = useUrlParam('mandateId');
+  const range = dateRange(filters.date as DatePreset, Date.now(), { from: filters.from, to: filters.to });
+  const query = { status: filters.status, search: filters.search.trim(), from: range.from ?? '', to: range.to ?? '' };
+  const list = useServerList(
+    (f, cursor, signal) => portal.subscriptionPage(merchantId, f, cursor, signal),
+    query,
+    (s: Subscription) => s.id,
+  );
+  return (
+    <SubscriptionsView
+      list={list.state}
+      filters={filters}
+      mandateId={mandateFilter}
+      loadMore={list.loadMore}
+      reload={() => list.reload()}
+    />
+  );
 }
 export function SubscriptionsView({
-  resource,
+  list,
+  filters,
+  mandateId,
+  loadMore,
   reload,
-  limit,
-  setLimit,
 }: {
-  resource: Resource<Subscription[]>;
+  list: ListState<Subscription>;
+  filters: ListFilters;
+  mandateId?: string;
+  loadMore: () => void;
   reload: () => void;
-  limit: number;
-  setLimit: (v: string) => void;
 }) {
-  const [search, setSearch] = useUrlParam('search');
-  const [mandateFilter] = useUrlParam('mandateId');
-  const [status, setStatus] = useUrlParam('status');
-  const [sort, setSort] = useUrlParam('sort', 'newest');
-  const at = useReadAt(resource.status === 'ready', resource);
+  const at = useReadAt(list.status === 'ready', list);
+  const rows = list.status === 'ready' ? list.items.filter((s) => !mandateId || s.mandateId === mandateId) : [];
+  const filtered = Boolean(filters.status || filters.search || filters.date || mandateId);
   return (
     <div className="stack">
-      <PaySection
-        title={c.t('subscriptionsTitle')}
-        action={
-          <Button variant="secondary" onClick={reload}>
-            {c.t('refresh')}
-          </Button>
-        }
-      >
-        <div className="pp-filter-row" role="search">
-          <Field label={c.t('subscriptionSearch')} value={search} onChange={(e) => setSearch(e.target.value)} />
-          <SelectField
-            label={c.t('status')}
-            value={status}
-            onChange={setStatus}
-            options={[['', c.t('all')], ...statuses.map((v) => [v, c.t(v)] as const)]}
-          />
-          <SelectField
-            label={c.t('sort')}
-            value={sort}
-            onChange={setSort}
-            options={[
-              ['newest', c.t('newest')],
-              ['oldest', c.t('oldest')],
-              ['name', c.t('nameSort')],
-            ]}
-          />
-          <SelectField
-            label={c.t('limit')}
-            value={String(limit)}
-            onChange={setLimit}
-            options={['25', '50', '100', '200'].map((v) => [v, v] as const)}
-          />
-        </div>
-        <p className="muted">{c.t('subscriptionWindow')}</p>
-        <Gate resource={resource} retry={reload}>
-          {(all) => {
-            const rows = all
-              .filter(
-                (s) =>
-                  (!mandateFilter || s.mandateId === mandateFilter) &&
-                  (!status || s.status === status) &&
-                  `${s.id} ${s.customerId}`.toLowerCase().includes(search.toLowerCase()),
+      <Freshness asOf={at} />
+      <FilterRow
+        label={c.t('subscriptionsTitle')}
+        filters={filters}
+        statuses={statuses.map((v) => [v, c.t(v)] as const)}
+        {...(list.status === 'ready' ? { shown: rows.length, hasMore: list.hasMore } : {})}
+      />
+      {list.status === 'loading' && <PortalLoading />}
+      {list.status === 'failed' && <PortalFailure result={list.failure} retry={reload} />}
+      {list.status === 'ready' &&
+        (rows.length === 0 ? (
+          <EmptyState
+            title={filtered ? c.t('noSubscriptionsMatch') : c.t('emptySubscriptions')}
+            action={
+              filtered ? undefined : (
+                <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/subscriptions/new" />}>
+                  {c.t('createSubscription')}
+                </Button>
               )
-              .sort((a, b) =>
-                sort === 'name'
-                  ? a.customerId.localeCompare(b.customerId)
-                  : sort === 'oldest'
-                    ? a.createdAt.localeCompare(b.createdAt)
-                    : b.createdAt.localeCompare(a.createdAt),
-              );
-            return (
-              <>
-                <KpiGrid label={c.t('loadedMetrics')}>
-                  {(['activeSubscriptions', 'pausedSubscriptions', 'cancelledSubscriptions', 'completedSubscriptions'] as const).map(
-                    (key, i) => (
-                      <Kpi
-                        key={key}
-                        label={c.t(key)}
-                        period={c.t('loadedMetrics')}
-                        value={all.filter((s) => s.status === statuses[i]).length}
-                        href={`/pay/subscriptions?status=${statuses[i]}`}
-                      />
-                    ),
-                  )}
-                </KpiGrid>
-                <ReadStamp at={at} />
-                <p role="status">{c.t('shown', { count: rows.length })}</p>
-                {rows.length ? (
-                  <DataTable
-                    label={c.t('subscriptionsTitle')}
-                    headers={[c.t('customer'), c.t('chargePath'), c.t('status'), c.t('nextRun')]}
-                  >
-                    {rows.map((s) => (
-                      <tr key={s.id}>
-                        <th scope="row">
-                          <a className="text-link" href={`/pay/subscriptions/${encodeURIComponent(s.id)}`}>
-                            {s.customerId}
-                          </a>
-                          <small className="pay-cell-note">{s.id}</small>
-                        </th>
-                        <td>{s.path}</td>
-                        <td>
-                          <SubscriptionChip status={s.status} />
-                          {s.stallReason && <p className="muted">{c.t(`stall_${s.stallReason}`)}</p>}
-                        </td>
-                        <td>{s.status === 'active' ? <PayTime value={s.nextRunAt} /> : c.t('noNextRun')}</td>
-                      </tr>
-                    ))}
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title={c.t('emptySubscriptions')}
-                    action={
-                      <a className="text-link" href="/pay/subscriptions/new">
-                        {c.t('createSubscription')}
-                      </a>
-                    }
-                  >
-                    {c.t('emptySubscriptionsBody')}
-                  </EmptyState>
-                )}
-                <WindowExport
-                  name="subscriptions"
-                  at={at}
-                  headers={['subscription_id', 'customer_reference', 'mandate_id', 'status', 'charge_path', 'scheduled_run', 'created_at']}
-                  rows={rows.map((s) => [s.id, s.customerId, s.mandateId, s.status, s.path, s.nextRunAt, s.createdAt])}
-                />
-              </>
-            );
-          }}
-        </Gate>
-      </PaySection>
-      <Arrives reason={reason('reasonLists')}>{c.t('subscriptionMetricsGap')}</Arrives>
+            }
+          >
+            {filtered ? c.t('noSubscriptionsMatchBody') : c.t('emptySubscriptionsBody')}
+          </EmptyState>
+        ) : (
+          <>
+            <EntityList
+              label={c.t('subscriptionsTitle')}
+              rows={rows}
+              rowKey={(s) => s.id}
+              href={(s) => `/pay/subscriptions/${encodeURIComponent(s.id)}`}
+              columns={[
+                {
+                  header: c.t('customer'),
+                  cell: (s) => (
+                    <>
+                      <strong>{s.customerId}</strong>
+                      {s.stallReason && <small className="pay-cell-note">{c.t(`stall_${s.stallReason}`)}</small>}
+                    </>
+                  ),
+                },
+                { header: c.t('chargePath'), cell: (s) => s.path },
+                { header: c.t('status'), cell: (s) => <StatusChip entity="subscription" value={s.status} /> },
+                { header: c.t('nextRun'), cell: (s) => (s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun')) },
+              ]}
+              card={(s) => ({
+                title: s.customerId,
+                time: s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun'),
+                status: <StatusChip entity="subscription" value={s.status} />,
+              })}
+            />
+            <div className="pp-actions">
+              {list.hasMore && (
+                <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
+                  {list.more === 'loading' ? c.t('pay_loadingMore') : c.t('pay_loadMore')}
+                </Button>
+              )}
+              <WindowExport
+                name="subscriptions"
+                at={at}
+                headers={['subscription_id', 'customer_reference', 'mandate_id', 'status', 'charge_path', 'scheduled_run', 'created_at']}
+                rows={rows.map((s) => [s.id, s.customerId, s.mandateId, s.status, s.path, s.nextRunAt, s.createdAt])}
+              />
+            </div>
+          </>
+        ))}
     </div>
   );
 }
@@ -344,7 +315,12 @@ export function SubscriptionDetailView({
           </p>
         )}
         {pay ? (
-          <SubscriptionActions subscription={subscription} pay={pay} reload={reload} />
+          <SubscriptionActions
+            subscription={subscription}
+            pay={pay}
+            reload={reload}
+            terms={mandate.status === 'ready' ? mandate.data : null}
+          />
         ) : (
           <p className="pp-callout" role="status">
             {c.t('subscriptionAuthority')}
@@ -369,7 +345,6 @@ export function SubscriptionDetailView({
       </PaySection>
       <PaySection title={c.t('history')}>
         <Timeline items={events} label={c.t('history')} />
-        <Arrives reason={reason('reasonHistory')}>{c.t('subscriptionAuditGap')}</Arrives>
       </PaySection>
       <PaySection title={c.t('cycleHistory')}>
         <p className="muted">{c.t('loadedWindow')}</p>
@@ -518,7 +493,17 @@ export function SubscriptionTerms({ mandate: m, path }: { mandate: Mandate; path
     />
   );
 }
-function SubscriptionActions({ subscription: s, pay, reload }: { subscription: Subscription; pay: BusinessPayApi; reload: () => void }) {
+function SubscriptionActions({
+  subscription: s,
+  pay,
+  reload,
+  terms,
+}: {
+  subscription: Subscription;
+  pay: BusinessPayApi;
+  reload: () => void;
+  terms: Mandate | null;
+}) {
   const [revision, setRevision] = useState(0);
   // Refresh guard state without remounting an in-flight confirmation.
   const [, refreshLock] = useState(0);
@@ -557,7 +542,16 @@ function SubscriptionActions({ subscription: s, pay, reload }: { subscription: S
                     values={[
                       [c.t('subscriptionId'), s.id],
                       [c.t('customer'), s.customerId],
+                      ...(terms ? [[c.t('amount'), <Money value={terms.amount} asset={terms.assetId} />] as [string, ReactNode]] : []),
                       [c.t('nextRun'), <PayTime value={s.nextRunAt} />],
+                      ...(action === 'cancel'
+                        ? [
+                            [c.t('cancelNextCycle'), s.status === 'active' ? c.t('cancelNextCycleBody') : c.t('cancelPausedBody')] as [
+                              string,
+                              ReactNode,
+                            ],
+                          ]
+                        : []),
                     ]}
                   />
                 }
@@ -761,7 +755,6 @@ export function CreateSubscriptionView({
           </a>
         )}
       </PaySection>
-      <Arrives reason={reason('reasonActions')}>{c.t('termsGap')}</Arrives>
       {pay && <CreateMandate pay={pay} refresh={reload} />}
     </div>
   );

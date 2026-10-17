@@ -539,6 +539,22 @@ export function createPaymentsMock(ctx) {
             : state.customers;
           return ok(route, page(rows, input));
         }
+        case 'merchantOps.customers.series': {
+          const days = [0, 1, 2, 4, 9, 20];
+          return ok(route, {
+            customerRef: input.customerRef,
+            bucket: 'day',
+            from: input.from.slice(0, 10),
+            to: input.to.slice(0, 10),
+            items: days.map((d) => ({
+              period: iso(now - d * DAY).slice(0, 10),
+              assetCode: 'USDT',
+              count: 1 + (d % 3),
+              volume: `${40 + d * 7}.50`,
+            })),
+            nextCursor: null,
+          });
+        }
         case 'merchantOps.customers.get': {
           const c = state.customers.find((x) => x.customerRef === input.customerRef);
           if (!c) return refuse(route, 404, 'pay.customer_not_found');

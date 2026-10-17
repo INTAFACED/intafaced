@@ -8,6 +8,7 @@ export const paymentsContract: ContractPart = {
     { method: 'paymentHistory', run: (p) => p.paymentHistory('aa000003-0000-4000-8000-000000000003') },
     { method: 'links', run: (p) => p.links(merchant, 25) },
     { method: 'subscriptions', run: (p) => p.subscriptions(merchant, 25) },
+    { method: 'subscriptionPage', run: (p) => p.subscriptionPage(merchant, { status: 'active' }, undefined) },
     { method: 'subscription', run: (p) => p.subscription(merchant, '1e000001-0000-4000-8000-000000000001') },
     { method: 'mandates', run: (p) => p.mandates(merchant) },
     { method: 'mandate', run: (p) => p.mandate(merchant, '1d000001-0000-4000-8000-000000000001') },
@@ -44,6 +45,7 @@ export const paymentsContract: ContractPart = {
     { method: 'dispute', run: (p) => p.dispute('d0000001-0000-4000-8000-000000000001') },
     { method: 'customerSummary', run: (p) => p.customerSummary('2026-09-01T00:00:00.000Z') },
     { method: 'customers', run: (p) => p.customers(undefined, '') },
+    { method: 'customerSeries', run: (p) => p.customerSeries('TEST-cust-001', '2026-09-18T00:00:00.000Z', '2026-10-18T00:00:00.000Z') },
     { method: 'customer', run: (p) => p.customer('TEST-cust-001') },
   ],
   notMocked: {

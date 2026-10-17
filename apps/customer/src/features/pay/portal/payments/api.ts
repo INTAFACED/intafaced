@@ -20,6 +20,18 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
       subscriptionSchema.refine((row) => row.merchantId === merchantId && row.id === subscriptionId),
       signal,
     ),
+  subscriptionPage: (
+    merchantId: string,
+    filters: { status?: string; search?: string; from?: string; to?: string },
+    cursor: string | undefined,
+    signal?: AbortSignal,
+  ) =>
+    list(
+      'subscription.list',
+      subscriptionSchema.refine((row) => row.merchantId === merchantId),
+      { merchantId, ...(cursor ? { cursor } : {}), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) },
+      signal,
+    ),
   mandates: (merchantId: string, signal?: AbortSignal) =>
     query('mandate.list', { merchantId, limit: 200 }, p.page(mandateSchema.refine((row) => row.merchantId === merchantId)), signal).then(
       listed,
@@ -84,6 +96,8 @@ export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({
   }) => mutate('merchantOps.disputes.addEvidence', input, p.evidenceSchema),
   respond: (input: { requestId: string; disputeId: string; action: 'contest' | 'accept_liability'; note?: string }) =>
     mutate('merchantOps.disputes.respond', input, p.disputeDetailSchema),
+  customerSeries: (customerRef: string, from: string, to: string, signal?: AbortSignal) =>
+    query('merchantOps.customers.series', { customerRef, from, to, bucket: 'day', limit: 200 }, pay.customerSeriesSchema, signal),
   customerSummary: (activeSince: string, signal?: AbortSignal) =>
     query('merchantOps.customers.summary', { activeSince }, p.customerSummarySchema, signal),
   customers: (cursor: string | undefined, search: string, signal?: AbortSignal) =>

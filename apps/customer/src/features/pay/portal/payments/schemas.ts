@@ -77,3 +77,14 @@ export type OwnTier = z.infer<typeof ownTierSchema>;
 /** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
 export const evidenceFileSchema = shared.evidenceSchema.extend({ contentBase64: z.string() });
 export type EvidenceFile = z.infer<typeof evidenceFileSchema>;
+
+/** `merchantOps.customers.series` on main (#4833): captured count and volume per day and asset. */
+export const customerSeriesSchema = z.object({
+  customerRef: z.string(),
+  bucket: z.string(),
+  from: z.string(),
+  to: z.string(),
+  items: z.array(z.object({ period: z.string(), assetCode: asset, count: z.number().int(), volume: amount })),
+  nextCursor: z.string().nullable(),
+});
+export type CustomerSeries = z.infer<typeof customerSeriesSchema>;

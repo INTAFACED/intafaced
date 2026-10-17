@@ -13,6 +13,7 @@ import { CustomerDetailView, CustomersView } from './Customers';
 import { DashboardInsights as DashboardView, type DashboardData } from './Dashboard';
 import { DisputeDetailView, DisputesView } from './Disputes';
 import { useListFilters } from '../ui/FilterRow';
+import { seriesTotals } from './model';
 import { countdown, fileProblem, fromBase64, toBase64 } from './dispute-model';
 import type { ListState } from '../hooks';
 import * as p from '../schemas';
@@ -362,12 +363,38 @@ describe('customers', () => {
         },
       ],
     };
-    const out = html(<CustomerDetailView customer={ready(detail)} reload={noop} />);
+    const series = ready({
+      customerRef: 'TEST-cust-001',
+      bucket: 'day',
+      from: '2026-09-18',
+      to: '2026-10-18',
+      items: [
+        { period: '2026-10-17', assetCode: 'USDT', count: 2, volume: '50.25' },
+        { period: '2026-10-12', assetCode: 'USDT', count: 1, volume: '10' },
+        { period: '2026-09-25', assetCode: 'USDT', count: 1, volume: '7.5' },
+      ],
+      nextCursor: null,
+    });
+    const out = html(<CustomerDetailView customer={ready(detail)} series={series} today="2026-10-17" reload={noop} />);
     expect(out).toContain('Lifetime totals');
     expect(out).toContain('300.5');
     expect(out).toContain('Recent payments');
     expect(out).toContain('Paid');
     expect(out).toContain('Daily volume and payment count');
-    expect(out).toContain('The daily history for one customer isn’t available for your account yet.');
+    expect(out).toContain('60.25');
+    expect(out).toContain('67.75');
+    expect(out).toContain('href="/pay/payments/99999999-aaaa-bbbb-cccc-dddddddddddd"');
+  });
+  it('sums a customer series per asset from a day, exactly', () => {
+    const items = [
+      { period: '2026-10-17', assetCode: 'USDT', count: 2, volume: '0.1' },
+      { period: '2026-10-16', assetCode: 'USDT', count: 1, volume: '0.2' },
+      { period: '2026-10-16', assetCode: 'USD', count: 1, volume: '5' },
+      { period: '2026-10-01', assetCode: 'USDT', count: 9, volume: '100' },
+    ];
+    expect(seriesTotals(items, '2026-10-16')).toEqual([
+      { assetCode: 'USD', count: 1, volume: '5' },
+      { assetCode: 'USDT', count: 3, volume: '0.3' },
+    ]);
   });
 });
