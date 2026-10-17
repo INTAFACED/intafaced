@@ -154,6 +154,10 @@ async function snapshotCatalog(db: TestDatabase): Promise<CatalogSnapshot> {
       JOIN pg_class rel ON rel.oid = con.conrelid
       JOIN pg_namespace nsp ON nsp.oid = con.connamespace
      WHERE nsp.nspname = 'ledger'
+       -- 't' = constraint TRIGGER (0023's balance-at-commit). A trigger is behaviour,
+       -- not a table shape drizzle's schema can describe; journal-immutable.db.test.ts
+       -- executes it instead.
+       AND con.contype <> 't'
      ORDER BY rel.relname, con.conname
   `;
 

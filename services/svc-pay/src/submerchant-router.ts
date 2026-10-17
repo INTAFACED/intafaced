@@ -18,7 +18,8 @@ import { PERMISSION_AREAS, SubMerchantError, type SubMerchantService } from './s
  *      there is nothing to forge; a caller who is not a merchant is refused
  *      before any tree is walked.
  *   3. The service's subtree fence and permission check, which throw
- *      `pay.submerchant_out_of_scope` / `pay.submerchant_permission_denied`.
+ *      `pay.merchant_not_found` (outside the tree reads exactly like a missing
+ *      id) / `pay.submerchant_permission_denied` (inside the tree, no grant).
  *
  * Step 2 is the one that would be easy to get wrong. `pay:write` is a MERCHANT'S
  * scope, held by every merchant on the platform — so if the merchant node came

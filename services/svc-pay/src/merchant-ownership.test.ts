@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { setIsolationDenialSink, type IsolationDenial } from './isolation-log.js';
 import { assertMerchantAreaAccess, assertMerchantOwnership } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
 import { SubMerchantError, type PermissionArea } from './submerchants.js';
@@ -74,10 +75,39 @@ describe('assertMerchantOwnership (self only)', () => {
     await expect(assertMerchantOwnership(payStub() as never, LEAF_USER, LEAF)).resolves.toBeUndefined();
   });
 
-  it('refuses a stranger', async () => {
+  it('refuses a stranger exactly like a merchant that does not exist (no existence oracle)', async () => {
     await expect(assertMerchantOwnership(payStub() as never, STRANGER, LEAF)).rejects.toMatchObject({
-      code: 'pay.merchant_forbidden',
+      code: 'pay.merchant_not_found',
+      message: `Merchant ${LEAF} not found`,
     });
+    const GHOST = '99999999-9999-4999-8999-999999999999';
+    await expect(assertMerchantOwnership(payStub() as never, STRANGER, GHOST)).rejects.toMatchObject({
+      code: 'pay.merchant_not_found',
+      message: `Merchant ${GHOST} not found`,
+    });
+  });
+
+  it('tells operators which case it was (log only), never the caller', async () => {
+    const seen: IsolationDenial[] = [];
+    setIsolationDenialSink((d) => seen.push(d));
+    try {
+      await assertMerchantOwnership(payStub() as never, STRANGER, LEAF).catch(() => undefined);
+      await assertMerchantOwnership(payStub() as never, STRANGER, '99999999-9999-4999-8999-999999999999').catch(() => undefined);
+    } finally {
+      setIsolationDenialSink(null);
+    }
+    expect(seen.map((d) => d.reason)).toEqual(['not_owner', 'absent']);
+  });
+
+  it('a throwing log sink cannot change the answer', async () => {
+    setIsolationDenialSink(() => {
+      throw new Error('logger down');
+    });
+    try {
+      await expect(assertMerchantOwnership(payStub() as never, STRANGER, LEAF)).rejects.toMatchObject({ code: 'pay.merchant_not_found' });
+    } finally {
+      setIsolationDenialSink(null);
+    }
   });
 });
 
@@ -86,15 +116,15 @@ describe('assertMerchantAreaAccess — self and stranger', () => {
     await expect(assertMerchantAreaAccess(payStub(), LEAF_USER, LEAF, 'settlement.payout', null)).resolves.toBeUndefined();
   });
 
-  it('stranger without a fence is still merchant_forbidden', async () => {
+  it('stranger without a fence is refused as not-found (merchant_not_found)', async () => {
     await expect(assertMerchantAreaAccess(payStub(), STRANGER, LEAF, 'payment', null)).rejects.toMatchObject({
-      code: 'pay.merchant_forbidden',
+      code: 'pay.merchant_not_found',
     });
   });
 
-  it('anonymous principal is forbidden', async () => {
+  it('anonymous principal is refused as not-found', async () => {
     await expect(assertMerchantAreaAccess(payStub(), undefined, LEAF, 'payment', fence({}))).rejects.toMatchObject({
-      code: 'pay.merchant_forbidden',
+      code: 'pay.merchant_not_found',
     });
   });
 });
@@ -142,20 +172,20 @@ describe('assertMerchantAreaAccess — PayFac tree', () => {
     await expect(assertMerchantAreaAccess(pay, 'user-mid', LEAF, 'payment.refund', trees)).resolves.toBeUndefined();
   });
 
-  it('out-of-scope sibling looks like a stranger (merchant_forbidden)', async () => {
+  it('out-of-scope sibling looks like a stranger (merchant_not_found)', async () => {
     const trees = {
       async assertHolds() {
         throw new SubMerchantError('out', 'pay.submerchant_out_of_scope');
       },
     };
     await expect(assertMerchantAreaAccess(payStub(), ROOT_USER, LEAF, 'payment', trees)).rejects.toMatchObject({
-      code: 'pay.merchant_forbidden',
+      code: 'pay.merchant_not_found',
     });
   });
 
-  it('principal with no merchant node is forbidden', async () => {
+  it('principal with no merchant node is refused as not-found', async () => {
     await expect(assertMerchantAreaAccess(payStub({ noActor: true }), STRANGER, LEAF, 'payment', fence({}))).rejects.toMatchObject({
-      code: 'pay.merchant_forbidden',
+      code: 'pay.merchant_not_found',
     });
   });
 });
