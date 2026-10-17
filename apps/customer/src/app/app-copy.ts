@@ -22,8 +22,8 @@ const messages = {
     'The Team deployment address is not configured. Ask your operator for the verified console address.',
   'This room is parked': 'This room is parked',
   'Chain services are not active': 'Chain services are not active',
-  'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.',
+  'This room is reserved: the owners have not activated it. It is not available from customer navigation or search.':
+    'This room is reserved: the owners have not activated it. It is not available from customer navigation or search.',
   'Sign in': 'Sign in',
   'Sign in to continue': 'Sign in to continue',
   'Your account context is needed before this room can show private information.':
@@ -66,8 +66,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
       'La dirección de Team no está configurada. Pide al operador la dirección verificada de la consola.',
     'This room is parked': 'Esta sección está en espera',
     'Chain services are not active': 'Los servicios de cadena no están activos',
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-      'Esta sección está reservada hasta que el propietario la active. No está disponible en la navegación ni en la búsqueda del cliente.',
+    'This room is reserved: the owners have not activated it. It is not available from customer navigation or search.':
+      'Esta sección está reservada: los propietarios no la han activado. No está disponible en la navegación ni en la búsqueda del cliente.',
     'Sign in': 'Iniciar sesión',
     'Sign in to continue': 'Inicia sesión para continuar',
     'Your account context is needed before this room can show private information.':
@@ -104,8 +104,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
       'L’adresse de déploiement de Team n’est pas configurée. Demandez à votre opérateur l’adresse vérifiée de la console.',
     'This room is parked': 'Cet espace est en attente',
     'Chain services are not active': 'Les services de chaîne ne sont pas actifs',
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-      'Cet espace reste réservé jusqu’à son activation par le propriétaire. Il est absent de la navigation et de la recherche clients.',
+    'This room is reserved: the owners have not activated it. It is not available from customer navigation or search.':
+      'Cet espace est réservé : les propriétaires ne l’ont pas activé. Il est absent de la navigation et de la recherche clients.',
     'Sign in': 'Se connecter',
     'Sign in to continue': 'Connectez-vous pour continuer',
     'Your account context is needed before this room can show private information.':
