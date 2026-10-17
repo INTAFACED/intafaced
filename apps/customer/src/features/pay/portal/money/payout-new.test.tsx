@@ -10,7 +10,9 @@ import type { ApiResult } from '../../../../shared/api';
 import type { PortalApi } from '../api';
 import type { Approval } from '../schemas';
 import { mc } from './copy';
-import { SaveReview, normaliseReference, referenceProblem } from './Destinations';
+import { conversionRequestScope } from './Conversion';
+import { useRequestId } from '../payments/invoice-model';
+import { SaveReview, normaliseReference, referenceProblem, saveBlock } from './Destinations';
 import { payoutProblem, submitPayout, type PayoutOutcome } from './PayoutNew';
 
 // Everything here is TEST DATA written for these tests.
@@ -41,17 +43,22 @@ describe('asking for a payout', () => {
     expect(sendPayout).toHaveBeenCalledOnce();
     expect(out).toEqual({ ok: true, data: { route: 'sent', id: SETTLEMENT.id, status: 'paid_out' } });
   });
-  it.each(['expired', 'voided', 'rejected', 'consumed'] as const)(
-    'refuses plainly, never "with your team", when the request is %s',
-    async (status) => {
-      const { portal, sendPayout } = fakePortal({ ask: { ok: true, data: approvalRow(status) } });
-      const out = await run(portal);
-      expect(out.ok).toBe(false);
-      expect(sendPayout).not.toHaveBeenCalled();
-      expect(message(out)).toContain('Ask again.');
-      if (status === 'expired') expect(message(out)).toBe('That request has expired. Ask again.');
-    },
-  );
+  it.each(['expired', 'voided', 'rejected'] as const)('refuses plainly, never "with your team", when the request is %s', async (status) => {
+    const { portal, sendPayout } = fakePortal({ ask: { ok: true, data: approvalRow(status) } });
+    const out = await run(portal);
+    expect(out.ok).toBe(false);
+    expect(sendPayout).not.toHaveBeenCalled();
+    expect(message(out)).toContain('Ask again.');
+    if (status === 'expired') expect(message(out)).toBe('That request has expired. Ask again.');
+  });
+  it('says the payout already went, and opens it, when the request was already used', async () => {
+    const { portal, sendPayout } = fakePortal({ ask: { ok: true, data: approvalRow('consumed') } });
+    const out = await run(portal);
+    expect(sendPayout).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, data: { route: 'used', id: SETTLEMENT.id } });
+    expect(t('pnDoneUsed')).toContain('already used to send this payout');
+    expect(t('pnDoneUsed')).not.toContain('Ask again');
+  });
   it('sends directly below the approval limit', async () => {
     const { portal, sendPayout } = fakePortal({
       ask: { ok: false, reason: 'error', code: 'pay.approval_not_required', message: 'pay.approval_not_required' },
@@ -137,5 +144,65 @@ describe('saving a destination', () => {
     expect(t('dstReplace')).toBe('Replace destination');
     expect(t('dstManageBody')).toContain('on more than one network');
     expect(t('dstManageBody')).not.toContain('pick another destination each time');
+  });
+});
+
+describe('saving a destination waits for the saved list', () => {
+  const ready = { owner: true, listState: 'ready' as const, hasRail: true, problem: null };
+  it('turns Save off, with a plain reason, while the list is loading or failed', () => {
+    expect(saveBlock({ ...ready, listState: 'loading' })).toBe('dstListLoading');
+    expect(saveBlock({ ...ready, listState: 'failed' })).toBe('dstListFailed');
+    expect(t('dstListLoading')).toContain('still loading');
+    expect(t('dstListFailed')).toContain('did not load');
+  });
+  it('leaves Save on once the list is read and the form is complete', () => {
+    expect(saveBlock(ready)).toBeNull();
+  });
+  it('keeps the older reasons in their order', () => {
+    expect(saveBlock({ ...ready, owner: false, listState: 'loading' })).toBe('dstOwnerOnly');
+    expect(saveBlock({ ...ready, hasRail: false })).toBe('dstPickRail');
+    expect(saveBlock({ ...ready, problem: 'crypto' })).toBe('dstRefCrypto');
+  });
+});
+
+describe('a conversion keeps its request id across a reload', () => {
+  const SETTLEMENT_ID = 'bb000002-0000-4000-8000-000000000002';
+  function withStorage<T>(run: (values: Map<string, string>) => T): T {
+    const values = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => values.get(k) ?? null,
+      setItem: (k: string, v: string) => void values.set(k, v),
+      removeItem: (k: string) => void values.delete(k),
+    };
+    vi.stubGlobal('sessionStorage', store);
+    try {
+      return run(values);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+  function Probe({ onId }: { onId: (id: { id: string; renew: () => void }) => void }) {
+    onId(useRequestId(conversionRequestScope(SETTLEMENT_ID)));
+    return null;
+  }
+  const mount = () => {
+    let seen: { id: string; renew: () => void } | null = null;
+    renderToString(<Probe onId={(v) => (seen = v)} />);
+    return seen!;
+  };
+  it('sends the same id after a reload until the outcome is confirmed, then a fresh one', () => {
+    withStorage((values) => {
+      const first = mount();
+      const reloaded = mount();
+      expect(reloaded.id).toBe(first.id);
+      // The key names the settlement only: no amount or address.
+      expect([...values.keys()]).toEqual([`portal:request:conversion:${SETTLEMENT_ID}`]);
+      reloaded.renew();
+      expect(mount().id).not.toBe(first.id);
+    });
+  });
+  it('keeps ids apart per settlement', () => {
+    expect(conversionRequestScope('a')).not.toBe(conversionRequestScope('b'));
+    expect(conversionRequestScope(null)).toBe('conversion:none');
   });
 });

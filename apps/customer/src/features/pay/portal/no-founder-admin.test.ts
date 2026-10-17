@@ -52,7 +52,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       );
     expect(text).not.toMatch(/admin:|operator|killswitch/i);
   });
-  it('reaches only allowlisted namespaces from every api and client file under the portal', () => {
+  it('reaches only allowlisted procedures from every api and client file under the portal', () => {
     // Every file that talks to the service: *api*.ts and client.ts, wherever they sit under portal/. Named files below
     // must be among them, so the scan cannot quietly shrink to fewer files.
     const portalRoot = join(root, 'features', 'pay', 'portal');
@@ -71,24 +71,60 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       'settings/developers/client.ts',
     ])
       expect(rel, must).toContain(must);
-    // Namespaces (the part before the first dot) a merchant page may call. `apiKeys` and the signing and address calls are
-    // the identity service's key management for the merchant's own keys; `mandate` and `subscription` are the merchant's own reads.
-    const namespaces = new Set([
-      'merchant',
+    // Namespaces (the part before the first dot) that hold only merchant-facing procedures, so the whole namespace may be
+    // named. `apiKeys` and the signing and address calls are the identity service's key management for the merchant's own
+    // keys; `mandate` and `subscription` are the merchant's own reads.
+    const wholeNamespaces = new Set([
       'merchantOps',
       'merchantMetrics',
-      'merchantControl',
       'merchantAnalytics',
       'submerchant',
       'submerchantPermission',
-      'payHalts',
-      'payment',
-      'settlement',
-      'conversion',
       'subscription',
       'mandate',
       'apiKeys',
     ]);
+    // Namespaces shared with the operator side: only the listed procedures are the merchant's own. A new name in any of
+    // these (a refund create, a settlement release, a halt toggle) fails here until someone decides it is merchant-scoped.
+    const mixedNamespaces: Record<string, Set<string>> = {
+      merchant: new Set([
+        'merchant.me',
+        'merchant.myAccess',
+        'merchant.create',
+        'merchant.submitKyb',
+        'merchant.setPayoutDestination',
+        'merchant.listLinks',
+        'merchant.checkoutSettings.get',
+        'merchant.payoutDestinations.list',
+        'merchant.payoutDestinations.setDefault',
+        'merchant.payoutDestinations.remove',
+        'merchant.statement.list',
+        'merchant.onboarding.progress',
+        'merchant.businessProfile.get',
+        'merchant.businessProfile.history',
+        'merchant.businessProfile.submit',
+        'merchant.businessProfile.confirm',
+        'merchant.businessProfile.setSecondApproval',
+      ]),
+      merchantControl: new Set([
+        'merchantControl.get',
+        'merchantControl.usage',
+        'merchantControl.pricing.preview',
+        'merchantControl.pricing.history',
+        'merchantControl.tiers.list',
+        'merchantControl.limits.open',
+        'merchantControl.limits.requestIncrease',
+        'merchantControl.limits.withdraw',
+        'merchantControl.approvals.list',
+        'merchantControl.approvals.request',
+        'merchantControl.approvals.decide',
+        'merchantControl.approvals.cancel',
+      ]),
+      payment: new Set(['payment.list', 'payment.get', 'payment.history', 'payment.refunds.list', 'payment.refunds.get']),
+      settlement: new Set(['settlement.list', 'settlement.get', 'settlement.lines', 'settlement.lifecycle', 'settlement.payout']),
+      payHalts: new Set(['payHalts.status']),
+      conversion: new Set(['conversion.quote', 'conversion.execute', 'conversion.get', 'conversion.list']),
+    };
     // Procedures with no dot in their name, each allowed by name.
     const bare = new Set([
       'railHealth',
@@ -111,7 +147,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       for (const name of named) {
         if (notProcedures.has(name)) continue;
         seen += 1;
-        const ok = name.includes('.') ? namespaces.has(name.split('.')[0]!) : bare.has(name);
+        const space = name.split('.')[0]!;
+        const ok = !name.includes('.') ? bare.has(name) : wholeNamespaces.has(space) || (mixedNamespaces[space]?.has(name) ?? false);
         if (!ok) offenders.push(`${rel[i]}: ${name}`);
       }
     }

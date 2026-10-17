@@ -152,7 +152,7 @@ function populate(world, now) {
     createdAt: iso(now - (50 + i) * DAY),
     // The address the link takes a payer to. The real service will hand this back to the owner; the portal shows it
     // when the field is present.
-    checkoutUrl: `/pay/checkout?token=TEST-token-TESTl${i + 1}`,
+    checkoutUrl: `/api/pay/checkout?token=TEST-token-TESTl${i + 1}`,
   }));
   const openLinks = [0, 2, 4, 6];
   const fixedLinks = [1, 3, 5, 7];
