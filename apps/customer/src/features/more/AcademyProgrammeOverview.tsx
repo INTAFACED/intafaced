@@ -1,15 +1,35 @@
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { Button, Panel } from '../../shared/ui';
-import { Details, Read, type ActionControls } from './common';
+import type { Resource } from '../../shared/resource';
+import { Loading, Panel } from '../../shared/ui';
+import type { ApiResult } from '../../shared/api';
+import { Details, Read, presentActionFailure, type ActionControls } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { academyPaths, formatDay, groupByPath, type AcademyPath, type LessonSummary, type Tracking } from './academy-lms';
+import {
+  academyPaths,
+  formatDay,
+  groupByPath,
+  isAcademyPath,
+  type AcademyPath,
+  type LessonSummary,
+  type PathSummary,
+  type Tracking,
+} from './academy-lms';
+import {
+  academyRefusalKey,
+  academyRefusalText,
+  enrolReceipt,
+  type Enrolment,
+  leaveReceipt,
+  newLeaveId,
+  readEnrolments,
+  settleByReading,
+} from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
-import { DisabledWithReason, pathLabel } from './AcademyLmsParts';
+import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
 
-const enrolment = z.object({ userId: z.string().uuid(), pathSlug: z.string(), enrolledAt: z.string().datetime({ offset: true }) });
 const badge = z.object({
   userId: z.string().uuid(),
   isAmbassador: z.boolean(),
@@ -35,64 +55,243 @@ export function AcademyProgrammeOverview({ action }: { action: ActionControls })
   );
 }
 
+/** What an enrolment card may do, and why not. The reason is the one the person can act on first. */
+export function programmeGuards(input: {
+  signedIn: boolean;
+  enrolments: 'loading' | 'failed' | 'ready';
+  enrolled: boolean;
+  busy: boolean;
+}): { enrol: GuardReason | null; leave: GuardReason | null } {
+  const common: GuardReason | null = !input.signedIn
+    ? 'signInReason'
+    : input.enrolments === 'loading'
+      ? 'enrolmentsLoadingReason'
+      : input.enrolments === 'failed'
+        ? 'enrolmentsUnreadableReason'
+        : null;
+  const busy: GuardReason | null = input.busy ? 'actionBusyReason' : null;
+  return {
+    enrol: common ?? (input.enrolled ? 'enrolReasonEnrolled' : busy),
+    leave: common ?? (input.enrolled ? busy : 'refEnrollmentNotFound'),
+  };
+}
+type GuardReason =
+  | 'signInReason'
+  | 'enrolmentsLoadingReason'
+  | 'enrolmentsUnreadableReason'
+  | 'enrolReasonEnrolled'
+  | 'actionBusyReason'
+  | 'refEnrollmentNotFound';
+
+const unrecorded = () => ({
+  ok: false as const,
+  reason: 'aborted' as const,
+  code: 'academy.not_recorded',
+  message: copy.t('writeNotRecorded'),
+});
+const changed = () => ({
+  ok: false as const,
+  reason: 'aborted' as const,
+  code: 'academy.original_changed',
+  message: 'The original Academy request remains unresolved.',
+});
+/** Typed Academy refusals reach the shared action panel in plain words, in the language the person reads. */
+function worded<T extends Extract<ApiResult<unknown>, { ok: false }>>(result: T): T {
+  const key = academyRefusalKey(result);
+  if (!key) return result;
+  return presentActionFailure(result, (locale) => {
+    const presented = copy.forLocale(locale);
+    return { message: academyRefusalText(result, presented.t) ?? result.message, language: presented.languageFor(key) };
+  });
+}
+
 function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]; action: ActionControls }) {
   const api = useApi();
   const { userId } = useSession();
-  const { t, Copy } = copy.useCopy();
   const groups = groupByPath(lessons);
-  const stage = (path: AcademyPath) =>
+  const enrolments = useResource((signal) => readEnrolments(api, userId, signal), `enrolments:${userId}`);
+  const reloadEnrolments = enrolments.reload;
+  const enrolStage = (path: AcademyPath) =>
     action.stage({
-      title: t('enrolTitle'),
-      confirm: t('enrolConfirm'),
-      success: t('enrolDone'),
-      content: (
+      title: () => copy.t('enrolTitle'),
+      confirm: () => copy.t('enrolConfirm'),
+      success: () => copy.t('enrolDone'),
+      content: () => (
         <p>
-          <Copy k="enrolBody" params={{ path: pathLabel(t, path) }} />
+          <copy.Copy k="enrolBody" params={{ path: pathLabel(copy.t, path) }} />
         </p>
       ),
-      run: () =>
-        api.mutate(
-          'academy',
-          'enrollCertPath',
-          { pathSlug: path },
-          enrolment.refine((r) => r.userId === userId && r.pathSlug === path),
-        ),
+      run: async (canDispatch) => {
+        if (!canDispatch()) return changed();
+        const sent = await api.mutate('academy', 'enrollCertPath', { pathSlug: path }, enrolReceipt(userId, path));
+        const settled = await settleByReading(
+          sent,
+          () => readEnrolments(api, userId),
+          (now) => now.some((row) => row.pathSlug === path),
+          unrecorded,
+        );
+        if (!settled.ok) reloadEnrolments();
+        return settled.ok ? settled : worded(settled);
+      },
+      done: reloadEnrolments,
     });
-  return (
-    <Panel title={t('programmesTitle')}>
-      <div className="academy-lms-stack">
-        <p className="muted">
-          <Copy k="programmesIntro" />
+  const leaveStage = (path: AcademyPath) => {
+    // One reference for this decision: the service answers a repeat of it with the first leave, so a resend cannot leave twice.
+    const clientRequestId = newLeaveId();
+    action.stage({
+      title: () => copy.t('leaveTitle'),
+      confirm: () => copy.t('leaveConfirm'),
+      success: () => copy.t('leaveDone'),
+      content: () => (
+        <p>
+          <copy.Copy k="leaveBody" params={{ path: pathLabel(copy.t, path) }} />
         </p>
-        <div className="academy-lms-grid">
-          {academyPaths.map((path) => {
-            const group = groups.find((g) => g.path === path);
-            return (
-              <article key={path} className="academy-lms-card">
-                <h3>{pathLabel(t, path)}</h3>
-                <div className="academy-lms-meta">
-                  <span>
-                    <Copy k="lessonCount" params={{ count: group?.lessons.length ?? 0 }} />
-                  </span>
-                </div>
-                <p className="muted">
-                  <Copy k="prerequisitesNone" />
+      ),
+      run: async (canDispatch) => {
+        if (!canDispatch()) return changed();
+        const sent = await api.mutate('academy', 'leaveCertPath', { pathSlug: path, clientRequestId }, leaveReceipt(userId, path));
+        const settled = await settleByReading(
+          sent,
+          () => readEnrolments(api, userId),
+          (now) => !now.some((row) => row.pathSlug === path),
+          unrecorded,
+        );
+        if (!settled.ok) reloadEnrolments();
+        return settled.ok ? settled : worded(settled);
+      },
+      done: reloadEnrolments,
+    });
+  };
+  return (
+    <PathProgrammesView
+      enrolments={enrolments.resource}
+      reload={enrolments.reload}
+      groups={groups}
+      signedIn={Boolean(userId)}
+      busy={action.disabled}
+      onEnrol={enrolStage}
+      onLeave={leaveStage}
+    />
+  );
+}
+
+/** Enrolments read back from Academy, then one card per programme whose buttons state why they are off. Pure: state arrives as props. */
+export function PathProgrammesView({
+  enrolments,
+  reload,
+  groups,
+  signedIn,
+  busy,
+  onEnrol,
+  onLeave,
+}: {
+  enrolments: Resource<Enrolment[]>;
+  reload: () => void;
+  groups: readonly PathSummary[];
+  signedIn: boolean;
+  busy: boolean;
+  onEnrol: (path: AcademyPath) => void;
+  onLeave: (path: AcademyPath) => void;
+}) {
+  const { t, Copy } = copy.useCopy();
+  const { language } = usePreferences();
+  const rows = enrolments.status === 'ready' ? enrolments.data : [];
+  return (
+    <>
+      <Panel title={t('enrolmentsTitle')}>
+        <div className="academy-lms-stack">
+          {enrolments.status === 'loading' && <Loading />}
+          {enrolments.status === 'failed' && <AcademyRefusal failure={enrolments.failure} retry={reload} />}
+          {enrolments.status === 'ready' &&
+            (rows.length === 0 ? (
+              <p role="status">
+                <Copy k="enrolmentsNone" />
+              </p>
+            ) : (
+              <>
+                <p role="status">
+                  <Copy k="enrolmentsSummary" params={{ enrolled: rows.length, total: academyPaths.length }} />
                 </p>
-                <p className="muted">
-                  <Copy k="enrolmentUnread" />
-                </p>
-                <div className="academy-learning-actions">
-                  <Button disabled={action.disabled || !userId} onClick={() => stage(path)}>
-                    <Copy k="enrolButton" />
-                  </Button>
-                </div>
-                <DisabledWithReason id={`academy-leave-${path}`} label={t('leaveButton')} reason={t('leaveReason')} />
-              </article>
-            );
-          })}
+                <ul className="academy-lms-rows" aria-label={t('enrolmentsTitle')}>
+                  {rows.map((row, index) => (
+                    <li key={row.pathSlug}>
+                      <span>{index + 1}</span>
+                      <div>
+                        <strong lang={isAcademyPath(row.pathSlug) ? undefined : 'zxx'}>
+                          {isAcademyPath(row.pathSlug) ? pathLabel(t, row.pathSlug) : row.pathSlug}
+                        </strong>
+                        <div className="academy-lms-meta">
+                          <time dateTime={row.enrolledAt}>
+                            <Copy k="enrolledSince" params={{ date: formatDay(row.enrolledAt, language) }} />
+                          </time>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ))}
         </div>
-      </div>
-    </Panel>
+      </Panel>
+      <Panel title={t('programmesTitle')}>
+        <div className="academy-lms-stack">
+          <p className="muted">
+            <Copy k="programmesIntro" />
+          </p>
+          <div className="academy-lms-grid">
+            {academyPaths.map((path) => {
+              const group = groups.find((g) => g.path === path);
+              const enrolled = rows.find((row) => row.pathSlug === path);
+              const guards = programmeGuards({
+                signedIn,
+                enrolments: enrolments.status,
+                enrolled: Boolean(enrolled),
+                busy,
+              });
+              return (
+                <article key={path} className="academy-lms-card">
+                  <h3>{pathLabel(t, path)}</h3>
+                  <div className="academy-lms-meta">
+                    <span>
+                      <Copy k="lessonCount" params={{ count: group?.lessons.length ?? 0 }} />
+                    </span>
+                    {enrolments.status === 'ready' && (
+                      <span className="academy-lms-chip" data-status={enrolled ? 'recorded' : 'open'}>
+                        {enrolled ? (
+                          <Copy k="enrolledSince" params={{ date: formatDay(enrolled.enrolledAt, language) }} />
+                        ) : (
+                          <Copy k="notEnrolled" />
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted">
+                    <Copy k="prerequisitesChecked" />
+                  </p>
+                  <div className="academy-learning-actions">
+                    <GuardedButton
+                      reasonId={`academy-enrol-${path}`}
+                      reason={guards.enrol && t(guards.enrol)}
+                      onClick={() => onEnrol(path)}
+                    >
+                      <Copy k="enrolButton" />
+                    </GuardedButton>
+                    <GuardedButton
+                      variant="secondary"
+                      reasonId={`academy-leave-${path}`}
+                      reason={guards.leave && t(guards.leave)}
+                      onClick={() => onLeave(path)}
+                    >
+                      <Copy k="leaveButton" />
+                    </GuardedButton>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </Panel>
+    </>
   );
 }
 

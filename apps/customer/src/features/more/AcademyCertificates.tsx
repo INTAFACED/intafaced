@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Button, Field, Panel } from '../../shared/ui';
+import { useEffect, useRef, useState } from 'react';
+import type { ApiResult } from '../../shared/api';
+import { Button, Field, Loading, Panel } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useApi, useSession } from '../session/session';
 import { Details, Read } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import {
@@ -10,13 +11,14 @@ import {
   certificateLessons,
   formatDay,
   lessonHrefFor,
-  parseVerifyReference,
+  parseVerifyCode,
   type CertificateCard,
   type LessonSummary,
   type Tracking,
 } from './academy-lms';
+import { verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
-import { CertificateChip, DisabledWithReason, ProgressBar, StatusChip } from './AcademyLmsParts';
+import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip } from './AcademyLmsParts';
 
 const param = (name: string) => new URLSearchParams(window.location.search).get(name) ?? '';
 
@@ -36,6 +38,7 @@ function Shelf({ lessons, tracking }: { lessons: readonly LessonSummary[]; track
   const earned = cards.filter((c) => c.state === 'earned');
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
+  const [reference, setReference] = useState(param('verify'));
   if (cards.length === 0)
     return (
       <Panel title={t('shelfTitle')}>
@@ -58,8 +61,17 @@ function Shelf({ lessons, tracking }: { lessons: readonly LessonSummary[]; track
           </div>
         </div>
       </Panel>
-      {view && <CertificateSheet card={view} lessons={lessons} />}
-      <VerifyPanel tracking={tracking} />
+      {view && (
+        <CertificateSheet
+          card={view}
+          lessons={lessons}
+          onCheckCode={(code) => {
+            setReference(code);
+            document.getElementById(VERIFY_FIELD)?.focus();
+          }}
+        />
+      )}
+      <VerifyPanel reference={reference} onReference={setReference} />
     </div>
   );
 }
@@ -106,7 +118,15 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   );
 }
 
-function CertificateSheet({ card, lessons }: { card: CertificateCard; lessons: readonly LessonSummary[] }) {
+function CertificateSheet({
+  card,
+  lessons,
+  onCheckCode,
+}: {
+  card: CertificateCard;
+  lessons: readonly LessonSummary[];
+  onCheckCode: (code: string) => void;
+}) {
   const { t, Copy } = copy.useCopy();
   const { userId } = useSession();
   const { language } = usePreferences();
@@ -148,73 +168,130 @@ function CertificateSheet({ card, lessons }: { card: CertificateCard; lessons: r
           <small>
             <Copy k="sheetReference" />: <code lang="zxx">{doc.reference}</code>
           </small>
-          <small className="muted">
-            <Copy k="sheetBoundary" />
-          </small>
+          {doc.code && (
+            <>
+              <small>
+                <Copy k="sheetCode" />: <code lang="zxx">{doc.code}</code>
+              </small>
+              <small className="muted">
+                <Copy k="sheetVerifyHint" />
+              </small>
+            </>
+          )}
         </article>
         <div className="academy-learning-actions">
           <Button onClick={() => window.print()}>
             <Copy k="printCertificate" />
           </Button>
+          {doc.code && (
+            <Button variant="secondary" onClick={() => onCheckCode(doc.code!)}>
+              <Copy k="useCode" />
+            </Button>
+          )}
         </div>
       </div>
     </Panel>
   );
 }
 
-/**
- * Verify by certificate reference. Academy can only read the caller's own grants; it has no public lookup,
- * so a reference is only matched against this account, and the public check stays disabled with its reason.
- */
-function VerifyPanel({ tracking }: { tracking: Tracking }) {
+const VERIFY_FIELD = 'academy-verify-code';
+
+type Lookup =
+  { status: 'idle' } | { status: 'checking'; code: string } | { status: 'done'; code: string; result: ApiResult<VerifiedCertificate> };
+
+/** What Academy says about one verification code. Every field is the service's answer. */
+export function VerifyResult({ code, certificate }: { code: string; certificate: VerifiedCertificate }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
-  const [reference, setReference] = useState(param('verify'));
+  const revoked = certificate.status === 'revoked';
+  return (
+    <section className="academy-lms-result" role="status" aria-label={t('verifyResultLabel')}>
+      <Details
+        items={[
+          [t('verifyCertificate'), <span lang="und">{certificate.title}</span>],
+          [t('verifyHolder'), certificate.holderName ? <span lang="und">{certificate.holderName}</span> : t('holderNotShared')],
+          [t('verifyIssued'), formatDay(certificate.grantedAt, language)],
+          [
+            t('verifyStatus'),
+            <span className="academy-lms-chip" data-status={revoked ? 'revoked' : 'recorded'}>
+              {revoked ? t('verifyRevoked') : t('verifyValid')}
+            </span>,
+          ],
+          [t('sheetCode'), <code lang="zxx">{code}</code>],
+        ]}
+      />
+      <p className={revoked ? undefined : 'muted'}>
+        <Copy k={revoked ? 'verifyRevokedNote' : 'verifyValidNote'} />
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Check a certificate by its verification code with Academy's public lookup (certVerify). Nothing is matched against
+ * this account: the answer is what anyone with the code would see. Malformed and unknown codes get the same refusal.
+ */
+export function VerifyPanel({ reference, onReference }: { reference: string; onReference: (value: string) => void }) {
+  const api = useApi();
+  const { t, Copy } = copy.useCopy();
+  const [lookup, setLookup] = useState<Lookup>({ status: 'idle' });
+  const controller = useRef<AbortController | null>(null);
+  const parsed = parseVerifyCode(reference);
   const trimmed = reference.trim();
-  const parsed = trimmed ? parseVerifyReference(trimmed) : null;
-  const own = trimmed ? tracking.grants.find((g) => g.idempotencyKey === trimmed) : undefined;
-  const ownTitle = own ? (tracking.definitions.find((d) => d.id === own.certId)?.title ?? own.certId) : '';
+
+  async function check(code: string) {
+    controller.current?.abort();
+    const mine = new AbortController();
+    controller.current = mine;
+    setLookup({ status: 'checking', code });
+    const result = await verifyCertificate(api, code, mine.signal);
+    if (mine.signal.aborted) return;
+    setLookup({ status: 'done', code, result });
+  }
+  // A link such as /academy?section=certificates&verify=<code> checks the code it carries.
+  useEffect(() => {
+    const first = parseVerifyCode(param('verify'));
+    if (first.kind === 'code') void check(first.code);
+    return () => controller.current?.abort();
+  }, []);
+
+  const reason = lookup.status === 'checking' ? t('verifyChecking') : parsed.kind === 'code' ? null : t('verifyNeedCode');
   return (
     <Panel title={t('verifyTitle')}>
-      <div className="academy-lms-stack">
+      <form
+        className="academy-lms-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (parsed.kind === 'code' && lookup.status !== 'checking') void check(parsed.code);
+        }}
+      >
         <p className="muted">
           <Copy k="verifyIntro" />
         </p>
         <Field
+          id={VERIFY_FIELD}
           label={t('verifyField')}
           value={reference}
-          onChange={(event) => setReference(event.target.value)}
+          onChange={(event) => onReference(event.target.value)}
           maxLength={120}
           autoComplete="off"
+          autoCapitalize="none"
           spellCheck={false}
+          error={
+            trimmed && parsed.kind === 'invalid'
+              ? t('verifyFormat')
+              : trimmed && parsed.kind === 'grant-reference'
+                ? t('verifyGrantReference')
+                : undefined
+          }
         />
-        {trimmed && !parsed?.ok && (
-          <p role="status">
-            <Copy k="verifyFormat" />
-          </p>
-        )}
-        {own && (
-          <p role="status">
-            <Copy k="verifyOwn" params={{ title: ownTitle, date: formatDay(own.grantedAt, language) }} />
-          </p>
-        )}
-        {parsed?.ok && !own && (
-          <p role="status">
-            <Copy k="verifyUnknownOwn" />
-          </p>
-        )}
-        <DisabledWithReason id="academy-verify-reason" label={t('verifyPublic')} reason={t('verifyReason')} />
-        <section className="academy-cert-sheet" aria-disabled="true" aria-label={t('verifyResultLabel')}>
-          <Details
-            items={[
-              [t('verifyHolder'), t('notAvailable')],
-              [t('verifyCertificate'), own ? ownTitle : t('notAvailable')],
-              [t('verifyIssued'), own ? formatDay(own.grantedAt, language) : t('notAvailable')],
-              [t('verifyStatus'), own ? t('verifyStatusOwn') : t('notAvailable')],
-            ]}
-          />
-        </section>
-      </div>
+        <GuardedButton type="submit" reasonId="academy-verify-reason" reason={reason}>
+          {t('verifyAction')}
+        </GuardedButton>
+        {lookup.status === 'checking' && <Loading label={t('verifyChecking')} />}
+        {lookup.status === 'done' && !lookup.result.ok && <AcademyRefusal failure={lookup.result} retry={() => void check(lookup.code)} />}
+        {lookup.status === 'done' && lookup.result.ok && <VerifyResult code={lookup.code} certificate={lookup.result.data} />}
+      </form>
     </Panel>
   );
 }

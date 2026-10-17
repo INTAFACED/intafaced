@@ -2,14 +2,15 @@ import { z } from 'zod';
 
 /**
  * Academy learning-management logic. Pure functions only: everything here is derived from what
- * svc-academy returns (curriculum, certDefinitions, certProgress, myCerts). Nothing is invented,
- * scored or inferred beyond those answers.
+ * svc-academy returns (curriculum, certDefinitions, certProgress, myCerts, myCompletions). Nothing is
+ * invented, scored or inferred beyond those answers.
  *
- * Honest limits of the service today (see academy-BACKEND-NEEDS.md):
- * - There is no "list my completed lessons" procedure. A lesson's recorded state is only known when
- *   a certificate requires it (certProgress.missingItemSlugs). Every other lesson is "untracked".
- * - There is no time spent, streak or last-position record. "Resume" uses the lesson this browser
- *   last opened, kept only on this device.
+ * A lesson is recorded when Academy lists it among this account's completions (myCompletions) or a
+ * certificate's progress counts it. It is pending when a certificate requires it and it is not
+ * recorded, and open otherwise.
+ *
+ * Academy keeps no time spent or streak. "Resume" uses the lesson this browser last opened, kept only
+ * on this device.
  */
 
 export const academyPaths = ['foundations', 'markets', 'builder', 'sovereign'] as const;
@@ -44,19 +45,28 @@ export const certProgressRow = z.object({
   grantIdempotencyKey: ref.nullable(),
 });
 export type CertProgressRow = z.infer<typeof certProgressRow>;
+/** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
+export const publicCertCode = z.string().regex(/^[0-9a-f]{32}$/);
 export const certGrant = z.object({
   userId: z.string().uuid(),
   certId: ref,
   grantedAt: z.string().datetime({ offset: true }),
   idempotencyKey: ref,
+  /** Absent when the service did not send one; the certificate is then shown without a verification code. */
+  publicId: publicCertCode.optional(),
 });
 export type CertGrant = z.infer<typeof certGrant>;
 
-/** What the service lets us know about this account's lesson completions. */
+/** One lesson completion Academy lists for this account. */
+export const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
+export const completionPage = z.object({ items: z.array(completionRow).max(200), nextCursor: z.string().min(1).nullable() });
+export type CompletionRow = z.infer<typeof completionRow>;
+
+/** What the service tells us about this account's lesson completions. */
 export type Tracking = {
-  /** Required by some certificate and recorded for this account. */
+  /** Completed on this account: listed by myCompletions, or counted by a certificate's progress. */
   recorded: ReadonlySet<string>;
-  /** Required by some certificate and not yet recorded. */
+  /** Required by some certificate and not recorded. */
   pending: ReadonlySet<string>;
   /** Certificates the account holds. */
   grants: readonly CertGrant[];
@@ -65,14 +75,16 @@ export type Tracking = {
 };
 export const emptyTracking: Tracking = { recorded: new Set(), pending: new Set(), grants: [], definitions: [], progress: [] };
 
-export type LessonStatus = 'recorded' | 'pending' | 'untracked';
+/** Recorded: completed on this account. Pending: a certificate requires it and it is not recorded. Open: neither. */
+export type LessonStatus = 'recorded' | 'pending' | 'open';
 
 export function buildTracking(
   definitions: readonly CertDefinition[],
   progress: readonly CertProgressRow[],
   grants: readonly CertGrant[],
+  completions: readonly CompletionRow[] = [],
 ): Tracking {
-  const recorded = new Set<string>();
+  const recorded = new Set<string>(completions.map((row) => row.itemSlug));
   const pending = new Set<string>();
   for (const definition of definitions) {
     const row = progress.find((p) => p.certId === definition.id);
@@ -90,7 +102,7 @@ export function buildTracking(
 export function lessonStatus(slug: string, tracking: Tracking): LessonStatus {
   if (tracking.recorded.has(slug)) return 'recorded';
   if (tracking.pending.has(slug)) return 'pending';
-  return 'untracked';
+  return 'open';
 }
 
 export const byOrder = (a: LessonSummary, b: LessonSummary) => a.order - b.order || a.slug.localeCompare(b.slug);
@@ -123,11 +135,10 @@ export function groupByPath(lessons: readonly LessonSummary[]): PathSummary[] {
 
 export type PathProgress = {
   total: number;
-  tracked: number;
   recorded: number;
   pending: number;
-  untracked: number;
-  /** Whole percent of tracked lessons recorded. Null when nothing in the path is tracked: no bar is drawn from nothing. */
+  open: number;
+  /** Whole percent of the path's lessons recorded. Null only for a path with no lessons: no bar is drawn from nothing. */
   percent: number | null;
 };
 
@@ -139,14 +150,12 @@ export function pathProgress(lessons: readonly LessonSummary[], tracking: Tracki
     if (status === 'recorded') recorded++;
     else if (status === 'pending') pending++;
   }
-  const tracked = recorded + pending;
   return {
     total: lessons.length,
-    tracked,
     recorded,
     pending,
-    untracked: lessons.length - tracked,
-    percent: tracked === 0 ? null : Math.floor((recorded / tracked) * 100),
+    open: lessons.length - recorded - pending,
+    percent: lessons.length === 0 ? null : Math.floor((recorded / lessons.length) * 100),
   };
 }
 
@@ -157,12 +166,12 @@ export function neighbours(lessons: readonly LessonSummary[], slug: string) {
   return { previous: ordered[index - 1] ?? null, next: ordered[index + 1] ?? null, position: index + 1, total: ordered.length };
 }
 
-/** First lesson the account still owes, in path order; falls back to the first untracked lesson. */
+/** First lesson the account still owes, in path order; falls back to the first lesson not yet completed. */
 export function nextUp(lessons: readonly LessonSummary[], tracking: Tracking): LessonSummary | null {
   const ordered = [...lessons].sort(byOrder);
   return (
     ordered.find((l) => lessonStatus(l.slug, tracking) === 'pending') ??
-    ordered.find((l) => lessonStatus(l.slug, tracking) === 'untracked') ??
+    ordered.find((l) => lessonStatus(l.slug, tracking) === 'open') ??
     null
   );
 }
@@ -275,11 +284,24 @@ export function certificateDocument(card: CertificateCard, owner: string) {
     holder: owner,
     issuedAt: card.grant.grantedAt,
     reference: card.grant.idempotencyKey,
+    /** The code anyone can check on the public verify box; null when the service sent none. */
+    code: card.grant.publicId ?? null,
     requirements: card.definition.requiredItemSlugs.length,
   };
 }
 
-/** A reference typed into the verify box. The grant reference is `cert:<account>:<certificate>`. */
+/**
+ * What was typed into the verify box. A verification code is 32 hex characters (letter case does not matter, the service
+ * reads lowercase). A grant reference, `cert:<account>:<certificate>`, is a private record key and is not a code.
+ */
+export function parseVerifyCode(raw: string): { kind: 'code'; code: string } | { kind: 'grant-reference' } | { kind: 'invalid' } {
+  const trimmed = raw.trim();
+  const code = trimmed.toLowerCase();
+  if (publicCertCode.safeParse(code).success) return { kind: 'code', code };
+  return parseVerifyReference(trimmed).ok ? { kind: 'grant-reference' } : { kind: 'invalid' };
+}
+
+/** A grant reference as it appears on a certificate: `cert:<account>:<certificate>`. */
 export function parseVerifyReference(raw: string): { ok: true; certId: string } | { ok: false } {
   const match = /^cert:([0-9a-f-]{36}):([a-z0-9][a-z0-9-]{0,63})$/i.exec(raw.trim());
   return match ? { ok: true, certId: match[2]! } : { ok: false };
@@ -292,6 +314,17 @@ export function formatDay(iso: string, locale: string): string {
     return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(date);
   } catch {
     return iso.slice(0, 10);
+  }
+}
+
+/** A date and time in UTC, for records that can repeat within a day, such as assessment attempts. */
+export function formatMoment(iso: string, locale: string): string {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return iso;
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(date) + ' UTC';
+  } catch {
+    return iso.slice(0, 16).replace('T', ' ') + ' UTC';
   }
 }
 
