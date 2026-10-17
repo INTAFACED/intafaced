@@ -34,7 +34,8 @@
 /packages/config/src/jurisdiction.ts @Phantom-X-007 @ZenYoda3
 
 # ── Protocol Plane + INTACHAIN: @shehzad002 is asked to review ───────────────
-# A review request is not an ownership claim. The rules in AGENTS.md apply.
+# A review request is not an ownership claim. svc-chain, INTACORE and Predict are
+# @shehzad002's lane unless assigned (INTACHAIN P1 approved 2026-10-17). AGENTS.md applies.
 /services/svc-protocol/              @shehzad002 @Phantom-X-007 @ZenYoda3
 /services/svc-dex/                   @shehzad002 @Phantom-X-007 @ZenYoda3
 #

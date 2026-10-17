@@ -1,8 +1,8 @@
 <!--
 Title: <type>(<scope>): <what changed>
    e.g. feat(svc-identity): rank recalculation on XP events
-   A PR that changes a gate file (tooling/ci, .github/workflows, AGENTS.md,
-   CLAUDE.md, .cursor/rules, tooling/agent-protocol) needs a ci: or gate: title.
+   A PR that changes a gate file (for example tooling/ci, .github/workflows,
+   AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol) needs a ci: or gate: title.
 
 Keep it small. One service per PR. If describing it needs the word "and", it is
 two PRs.
@@ -32,7 +32,7 @@ two PRs.
 - [ ] Cross-service calls go through `packages/contracts` or `packages/events`
 - [ ] Migrations have a `.down.sql` reversal
 - [ ] Nothing "temporary", and nothing faked to look live: a blank setting refuses with a typed error and an honest empty state
-- [ ] Merge: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on this head, and the required independent review passed this head (Opus-class for money, security, sign-in or merge-check code)
+- [ ] Merge: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on this head, and the independent Claude Opus review passed this head (required for every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE`)
 
 ## Money paths
 
