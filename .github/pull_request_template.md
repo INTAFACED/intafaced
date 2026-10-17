@@ -1,9 +1,11 @@
 <!--
 Title: <type>(<scope>): <what changed>
    e.g. feat(svc-identity): rank recalculation on XP events
+   A PR that changes a gate file (for example tooling/ci, .github/workflows,
+   AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol) needs a ci: or gate: title.
 
-Keep it small. One service per PR (§15.1). If describing it needs the word
-"and", it is two PRs.
+Keep it small. One service per PR. If describing it needs the word "and", it is
+two PRs.
 -->
 
 ## What changed
@@ -13,30 +15,30 @@ Keep it small. One service per PR (§15.1). If describing it needs the word
 ## Why
 
 <!-- The part a reviewer cannot reconstruct from the diff. What problem, whose
-     decision, which section of the build doc. -->
+     decision. -->
 
 ## How I know it works
 
 <!-- Tests added, what you ran, what you saw. "CI is green" is not an answer on
-     a money path. -->
+     a money path. Name any check you could not run. -->
 
 ---
 
 ## Checks
 
-- [ ] `pnpm verify` green locally (build · typecheck · test · DoD gate)
-- [ ] Small and focused — one service
-- [ ] No balance held outside the ledger (Doctrine §0.6)
-- [ ] Cross-service calls go through `packages/contracts` or `packages/events` (§2)
-- [ ] Migrations have a `.down.sql` reversal (§14)
-- [ ] Nothing "temporary" without a §13 socket entry (§0.1)
-- [ ] **Internet leverage:** named Phase A asset used (shell / ledger / `svc-*`) or full-horizon path + greenfield justification — not a silent rebuild (`docs/INTERNET-LEVERAGE-LAW.md`)
+- [ ] Ran on my machine before pushing: affected tests, typecheck, `pnpm exec prettier --check` on changed files
+- [ ] Small and focused: one service
+- [ ] No balance held outside the ledger; value moves only through `packages/ledger-client`
+- [ ] Cross-service calls go through `packages/contracts` or `packages/events`
+- [ ] Migrations have a `.down.sql` reversal
+- [ ] Nothing "temporary", and nothing faked to look live: a blank setting refuses with a typed error and an honest empty state
+- [ ] Merge: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on this head, and the independent Claude Opus review passed this head (required for every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE`)
 
 ## Money paths
 
 <!-- Delete this section if the PR moves no value. -->
 
 - [ ] Every recipe used has an invariant test
-- [ ] Failure branches tested — insufficient funds, retry, partial, cancel
+- [ ] Failure branches tested: insufficient funds, retry, partial, cancel
 - [ ] Idempotency keys are business keys, not `randomUUID()`
 - [ ] Answered: _if this crashes exactly here, whose funds are stranded?_

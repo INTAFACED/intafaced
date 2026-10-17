@@ -167,7 +167,10 @@ function stubService(): Stub {
     getMerchant: record('getMerchant', merchant),
     getMerchantByUserId: record('getMerchantByUserId', merchant),
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
-    decideKyb: record('decideKyb', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
+    decideKyb: record('decideKyb', ((input: { beforeWrite?: () => Promise<void> }) => {
+      const consume = input.beforeWrite?.() ?? Promise.resolve();
+      return consume.then(() => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' }));
+    }) as unknown as () => ReturnType<typeof merchant>),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
     listPayments: record('listPayments', () => ({
       items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
@@ -328,7 +331,30 @@ let router: ReturnType<typeof createPayRouter>;
 beforeEach(() => {
   stub = stubService();
   money = stubUserMoney();
-  router = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM));
+  router = createPayRouter(
+    stub.service,
+    rails,
+    money.service,
+    null,
+    undefined,
+    stubApprovalConsumer(CONFIRM),
+    null,
+    undefined,
+    (async () => [
+      {
+        profile_version: '0',
+        legal_name: null,
+        statement_descriptor: null,
+        industry: null,
+        address_line1: null,
+        address_line2: null,
+        address_city: null,
+        address_region: null,
+        address_postal_code: null,
+        address_country: null,
+      },
+    ]) as never,
+  );
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));

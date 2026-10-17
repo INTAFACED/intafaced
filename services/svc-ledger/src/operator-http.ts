@@ -218,9 +218,9 @@ export function registerOperatorHttp(
   );
 
   /**
-   * A thaw carries only the actor. "Why it is frozen" is meaningless once it is
-   * not, and `writeFreeze` clears the reason for exactly that argument — so
-   * there is no reason field to require here.
+   * A thaw names two people. The confirming id comes from the consumed
+   * approval, not from a typed-in string. One actor string leaves the freeze
+   * where it is. There is no reason field: a successful thaw clears it.
    */
   app.post(
     '/operator/unfreeze',
@@ -230,7 +230,7 @@ export function registerOperatorHttp(
       const consumed = await consumeLedgerApproval(approvals, parsed, 'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {});
       const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
       app.log.warn({ actor: operator.userId, confirmOperatorId }, 'LEDGER THAW requested by operator — value movement resumes');
-      return { ...shape(await ledger.unfreeze(operator.userId)), confirmOperatorId };
+      return { ...shape(await ledger.unfreeze(operator.userId, confirmOperatorId)), confirmOperatorId };
     }),
   );
 

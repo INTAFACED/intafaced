@@ -183,6 +183,8 @@ describe('svc-token money PG-hard', () => {
     toBurn?: string;
     toRewards?: string;
     status?: 'pending' | 'settled';
+    /** Age of the claim row (a crash leftover is old; a claim still being posted is young). Default 1 hour. */
+    ageSeconds?: number;
   }) {
     const tokensBought = input.tokensBought ?? '1000';
     const toBurn = input.toBurn ?? '600';
@@ -190,11 +192,11 @@ describe('svc-token money PG-hard', () => {
     await sql`
       INSERT INTO token.buyback_runs (
         id, revenue_window_from, revenue_window_to, revenue_total,
-        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at
+        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at, created_at
       ) VALUES (
         ${input.runId}, ${input.window.from}, ${input.window.to}, ${sql.json({ IFC: '1000' } as never)},
         ${tokensBought}::numeric, ${toBurn}::numeric, ${toRewards}::numeric,
-        ${input.status ?? 'settled'}, now()
+        ${input.status ?? 'settled'}, now(), now() - make_interval(secs => ${input.ageSeconds ?? 3600})
       )
     `;
   }
@@ -1478,6 +1480,18 @@ describe('svc-token money PG-hard', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('keeps a YOUNG pending claim even when the ledger says the burn is not booked (a late burn may still land)', async () => {
+      await fundRewards('2000', 'w-claim-young');
+      const runId = crypto.randomUUID();
+      await seedBuybackRun({ runId, window: JULY, status: 'pending', ageSeconds: 5 });
+
+      await expect(
+        token.recordBuyback({ runId, revenueWindow: JULY, revenueTotal: { IFC: '1000' }, tokensBought: amt('1000') }),
+      ).rejects.toMatchObject({ code: 'token.buyback_tokens_unmoved' });
+
+      expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(1);
+    });
+
     /**
      * Live svc-token HTTP client throws on getTxByKey — S2S has no such door.
      * Production recordBuyback must still be TokenError, never that throw.
@@ -2377,14 +2391,63 @@ describe('svc-token money PG-hard', () => {
       expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
     });
 
-    it('recovers a mint when the ledger commits and the HTTP response is lost', async () => {
+    it('absorbs one lost response inside the client: the retry replays the same key and the mint lands once', async () => {
       const cap = amt('100');
       const tight = new TokenService(sql, createLedgerClient('http://ledger.test', 'fixture-secret-for-token-recovery-test'), bus, {
         ...options,
         emission: { initialEpochReward: cap, halvingIntervalEpochs: 1000, maxSupply: cap },
       });
       const nativeFetch = globalThis.fetch;
-      let loseFirstResponse = true;
+      const keys: string[] = [];
+      let requests = 0;
+      globalThis.fetch = async (_input, init) => {
+        requests += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          idempotencyKey: string;
+          module: string;
+          reason: string;
+          meta: Record<string, unknown>;
+          entries: Array<{ account: PostRequest['entries'][number]['account']; direction: 'debit' | 'credit'; amount: string }>;
+        };
+        keys.push(body.idempotencyKey);
+        const tx = await ledger.post({
+          idempotencyKey: body.idempotencyKey,
+          module: body.module,
+          reason: body.reason,
+          meta: body.meta,
+          entries: body.entries.map((entry) => ({ ...entry, amount: amt(entry.amount) })),
+        });
+        if (requests === 1) throw new TypeError('simulated socket close after commit');
+        return new Response(JSON.stringify({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      };
+
+      try {
+        const minted = await tight.mintEpoch(0);
+        expect(minted.minted).toBe(cap);
+        // Two attempts, one key: the emission key is what makes the retry safe.
+        expect(requests).toBe(2);
+        expect(new Set(keys)).toEqual(new Set(['token.emission:IFC:0']));
+        expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
+        // Minted once, not twice.
+        expect(await ledger.balance(rewardsEngine('IFC'))).toMatchObject({ amount: cap });
+        expect(ledger.reconcile()).toEqual({ ok: true });
+      } finally {
+        globalThis.fetch = nativeFetch;
+      }
+    });
+
+    it('recovers a mint when the ledger commits and the HTTP response is lost on every attempt', async () => {
+      const cap = amt('100');
+      const tight = new TokenService(sql, createLedgerClient('http://ledger.test', 'fixture-secret-for-token-recovery-test'), bus, {
+        ...options,
+        emission: { initialEpochReward: cap, halvingIntervalEpochs: 1000, maxSupply: cap },
+      });
+      const nativeFetch = globalThis.fetch;
+      // The client retries a network error twice, so the first call loses all three of its responses.
+      let lostResponses = 3;
       globalThis.fetch = async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as {
           idempotencyKey: string;
@@ -2400,8 +2463,8 @@ describe('svc-token money PG-hard', () => {
           meta: body.meta,
           entries: body.entries.map((entry) => ({ ...entry, amount: amt(entry.amount) })),
         });
-        if (loseFirstResponse) {
-          loseFirstResponse = false;
+        if (lostResponses > 0) {
+          lostResponses -= 1;
           throw new TypeError('simulated socket close after commit');
         }
         return new Response(JSON.stringify({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() }), {
@@ -2435,7 +2498,8 @@ describe('svc-token money PG-hard', () => {
       let unauthenticatedRetry = true;
       globalThis.fetch = async (_input, init) => {
         requestCount += 1;
-        if (unauthenticatedRetry && requestCount === 2) {
+        // Requests 1-3 are the first call's three attempts (a lost response each); request 4 is the next call, refused.
+        if (unauthenticatedRetry && requestCount === 4) {
           return new Response(JSON.stringify({ message: 'missing service identity', code: 'ledger.unauthenticated' }), {
             status: 401,
             headers: { 'content-type': 'application/json' },
@@ -2456,7 +2520,7 @@ describe('svc-token money PG-hard', () => {
           meta: body.meta,
           entries: body.entries.map((entry) => ({ ...entry, amount: amt(entry.amount) })),
         });
-        if (requestCount === 1) throw new TypeError('simulated socket close after commit');
+        if (requestCount <= 3) throw new TypeError('simulated socket close after commit');
         return new Response(JSON.stringify({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -2470,14 +2534,14 @@ describe('svc-token money PG-hard', () => {
         expect(formatAmount((await ledger.balance(rewardsEngine('IFC'))).amount)).toBe('100');
 
         await expect(tight.mintEpoch(1)).rejects.toMatchObject({ code: 'token.supply_exhausted' });
-        expect(requestCount).toBe(2);
+        expect(requestCount).toBe(4);
 
         unauthenticatedRetry = false;
         const recovered = await tight.mintEpoch(0);
         expect(recovered.minted).toBe(cap);
         expect(await sql`SELECT epoch FROM token.emission_epochs WHERE epoch = 0 AND closed = true`).toHaveLength(1);
         await expect(tight.mintEpoch(1)).rejects.toMatchObject({ code: 'token.supply_exhausted' });
-        expect(requestCount).toBe(3);
+        expect(requestCount).toBe(5);
         expect(formatAmount((await ledger.balance(rewardsEngine('IFC'))).amount)).toBe('100');
         expect(ledger.reconcile()).toEqual({ ok: true });
       } finally {
