@@ -50,7 +50,7 @@ describe('GET /api/operator-tools', () => {
     expect(Array.isArray(body.tools)).toBe(true);
     expect(body.tools.length).toBeGreaterThan(5);
     expect(body.tools.every((t: { wire: string }) => t.wire === 'not-wired')).toBe(true);
-    expect(body.residual.reconcile).toMatch(/simulated/i);
+    expect(body.residual.reconcile).toMatch(/not available/i);
   });
 });
 
