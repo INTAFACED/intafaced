@@ -134,11 +134,8 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
-  // KNOWN BUG (see the report): a real Greeks answer has a negative put delta and theta, and the room reads them with an
-  // unsigned decimal schema, so it refuses a good answer. Marked as an expected failure; when the room is fixed this
-  // test starts passing, Playwright reports it as unexpected, and the mark should be removed.
+  // A real Greeks answer has a negative put delta and theta; the room must show them, not refuse the answer.
   test('strategy: signed Greeks (negative put delta, theta) are shown', async ({ page }) => {
-    test.fail();
     const mock = await start(page, 'options', { at: OTC_NOW });
     mock.state.greeks = 'signed';
     await page.getByRole('tab', { name: 'Strategy builder' }).click();
@@ -151,7 +148,7 @@ test.describe('Options', () => {
     await page.getByLabel('Volatility').fill('0.6');
     await page.getByLabel('Years to expiry').fill('0.2');
     await page.getByRole('button', { name: 'Get Greeks' }).click();
-    await expect(page.getByText('Delta -0.48', { exact: false })).toBeVisible({ timeout: 4000 });
+    await expect(page.getByText('Delta −0.48', { exact: false })).toBeVisible({ timeout: 4000 });
   });
 });
 
@@ -193,13 +190,13 @@ test.describe('Execution', () => {
     const paused = Date.now();
     await dialog(page).getByRole('button', { name: 'Pause schedule' }).click();
     await expect(page.getByText('Done. The list shows the state the service reports.')).toBeVisible();
-    // The list is re-read every 10 s; note how long the old state stays on screen after "Done".
-    await expect(list.getByRole('button', { name: 'Resume TEST-algo-running' })).toBeVisible({ timeout: 15000 });
+    // The room re-reads the parents right after a write, so the new state shows well before the 10 s poll.
+    await expect(list.getByRole('button', { name: 'Resume TEST-algo-running' })).toBeVisible({ timeout: 4000 });
     console.log(`list showed the paused state ${Date.now() - paused} ms after the pause was confirmed`);
     await shot(page, 'exec-06-algo-paused');
     await list.getByRole('button', { name: 'Resume TEST-algo-running' }).click();
     await dialog(page).getByRole('button', { name: 'Resume schedule' }).click();
-    await expect(list.getByRole('button', { name: 'Pause TEST-algo-running' })).toBeVisible({ timeout: 15000 });
+    await expect(list.getByRole('button', { name: 'Pause TEST-algo-running' })).toBeVisible({ timeout: 4000 });
     await list.getByRole('button', { name: 'Cancel TEST-algo-running' }).click();
     await expect(dialog(page).getByText('Cancel this schedule?')).toBeVisible();
     await shot(page, 'exec-07-algo-cancel-confirm');

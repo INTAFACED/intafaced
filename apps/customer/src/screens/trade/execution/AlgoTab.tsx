@@ -14,7 +14,7 @@ import type { AlgoParent, AlgoPolicy } from '../rooms/api';
 import { AlgoDetail, AlgoList, type AlgoAction } from './AlgoList';
 import { AlgoForm, valuesFrom, type AlgoFormValues } from './AlgoForm';
 import { execCopy } from './copy';
-import { useParents, type ExecMarket } from './data';
+import { useParents, useRefreshParents, type ExecMarket } from './data';
 import { ConfirmDialog, Why, useStoredIds } from './parts';
 
 const ACTIONS: readonly AlgoAction[] = ['pause', 'resume', 'cancel'];
@@ -33,6 +33,7 @@ export function AlgoTab({
   const writer = useRoomWriter();
   const ids = useStoredIds('algo', userId);
   const parents = useParents(ids);
+  const refreshParents = useRefreshParents(ids);
   const [selected, setSelected] = useState<string | null>(null);
   const [typedId, setTypedId] = useState('');
   const [openNote, setOpenNote] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export function AlgoTab({
     const { parent, action: kind } = action;
     await writer.run({ kind: 'algo', id: `${kind}:${parent.id}`, symbol: parent.symbol, call: () => room.algoAction(kind, parent.id) });
     setAction(null);
+    refreshParents();
   }
 
   const selectedRow = parents.status === 'ready' ? (parents.data.find((r) => r.id === selected) ?? null) : null;

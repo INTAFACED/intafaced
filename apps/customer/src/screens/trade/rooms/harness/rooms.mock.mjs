@@ -26,7 +26,7 @@ const SCALE = 10n ** 18n;
 const mul = (a, b) => (a * b) / SCALE;
 
 // TEST Greeks (no fixture carries them). One answer per right, plainly illustrative.
-// 'ok' answers carry only unsigned numbers (the room reads Greeks with an unsigned decimal schema, see the report);
+// 'ok' answers carry only unsigned numbers;
 // 'signed' answers carry the negative put delta and theta a real pricing library sends.
 const TEST_GREEKS = {
   ok: {

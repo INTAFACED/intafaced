@@ -5,7 +5,7 @@
  * and extended only where the live service sends more than they read.
  */
 import { z } from 'zod';
-import { decimalSchema } from '../../../shared/money';
+import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import type { ApiClient } from '../../../shared/api';
 import { algoProgressSchema, algoSchema, otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
 import { listingSchema } from '../../../features/trade/trade-api';
@@ -64,7 +64,15 @@ export const listedMarketSchema = listingSchema.extend({
 export type ListedMarket = z.infer<typeof listedMarketSchema>;
 
 export const greeksSchema = z.union([
-  z.object({ ok: z.literal(true), npv: decimalSchema, delta: decimalSchema, gamma: decimalSchema, vega: decimalSchema, theta: decimalSchema }),
+  // Greeks are signed: a put delta and a long option's theta are negative.
+  z.object({
+    ok: z.literal(true),
+    npv: signedDecimalSchema,
+    delta: signedDecimalSchema,
+    gamma: signedDecimalSchema,
+    vega: signedDecimalSchema,
+    theta: signedDecimalSchema,
+  }),
   z.object({ ok: z.literal(false), code: z.string(), message: z.string(), field: z.string().optional() }),
 ]);
 export type GreeksAnswer = z.infer<typeof greeksSchema>;

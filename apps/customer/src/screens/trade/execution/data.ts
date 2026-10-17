@@ -5,7 +5,7 @@
  */
 import { useMemo } from 'react';
 import { z } from 'zod';
-import { useTicker } from '../../../data';
+import { useDataEnv, useTicker } from '../../../data';
 import type { Decimal, Loadable } from '../../../data/types';
 import { createTradeApi } from '../../../features/trade/trade-api';
 import { useSession } from '../rooms/ui';
@@ -80,6 +80,14 @@ export function useParents(ids: readonly string[]): Loadable<ParentRead[]> {
     ROOM_INTERVALS.progress,
     ids.length > 0,
   );
+}
+
+/** Re-reads the known parents now, so a pause, resume or cancel shows without waiting for the next 10 s poll. */
+export function useRefreshParents(ids: readonly string[]): () => void {
+  const env = useDataEnv();
+  return () => {
+    if (env.userId) env.poller.refresh(`exec-parents:${ids.join(',')}:${env.userId}`);
+  };
 }
 
 export function useLast(symbol: string): Decimal | null {
