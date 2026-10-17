@@ -11,6 +11,7 @@ import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
 import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
+import { moneyReason } from './portal/access/money-step';
 import './merchant-refund.css';
 
 type Context = {
@@ -473,6 +474,11 @@ export function MerchantRefund({
                   update({ draft: next, failure: null });
                 }}
               />
+              {pay.access('pay:refund') && (
+                <p role="note" className="muted">
+                  {moneyReason('refund', pay.authority?.scopes)}
+                </p>
+              )}
               <Button
                 onClick={prepare}
                 disabled={!shown.draft?.amount || shown.busy || Boolean(pay.access('pay:refund')) || Boolean(snapshot.problem)}

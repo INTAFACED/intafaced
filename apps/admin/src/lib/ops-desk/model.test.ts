@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellOfRow, displayCell, formatBps, formatCell, inputFor, readData, rowCountText, tableCells } from './model';
+import { cellOfRow, displayCell, formatBps, formatCell, formatDuration, inputFor, readData, rowCountText, tableCells } from './model';
 import type { ReadSpec } from './types';
 
 const base = {
@@ -185,5 +185,61 @@ describe('a read with a time window', () => {
     const list = readData({ ...spec, rowsKey: 'rows' }, { rows: [{ a: 'x' }, { a: 'x' }] });
     if (list?.shape !== 'list') throw new Error('list expected');
     expect(list.rows.map((r) => r.id)).toEqual(['0', '1']);
+  });
+});
+
+describe('a field the service promises is always null', () => {
+  const spec: ReadSpec = {
+    ...base,
+    shape: 'record',
+    columns: [{ key: 'rate', label: 'Rate', kind: 'text', nullable: true, alwaysNull: true }],
+  };
+  it('reads null as a dash', () => {
+    const data = readData(spec, { rate: null });
+    if (data?.shape !== 'record') throw new Error('record expected');
+    expect(formatCell(data.cells[0]!)).toBe('—');
+  });
+  it('any other value, including a zero, makes the whole read unreadable instead of being printed', () => {
+    for (const rate of ['0', '0.5', '', 0]) expect(readData(spec, { rate }), String(rate)).toBeNull();
+    expect(readData(spec, {})).toBeNull();
+  });
+});
+
+describe('durations', () => {
+  it('shows whole seconds as the two largest units, from integers only', () => {
+    expect(formatDuration(0)).toBe('0 s');
+    expect(formatDuration(45)).toBe('45 s');
+    expect(formatDuration(303)).toBe('5 min 3 s');
+    expect(formatDuration(11_520)).toBe('3 h 12 min');
+    expect(formatDuration(604_000)).toBe('6 d 23 h');
+    expect(formatDuration(86_400)).toBe('1 d 0 h');
+  });
+  it('a seconds cell reads as an integer and prints as a duration; a dash when the service gave none', () => {
+    const spec: ReadSpec = { ...base, shape: 'record', columns: [{ key: 'age', label: 'Age', kind: 'seconds', nullable: true }] };
+    const read = (age: unknown) => {
+      const data = readData(spec, { age });
+      return data?.shape === 'record' ? displayCell(data.cells[0]!) : null;
+    };
+    expect(read(11_520)).toBe('3 h 12 min');
+    expect(read(null)).toBe('—');
+    expect(read(1.5)).toBeNull();
+    expect(read('90')).toBeNull();
+  });
+});
+
+describe('a list whose service gives a page marker', () => {
+  const spec: ReadSpec = { ...listSpec, page: 2, cursorKey: 'nextCursor', rowsKey: 'items' };
+  it('knows exactly whether more rows exist: a marker means yes, and a full page with no marker means no', () => {
+    expect(readData(spec, { items: [row(), row({ id: 'b' })], nextCursor: 'abc' })).toMatchObject({ pageFull: true, nextCursor: 'abc' });
+    expect(readData(spec, { items: [row(), row({ id: 'b' })], nextCursor: null })).toMatchObject({ pageFull: false, nextCursor: null });
+  });
+  it('an answer without the marker, or with one that is not a string or null, is unreadable', () => {
+    expect(readData(spec, { items: [row()] })).toBeNull();
+    expect(readData(spec, { items: [row()], nextCursor: 5 })).toBeNull();
+  });
+  it('the count line is exact about it', () => {
+    expect(rowCountText(2, true, 2, true)).toContain('more rows exist');
+    expect(rowCountText(2, false, 2, true)).toBe('2 rows (that is all of them)');
+    expect(rowCountText(2, true, 2)).toContain('more may exist');
   });
 });

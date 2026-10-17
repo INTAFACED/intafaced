@@ -12,12 +12,14 @@ import { executionSchema, mandateSchema, subscriptionSchema, subscriptionPosture
 import { CopyReference, PortalBack, ReadStamp, WindowExport } from '../ExtensionTools';
 import { Gate, Money, PortalFailure, PortalLoading, SelectField, Timeline } from '../components';
 import { DateTime } from '../ui/DateTime';
+import { formatDateTime } from '../ui/format';
+import { uiCopy } from '../ui/copy';
 import { EntityList } from '../ui/EntityList';
 import { dateRange, FilterRow, useListFilters, type DatePreset, type ListFilters } from '../ui/FilterRow';
 import { Freshness } from '../ui/Freshness';
 import { StatusChip, ToneChip } from '../ui/StatusChip';
 import { useServerList } from '../ui/useServerList';
-import { useReadAt, useUrlParam, type ListState } from '../hooks';
+import { useNow, useReadAt, useUrlParam, type ListState } from '../hooks';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { extensionCopy as c } from './copy';
 import type { PortalApi } from '../api';
@@ -31,6 +33,20 @@ type Subscription = z.infer<typeof subscriptionSchema>;
 type Mandate = z.infer<typeof mandateSchema>;
 type Execution = z.infer<typeof executionSchema>;
 const statuses = ['active', 'paused', 'cancelled', 'completed'] as const;
+/**
+ * When the next run is due. An active schedule whose next run is already in the past has not had that run recorded
+ * (the service moves the date forward as each run is recorded), so it says so instead of naming a time that has gone.
+ */
+export function NextRun({ status, nextRunAt }: { status: string; nextRunAt: string }) {
+  const now = useNow();
+  const { requestedLocale } = uiCopy.useCopy();
+  if (status !== 'active') return <>{c.t('noNextRun')}</>;
+  const due = Date.parse(nextRunAt);
+  if (!Number.isFinite(due) || due > now) return <DateTime value={nextRunAt} />;
+  const time = formatDateTime(nextRunAt, requestedLocale)?.short ?? nextRunAt;
+  return <>{c.t('nextRunOverdue', { time })}</>;
+}
+
 export function subscriptionHeader(route: PortalRoute) {
   return {
     title: c.t(
@@ -197,11 +213,11 @@ export function SubscriptionsView({
                 { header: c.t('cadence'), cell: cadenceCell },
                 { header: c.t('chargePath'), cell: (s) => pathLabel(s.path) },
                 { header: c.t('status'), cell: (s) => <StatusChip entity="subscription" value={s.status} /> },
-                { header: c.t('nextRun'), cell: (s) => (s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun')) },
+                { header: c.t('nextRun'), cell: (s) => <NextRun status={s.status} nextRunAt={s.nextRunAt} /> },
               ]}
               card={(s) => ({
                 title: s.customerId,
-                time: s.status === 'active' ? <DateTime value={s.nextRunAt} /> : c.t('noNextRun'),
+                time: <NextRun status={s.status} nextRunAt={s.nextRunAt} />,
                 amount: (
                   <>
                     {amountCell(s)}
@@ -365,7 +381,7 @@ export function SubscriptionDetailView({
             ],
             [c.t('status'), <SubscriptionChip status={subscription.status} />],
             [c.t('chargePath'), pathLabel(subscription.path)],
-            [c.t('nextRun'), subscription.status === 'active' ? <DateTime value={subscription.nextRunAt} /> : c.t('noNextRun')],
+            [c.t('nextRun'), <NextRun status={subscription.status} nextRunAt={subscription.nextRunAt} />],
           ]}
         />
         <ReadStamp at={at} />

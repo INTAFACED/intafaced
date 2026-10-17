@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { fakeMarket } from './public-rest.js';
-import type { AuthorityEvidence, MarketAdmissionDossier, MarketTransitionRecord } from '@intafaced/exchange-contract';
+import {
+  marketLifecycleStateSchema,
+  type AuthorityEvidence,
+  type MarketAdmissionDossier,
+  type MarketLifecycleState,
+  type MarketTransitionRecord,
+} from '@intafaced/exchange-contract';
 import {
   MarketLifecycleAuthority,
   deriveMarketLifecycleSnapshot,
@@ -375,5 +381,73 @@ describe('svc-trade lifecycle evidence SQL (postgres.js jsonb binding)', () => {
       expect(q).toContain('::text::jsonb');
       expect(q).not.toMatch(/\?::jsonb/);
     }
+  });
+});
+
+function appliedTransition(marketId: string, state: MarketLifecycleState): MarketTransitionRecord {
+  return {
+    transitionId: `transition:${marketId}:${state}`,
+    idempotencyKey: `${marketId}:${state}`,
+    marketId,
+    expectedState: 'OPEN',
+    expectedRuleVersion: 'rules:v1',
+    requestedState: state,
+    resolvedState: state,
+    reasonCategory: 'TECHNICAL',
+    reasonCode: `trade.market_${state.toLowerCase()}`,
+    actorId: 'actor-secret',
+    authorityRef: 'grant',
+    approvalRefs: [],
+    requestedAt: '2026-08-24T12:00:00.000Z',
+    effectiveAt: '2026-08-24T12:00:00.000Z',
+    expiresAt: null,
+    recoveryEvidenceRefs: [],
+    outcome: { outcome: 'APPLIED', appliedTargets: ['market'], unresolvedTargets: [] },
+  };
+}
+
+describe('named lifecycle state is the stored transition, not open-or-not', () => {
+  it('keeps every applied state on an active listing and leaves the actor off the snapshot', () => {
+    for (const state of marketLifecycleStateSchema.options) {
+      const market = fakeMarket({ id: `market-${state}`, status: 'active' });
+      const snapshot = deriveMarketLifecycleSnapshot(market, {
+        now: '2026-08-24T12:01:00.000Z',
+        evidence: { ...readyEvidence(market.id), transition: appliedTransition(market.id, state) },
+      });
+      expect(snapshot.state).toBe(state);
+      expect(snapshot).not.toHaveProperty('actorId');
+      expect(snapshot).not.toHaveProperty('operator');
+      expect(snapshot).not.toHaveProperty('note');
+      expect(JSON.stringify(snapshot)).not.toContain('actor-secret');
+      if (state !== 'OPEN') expect(snapshot.reasonCode).toBe(`trade.market_${state.toLowerCase()}`);
+    }
+  });
+
+  it('lets a listing halt win over a stored OPEN', () => {
+    const market = fakeMarket({ id: 'market-halt-wins', status: 'halted' });
+    const snapshot = deriveMarketLifecycleSnapshot(market, {
+      now: '2026-08-24T12:01:00.000Z',
+      evidence: { ...readyEvidence(market.id), transition: appliedTransition(market.id, 'OPEN') },
+    });
+    expect(snapshot.state).toBe('HALTED');
+  });
+
+  it('loads the stored transition through the SQL authority', async () => {
+    const market = fakeMarket({ id: 'market-sql-post-only' });
+    const transition = appliedTransition(market.id, 'POST_ONLY');
+    const sql = ((strings: TemplateStringsArray) => {
+      const query = strings.join('');
+      if (query.includes('SELECT transition')) return Promise.resolve([{ transition }]);
+      if (query.includes('SELECT publication')) return Promise.resolve([{ publication: publication(market.id) }]);
+      return Promise.resolve([]);
+    }) as never;
+    const authorityPort = new SqlMarketLifecycleAuthority(sql, { listMarkets: async () => ({ markets: [market.id] }) } as never, {
+      spotEnabled: true,
+      futuresEnabled: false,
+    });
+    const snapshot = await authorityPort.snapshot(market, { now: '2026-08-24T12:01:00.000Z' });
+    expect(snapshot.state).toBe('POST_ONLY');
+    expect(snapshot.reasonCode).toBe('trade.market_post_only');
+    expect(JSON.stringify(snapshot)).not.toContain('actor-secret');
   });
 });

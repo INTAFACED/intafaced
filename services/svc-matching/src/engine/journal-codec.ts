@@ -175,6 +175,20 @@ export type JournalCommand =
       readonly confirmOperatorId?: string;
     }
   | {
+      readonly kind: 'maintenance';
+      readonly marketId: MarketId;
+      readonly at: string;
+      readonly operatorId: string;
+      readonly confirmOperatorId?: string;
+    }
+  | {
+      readonly kind: 'end_maintenance';
+      readonly marketId: MarketId;
+      readonly at: string;
+      readonly operatorId: string;
+      readonly confirmOperatorId?: string;
+    }
+  | {
       readonly kind: 'halt_all';
       readonly at: string;
       readonly operatorId: string;
@@ -243,6 +257,10 @@ export function encode(record: JournalRecord): string {
         ...(o.clientOrderId ? { clientOrderId: o.clientOrderId } : {}),
         ...(o.environment ? { environment: o.environment } : {}),
         ...(o.reduceOnly ? { reduceOnly: true } : {}),
+        ...(o.triggerRole ? { triggerRole: o.triggerRole } : {}),
+        ...(o.triggerBy ? { triggerBy: o.triggerBy } : {}),
+        ...(o.instrument ? { instrument: o.instrument } : {}),
+        ...(o.positionQty !== undefined ? { positionQty: o.positionQty } : {}),
         ...(persistIceberg(o) ? { iceberg: true, displayQty: o.displayQty == null ? null : o.displayQty } : {}),
         ...(persistTrail(o) ? { trail: o.trail == null ? null : o.trail, ...(o.mark !== undefined ? { mark: o.mark } : {}) } : {}),
         ...(persistStrike(o) ? { strike: o.strike == null ? null : o.strike } : {}),
@@ -372,7 +390,9 @@ export function encode(record: JournalRecord): string {
     record.kind === 'prelaunch' ||
     record.kind === 'open' ||
     record.kind === 'expire' ||
-    record.kind === 'delist'
+    record.kind === 'delist' ||
+    record.kind === 'maintenance' ||
+    record.kind === 'end_maintenance'
   ) {
     return JSON.stringify({
       seq: record.seq,

@@ -189,11 +189,20 @@ describe('what an unreadable session is allowed to do', () => {
 describe('the authority the older tools need', () => {
   it('is made only for the account owner, with write scopes only when the session can write', () => {
     const owner = resolveAccess(inputs({ merchant: ready(record()) }));
-    expect(authorityFromAccess(owner, ME)).toMatchObject({
+    // Identity gives an owner session pay:read, pay:write and pay:onboard only: no refund and no payout.
+    expect(authorityFromAccess(owner, ME, new Set(['pay:read', 'pay:write', 'pay:onboard']))).toMatchObject({
       merchantId: MERCHANT,
       userId: ME,
-      scopes: ['pay:read', 'pay:write', 'pay:refund', 'pay:payout'],
+      scopes: ['pay:read', 'pay:write'],
     });
+    // The same owner, in a session that does carry them, holds them. The role alone never does.
+    expect(authorityFromAccess(owner, ME, new Set(['pay:read', 'pay:write', 'pay:refund', 'pay:payout']))?.scopes).toEqual([
+      'pay:read',
+      'pay:write',
+      'pay:refund',
+      'pay:payout',
+    ]);
+    expect(authorityFromAccess(owner, ME)?.scopes).toEqual(['pay:read', 'pay:write']);
     const readOnly = resolveAccess(inputs({ myAccess: ready({ memberships: [membership({ sessionInteractive: false })] }) }));
     expect(authorityFromAccess(readOnly, ME)?.scopes).toEqual(['pay:read']);
   });

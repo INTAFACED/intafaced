@@ -74,7 +74,7 @@ export function AlgoTab({
     } else if (result.code === 'trade.algo_not_found') {
       writer.resolve(id);
       setCheckNote(t('Checked: no schedule has that id, so nothing was created'));
-    } else setCheckNote(t('Could not check yet, try again'));
+    } else setCheckNote(t('Could not check, try again'));
   }
 
   async function run() {

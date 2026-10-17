@@ -79,7 +79,13 @@ async function mountQuant(router: QuantRouter): Promise<FastifyInstance> {
 describe('svc-quant mount — sandbox.run', () => {
   it('serves a five-line javascript run over the wire with decimal-string pnl', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    const ran = await caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper' });
+    const ran = await caller.sandbox.run({
+      language: 'javascript',
+      source: SAMPLE_JS,
+      cash: '10000',
+      environment: 'paper',
+      idempotencyKey: 'idem-mount',
+    });
     expect(ran.ok).toBe(true);
     expect(typeof ran.pnl).toBe('string');
     expect(typeof ran.cash).toBe('string');
@@ -100,6 +106,7 @@ describe('svc-quant mount — sandbox.run', () => {
       source: 'oms.buy("BTC-USD", "0.01")\nprint(book.pnl())',
       cash: '10000',
       environment: 'paper',
+      idempotencyKey: 'idem-python',
     });
     expect(ran.pnl).toBe('0');
     expect(ran.logs[0]).toBe('0');
@@ -108,7 +115,7 @@ describe('svc-quant mount — sandbox.run', () => {
   it('refuses unwired isolate by name, and does not invent pnl', async () => {
     const caller = createQuantRouter({ wired: false, venueVaultSet: false, limits }).createCaller(anonymous());
     await expect(
-      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper' }),
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper', idempotencyKey: 'idem-mount' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SANDBOX_UNWIRED),
     });
@@ -121,7 +128,7 @@ describe('svc-quant mount — sandbox.run', () => {
       limits: { maxOps: undefined, maxSource: 8_000 },
     }).createCaller(anonymous());
     await expect(
-      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper' }),
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper', idempotencyKey: 'idem-mount' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SANDBOX_MAX_OPS_UNSET),
     });
@@ -134,7 +141,7 @@ describe('svc-quant mount — sandbox.run', () => {
       limits: { maxOps: 5_000, maxSource: undefined },
     }).createCaller(anonymous());
     await expect(
-      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper' }),
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper', idempotencyKey: 'idem-mount' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SANDBOX_MAX_SOURCE_UNSET),
     });
@@ -143,7 +150,13 @@ describe('svc-quant mount — sandbox.run', () => {
   it('refuses a network escape rather than running it', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
     await expect(
-      caller.sandbox.run({ language: 'javascript', source: 'fetch("https://evil.example")', cash: '10000', environment: 'paper' }),
+      caller.sandbox.run({
+        language: 'javascript',
+        source: 'fetch("https://evil.example")',
+        cash: '10000',
+        environment: 'paper',
+        idempotencyKey: 'idem-escape',
+      }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SANDBOX_ESCAPE),
     });
@@ -157,6 +170,7 @@ describe('svc-quant mount — sandbox.run', () => {
         source: 'oms.venueBuy("BTC-USD", "0.01")',
         cash: '10000',
         environment: 'paper',
+        idempotencyKey: 'idem-venue',
       }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_VENUE_VAULT_UNSET),
@@ -165,18 +179,20 @@ describe('svc-quant mount — sandbox.run', () => {
 
   it('refuses sandbox.run when cash is omitted — never invents 10000', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    await expect(caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, environment: 'paper' })).rejects.toMatchObject({
+    await expect(
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, environment: 'paper', idempotencyKey: 'idem-cash' }),
+    ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_CASH_UNSET),
     });
   });
 
   it('refuses sandbox.run when cash is null — never invents 10000', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    await expect(caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: null, environment: 'paper' })).rejects.toMatchObject(
-      {
-        message: expect.stringContaining(QUANT_CASH_UNSET),
-      },
-    );
+    await expect(
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: null, environment: 'paper', idempotencyKey: 'idem-cash-null' }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(QUANT_CASH_UNSET),
+    });
   });
 
   it('accepts explicit cash 10000 (owner-published, not invented)', async () => {
@@ -186,6 +202,7 @@ describe('svc-quant mount — sandbox.run', () => {
       source: SAMPLE_JS,
       cash: '10000',
       environment: 'paper',
+      idempotencyKey: 'idem-explicit-cash',
     });
     expect(ran.ok).toBe(true);
     expect(ran.cash).toBeTruthy();
@@ -264,6 +281,7 @@ describe('svc-quant mount — studio.save', () => {
       source: saved.source,
       cash: saved.cash,
       environment: 'paper',
+      idempotencyKey: 'idem-saved-source',
     });
     expect(ran.ok).toBe(true);
     expect(typeof ran.pnl).toBe('string');
@@ -398,7 +416,9 @@ describe('svc-quant mount — backtest.run', () => {
 describe('svc-quant mount — simulated is never live', () => {
   it('refuses sandbox.run without environment', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    await expect(caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000' })).rejects.toMatchObject({
+    await expect(
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', idempotencyKey: 'idem-env' }),
+    ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_ENVIRONMENT_REQUIRED),
     });
   });
@@ -406,40 +426,31 @@ describe('svc-quant mount — simulated is never live', () => {
   it('refuses sandbox.run when environment is live', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
     await expect(
-      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'live' }),
+      caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'live', idempotencyKey: 'idem-live' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SIMULATED_AS_LIVE),
     });
   });
 
-  it('refuses marketplace.claim that presents paper PnL as live', async () => {
+  it('refuses marketplace.claim that presents a run as live', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
     await expect(
-      caller.marketplace.claim({ strategyId: 'alpha', environment: 'paper', presentedAs: 'live', pnl: '12.5' }),
+      caller.marketplace.claim({ runId: 'run_missing', environment: 'paper', presentedAs: 'live', idempotencyKey: 'idem-live-claim' }),
     ).rejects.toMatchObject({
       message: expect.stringContaining(QUANT_SIMULATED_AS_LIVE),
     });
   });
 
-  it('returns a marketplace paper claim stamped simulated, never live', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    const claim = await caller.marketplace.claim({ strategyId: 'alpha', environment: 'paper', pnl: '12.5' });
-    expect(claim.live).toBe(false);
-    expect(claim.simulated).toBe(true);
-    expect(claim.environment).toBe('paper');
-    expect(claim.kind).toBe('paper');
-    expect(claim.claimLabel).toBe('Paper — not live performance');
-    expect(claim.pnl).toBe('12.5');
-    expect(typeof claim.pnl).toBe('string');
-  });
-
-  it('returns a shadow claim stamped not live', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
-    const claim = await caller.marketplace.claim({ strategyId: 'alpha', environment: 'shadow' });
-    expect(claim.live).toBe(false);
-    expect(claim.simulated).toBe(true);
-    expect(claim.claimLabel).toBe('Shadow — not live performance');
-    expect('pnl' in claim).toBe(false);
+  it('rejects a client-supplied pnl in the claim schema', async () => {
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
+    await expect(
+      caller.marketplace.claim({
+        runId: 'run_missing',
+        idempotencyKey: 'idem-pnl',
+        environment: 'paper',
+        pnl: '12.5',
+      } as never),
+    ).rejects.toThrow(/pnl|Unrecognized/i);
   });
 });
 

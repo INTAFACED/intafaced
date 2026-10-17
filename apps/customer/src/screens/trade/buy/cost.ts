@@ -78,7 +78,7 @@ export interface CostInput {
   price: string | null;
   baseAsset: string;
   quoteAsset: string;
-  /** The service's numbers; null while they are not known yet. */
+  /** The service's numbers; null while they are not known. */
   preview: { estimatedFee: string | null; feeAsset: string | null; protectionPrice: string | null } | null;
 }
 

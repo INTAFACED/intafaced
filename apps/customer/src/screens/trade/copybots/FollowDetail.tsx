@@ -196,16 +196,16 @@ export function FollowDetail({
             <h3 className="cb-h3">{t('Result so far')}</h3>
             <KeyValue
               items={[
-                { label: t('Profit or loss'), value: null, hint: t('The service does not report it yet') },
-                { label: t('Fees paid'), value: null, hint: t('The service does not report it yet') },
+                { label: t('Profit or loss'), value: null, hint: t('The service does not report it') },
+                { label: t('Fees paid'), value: null, hint: t('The service does not report it') },
               ]}
             />
             <h3 className="cb-h3">{t('Copied orders')}</h3>
             <EmptyState
               size="inline"
               variant="unavailable"
-              title={t('No order history yet')}
-              reason={t('The list of orders copied for you is not available from the service yet. Check Order history on the spot desk.')}
+              title={t('No order history')}
+              reason={t('The list of orders copied for you is not available from the service. Check Order history on the spot desk.')}
               action={{ label: t('Open order history'), href: '/money/activity?tab=orders', variant: 'secondary' }}
             />
             <h3 className="cb-h3">{t('Change this follow')}</h3>

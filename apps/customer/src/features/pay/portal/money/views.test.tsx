@@ -22,6 +22,7 @@ import type { Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
 import { EntityList } from '../ui/EntityList';
 import { chromeCopy } from '../chrome/copy';
+import { withMoneyScopes } from '../access/money-test-kit';
 import { ApprovalDecision } from './Approvals';
 import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
@@ -335,22 +336,32 @@ describe('an approved payout is not a dead end', () => {
     expiresAt: '2026-10-17T10:00:00.000Z',
   });
   const posted = settlement({ status: 'posted', settledAt: null, sentAt: null, payoutMethod: null, payoutRef: null });
-  const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved], usage: typeof noUsage = noUsage) =>
+  const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved], usage: typeof noUsage = noUsage, held = true) =>
     renderToString(
-      <PayoutDetailView
-        portal={portal}
-        settlement={ready(posted)}
-        lifecycle={noLifecycle}
-        approvals={ready(approvals)}
-        usage={usage}
-        halts={noHalts}
-        role={role}
-        now={NOW}
-        names={new Map()}
-        readAt={null}
-        reload={noop}
-      />,
+      withMoneyScopes(
+        <PayoutDetailView
+          portal={portal}
+          settlement={ready(posted)}
+          lifecycle={noLifecycle}
+          approvals={ready(approvals)}
+          usage={usage}
+          halts={noHalts}
+          role={role}
+          now={NOW}
+          names={new Map()}
+          readAt={null}
+          reload={noop}
+        />,
+        held,
+      ),
     );
+  it('switches "Send this payout" off, with the reason, when the session has no payout scope', () => {
+    const out = render('owner', [approved], noUsage, false).replace(/<!-- -->/g, '');
+    expect(out).toContain('Send this payout');
+    expect(out).toContain('Paying out needs a confirmed sign-in step that this deployment does not offer.');
+    expect(out).not.toContain('href="/pay/payouts/new');
+    expect(out).toMatch(/<button[^>]*disabled[^>]*>Send this payout/);
+  });
   it('offers the owner "Send this payout" and says who approved it and until when', () => {
     const out = render('owner').replace(/<!-- -->/g, '');
     expect(out).toContain('Send this payout');
@@ -503,7 +514,7 @@ describe('the tier ladder', () => {
   });
   it('says nothing is published rather than inventing a tier', () => {
     const out = renderToString(<TierLadder tiers={ready({ status: 'not_configured', ownTierId: null })} retry={noop} test={false} />);
-    expect(out).toContain('INTAFACED has not published any tiers to compare with yet.');
+    expect(out).toContain('No tiers are published to compare with.');
   });
 });
 

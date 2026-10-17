@@ -184,7 +184,7 @@ export function StrategyTab({
         </Button>
       </section>
 
-      {legs.length === 0 ? <p className="m-0 text-sm text-fg-2">{t('No legs yet')}</p> : null}
+      {legs.length === 0 ? <p className="m-0 text-sm text-fg-2">{t('No legs')}</p> : null}
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {legs.map((leg, i) => {
           const g = greeks?.[i];

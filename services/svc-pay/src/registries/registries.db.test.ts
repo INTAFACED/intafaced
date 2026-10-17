@@ -7,7 +7,13 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { stubApprovalConsumer, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
+import {
+  ActionApprovalConsumeError,
+  ACTION_APPROVAL_PAYLOAD_MISMATCH,
+  stubApprovalConsumer,
+  unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
+} from '../action-approval-consume.js';
 import { createPayNamespaces } from '../namespaces/index.js';
 import { createRegistryReader } from './read-api.js';
 import { KNOWN_VENUE_KEYS } from './service.js';
@@ -56,10 +62,15 @@ describe('venue, network and wallet-route registries', () => {
   let db!: TestDatabase;
   let approver: string | null = SECOND;
   let consumed: ActionApprovalConsumeInput[] = [];
+  /** When set, identity accepts only this hash. A different reason or state is a payload mismatch. */
+  let bindHash: string | null = null;
 
   const approvals: ActionApprovalConsumer = {
     async consume(input) {
       consumed.push(input);
+      if (bindHash !== null && input.payloadHash !== bindHash) {
+        throw new ActionApprovalConsumeError('payload hash does not match the approved action', ACTION_APPROVAL_PAYLOAD_MISMATCH);
+      }
       if (approver === null) return unwiredApprovalConsumer().consume(input);
       return stubApprovalConsumer(approver).consume(input);
     },
@@ -96,6 +107,7 @@ describe('venue, network and wallet-route registries', () => {
   beforeEach(async () => {
     approver = SECOND;
     consumed = [];
+    bindHash = null;
     await db.sql.unsafe(`ALTER TABLE pay.registry_events DISABLE TRIGGER registry_events_append_only_trg`);
     await db.sql.unsafe(
       `TRUNCATE pay.registry_events, pay.wallet_routes, pay.network_registry, pay.venue_registry RESTART IDENTITY CASCADE`,
@@ -278,6 +290,23 @@ describe('venue, network and wallet-route registries', () => {
       expect(rows.at(-1)).toMatchObject({ action: 'update', actor_id: FOUNDER, approver_id: SECOND, dual_control: true });
       expect(rows.at(-1)!.before).toMatchObject({ enabled: false });
       expect(rows.at(-1)!.after).toMatchObject({ enabled: true });
+    });
+
+    it('the approval is bound to the reason: a different reason is refused and the venue stays off', async () => {
+      const v = await reg().venues.save(venue());
+      const approved = venue({ enabled: true, expectedVersion: v.version, reason: 'go to testnet' });
+      const preview = await reg().preview({ registry: 'venue', change: approved });
+      const other = await reg().preview({ registry: 'venue', change: { ...approved, reason: 'a different reason' } });
+      expect(other.payloadHash).not.toBe(preview.payloadHash);
+      bindHash = preview.payloadHash;
+      const swapped = await refused(reg().venues.save({ ...approved, reason: 'a different reason', ...approval }));
+      expect(swapped).toMatchObject({ code: 'PRECONDITION_FAILED' });
+      expect(swapped.cause?.code).toBe('action_approval.payload_mismatch');
+      expect((await db.sql`SELECT enabled FROM pay.venue_registry`)[0]!.enabled).toBe(false);
+      const done = await reg().venues.save({ ...approved, ...approval });
+      expect(done).toMatchObject({ enabled: true });
+      const rows = await events();
+      expect(rows.at(-1)).toMatchObject({ reason: 'go to testnet', approver_id: SECOND });
     });
 
     it('the approval is bound to the exact change: the consumed hash equals the preview hash, and a different change has a different hash', async () => {

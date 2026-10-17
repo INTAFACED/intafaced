@@ -94,12 +94,12 @@ if (mode === 'probe') {
 if (mode === 'real') {
   await signIn('/trade/futures');
   await page
-    .getByText('No futures contract is listed yet')
+    .getByText('No futures contract is listed')
     .waitFor({ timeout: 15000 })
     .catch(() => {});
   await page.waitForTimeout(1500);
   const text = await page.locator('main').innerText();
-  step('futures desk shows the named reason when no contract is listed', /No futures contract is listed yet/.test(text), {
+  step('futures desk shows the named reason when no contract is listed', /No futures contract is listed/.test(text), {
     head: text.slice(0, 160).replace(/\n/g, ' | '),
   });
   step('no banned words', !/coming soon|unavailable|not connected|restricted|fixture|lifecycle/i.test(text));

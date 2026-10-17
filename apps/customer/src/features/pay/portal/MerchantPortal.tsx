@@ -42,7 +42,7 @@ function PortalRooms({
   const portal = useMemo(() => createPortalApi(api, userId), [api, userId]);
   const access = useMerchantAccess();
   // A page that needs a `PayBusinessAuthority` gets one made from the resolved access, for the owner only.
-  const effective = authority ?? authorityFromAccess(access.access, userId);
+  const effective = authority ?? authorityFromAccess(access.access, userId, access.sessionScopes);
   const pay = useMemo(() => createBusinessPayApi(api, userId, effective), [api, userId, effective]);
   const route = parsePortalRoute(path);
   if (!route) return null;

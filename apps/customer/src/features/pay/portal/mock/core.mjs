@@ -61,6 +61,8 @@ export function createCoreMock(ctx) {
             kybStatus: scenario === 'quiet' ? 'none' : 'approved',
             kybRef: scenario === 'quiet' ? null : 'TEST-dossier-001',
             feeBps: scenario === 'quiet' ? null : 150,
+            // The server marks the account's starting rate as a local TEST value (svc-pay starter-fee.ts).
+            starterFee: scenario === 'quiet' ? null : { bps: 150, source: 'local_test' },
           },
     role: ctx.role,
     notifications: [
@@ -109,6 +111,7 @@ export function createCoreMock(ctx) {
     'operator_pause',
     'export_ready',
     'team_change',
+    'payout_destination',
   ];
   // Four seconds behind the moment it is asked, every time: a clock frozen at start-up would read hours behind later.
   const fresh = {

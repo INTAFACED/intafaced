@@ -13,7 +13,7 @@ export interface ChipSpec {
 const UNKNOWN = (value: string): ChipSpec => ({
   label: value === '' ? 'unknown' : value.replace(/_/g, ' '),
   tone: 'neutral',
-  hint: `This service reported "${value}", which this console does not have a description for yet.`,
+  hint: `This service reported "${value}", which this console has no description for.`,
 });
 
 const MERCHANT_STATUS: Record<string, ChipSpec> = {
@@ -67,9 +67,7 @@ export function routableChip(routable: boolean, missing: readonly string[]): Chi
     : {
         label: 'not ready',
         tone: 'warn',
-        hint: missing.length
-          ? `Not used yet. Still to configure: ${missing.map((m) => m.replace(/_/g, ' ')).join(', ')}.`
-          : 'Not used yet.',
+        hint: missing.length ? `Not in use. Still to configure: ${missing.map((m) => m.replace(/_/g, ' ')).join(', ')}.` : 'Not in use.',
       };
 }
 

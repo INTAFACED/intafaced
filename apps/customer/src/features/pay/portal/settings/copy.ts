@@ -197,6 +197,8 @@ const en = {
   hThreshold: 'Optional. A decimal amount you choose. There is no default.',
   notifKind_dispute_due: 'Dispute response due',
   notifHelp_dispute_due: 'A dispute needs your answer before its deadline.',
+  notifKind_payout_destination: 'Payout destination change',
+  notifHelp_payout_destination: 'A payout destination was added, changed or removed.',
   activationUnknown: 'Activation has not been checked',
   reportsPurpose: 'Choose a supported account report and request it through the existing export service.',
   reviewPricing: 'Review pricing',

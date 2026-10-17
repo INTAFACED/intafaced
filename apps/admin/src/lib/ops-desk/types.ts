@@ -3,14 +3,14 @@ import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
 
 /**
- * Module ops desks: bank, P2P, Academy and the "More" modules.
+ * Module ops desks: bank, Personal Pay, P2P, Academy, the "More" modules and Protocol.
  *
  * A desk is a catalogue of READS that svc-edge already forwards, plus an honest list of what cannot be read yet.
  * It never holds a figure of its own: every number on the page is a field the owning service returned, stamped with
  * the time this console read it, and a figure the service cannot give is printed as "not available" with the reason.
  */
 
-export type OpsDeskId = 'bank' | 'p2p' | 'academy' | 'more' | 'protocol';
+export type OpsDeskId = 'bank' | 'p2p' | 'academy' | 'more' | 'protocol' | 'pay';
 
 /** How one field of an answer is read and shown. Strict: a field of the wrong type makes the whole read invalid. */
 export type CellKind =
@@ -20,6 +20,8 @@ export type CellKind =
   | 'time'
   /** Whole basis points, shown as a percent without floating point. */
   | 'bps'
+  /** A whole number of seconds, shown as a duration ("3 h 12 min"). The number is the service's; only the display is changed. */
+  | 'seconds'
   /** A decimal string a service formatted (money). Shown exactly as given, never parsed. */
   | 'amount'
   /** An array of strings. */
@@ -46,6 +48,11 @@ export interface Column {
    * makes the whole read invalid, so a page can never print a claim the service is not allowed to make.
    */
   readonly mustBe?: string | number | boolean;
+  /**
+   * The service promises this is always null (a literal `null` in its output schema, such as a failure rate it cannot compute). Any
+   * other value makes the whole read invalid, so a page can never print a figure the service says it does not have. Needs `nullable`.
+   */
+  readonly alwaysNull?: boolean;
 }
 
 export interface ReadSpec {
@@ -74,12 +81,22 @@ export interface ReadSpec {
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
-  /** The page size asked for. A full page means more rows may exist. */
+  /** The page size asked for. A full page means more rows may exist (unless `cursorKey` is set: then the service says so exactly). */
   readonly page?: number;
+  /**
+   * List only: the property of the answer that holds the service's page marker (`nextCursor`: a string, or null on the last page).
+   * With it the desk knows exactly whether more rows exist and can read the next page; without it a full page only means "may exist".
+   */
+  readonly cursorKey?: string;
   /** What an empty answer means. It is never "healthy". */
   readonly emptyText: string;
   /** What a refusal of this founder's session means for this read. */
   readonly forbiddenText: string;
+  /**
+   * The service's typed refusal codes this read can get (a missing setting, an unknown id), each in a sentence that states the real
+   * reason. A code not listed here gets the generic "refused this read" line with the code beside it.
+   */
+  readonly refusals?: Readonly<Record<string, string>>;
   /** A row on this list can be acted on with a two-founder request (see `RowAction`). */
   readonly rowAction?: RowAction;
 }
@@ -90,10 +107,12 @@ export type RowAction =
   | 'academy.ambassador'
   | 'academy.residency'
   /** One moderator re-arms an open dispute. The service asks for no second person, so this is a direct action with a reason. */
-  | 'p2p.dispute.escalate';
+  | 'p2p.dispute.escalate'
+  /** Opening a rejected standing-order transfer reads its full record from svc-bank (`ops.transferDetail`), on request. */
+  | 'pay.transfer.detail';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
-export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status';
+export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup';
 
 /** A section that is drawn by its own component from the reads above it, not as a list or facts. */
 export type SectionPanel = 'protocol.blockers';
@@ -160,7 +179,14 @@ export interface Row {
 
 export type ReadData =
   | { readonly shape: 'record'; readonly cells: readonly Cell[] }
-  | { readonly shape: 'list'; readonly rows: readonly Row[]; readonly pageFull: boolean };
+  | {
+      readonly shape: 'list';
+      readonly rows: readonly Row[];
+      /** With a `cursorKey` this is exact (the service gave a next page); without one it only means the page is full. */
+      readonly pageFull: boolean;
+      /** Only on a list with a `cursorKey`: the service's marker for the next page, or null on the last page. */
+      readonly nextCursor?: string | null;
+    };
 
 export interface ReadOutcome {
   readonly id: string;

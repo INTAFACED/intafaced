@@ -6,7 +6,7 @@
 import type { Loadable } from './deps';
 
 export type StreamId = 'session' | 'book' | 'ticker' | 'orders' | 'balances';
-/** ok = fresh; old = last good answer is stale; down = the last read failed; loading = no answer yet; off = needs sign-in. */
+/** ok = fresh; old = last good answer is stale; down = the last read failed; loading = no answer; off = needs sign-in. */
 export type StreamState = 'ok' | 'old' | 'down' | 'loading' | 'off';
 export interface Stream {
   id: StreamId;

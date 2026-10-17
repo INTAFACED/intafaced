@@ -13,7 +13,7 @@ const messages = {
   'A price range, grid count, and a grid service': 'A price range, grid count, and a grid service',
   'A run can last 24 hours at most': 'A run can last 24 hours at most',
   'A saved strategy in Quant Studio': 'A saved strategy in Quant Studio',
-  'A strategy can’t trade live yet. It runs on paper.': 'A strategy can’t trade live yet. It runs on paper.',
+  'A strategy can’t trade live. It runs on paper.': 'A strategy can’t trade live. It runs on paper.',
   Action: 'Action',
   Active: 'Active',
   'After this time no new trades are copied.': 'After this time no new trades are copied.',
@@ -170,24 +170,24 @@ const messages = {
   'No bots started on this device': 'No bots started on this device',
   'No follow exists for that leader, so the request did not go through.':
     'No follow exists for that leader, so the request did not go through.',
-  'No grid service exists yet. Nothing is simulated.': 'No grid service exists yet. Nothing is simulated.',
+  'No grid service exists. Nothing is simulated.': 'No grid service exists. Nothing is simulated.',
   'No leaders are listed': 'No leaders are listed',
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
-  'No order history yet': 'No order history yet',
-  'No paper strategies yet': 'No paper strategies yet',
+  'No order history': 'No order history',
+  'No paper strategies': 'No paper strategies',
   'No price available right now': 'No price available right now',
-  'No recurring-order service exists yet. Use Convert for a single trade.':
-    'No recurring-order service exists yet. Use Convert for a single trade.',
+  'No recurring-order service exists. Use Convert for a single trade.':
+    'No recurring-order service exists. Use Convert for a single trade.',
   'None, each slice trades at the market': 'None, each slice trades at the market',
   'None, slices trade at the market': 'None, slices trade at the market',
   'None. Leaders are never paid from your profit': 'None. Leaders are never paid from your profit',
   'Not applicable: this bot only splits one order': 'Not applicable: this bot only splits one order',
-  'Not approved yet': 'Not approved yet',
-  'Not approved yet, so new follows are refused': 'Not approved yet, so new follows are refused',
+  'Not approved': 'Not approved',
+  'Not approved, so new follows are refused': 'Not approved, so new follows are refused',
   'Not built': 'Not built',
-  'Not built: a strategy cannot trade real money yet': 'Not built: a strategy cannot trade real money yet',
+  'Not built: a strategy cannot trade real money': 'Not built: a strategy cannot trade real money',
   'Not granted': 'Not granted',
   'Not now': 'Not now',
   'Not set': 'Not set',
@@ -270,7 +270,7 @@ const messages = {
   'Sizes slices to follow the market’s usual trading volume': 'Sizes slices to follow the market’s usual trading volume',
   'Slice by slice, when each order is placed. Nothing is locked up front':
     'Slice by slice, when each order is placed. Nothing is locked up front',
-  'Slice orders aren’t listed here yet': 'Slice orders aren’t listed here yet',
+  'Slice orders aren’t listed here': 'Slice orders aren’t listed here',
   Slices: 'Slices',
   'Slices missed': 'Slices missed',
   'Slices placed': 'Slices placed',
@@ -320,26 +320,26 @@ const messages = {
   'The leader can never raise these limits.': 'The leader can never raise these limits.',
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
-  'The list of orders copied for you is not available from the service yet. Check Order history on the spot desk.':
-    'The list of orders copied for you is not available from the service yet. Check Order history on the spot desk.',
+  'The list of orders copied for you is not available from the service. Check Order history on the spot desk.':
+    'The list of orders copied for you is not available from the service. Check Order history on the spot desk.',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
     'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.',
   'The scheduler that places slices is switched off in this environment. You can set up and watch bots, but no slice is placed until it runs.':
     'The scheduler that places slices is switched off in this environment. You can set up and watch bots, but no slice is placed until it runs.',
-  'The service does not link a bot to its slice orders yet. Open the spot desk to see them in Order history.':
-    'The service does not link a bot to its slice orders yet. Open the spot desk to see them in Order history.',
-  'The service does not report it yet': 'The service does not report it yet',
-  'The service has no list of your bots yet, so this list is the bots you set up here. Open any bot by its ID below.':
-    'The service has no list of your bots yet, so this list is the bots you set up here. Open any bot by its ID below.',
+  'The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.':
+    'The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.',
+  'The service does not report it': 'The service does not report it',
+  'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.':
+    'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.',
   'The share a leader earns from the trading fee has not been approved':
     'The share a leader earns from the trading fee has not been approved',
-  'The slices not yet placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
-    'The slices not yet placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
+  'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':
+    'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
   'The total can’t be below the amount per order': 'The total can’t be below the amount per order',
-  'There is no published leader directory yet, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.':
-    'There is no published leader directory yet, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.',
+  'There is no published leader directory, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.':
+    'There is no published leader directory, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.',
   'This bot has already ended': 'This bot has already ended',
   'This follow has already stopped': 'This follow has already stopped',
   'Time-weighted (TWAP)': 'Time-weighted (TWAP)',

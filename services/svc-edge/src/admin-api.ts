@@ -30,6 +30,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { EdgeComplianceQueue, edgeComplianceHonesty, type EdgeComplianceHonesty } from './compliance-honesty.js';
+import { readConfirmOperatorId, requireDualControl } from './dual-control.js';
 
 import type { KillSwitchAuditEntry, KillSwitchDurability, KillSwitchState } from './kill-switch.js';
 import { ENFORCEABLE_MODULES, OUTSIDE_THE_DOOR } from './routes.js';
@@ -224,7 +225,7 @@ export interface ControlPlaneHonesty {
   readonly outsideTheDoor: Readonly<Record<string, string>>;
   /** Modules this edge can actually refuse traffic for (route-table-derived). */
   readonly enforceableModules: readonly ModuleId[];
-  /** Process-local durability — multi-replica share is always false today. */
+  /** File and memory are process-local. True only when a shared kill store is attached. */
   readonly killState: KillSwitchDurability;
   /**
    * Live control surface name — not a feature-flag key.
@@ -448,7 +449,7 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         },
         operator,
       );
-      const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
+      const confirmOperatorId = requireDualControl(operator.userId, readConfirmOperatorId({ confirmOperatorId: consumed.approverId }));
 
       /**
        * The audit entry is written by `state.set` before the booleans move, and

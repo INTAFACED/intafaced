@@ -556,7 +556,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
                 <CopyText k={'quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount'} />
               ) : (
                 // `data.residual` is the service's internal wording (a DIRECTION section citation, refuse-closed);
-                // customers get the plain sentence for the same reason: the desk law is not published yet.
+                // customers get the plain sentence for the same reason: the desk law is not published.
                 <CopyText k={'deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs'} />
               )
             }

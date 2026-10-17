@@ -144,7 +144,7 @@ function parseRun(raw: unknown): MatchingRunResult | null {
 }
 
 /**
- * Run one control with an approval id. The approval is read first, only to say honestly why a PENDING one cannot run yet and
+ * Run one control with an approval id. The approval is read first, only to say honestly why a PENDING one cannot run and
  * to get its operationId; svc-edge re-reads it and decides. Nothing is sent unless the approval is APPROVED.
  */
 export async function runMatchingControl(

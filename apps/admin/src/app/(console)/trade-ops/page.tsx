@@ -14,7 +14,7 @@ import { readMatchingHealth } from '@/lib/trade-ops/matching-edge';
 
 /**
  * Health: is the book safe to trade right now, in one glance. Six tiles, each read on its own and each with its
- * own state. Venue health is read from svc-matching through svc-edge. Reconcile has no operator route yet, so that tile shows the real blocker.
+ * own state. Venue health is read from svc-matching through svc-edge. Reconcile has no operator route, so that tile shows the real blocker.
  */
 export const dynamic = 'force-dynamic';
 
@@ -158,9 +158,7 @@ export default async function HealthPage() {
               value={orderTally.open >= ORDER_READ_LIMIT ? `${orderTally.open}+` : String(orderTally.open)}
               lines={[
                 `Seeded ${orderTally.seeded} · Held ${orderTally.held}`,
-                orderTally.held > 0
-                  ? 'Held orders keep funds reserved and their outcome is not yet known.'
-                  : 'No order is held for recovery.',
+                orderTally.held > 0 ? 'Held orders keep funds reserved and their outcome is not known.' : 'No order is held for recovery.',
                 ...(orderTally.open >= ORDER_READ_LIMIT
                   ? [`Only the first ${ORDER_READ_LIMIT} open orders are read; the real count may be higher.`]
                   : []),
@@ -186,7 +184,7 @@ export default async function HealthPage() {
             value={null}
             reason={recon.text}
             code={`${recon.owner} · ${recon.need}`}
-            lines={['The last sweep result and held-order resolution cannot be read yet.']}
+            lines={['The last sweep result and held-order resolution cannot be read.']}
             href="/trade-ops/orders"
             linkLabel="Open orders"
           />

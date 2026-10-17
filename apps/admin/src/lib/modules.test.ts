@@ -76,6 +76,11 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/analytics/warehouse')).toBe('tools');
     expect(moduleForApi('/api/bank-ops')).toBe('bank-ops');
     expect(moduleForApi('/api/p2p-ops')).toBe('p2p-ops');
+    expect(moduleForApi('/api/pay-ops')).toBe('pay-ops');
+    expect(moduleForApi('/api/pay-ops/transfer')).toBe('pay-ops');
+    expect(moduleForPage('/pay-ops')).toBe('pay-ops');
+    // The merchant pay halts keep their own module; a similar prefix does not leak across.
+    expect(moduleForApi('/api/pay-halts')).toBe('ledger');
     expect(moduleForApi('/api/academy-ops')).toBe('academy-ops');
     expect(moduleForApi('/api/more-ops')).toBe('more-ops');
     expect(moduleForApi('/api/protocol-ops')).toBe('protocol-ops');

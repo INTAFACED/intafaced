@@ -20,9 +20,16 @@ import { OTC_DESK_LAW_RESIDUAL, OtcError } from './otc/errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-routing.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
-import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_RESIDUAL } from './copy/auto-mirror-place.js';
-import { copyLawStatusLine } from './copy/fee-share-law.js';
-import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './copy/errors.js';
+import { copyDetachOutput, copyFlattenOutput, copyPauseOutput, copyResumeOutput, copyStopOutput } from './copy/copy-control-wire.js';
+import {
+  copyDeskStatusOutput,
+  copyOpsStatusOutput,
+  presentCopyOpsStatus,
+  presentCustomerCopyDesk,
+  unmountedCopyDeskFacts,
+} from './copy/desk-status.js';
+import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
+import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './copy/disclosure.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -30,6 +37,8 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
+import { convertHistoryProcedures } from './convert/convert-history-router.js';
+import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -263,6 +272,8 @@ function presentFill(fill: FillRecord) {
  * order may not have been placed at all.
  */
 function toTrpcError(err: unknown): TRPCError {
+  const historyError = convertHistoryTrpcError(err);
+  if (historyError) return historyError;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -326,6 +337,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_fill_not_found':
       case 'trade.copy_auto_mirror_place_socket':
       case 'trade.copy_place_disabled':
+      case 'trade.copy_unavailable':
       case 'trade.copy_session_key_missing':
       case 'trade.copy_session_key_revoked':
       case 'trade.copy_paused':
@@ -335,6 +347,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_flatten_drift':
       case 'trade.copy_flatten_unavailable':
       case 'trade.copy_flatten_partial':
+      case 'trade.copy_disclosure_unpublished':
+      case 'trade.copy_disclosure_required':
+      case 'trade.copy_disclosure_version_stale':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -613,6 +628,8 @@ export function createTradeRouter(
             }),
           ),
         ),
+
+      ...convertHistoryProcedures(trade),
     }),
 
     /**
@@ -940,32 +957,54 @@ export function createTradeRouter(
     copy: router({
       policy: publicProcedure.query(() => describeCopyPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' }).query(() => {
-        if (!copy) {
-          return {
-            sovereign: {
-              shape: 'sovereign' as const,
-              custody: false,
-              feeModel: 'protocol_fee_share' as const,
-              pnlFeeForbidden: true,
-              rankingForbidden: true,
-              killUnfollowReal: true,
-            },
-            feeSharePublished: false,
-            leaderShareBps: null,
-            jurisdictionPublished: false,
-            statusLine: copyLawStatusLine({ published: false }, { published: false }),
-            residual: COPY_LAW_RESIDUAL,
-            residuals: {
-              rates: COPY_FEE_SHARE_RESIDUAL,
-              jurisdiction: COPY_JURISDICTION_RESIDUAL,
-              autoMirrorPlace: COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-            },
-            autoMirrorPlace: autoMirrorPlaceStatus(false),
-          };
-        }
-        return copy.deskStatus();
-      }),
+      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
+        .output(copyDeskStatusOutput)
+        .query(() => (copy ? copy.deskStatus() : presentCustomerCopyDesk(unmountedCopyDeskFacts()))),
+
+      opsStatus: scopedProcedure('admin:read')
+        .output(copyOpsStatusOutput)
+        .query(() => (copy ? copy.opsStatus() : presentCopyOpsStatus(unmountedCopyDeskFacts()))),
+
+      disclosure: scopedProcedure('trade:read', { module: 'trade' })
+        .output(
+          z
+            .object({
+              published: z.boolean(),
+              version: z.string().nullable(),
+              text: z.string().nullable(),
+              accepted: z.boolean(),
+            })
+            .strict(),
+        )
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!copy) return UNPUBLISHED_COPY_DISCLOSURE_VIEW;
+            return copy.disclosure(ctx.principal);
+          }),
+        ),
+
+      acceptDisclosure: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            version: z.string().min(1).max(200),
+            clientAcceptId: z.string().min(1).max(200),
+          }),
+        )
+        .output(
+          z
+            .object({
+              version: z.string(),
+              acceptedAt: z.string().datetime(),
+              clientAcceptId: z.string(),
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError(COPY_DISCLOSURE_LAW_KEY, 'trade.copy_disclosure_unpublished');
+            return copy.acceptDisclosure(ctx.principal, input);
+          }),
+        ),
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(
@@ -1042,6 +1081,7 @@ export function createTradeRouter(
 
       pause: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyPauseOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1053,6 +1093,7 @@ export function createTradeRouter(
 
       stop: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyStopOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1064,6 +1105,7 @@ export function createTradeRouter(
 
       detach: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyDetachOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1075,6 +1117,7 @@ export function createTradeRouter(
 
       flatten: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFlattenOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1086,6 +1129,7 @@ export function createTradeRouter(
 
       resume: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyResumeOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
