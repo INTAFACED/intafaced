@@ -67,6 +67,24 @@ describe('MuxPoller — tickers', () => {
     expect(sink.frames[0].tickers.map((r: { market: string }) => r.market).sort()).toEqual(['id-btc', 'id-eth']);
   });
 
+  it('reuses the last ticker read within one poll when a subscriber returns to an empty cache', async () => {
+    let now = 10_000;
+    const { poller, tickers, tickerSource } = build({ now: () => now, tickers: [raw('BTC/USDT', '1')] });
+    const first = new FakeSink();
+    const detach = tickers.attach(null, first, now);
+    await poller.tickTickers();
+    expect(tickerSource.fetch).toHaveBeenCalledTimes(1);
+    detach?.();
+    const late = new FakeSink();
+    tickers.attach(null, late, now);
+    await poller.demandTickers();
+    expect(tickerSource.fetch).toHaveBeenCalledTimes(1);
+    expect(late.frames.length).toBeGreaterThan(0);
+    now += 1_000;
+    await poller.demandTickers();
+    expect(tickerSource.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('names an outage when the source fails, once', async () => {
     const { poller, tickers } = build({ tickers: new Error('boom') });
     const sink = new FakeSink();
@@ -96,6 +114,25 @@ describe('MuxPoller — candles', () => {
     candles.attach('id-btc', '1h', new FakeSink(), 0);
     await poller.tickCandles();
     expect(candleSource.latest).toHaveBeenCalledWith('BTC/USDT', '1h', -3_600_000 + 0, 2);
+  });
+
+  it('reuses the last candle read within one poll when a subscriber returns to an empty cache', async () => {
+    let now = 10 * 60_000 + 20_000;
+    const candle = { t: 9 * 60_000, o: '1', h: '2', l: '1', c: '2', v: '3' };
+    const { poller, candles, candleSource } = build({ now: () => now, candles: [candle] });
+    const first = new FakeSink();
+    const detach = candles.attach('id-btc', '1m', first, now);
+    await poller.pollCandle('id-btc', '1m');
+    expect(candleSource.latest).toHaveBeenCalledTimes(1);
+    detach?.();
+    const late = new FakeSink();
+    candles.attach('id-btc', '1m', late, now);
+    await poller.demandCandle('id-btc', '1m');
+    expect(candleSource.latest).toHaveBeenCalledTimes(1);
+    expect(late.frames.length).toBeGreaterThan(0);
+    now += 2_000;
+    await poller.demandCandle('id-btc', '1m');
+    expect(candleSource.latest).toHaveBeenCalledTimes(2);
   });
 
   it('shares one read between two simultaneous demands for the same key', async () => {

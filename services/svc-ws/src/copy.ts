@@ -28,6 +28,8 @@ export const WS_COPY = {
   tokenExpired: 'ws.close.token_expired',
   muxMaxSubscriptionsUnset: 'ws.close.mux_max_subscriptions_unset',
   muxMaxOpsUnset: 'ws.close.mux_max_ops_per_second_unset',
+  muxMaxSeatsUnset: 'ws.close.mux_max_seats_unset',
+  muxIdle: 'ws.close.mux_idle',
   muxRateLimited: 'ws.close.mux_rate_limited',
   muxBacklog: 'ws.close.mux_backlog',
   muxSlowConsumer: 'ws.close.mux_slow_consumer',

@@ -175,8 +175,9 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
      * refuses at its own max (1013). Occupancy never 503s this probe.
      */
     capacity: {
-      depth: { connections: hub.connections, maxConnections: hub.maxConnections ?? null },
-      trades: { connections: tradeHub.connections, maxConnections: tradeHub.maxConnections ?? null },
+      // Original-door seats only. Multiplexed seats are a separate pool (`mux` below).
+      depth: { connections: hub.connections - hub.muxConnections, maxConnections: hub.maxConnections ?? null },
+      trades: { connections: tradeHub.connections - tradeHub.muxConnections, maxConnections: tradeHub.maxConnections ?? null },
       private: {
         connections: privateHub.connections,
         maxConnections: privateHub.maxConnections ?? null,
@@ -193,6 +194,12 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
               connections: mux.gateway.connections,
               maxConnections: mux.gateway.maxConnections ?? null,
               subscriptions: mux.gateway.subscriptions,
+              seats: {
+                depth: { used: hub.muxConnections, max: hub.muxMaxConnections ?? null },
+                trades: { used: tradeHub.muxConnections, max: tradeHub.muxMaxConnections ?? null },
+                tickers: { used: mux.tickerHub.connections, max: mux.tickerHub.maxConnections ?? null },
+                candles: { used: mux.candleHub.connections, max: mux.candleHub.maxConnections ?? null },
+              },
               tickers: mux.tickerHub.stats,
               candles: mux.candleHub.stats,
             },
