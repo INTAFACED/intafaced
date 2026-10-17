@@ -8,17 +8,22 @@ import { makerSummary, splitDuration } from './p2p-model';
 /** The most makers whose record is fetched for one board. A board is a window, not the whole market. */
 const MAX_TRADERS = 24;
 
-export type TraderRecords = Record<string, ApiResult<Reputation>>;
+/** `null` means no record was asked for (beyond the cap, or not a valid id); a missing key means still loading. */
+export type TraderRecords = Record<string, ApiResult<Reputation> | null>;
 
 /**
  * The service's public record for each maker on a board, fetched once per person. A maker that cannot be read shows no
  * record; nothing is filled in.
  */
 export function useTraders(pay: PersonalPayApi, makerIds: readonly string[]): TraderRecords {
-  const key = [...new Set(makerIds.filter((value) => id.safeParse(value).success).map((value) => value.toLowerCase()))]
-    .sort()
-    .slice(0, MAX_TRADERS)
-    .join(',');
+  const valid = [...new Set(makerIds.filter((value) => id.safeParse(value).success).map((value) => value.toLowerCase()))].sort();
+  const key = valid.slice(0, MAX_TRADERS).join(',');
+  const notAsked = Object.fromEntries(
+    [...makerIds.map((value) => value.toLowerCase()).filter((value) => !valid.slice(0, MAX_TRADERS).includes(value))].map((value) => [
+      value,
+      null,
+    ]),
+  );
   const [records, setRecords] = useState<TraderRecords>({});
   useEffect(() => {
     const controller = new AbortController();
@@ -29,19 +34,19 @@ export function useTraders(pay: PersonalPayApi, makerIds: readonly string[]): Tr
     }
     return () => controller.abort();
   }, [key, pay]);
-  return records;
+  return { ...notAsked, ...records };
 }
 
 /** "@handle" when identity gave one, otherwise "Member". Never the account id. */
-export function TraderName({ record }: { record: ApiResult<Reputation> | undefined }) {
+export function TraderName({ record }: { record: ApiResult<Reputation> | null | undefined }) {
   const { t } = p2pDepth.useCopy();
-  if (!record) return <span aria-busy="true" />;
-  const handle = record.ok ? record.data.handle : null;
+  if (record === undefined) return <span aria-busy="true" />;
+  const handle = record?.ok ? record.data.handle : null;
   return handle ? <span lang="zxx">{`@${handle}`}</span> : <span>{t('traderUnnamed')}</span>;
 }
 
 /** Orders, completion rate and average release time, exactly as returned. */
-export function TraderSummary({ record }: { record: ApiResult<Reputation> | undefined }) {
+export function TraderSummary({ record }: { record: ApiResult<Reputation> | null | undefined }) {
   const { t, requestedLocale } = p2pDepth.useCopy();
   if (!record) return null;
   if (!record.ok) return <span className="muted">{t('traderRecordOff')}</span>;

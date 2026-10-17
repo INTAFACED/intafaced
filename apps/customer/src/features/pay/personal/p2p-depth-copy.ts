@@ -81,7 +81,6 @@ const en = {
   quoteFeeSeller: 'Service fee (taken from what the buyer receives)',
   quoteReceive: 'You receive',
   quoteBuyerReceives: 'The buyer receives',
-  quoteReserved: 'Reservation ends',
   takeReviewTitle: 'Review your order',
   takeLeadBuy:
     'You are buying {amount} {asset} from this seller. When you confirm, the seller’s {asset} is locked in escrow. You then make the external payment and mark the order as paid.',
@@ -90,10 +89,13 @@ const en = {
   takeConfirm: 'Confirm order',
   takePlacing: 'Placing your order…',
   takeBack: 'Go back',
-  takeFound: 'Found it. Opening your order…',
+  takeFound: 'We found your earlier order. Its details may differ from the figures you just reviewed, so check them.',
+  takeOpenOrder: 'Open your order',
+  takePriceMoved:
+    'Your order was placed, but the price moved after your review. It is at {price} {fiat} per {asset}, {total} {fiat} in all. You reviewed {reviewed} {fiat} per {asset}. Open it to check the details.',
   takeUnresolvedTitle: 'We couldn’t confirm your earlier order',
   takeUnresolvedBody:
-    'It may or may not have been placed. Check it before trying again. If it can’t be found, placing the same order again is safe: it is sent under the same reference, so it can’t be placed twice.',
+    'It may or may not have been placed. Check it before trying again. If it can’t be found, you can send it again under the same reference. Before telling you it wasn’t placed, we look for it once more.',
   takeReference: 'Order reference',
   takeCheck: 'Check this order',
   takeChecking: 'Checking…',
@@ -110,6 +112,9 @@ const en = {
   failTooSmall: 'This quantity is too small once the service fee is taken. Choose a larger quantity.',
   failOutOfBounds: 'This quantity is outside what the offer allows right now. Change it and review again. Nothing was placed.',
   failSignIn: 'Sign in again to place an order.',
+  failVerify: 'Verify your identity to place P2P orders. Nothing was placed.',
+  failVerifyLink: 'Open verification',
+  failRegion: 'P2P orders aren’t available in your region. Nothing was placed.',
   failNoRecord: 'This device can’t keep the safety record an order needs, so no order was sent. Turn on browser storage and try again.',
   failViewChanged: 'This page changed before the order was sent. Open the offer again.',
   failNoService: 'We can’t reach the service right now. Nothing was placed. Try again in a moment.',
@@ -284,7 +289,6 @@ const es = {
   quoteFeeSeller: 'Comisión del servicio (se descuenta de lo que recibe el comprador)',
   quoteReceive: 'Recibes',
   quoteBuyerReceives: 'El comprador recibe',
-  quoteReserved: 'La reserva termina',
   takeReviewTitle: 'Revisa tu pedido',
   takeLeadBuy:
     'Vas a comprar {amount} {asset} a este vendedor. Al confirmar, los {asset} del vendedor quedan bloqueados en depósito. Después haces el pago externo y marcas el pedido como pagado.',
@@ -293,10 +297,13 @@ const es = {
   takeConfirm: 'Confirmar pedido',
   takePlacing: 'Haciendo tu pedido…',
   takeBack: 'Volver',
-  takeFound: 'Encontrado. Abriendo tu pedido…',
+  takeFound: 'Encontramos tu pedido anterior. Sus detalles pueden diferir de las cifras que acabas de revisar, así que compruébalos.',
+  takeOpenOrder: 'Abrir tu pedido',
+  takePriceMoved:
+    'Tu pedido se hizo, pero el precio cambió después de tu revisión. Está a {price} {fiat} por {asset}, {total} {fiat} en total. Revisaste {reviewed} {fiat} por {asset}. Ábrelo para comprobar los detalles.',
   takeUnresolvedTitle: 'No pudimos confirmar tu pedido anterior',
   takeUnresolvedBody:
-    'Puede que se haya hecho o puede que no. Compruébalo antes de volver a intentarlo. Si no aparece, repetir el mismo pedido es seguro: se envía con la misma referencia, así que no puede hacerse dos veces.',
+    'Puede que se haya hecho o puede que no. Compruébalo antes de volver a intentarlo. Si no aparece, puedes enviarlo de nuevo con la misma referencia. Antes de decirte que no se hizo, lo buscamos una vez más.',
   takeReference: 'Referencia del pedido',
   takeCheck: 'Comprobar este pedido',
   takeChecking: 'Comprobando…',
@@ -314,6 +321,9 @@ const es = {
   failTooSmall: 'Esta cantidad es demasiado pequeña una vez descontada la comisión del servicio. Elige una cantidad mayor.',
   failOutOfBounds: 'Esta cantidad está fuera de lo que la oferta admite ahora. Cámbiala y revisa de nuevo. No se hizo nada.',
   failSignIn: 'Vuelve a iniciar sesión para hacer un pedido.',
+  failVerify: 'Verifica tu identidad para hacer pedidos P2P. No se hizo nada.',
+  failVerifyLink: 'Abrir verificación',
+  failRegion: 'Los pedidos P2P no están disponibles en tu región. No se hizo nada.',
   failNoRecord:
     'Este dispositivo no puede guardar el registro de seguridad que necesita un pedido, así que no se envió nada. Activa el almacenamiento del navegador e inténtalo de nuevo.',
   failViewChanged: 'Esta página cambió antes de enviar el pedido. Abre la oferta de nuevo.',
@@ -486,7 +496,6 @@ const fr = {
   quoteFeeSeller: 'Frais du service (prélevés sur ce que reçoit l’acheteur)',
   quoteReceive: 'Vous recevez',
   quoteBuyerReceives: 'L’acheteur reçoit',
-  quoteReserved: 'La réservation prend fin',
   takeReviewTitle: 'Vérifiez votre commande',
   takeLeadBuy:
     'Vous achetez {amount} {asset} à ce vendeur. À la confirmation, les {asset} du vendeur sont bloqués sous séquestre. Vous effectuez ensuite le paiement externe et marquez la commande comme payée.',
@@ -495,10 +504,14 @@ const fr = {
   takeConfirm: 'Confirmer la commande',
   takePlacing: 'Passage de votre commande…',
   takeBack: 'Retour',
-  takeFound: 'Trouvée. Ouverture de votre commande…',
+  takeFound:
+    'Nous avons retrouvé votre commande précédente. Ses détails peuvent différer des chiffres que vous venez de vérifier : contrôlez-les.',
+  takeOpenOrder: 'Ouvrir votre commande',
+  takePriceMoved:
+    'Votre commande a été passée, mais le prix a changé après votre vérification. Elle est à {price} {fiat} par {asset}, soit {total} {fiat} au total. Vous aviez vérifié {reviewed} {fiat} par {asset}. Ouvrez-la pour contrôler les détails.',
   takeUnresolvedTitle: 'Nous n’avons pas pu confirmer votre commande précédente',
   takeUnresolvedBody:
-    'Elle a peut-être été passée, peut-être pas. Vérifiez-la avant de réessayer. Si elle reste introuvable, repasser la même commande est sans risque : elle est envoyée avec la même référence et ne peut pas être passée deux fois.',
+    'Elle a peut-être été passée, peut-être pas. Vérifiez-la avant de réessayer. Si elle reste introuvable, vous pouvez la renvoyer avec la même référence. Avant de vous dire qu’elle n’a pas été passée, nous la cherchons encore une fois.',
   takeReference: 'Référence de la commande',
   takeCheck: 'Vérifier cette commande',
   takeChecking: 'Vérification…',
@@ -517,6 +530,9 @@ const fr = {
   failTooSmall: 'Cette quantité est trop faible une fois les frais du service prélevés. Choisissez une quantité plus élevée.',
   failOutOfBounds: 'Cette quantité sort de ce que l’offre accepte actuellement. Modifiez-la et vérifiez à nouveau. Rien n’a été passé.',
   failSignIn: 'Reconnectez-vous pour passer une commande.',
+  failVerify: 'Vérifiez votre identité pour passer des commandes P2P. Rien n’a été passé.',
+  failVerifyLink: 'Ouvrir la vérification',
+  failRegion: 'Les commandes P2P ne sont pas disponibles dans votre région. Rien n’a été passé.',
   failNoRecord:
     'Cet appareil ne peut pas conserver la trace de sécurité qu’exige une commande : aucune commande n’a donc été envoyée. Activez le stockage du navigateur et réessayez.',
   failViewChanged: 'Cette page a changé avant l’envoi de la commande. Rouvrez l’offre.',

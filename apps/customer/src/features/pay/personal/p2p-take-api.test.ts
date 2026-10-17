@@ -237,7 +237,9 @@ describe('a lost reply', () => {
           if (placed) placedId = tradeId;
           return refusal(503, 'gateway.timeout');
         }
-        if (placedId === tradeId) return refusal(409, 'p2p.trade_exists');
+        // Like the service: offer, limit and liquidity checks come first. An earlier take that landed has used the
+        // quantity up, so the repeat is refused for liquidity and `trade_exists` is never reached.
+        if (placedId) return refusal(400, 'p2p.insufficient_offer_liquidity');
         placedId = tradeId;
         return ok(trade(tradeId));
       },
@@ -333,5 +335,93 @@ describe('a lost reply', () => {
     svc.recover();
     const found = await createPersonalPayApi(svc.api, ME, reopened).reconcileTake(offer());
     expect(found).toMatchObject({ ok: true });
+  });
+
+  it('does not call the order unplaced when the resend is refused only because the first attempt landed late', async () => {
+    let gets = 0;
+    let posts = 0;
+    let firstId = '';
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': (call) => {
+        posts += 1;
+        if (posts === 1) {
+          firstId = String(call.body!.tradeId);
+          return refusal(503, 'gateway.timeout');
+        }
+        // The first attempt has committed in the meantime and used the quantity up.
+        return refusal(400, 'p2p.insufficient_offer_liquidity');
+      },
+      // Not committed at the first two looks; committed by the look after the refusal.
+      'trades.get': () => (++gets >= 3 ? ok(trade(firstId)) : refusal(404, 'p2p.trade_not_found')),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    expect(await pay.takeOffer(offer(), asked(), reviewed())).toMatchObject({ ok: false, reason: 'uncertain' });
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: true, data: { id: firstId } });
+    expect(String(svc.posts()[1]!.body!.tradeId)).toBe(firstId);
+    expect(guard.status(journalKey)).toBe(null);
+  });
+  it('reports a refused resend as nothing placed only after the order was looked for again and not found', async () => {
+    let posts = 0;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': () => (++posts === 1 ? refusal(503, 'gateway.timeout') : refusal(400, 'p2p.insufficient_offer_liquidity')),
+      'trades.get': () => refusal(404, 'p2p.trade_not_found'),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: false, code: 'p2p.insufficient_offer_liquidity' });
+    expect(svc.calls.filter((call) => call.procedure === 'trades.get').length).toBeGreaterThanOrEqual(3);
+    expect(guard.status(journalKey)).toBe(null);
+  });
+  it('keeps the stored id and says unconfirmed when the look-up before a resend cannot be answered', async () => {
+    const svc = lost(false);
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    // The network is still down, so the look-up fails. That is not "not found".
+    const again = await pay.takeOffer(offer(), asked(), reviewed());
+    expect(again).toMatchObject({ ok: false, reason: 'uncertain', code: 'pay.take_unconfirmed' });
+    expect(svc.posts()).toHaveLength(1);
+    expect(guard.status(journalKey)).toBe('uncertain');
+  });
+  it('keeps the stored id when the look-up after a refused resend cannot be answered', async () => {
+    let posts = 0;
+    let gets = 0;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': () => (++posts === 1 ? refusal(503, 'gateway.timeout') : refusal(400, 'p2p.insufficient_offer_liquidity')),
+      'trades.get': () => (++gets <= 2 ? refusal(404, 'p2p.trade_not_found') : refusal(503, 'gateway.timeout')),
+    });
+    const { guard } = fresh();
+    const pay = createPersonalPayApi(svc.api, ME, guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    expect(await pay.takeOffer(offer(), asked(), reviewed())).toMatchObject({
+      ok: false,
+      reason: 'uncertain',
+      code: 'pay.take_unconfirmed',
+    });
+    expect(guard.status(journalKey)).toBe('uncertain');
+  });
+});
+
+describe('verification and region refusals', () => {
+  it('are definite, and the service never sees a second request', async () => {
+    for (const code of ['denied.kyc_required', 'denied.region_blocked', 'denied.region_unknown']) {
+      const svc = service({ 'offers.get': () => ok(offer()), 'trades.quote': () => refusal(403, code) });
+      const { guard } = fresh();
+      const pay = createPersonalPayApi(svc.api, ME, guard);
+      expect(await pay.quoteTake(offer(), asked())).toMatchObject({ ok: false, code });
+      expect(await pay.takeOffer(offer(), asked(), reviewed())).toMatchObject({ ok: false, code });
+      expect(svc.posts()).toHaveLength(0);
+      expect(guard.status(journalKey)).toBe(null);
+    }
   });
 });

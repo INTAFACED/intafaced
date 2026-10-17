@@ -3,7 +3,7 @@ import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { navigate } from '../../../app/location';
 import { Button, Dialog } from '../../../shared/ui';
-import { PayDetails, PayTime } from '../components';
+import { PayDetails } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
@@ -13,6 +13,7 @@ import {
   isOwnOffer,
   offerMethodIds,
   takeFailureKind,
+  tradeMovedFromQuote,
   takeRequest,
   takerRole,
   type TakeFailure,
@@ -48,6 +49,10 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failSignIn');
     case 'noRecord':
       return t('failNoRecord');
+    case 'verify':
+      return t('failVerify');
+    case 'region':
+      return t('failRegion');
     case 'viewChanged':
       return t('failViewChanged');
     case 'noService':
@@ -70,6 +75,11 @@ export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResu
     >
       {kind === 'unconfirmed' || kind === 'notFound' ? <h3>{t('failUnconfirmedTitle')}</h3> : null}
       <p>{takeFailureText(t, kind, context)}</p>
+      {kind === 'verify' ? (
+        <a className="text-link" href="/verification">
+          {t('failVerifyLink')}
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -83,7 +93,6 @@ export function TakeQuoteDetails({ offer, quote }: { offer: Pick<Offer, 'side' |
   const quantity = `${displayAmount(quote.amount)} ${offer.asset}`;
   const fiat = `${displayAmount(quote.fiatAmount)} ${offer.fiatCurrency}`;
   const net = `${displayAmount(quote.netAmount)} ${offer.asset}`;
-  const reserved = <PayTime value={quote.reservationExpiresAt} />;
   return (
     <div data-testid="take-quote">
       <PayDetails
@@ -95,7 +104,6 @@ export function TakeQuoteDetails({ offer, quote }: { offer: Pick<Offer, 'side' |
                 [t('quotePrice'), price],
                 [t('quoteFee'), fee],
                 [t('quoteReceive'), net],
-                [t('quoteReserved'), reserved],
               ]
             : [
                 [t('quoteSell'), quantity],
@@ -103,7 +111,6 @@ export function TakeQuoteDetails({ offer, quote }: { offer: Pick<Offer, 'side' |
                 [t('quotePrice'), price],
                 [t('quoteFeeSeller'), fee],
                 [t('quoteBuyerReceives'), net],
-                [t('quoteReserved'), reserved],
               ]
         }
       />
@@ -136,9 +143,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const [quoteRound, setQuoteRound] = useState(0);
   const [review, setReview] = useState<{ token: number; request: TakeRequest; quote: TakeQuote } | null>(null);
   const [busy, setBusy] = useState(false);
+  const placedQuotePrice = useRef<string | null>(null);
   const [outcome, setOutcome] = useState<ApiResult<Trade> | null>(null);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState<ApiResult<Trade> | null>(null);
+  // An order that exists but should not be opened silently: an earlier one, or one priced differently from the review.
+  const [placed, setPlaced] = useState<{ trade: Trade; why: 'earlier' | 'moved' } | null>(null);
   const locked = !own && Boolean(userId) && Boolean(pay.guard.status(journalKey));
 
   useLayoutEffect(() => {
@@ -214,14 +224,24 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     const { token } = review;
     setBusy(true);
     setOutcome(null);
+    const earlier = pay.guard.reference(journalKey)?.toLowerCase() ?? null;
     const result = await pay.takeOffer(offer, review.request, {
       quote: review.quote,
       current: () => mounted.current && reviewToken.current === token,
     });
     if (!mounted.current) return;
     if (result.ok) {
-      // The order exists. Take the customer to it; the form stays locked so a second click can't place another.
-      goToOrder(result.data);
+      // The order exists. Open it, unless it is an older order or is priced differently from the review: say so first.
+      // The form stays locked so a second click can't place another.
+      const why =
+        earlier && result.data.id.toLowerCase() === earlier ? 'earlier' : tradeMovedFromQuote(result.data, review.quote) ? 'moved' : null;
+      if (!why) {
+        goToOrder(result.data);
+        return;
+      }
+      placedQuotePrice.current = review.quote.price;
+      closeReview();
+      setPlaced({ trade: result.data, why });
       return;
     }
     setBusy(false);
@@ -256,12 +276,41 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     if (!mounted.current) return;
     setChecking(false);
     if (result.ok) {
-      goToOrder(result.data);
+      setPlaced({ trade: result.data, why: 'earlier' });
       return;
     }
     setChecked(result);
     notify((value) => value + 1);
   }
+
+  if (placed)
+    return (
+      <section
+        className="p2p-take"
+        aria-label={t('takeTitle')}
+        lang={languageFor('takeFound')}
+        dir={directionFor('takeFound')}
+        data-testid="take-placed"
+      >
+        <h3>{t('takeTitle')}</h3>
+        <div className="failure" role="status" data-why={placed.why}>
+          <p>
+            {placed.why === 'earlier'
+              ? t('takeFound')
+              : t('takePriceMoved', {
+                  price: displayAmount(placed.trade.price),
+                  fiat: offer.fiatCurrency,
+                  asset: offer.asset,
+                  total: displayAmount(placed.trade.fiatAmount),
+                  reviewed: displayAmount(placedQuotePrice.current ?? placed.trade.price),
+                })}
+          </p>
+          <Button variant="primary" onClick={() => goToOrder(placed.trade)} data-testid="take-open-order">
+            {t('takeOpenOrder')}
+          </Button>
+        </div>
+      </section>
+    );
 
   return (
     <section

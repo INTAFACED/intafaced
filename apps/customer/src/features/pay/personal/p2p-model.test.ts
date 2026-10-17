@@ -14,6 +14,7 @@ import {
   takeRefusalIsDefinite,
   takeRequest,
   takerRole,
+  tradeMovedFromQuote,
   tradeMatchesTake,
   disputeStages,
   emptyOffer,
@@ -358,9 +359,21 @@ describe('taking an offer', () => {
     expect(takeFailureKind({ reason: 'error', code: 'p2p.release_unpostable' })).toBe('tooSmall');
     expect(takeFailureKind({ reason: 'invalid_response', code: 'pay.take_quote_changed' })).toBe('quoteChanged');
     expect(takeFailureKind({ reason: 'not_supported', code: 'pay.recovery_journal_unavailable' })).toBe('noRecord');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.kyc_required', status: 403 })).toBe('verify');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.region_blocked', status: 403 })).toBe('region');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.region_unknown', status: 403 })).toBe('region');
+    expect(takeRefusalIsDefinite({ reason: 'forbidden', code: 'denied.kyc_required', status: 403 })).toBe(true);
     expect(takeFailureKind({ reason: 'unauthorized' })).toBe('signIn');
     expect(takeFailureKind({ reason: 'unreachable' })).toBe('noService');
     expect(takeFailureKind({ reason: 'error', code: 'something.new' })).toBe('generic');
+  });
+});
+
+describe('an order priced differently from the review', () => {
+  it('notices a changed price or fiat total, and ignores formatting', () => {
+    expect(tradeMovedFromQuote({ price: '0.92', fiatAmount: '92' }, { price: '0.920', fiatAmount: '92.0' })).toBe(false);
+    expect(tradeMovedFromQuote({ price: '0.93', fiatAmount: '93' }, { price: '0.92', fiatAmount: '92' })).toBe(true);
+    expect(tradeMovedFromQuote({ price: '0.92', fiatAmount: '92.01' }, { price: '0.92', fiatAmount: '92' })).toBe(true);
   });
 });
 

@@ -149,7 +149,7 @@ export const reputationSchema = z
     badges: z.array(z.string()),
     merchant: z.boolean().nullable(),
     /** Public handle from identity. Null or absent when the service has none to give; never guessed. */
-    handle: z.string().min(1).max(64).nullish(),
+    handle: z.string().nullish(),
     memberSince: z.string().nullish(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);

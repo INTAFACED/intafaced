@@ -344,6 +344,8 @@ export type TakeFailure =
   | 'outOfBounds'
   | 'signIn'
   | 'noRecord'
+  | 'verify'
+  | 'region'
   | 'viewChanged'
   | 'noService'
   | 'generic';
@@ -363,6 +365,9 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.trading_disabled',
   'p2p.fee_bps_unset',
   'p2p.invalid_fee_bps',
+  'denied.kyc_required',
+  'denied.region_blocked',
+  'denied.region_unknown',
 ]);
 /** Replies that can follow a reservation or a lock: the order may exist, so these are never "nothing happened". */
 export const OPEN_TAKE_CODES: ReadonlySet<string> = new Set([
@@ -408,6 +413,11 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'unavailable';
     case 'p2p.blocked':
       return 'blocked';
+    case 'denied.kyc_required':
+      return 'verify';
+    case 'denied.region_blocked':
+    case 'denied.region_unknown':
+      return 'region';
     case 'p2p.take_refused':
       return 'methodRefused';
     case 'p2p.release_unpostable':
@@ -428,6 +438,10 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
   if (failure.reason === 'unreachable' || failure.reason === 'not_supported') return 'noService';
   return 'generic';
 }
+
+/** Did the order come back priced differently from the quote the customer reviewed? */
+export const tradeMovedFromQuote = (trade: Pick<Trade, 'price' | 'fiatAmount'>, quote: Pick<TakeQuote, 'price' | 'fiatAmount'>): boolean =>
+  !same(trade.price, quote.price) || !same(trade.fiatAmount, quote.fiatAmount);
 
 // ── Who is on the other side ────────────────────────────────────────────────────────────────────────────────────
 

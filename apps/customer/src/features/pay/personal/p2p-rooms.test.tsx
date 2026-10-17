@@ -134,10 +134,9 @@ it('shows the quote exactly as the service returned it, from the buyer’s side'
     '0.3 USDT (0.3%)',
     'You receive',
     '99.7 USDT',
-    'Reservation ends',
-    '2026-10-18',
   ])
     expect(out).toContain(text);
+  expect(out).not.toContain('Reservation');
 });
 
 it('shows the quote from the seller’s side when the maker is buying', () => {
@@ -147,6 +146,7 @@ it('shows the quote from the seller’s side when the maker is buying', () => {
   expect(out).toContain('Service fee (taken from what the buyer receives)');
   expect(out).toContain('The buyer receives');
   expect(out).toContain('99.7 USDT');
+  expect(out).not.toContain('Reservation');
 });
 
 it('calls an unconfirmed order unconfirmed and shows no service text or code', () => {
@@ -160,6 +160,17 @@ it('calls an unconfirmed order unconfirmed and shows no service text or code', (
   expect(out).toContain('We couldn’t confirm your order');
   expect(out).toContain('Check before trying again');
   expect(out).not.toContain('p2p.');
+  const verify = renderToString(
+    <TakeFailureNote failure={{ ok: false, reason: 'forbidden', message: 'x', code: 'denied.kyc_required' }} context="quote" />,
+  );
+  expect(verify).toContain('Verify your identity to place P2P orders.');
+  expect(verify).toContain('href="/verification"');
+  expect(verify).not.toContain('denied.');
+  const region = renderToString(
+    <TakeFailureNote failure={{ ok: false, reason: 'forbidden', message: 'x', code: 'denied.region_blocked' }} context="quote" />,
+  );
+  expect(region).toContain('aren’t available in your region');
+  expect(region).not.toContain('/verification');
   const refused = { ok: false as const, reason: 'forbidden' as const, message: 'p2p.blocked', code: 'p2p.blocked' };
   const blocked = renderToString(<TakeFailureNote failure={refused} context="take" />);
   expect(blocked).toContain('You can’t place an order with this member.');
@@ -191,6 +202,10 @@ it('names a trader by handle, never by account id, and says what the record retu
   expect(summary).toContain('releases in about 3 min');
   const unnamed = renderToString(<TraderName record={{ ok: true, data: { ...record.data, handle: null } }} />);
   expect(unnamed).toContain('Member');
+  // A maker beyond the board's cap has no record asked for: Member, no spinner, no summary.
+  expect(renderToString(<TraderName record={null} />)).toContain('Member');
+  expect(renderToString(<TraderName record={null} />)).not.toContain('aria-busy');
+  expect(renderToString(<TraderSummary record={null} />)).toBe('');
   expect(renderToString(<TraderSummary record={{ ok: true, data: { ...record.data, tradesTotal: 0, completed: 0 } }} />)).toContain(
     'New trader',
   );
