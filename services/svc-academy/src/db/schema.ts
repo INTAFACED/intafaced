@@ -350,12 +350,44 @@ export const certGrants = academy.table(
     certId: text('cert_id').notNull(),
     grantedAt: tstz('granted_at').notNull().defaultNow(),
     idempotencyKey: text('idempotency_key').notNull(),
+    publicId: text('public_id').notNull(),
+    status: text('status').notNull().default('valid'),
+    holderName: text('holder_name'),
+    holderConsentAt: tstz('holder_consent_at'),
   },
   (t) => [
     uniqueIndex('cert_grants_pk').on(t.userId, t.certId),
     uniqueIndex('cert_grants_idempotency_uq').on(t.idempotencyKey),
+    uniqueIndex('cert_grants_public_id_uq').on(t.publicId),
     index('cert_grants_user_idx').on(t.userId, t.grantedAt),
   ],
+);
+
+export const assessmentAttempts = academy.table(
+  'assessment_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    slug: text('slug').notNull(),
+    clientAttemptId: text('client_attempt_id').notNull(),
+    score: integer('score').notNull(),
+    maxScore: integer('max_score').notNull(),
+    passed: boolean('passed').notNull(),
+    submittedAt: tstz('submitted_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
+);
+
+export const certHolderNameRequests = academy.table(
+  'cert_holder_name_requests',
+  {
+    userId: uuid('user_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    publicId: text('public_id').notNull(),
+    holderName: text('holder_name'),
+    consentAt: tstz('consent_at'),
+  },
+  (t) => [uniqueIndex('cert_holder_name_requests_pk').on(t.userId, t.clientRequestId)],
 );
 
 export const schema = {
@@ -371,6 +403,8 @@ export const schema = {
   certEnrollments,
   certItemCompletions,
   certGrants,
+  assessmentAttempts,
+  certHolderNameRequests,
   learningState,
   learningActiveDays,
   learningTouches,
