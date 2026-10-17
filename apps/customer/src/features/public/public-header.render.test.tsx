@@ -7,7 +7,11 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-const state: { session: { userId: string } | null; restoring: boolean } = { session: null, restoring: false };
+const state: { session: { userId: string } | null; restoring: boolean; restoreFailed: boolean } = {
+  session: null,
+  restoring: false,
+  restoreFailed: false,
+};
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   return { ...real, useSession: () => ({ ...state }) };
@@ -19,6 +23,7 @@ beforeEach(() => {
   vi.stubGlobal('location', { search: '', pathname: '/help', hash: '' });
   state.session = null;
   state.restoring = false;
+  state.restoreFailed = false;
 });
 
 // Every public page in the 2026-10-17 run (/help, /helplist, /helpdetail, /notice, /announcement, /about-us, /invite, /app,
@@ -51,6 +56,14 @@ describe('public header follows the session', () => {
     const html = renderToString(<PublicHeader path="/help" />);
     expect(html).not.toContain('Sign in');
     expect(html).not.toContain('Open your account');
+  });
+
+  it('points to the account, where Retry lives, when the session check could not reach the service', () => {
+    state.restoreFailed = true;
+    const html = renderToString(<PublicHeader path="/help" />);
+    expect(html).toContain('href="/home"');
+    expect(html).toContain('Open your account');
+    expect(html).not.toContain('Sign in');
   });
 
   it('keeps Create account on the sign-in page for a signed-out visitor', () => {

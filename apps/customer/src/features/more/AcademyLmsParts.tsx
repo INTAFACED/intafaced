@@ -20,7 +20,15 @@ export const pathLabel = (t: (typeof copy)['t'], path: AcademyPath) => t(pathKey
 export function ProgressBar({ percent, label }: { percent: number; label: string }) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   return (
-    <div className="academy-lms-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value} aria-label={label}>
+    <div
+      className="academy-lms-bar"
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value}
+      aria-valuetext={`${value}%`}
+      aria-label={label}
+    >
       <span style={{ width: `${value}%` }} />
     </div>
   );

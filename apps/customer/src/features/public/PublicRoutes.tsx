@@ -22,7 +22,7 @@ function Brand() {
 /** The public header follows the session: a signed-in visitor gets a way back into the app, a signed-out one gets Sign in. */
 export function PublicHeader({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
-  const { session, restoring } = useSession();
+  const { session, restoring, restoreFailed } = useSession();
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
   const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
   return (
@@ -33,7 +33,8 @@ export function PublicHeader({ path }: { path: string }) {
         <a href="/help">{t('Help')}</a>
         <a href="/about-us">{t('About')}</a>
       </nav>
-      {session ? (
+      {session || restoreFailed ? (
+        // When the service did not answer, /home is where the Retry screen lives; Sign in would wrongly say the person is signed out.
         <a href="/home" className="public-signin" data-session="signed-in">
           {t('Open your account')} <span aria-hidden="true">↗</span>
         </a>

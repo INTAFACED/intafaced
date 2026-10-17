@@ -8,11 +8,12 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { ProgressBar } from './AcademyLmsParts';
+import { academyLmsCopy } from './academy-lms-copy';
 
 describe('Academy progress bar', () => {
   // The 2026-10-17 browser run called /academy and the lesson reader "still loading after 20 s". Every Academy read had
   // settled; the one "busy" element was a finished 4-of-7 bar carrying role="progressbar".
-  const html = renderToString(<ProgressBar percent={57.14} label="Foundations: 4 of 7 lessons recorded" />);
+  const html = renderToString(<ProgressBar percent={57.14} label={academyLmsCopy.t('progressLabel', { path: 'Foundations' })} />);
 
   it('is a settled meter, never a progressbar that reads as work still in flight', () => {
     expect(html).toContain('role="meter"');
@@ -20,7 +21,8 @@ describe('Academy progress bar', () => {
     expect(html).toContain('aria-valuenow="57"');
     expect(html).toContain('aria-valuemin="0"');
     expect(html).toContain('aria-valuemax="100"');
-    expect(html).toContain('aria-label="Foundations: 4 of 7 lessons recorded"');
+    expect(html).toContain('aria-valuetext="57%"');
+    expect(html).toContain('aria-label="Progress in Foundations"');
   });
 
   it('carries no loading class or busy flag', () => {
