@@ -25,7 +25,9 @@ import { P2POrder } from './P2POrder';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
-import { DisputeProgress, EscrowPath, OrderChat, OrderFilterTabs } from './personal/P2PDepth';
+import { DisputeProgress, EscrowPath, OrderFilterTabs, TradeStatus } from './personal/P2PDepth';
+import { OrderChat } from './personal/OrderChat';
+import { UnreadBadge, useUnreadCounts } from './personal/Unread';
 import { OfferForm } from './personal/OfferForm';
 import { filterOrders, orderCounts, type OrderFilter } from './personal/p2p-model';
 import { p2pDepth } from './personal/p2p-depth-copy';
@@ -247,52 +249,55 @@ function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null
             <>
               <OrderFilterTabs value={bucket} counts={orderCounts(all)} onChange={setBucket} />
               {rows.length === 0 ? <p className="muted">{p2pDepth.t('ordersNone')}</p> : null}
-              <DataTable
-                headers={[
-                  payCopy.t('order'),
-                  payCopy.t('you'),
-                  payCopy.t('assetQuantity'),
-                  payCopy.t('externalPayment'),
-                  payCopy.t('status'),
-                  '',
-                ]}
-                label={payCopy.t('yourP2pOrders')}
-              >
-                {rows.map((trade) => (
-                  <tr key={trade.id}>
-                    <td>
-                      {trade.id.slice(0, 8)}
-                      <small className="pay-cell-note">
-                        <PayTime value={trade.createdAt} />
-                      </small>
-                    </td>
-                    <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
-                    <td className="numeric">
-                      {displayAmount(trade.amount)} {trade.asset}
-                    </td>
-                    <td className="numeric">
-                      {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
-                    </td>
-                    <td>
-                      <Status value={trade.status} />
-                      <small className="pay-cell-note">
-                        {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
-                      </small>
-                    </td>
-                    <td>
-                      <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
-                        <PayCopy k="open2" />
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </DataTable>
+              <OrderRows pay={pay} userId={userId} rows={rows} />
               <PayPagination count={all.length} limit={limit} setLimit={setLimit} />
             </>
           );
         }}
       </PayState>
     </PaySection>
+  );
+}
+function OrderRows({ pay, userId, rows }: { pay: PersonalPayApi; userId: string | null; rows: Trade[] }) {
+  const unread = useUnreadCounts(
+    pay,
+    rows.map((trade) => trade.id),
+  );
+  return (
+    <DataTable
+      headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), payCopy.t('status'), '']}
+      label={payCopy.t('yourP2pOrders')}
+    >
+      {rows.map((trade) => (
+        <tr key={trade.id}>
+          <td>
+            {trade.id.slice(0, 8)}
+            <small className="pay-cell-note">
+              <PayTime value={trade.createdAt} />
+            </small>
+          </td>
+          <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
+          <td className="numeric">
+            {displayAmount(trade.amount)} {trade.asset}
+          </td>
+          <td className="numeric">
+            {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
+          </td>
+          <td>
+            <TradeStatus status={trade.status} />
+            <small className="pay-cell-note">
+              {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
+            </small>
+          </td>
+          <td>
+            <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
+              <PayCopy k="open2" />
+            </a>{' '}
+            <UnreadBadge count={unread[trade.id]} />
+          </td>
+        </tr>
+      ))}
+    </DataTable>
   );
 }
 function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
@@ -308,7 +313,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         <>
           <EscrowPath trade={trade} userId={userId} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
-          <OrderChat />
+          <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
         </>
       )}

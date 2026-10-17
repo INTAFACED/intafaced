@@ -28,6 +28,15 @@ const en = {
   releaseTo: 'Release to',
   gross: 'Escrow release quantity (gross)',
   releaseTerms: 'The fee and the net amount the buyer receives aren’t shown here. Releasing follows the order’s settlement terms.',
+  resultTitle: 'Result',
+  youReceived: 'You received',
+  youSent: 'You sent',
+  youPaidExternal: 'You paid (external payment)',
+  youReceivedExternal: 'You received (external payment)',
+  receivedValue: '{amount} {asset} released from escrow, before any service fee',
+  sentValue: '{amount} {asset} released to the buyer',
+  serviceFee: 'Service fee',
+  serviceFeeValue: 'Not on the order record. The quote you reviewed before ordering showed it.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -59,6 +68,15 @@ const es = {
   gross: 'Cantidad bruta que se libera del depósito',
   releaseTerms:
     'Aquí no se muestran la comisión ni el importe neto que recibe el comprador. La liberación sigue las condiciones de liquidación de la orden.',
+  resultTitle: 'Resultado',
+  youReceived: 'Recibiste',
+  youSent: 'Enviaste',
+  youPaidExternal: 'Pagaste (pago externo)',
+  youReceivedExternal: 'Recibiste (pago externo)',
+  receivedValue: '{amount} {asset} liberados del depósito, antes de cualquier comisión del servicio',
+  sentValue: '{amount} {asset} liberados al comprador',
+  serviceFee: 'Comisión del servicio',
+  serviceFeeValue: 'No figura en el registro del pedido. La cotización que revisaste antes de pedir la mostraba.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -90,5 +108,14 @@ const fr = {
   gross: 'Quantité brute libérée du séquestre',
   releaseTerms:
     'Les frais et le montant net reçu par l’acheteur ne sont pas affichés ici. La libération suit les conditions de règlement de la commande.',
+  resultTitle: 'Résultat',
+  youReceived: 'Vous avez reçu',
+  youSent: 'Vous avez envoyé',
+  youPaidExternal: 'Vous avez payé (paiement externe)',
+  youReceivedExternal: 'Vous avez reçu (paiement externe)',
+  receivedValue: '{amount} {asset} libérés du séquestre, avant tout frais de service',
+  sentValue: '{amount} {asset} libérés à l’acheteur',
+  serviceFee: 'Frais de service',
+  serviceFeeValue: 'Absents du dossier de la commande. Le devis que vous avez examiné avant de commander les indiquait.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

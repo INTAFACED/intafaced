@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
-import { PayDetails, PaySection } from '../components';
+import { PayDetails } from '../components';
+import { StatusTag } from '@intafaced/ui';
 import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
@@ -23,6 +23,23 @@ const ACTION_KEY = {
   dispute: 'actionDispute',
 } as const satisfies Record<OrderAction, string>;
 
+const STATUS_KEY = {
+  created: 'statusCreated',
+  escrowed: 'statusEscrowed',
+  fiat_sent: 'statusFiatSent',
+  released: 'statusReleased',
+  cancelled: 'statusCancelled',
+  disputed: 'statusDisputed',
+} as const satisfies Record<Trade['status'], string>;
+
+/** An order's status in words a person uses, never the machine value. */
+export function TradeStatus({ status }: { status: Trade['status'] }) {
+  const { t } = p2pDepth.useCopy();
+  return (
+    <StatusTag status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : 'working'} label={t(STATUS_KEY[status])} />
+  );
+}
+
 /** The escrow path of one order: where it is, whose turn it is, what can be done now, and the deadline. */
 export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | null }) {
   const { t, languageFor, directionFor } = p2pDepth.useCopy();
@@ -44,11 +61,23 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
             : view.outcome === 'cancelled'
               ? t('closedCancelled')
               : t('stepClosed');
+  const stepNow = (id: StepId) => view.steps.find((step) => step.id === id)?.state === 'current';
+  // The step in progress says what is being waited for, not the name of a step that has not happened.
   const labels: Record<StepId, string> = {
     created: t('stepCreated'),
     escrowed: t('stepEscrowed'),
-    fiat_sent: t('stepFiatSent'),
-    closed: closedLabel,
+    fiat_sent:
+      stepNow('fiat_sent') && view.outcome === 'open'
+        ? view.role === 'buyer'
+          ? t('stepWaitPaidYou')
+          : t('stepWaitPaid')
+        : t('stepFiatSent'),
+    closed:
+      stepNow('closed') && view.outcome === 'open'
+        ? view.role === 'seller'
+          ? t('stepWaitReleaseYou')
+          : t('stepWaitRelease')
+        : closedLabel,
   };
   const stateLabel = (state: StepState) =>
     state === 'done' ? t('stateDone') : state === 'current' ? t('stateCurrent') : state === 'unknown' ? t('stateUnknown') : '';
@@ -146,33 +175,6 @@ export function DisputeProgress({
       </ol>
       {dispute.overdue && dispute.status === 'open' ? <p className="muted">{t('disputeOverdue')}</p> : null}
     </div>
-  );
-}
-
-/** The order conversation. Every control is shown; none can send, because no chat service is connected. */
-export function OrderChat() {
-  const { t } = p2pDepth.useCopy();
-  return (
-    <PaySection title={t('chatLabel')}>
-      <div className="p2p-chat" data-testid="order-chat">
-        <P2PReason title={t('chatReasonTitle')}>{t('chatReasonBody')}</P2PReason>
-        <div className="p2p-chat-thread" role="log" aria-label={t('chatLabel')}>
-          {t('chatEmpty')}
-        </div>
-        <form className="p2p-chat-compose" onSubmit={(event) => event.preventDefault()}>
-          <fieldset disabled style={{ display: 'contents' }}>
-            <label className="field" style={{ flex: 1 }}>
-              <span>{t('chatLabel')}</span>
-              <textarea placeholder={t('chatPlaceholder')} rows={2} />
-            </label>
-            <Button type="submit" variant="primary" disabled>
-              {t('chatSend')}
-            </Button>
-          </fieldset>
-        </form>
-        <p className="muted">{t('chatSendOff')}</p>
-      </div>
-    </PaySection>
   );
 }
 

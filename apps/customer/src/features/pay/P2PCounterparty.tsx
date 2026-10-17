@@ -9,6 +9,7 @@ import { counterpartyCopy } from './p2p-counterparty-copy';
 import { ordinaryClick, p2pReturn, useCurrentNavigation } from './p2p-return';
 import './p2p-counterparty.css';
 import { p2pDepth } from './personal/p2p-depth-copy';
+import { ContactActions } from './personal/ContactActions';
 import './personal/p2p-depth.css';
 
 /** "@handle" when identity gave one, otherwise "Member". Never the account id, in full or short. */
@@ -18,7 +19,15 @@ export function CounterpartyName({ resource }: { resource: ReturnType<typeof use
   const handle = resource.status === 'ready' ? resource.data.handle : null;
   return (
     <p className="p2p-counterparty-id" data-testid="counterparty-name">
-      {handle ? <span lang="zxx">{`@${handle}`}</span> : t('member')}
+      {handle ? (
+        <span lang="zxx">{`@${handle}`}</span>
+      ) : resource.status === 'ready' ? (
+        <>
+          <span aria-hidden="true">—</span> <small className="muted">{p2pDepth.t('traderNoHandle')}</small>
+        </>
+      ) : (
+        t('member')
+      )}
     </p>
   );
 }
@@ -184,16 +193,8 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
           <a className="button button--secondary" href={`/p2p?makerId=${encodeURIComponent(userId)}`}>
             {p2pDepth.t('cpTheirOffers')}
           </a>
-          <Button variant="secondary" disabled aria-describedby="cp-reason">
-            {p2pDepth.t('cpFollow')}
-          </Button>
-          <Button variant="secondary" disabled aria-describedby="cp-reason">
-            {p2pDepth.t('cpBlock')}
-          </Button>
         </div>
-        <p className="muted" id="cp-reason">
-          {p2pDepth.t('cpReason')}
-        </p>
+        <ContactActions pay={pay} peerId={userId} />
       </PaySection>
     </div>
   );
