@@ -128,7 +128,7 @@ export const centreCopy = defineCopy('notifications-centre', {
   refusalNoTarget: 'You have no address saved for it.',
   refusalUnverified: 'The saved address has not been confirmed.',
   refusalUnroutable: 'The saved address cannot be used. Change it to one that works.',
-  refusalDisabled: 'Sending outside the app is switched off for now. The inbox still gets everything.',
+  refusalDisabled: 'Sending outside the app is switched off. The inbox still gets everything.',
   refusalMuted: 'You paused this way of reaching you.',
   refusalExhausted: 'We tried several times and stopped.',
   refusalRejected: 'The provider refused the message.',

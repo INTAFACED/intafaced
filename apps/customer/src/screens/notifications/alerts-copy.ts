@@ -8,9 +8,10 @@ const en = {
   businessNote: 'Price alerts belong to your personal account. Switch to your personal account to use them.',
   // What the platform can do right now
   evalReady: 'Price checks are connected. An alert triggers once, the first time the price reaches your level.',
-  evalDark: 'Price checks are not connected on this platform. You can save an alert, but none will trigger until they are.',
+  evalDark:
+    'Price checks are not connected on this platform. You can save an alert, but none can trigger while price checks are not connected.',
   evalNoDelivery:
-    'Price checks are connected, but alerts cannot be delivered. You can save an alert, but none will trigger until they can.',
+    'Price checks are connected, but alerts cannot be delivered. You can save an alert, but none can trigger while alerts cannot be delivered.',
   // New alert
   newTitle: 'New alert',
   marketLabel: 'Market',
@@ -107,9 +108,9 @@ const es = {
   businessNote: 'Las alertas de precio pertenecen a tu cuenta personal. Cambia a tu cuenta personal para usarlas.',
   evalReady: 'Las comprobaciones de precio están conectadas. Una alerta se activa una vez, la primera vez que el precio llegue a tu nivel.',
   evalDark:
-    'Las comprobaciones de precio no están conectadas en esta plataforma. Puedes guardar una alerta, pero ninguna se activará hasta que lo estén.',
+    'Las comprobaciones de precio no están conectadas en esta plataforma. Puedes guardar una alerta, pero ninguna puede activarse mientras las comprobaciones de precio no estén conectadas.',
   evalNoDelivery:
-    'Las comprobaciones de precio están conectadas, pero no se pueden entregar alertas. Puedes guardar una alerta, pero ninguna se activará hasta que se puedan entregar.',
+    'Las comprobaciones de precio están conectadas, pero no se pueden entregar alertas. Puedes guardar una alerta, pero ninguna puede activarse mientras no se puedan entregar alertas.',
   newTitle: 'Nueva alerta',
   marketLabel: 'Mercado',
   marketPlaceholder: 'Elige un mercado',
@@ -202,9 +203,9 @@ const fr = {
   businessNote: 'Les alertes de prix appartiennent à votre compte personnel. Passez à votre compte personnel pour les utiliser.',
   evalReady: 'Les contrôles de prix sont connectés. Une alerte se déclenche une fois, la première fois que le prix atteint votre niveau.',
   evalDark:
-    'Les contrôles de prix ne sont pas connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne se déclenchera avant.',
+    'Les contrôles de prix ne sont pas connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher tant que les contrôles de prix ne sont pas connectés.',
   evalNoDelivery:
-    'Les contrôles de prix sont connectés, mais les alertes ne peuvent pas être livrées. Vous pouvez enregistrer une alerte, mais aucune ne se déclenchera avant.',
+    'Les contrôles de prix sont connectés, mais les alertes ne peuvent pas être livrées. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher tant que les alertes ne peuvent pas être livrées.',
   newTitle: 'Nouvelle alerte',
   marketLabel: 'Marché',
   marketPlaceholder: 'Choisissez un marché',

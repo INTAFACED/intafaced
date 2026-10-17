@@ -26,7 +26,7 @@ const en = {
   methodWallet: 'Apple Pay or Google Pay',
   addGetQuote: 'Get a quote',
   addReason:
-    'Adding money by card or bank transfer needs a payment partner, and none is connected. Nothing is charged and no rate is shown until one is.',
+    'Adding money by card or bank transfer needs a payment partner, and none is connected. Nothing is charged and no rate is shown.',
   addNoAssets: 'Pick an asset to receive once you hold one.',
   outTitle: 'Cash out',
   outLead: 'Send crypto from your balance to a wallet you control.',
@@ -80,7 +80,7 @@ const es = {
   methodWallet: 'Apple Pay o Google Pay',
   addGetQuote: 'Obtener cotización',
   addReason:
-    'Añadir dinero con tarjeta o transferencia necesita un socio de pagos, y no hay ninguno conectado. No se cobra nada ni se muestra ningún tipo de cambio hasta entonces.',
+    'Añadir dinero con tarjeta o transferencia necesita un socio de pagos, y no hay ninguno conectado. No se cobra nada ni se muestra ningún tipo de cambio.',
   addNoAssets: 'Elige un activo para recibir cuando tengas uno.',
   outTitle: 'Retirar',
   outLead: 'Envía cripto de tu saldo a una cartera que controlas.',
@@ -134,7 +134,7 @@ const fr = {
   methodWallet: 'Apple Pay ou Google Pay',
   addGetQuote: 'Obtenir un devis',
   addReason:
-    'Ajouter de l’argent par carte ou virement demande un partenaire de paiement, et aucun n’est connecté. Rien n’est débité et aucun taux n’est affiché d’ici là.',
+    'Ajouter de l’argent par carte ou virement demande un partenaire de paiement, et aucun n’est connecté. Rien n’est débité et aucun taux n’est affiché.',
   addNoAssets: 'Choisissez un actif à recevoir dès que vous en détenez un.',
   outTitle: 'Retirer',
   outLead: 'Envoyez des cryptos de votre solde vers un portefeuille que vous contrôlez.',

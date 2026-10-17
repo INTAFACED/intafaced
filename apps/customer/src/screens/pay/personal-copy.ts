@@ -86,7 +86,7 @@ const en = {
   // Bills
   billsReasonTitle: 'Bill pay isn’t connected',
   billsReasonBody:
-    'No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps you will see once it is.',
+    'No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. This is how bill pay works on INTAFACED; the bill service isn’t connected here, so none of these steps can start.',
   stepBiller: 'Choose a biller',
   stepReference: 'Enter the bill reference',
   stepAmount: 'Enter the amount',
@@ -110,7 +110,7 @@ const en = {
   // Global
   globalReasonTitle: 'Sending abroad isn’t connected',
   globalReasonBody:
-    'No international payment provider or exchange-rate source is connected, so we can’t check a bank account, quote a rate or send. We never estimate a rate. These are the steps you will see once it is.',
+    'No international payment provider or exchange-rate source is connected, so we can’t check a bank account, quote a rate or send. We never estimate a rate. This is how sending abroad works on INTAFACED; the payment provider isn’t connected here, so none of these steps can start.',
   globalStepDestination: 'Choose where it goes',
   globalStepRecipient: 'Add the recipient’s bank details',
   globalStepAmount: 'Enter what you send',
@@ -217,7 +217,7 @@ const es = {
   reqActivity: 'Ver actividad',
   billsReasonTitle: 'El pago de facturas no está conectado',
   billsReasonBody:
-    'No hay una red de emisores ni un servicio de pago de facturas conectado, así que no hay emisores que buscar y no se puede pagar ninguna factura. Nada de esto es un ejemplo: son los pasos que verás cuando lo esté.',
+    'No hay una red de emisores ni un servicio de pago de facturas conectado, así que no hay emisores que buscar y no se puede pagar ninguna factura. Nada de esto es un ejemplo: así funciona el pago de facturas en INTAFACED; el servicio de facturas no está conectado aquí, así que ninguno de estos pasos puede empezar.',
   stepBiller: 'Elige un emisor',
   stepReference: 'Introduce la referencia de la factura',
   stepAmount: 'Introduce el importe',
@@ -240,7 +240,7 @@ const es = {
   statusPaid: 'Pagada',
   globalReasonTitle: 'El envío al extranjero no está conectado',
   globalReasonBody:
-    'No hay un proveedor de pagos internacionales ni una fuente de tipos de cambio conectados, así que no podemos comprobar una cuenta bancaria, cotizar un tipo ni enviar. Nunca estimamos un tipo de cambio. Estos son los pasos que verás cuando lo esté.',
+    'No hay un proveedor de pagos internacionales ni una fuente de tipos de cambio conectados, así que no podemos comprobar una cuenta bancaria, cotizar un tipo ni enviar. Nunca estimamos un tipo de cambio. Así funciona el envío al extranjero en INTAFACED; el proveedor de pagos no está conectado aquí, así que ninguno de estos pasos puede empezar.',
   globalStepDestination: 'Elige el destino',
   globalStepRecipient: 'Añade los datos bancarios del destinatario',
   globalStepAmount: 'Introduce lo que envías',
@@ -347,7 +347,7 @@ const fr = {
   reqActivity: 'Voir l’activité',
   billsReasonTitle: 'Le paiement de factures n’est pas connecté',
   billsReasonBody:
-    'Aucun réseau de facturiers ni service de paiement de factures n’est connecté : il n’y a donc aucun facturier à rechercher et aucune facture ne peut être payée. Rien ici n’est un exemple : ce sont les étapes que vous verrez une fois qu’il le sera.',
+    'Aucun réseau de facturiers ni service de paiement de factures n’est connecté : il n’y a donc aucun facturier à rechercher et aucune facture ne peut être payée. Rien ici n’est un exemple : voici comment fonctionne le paiement de factures sur INTAFACED ; le service de factures n’est pas connecté ici, donc aucune de ces étapes ne peut démarrer.',
   stepBiller: 'Choisir un facturier',
   stepReference: 'Saisir la référence de la facture',
   stepAmount: 'Saisir le montant',
@@ -370,7 +370,7 @@ const fr = {
   statusPaid: 'Payée',
   globalReasonTitle: 'L’envoi à l’étranger n’est pas connecté',
   globalReasonBody:
-    'Aucun prestataire de paiement international ni source de taux de change n’est connecté : nous ne pouvons donc ni vérifier un compte bancaire, ni proposer un taux, ni envoyer. Nous n’estimons jamais un taux. Ce sont les étapes que vous verrez une fois qu’il le sera.',
+    'Aucun prestataire de paiement international ni source de taux de change n’est connecté : nous ne pouvons donc ni vérifier un compte bancaire, ni proposer un taux, ni envoyer. Nous n’estimons jamais un taux. Voici comment fonctionne l’envoi à l’étranger sur INTAFACED ; le prestataire de paiement n’est pas connecté ici, donc aucune de ces étapes ne peut démarrer.',
   globalStepDestination: 'Choisir la destination',
   globalStepRecipient: 'Ajouter les coordonnées bancaires du bénéficiaire',
   globalStepAmount: 'Saisir ce que vous envoyez',
