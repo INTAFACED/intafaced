@@ -7,6 +7,7 @@ import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel, Tabs } from '../../shared/ui';
+import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import './token-governance.css';
@@ -335,6 +336,7 @@ export function Token() {
                 )}
               </Read>
             </Panel>
+            <TokenHoldings />
           </div>
           <Panel title={copyText('token.staking.asset.identity')}>
             <p role="status">
@@ -524,6 +526,7 @@ export function Token() {
               )}
             </Read>
           </Panel>
+          <EmissionEpoch />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
               <Text k="token.emission.buyback.and.revenue.distribution.windows.are" />
