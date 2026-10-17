@@ -51,7 +51,10 @@ export function ConfirmDialog({
     { label: t('Quantity'), value: `${fmtAmount(quote.qty)} ${quote.baseAsset}` },
     { label: t('Quoted price'), value: `${fmtPrice(quote.quotedPrice, null)} ${quote.quoteAsset}` },
     { label: cost.direction === 'pay' ? t('You pay') : t('You receive'), value },
-    { label: t('Spread cost'), value: cost.spreadCost === null ? null : `${fmtAmount(cost.spreadCost)} ${quote.quoteAsset} (${cost.spreadBps} bps)` },
+    {
+      label: t('Spread cost'),
+      value: cost.spreadCost === null ? null : `${fmtAmount(cost.spreadCost)} ${quote.quoteAsset} (${cost.spreadBps} bps)`,
+    },
     { label: t('Fee'), value: t('Fee zero') },
     { label: t('Counterparty'), value: `${quote.counterparty} · ${quote.counterpartyId}` },
     ...(action === 'accept' ? [{ label: t('Firm until'), value: `${expiresText} · ${countdown.text}` }] : []),

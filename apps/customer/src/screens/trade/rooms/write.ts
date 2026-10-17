@@ -43,7 +43,7 @@ export function useRoomWriter() {
   const inFlight = useRef(false);
 
   const run = useCallback(
-    async <T,>(intent: Intent<T>): Promise<WriteOutcome<T>> => {
+    async <T>(intent: Intent<T>): Promise<WriteOutcome<T>> => {
       if (inFlight.current) return { kind: 'blocked', reason: 'otherTab' };
       inFlight.current = true;
       setBusy(true);
@@ -56,8 +56,7 @@ export function useRoomWriter() {
           (value) => !value.ok && value.reason === 'uncertain',
         );
         if (ran.kind === 'blocked') result = { kind: 'blocked', reason: ran.reason, pending: ran.pending };
-        else if (ran.kind === 'threw')
-          result = { kind: 'uncertain', id: intent.id, words: roomWords({ reason: 'uncertain' }) };
+        else if (ran.kind === 'threw') result = { kind: 'uncertain', id: intent.id, words: roomWords({ reason: 'uncertain' }) };
         else if (ran.value.ok) result = { kind: 'done', data: ran.value.data };
         else if (ran.value.reason === 'uncertain') result = { kind: 'uncertain', id: intent.id, words: roomWords(ran.value) };
         else result = { kind: 'refused', words: roomWords(ran.value) };

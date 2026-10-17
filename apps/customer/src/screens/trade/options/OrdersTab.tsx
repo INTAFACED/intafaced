@@ -105,7 +105,7 @@ export function OrdersTab({
         note(order.id, t('Cancel blocked'));
         break;
       } else {
-        note(order.id, outcome.words.body);
+        if (outcome.kind === 'uncertain') note(order.id, outcome.words.body);
         break;
       }
     }
@@ -126,7 +126,8 @@ export function OrdersTab({
 
   const stateOf = (o: Order) => {
     if (o.recoveryRequired) return <Badge tone="warn">{t('Needs recovery')}</Badge>;
-    if (o.status === 'open') return <Badge tone="lime">{dec(o.filled) !== null && o.filled !== '0' ? t('Partly filled') : t('Open')}</Badge>;
+    if (o.status === 'open')
+      return <Badge tone="lime">{dec(o.filled) !== null && o.filled !== '0' ? t('Partly filled') : t('Open')}</Badge>;
     const word = { closed: t('Filled'), canceled: t('Cancelled'), expired: t('Expired'), rejected: t('Rejected') }[o.status];
     return <Badge>{word ?? o.status}</Badge>;
   };
@@ -135,7 +136,13 @@ export function OrdersTab({
     { id: 'symbol', header: t('Contract'), value: (o) => o.symbol, cell: (o) => <span className="font-mono">{o.symbol}</span> },
     { id: 'side', header: t('Side'), cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
     { id: 'type', header: t('Type'), cell: () => t('Limit') },
-    { id: 'price', header: t('Price'), numeric: true, value: (o) => o.price, cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price) },
+    {
+      id: 'price',
+      header: t('Price'),
+      numeric: true,
+      value: (o) => o.price,
+      cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price),
+    },
     { id: 'size', header: t('Size'), numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
     { id: 'filled', header: t('Filled'), numeric: true, value: (o) => o.filled, cell: (o) => fmtAmount(o.filled, { places: 8 }) },
     { id: 'state', header: t('State'), cell: stateOf },
@@ -156,7 +163,13 @@ export function OrdersTab({
               {t('Check status')}
             </Button>
           ) : null}
-          <Button variant="secondary" size={28} disabled={writer.busy} aria-label={t('Cancel order label', { contract: o.symbol })} onClick={() => setCancelling(o)}>
+          <Button
+            variant="secondary"
+            size={28}
+            disabled={writer.busy}
+            aria-label={t('Cancel order label', { contract: o.symbol })}
+            onClick={() => setCancelling(o)}
+          >
             {t('Cancel')}
           </Button>
         </span>
@@ -211,7 +224,9 @@ export function OrdersTab({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('Cancel all title')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {t('Cancel all body', { count: String(open.status === 'ready' ? open.data.length : 0) })}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="secondary" size={40} type="button" />}>{t('Keep order')}</AlertDialogClose>

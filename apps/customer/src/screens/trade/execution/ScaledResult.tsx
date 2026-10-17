@@ -124,7 +124,13 @@ export function ScaledResult({
       header: t('On the book'),
       cell: (l) => (found === null ? null : l.order ? t(`Row ${l.order.status === 'open' ? 'open' : 'closed'}`) : t('Not found')),
     },
-    { id: 'detail', header: t('Detail'), width: 320, cell: (l) => <span className="whitespace-normal break-words">{l.detail ?? '—'}</span>, value: (l) => l.detail },
+    {
+      id: 'detail',
+      header: t('Detail'),
+      width: 320,
+      cell: (l) => <span className="whitespace-normal break-words">{l.detail ?? '—'}</span>,
+      value: (l) => l.detail,
+    },
     {
       id: 'cancel',
       header: t('Cancel result'),

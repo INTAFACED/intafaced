@@ -145,7 +145,8 @@ export function createRoomApi(api: ApiClient) {
       ),
     optionsPolicy: (signal?: AbortSignal) => api.query('trade', 'options.policy', undefined, optionsPolicySchema, { signal }),
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listedMarketSchema), { query: { limit: 500 }, signal }),
-    greeks: (input: GreeksInput, signal?: AbortSignal) => api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
+    greeks: (input: GreeksInput, signal?: AbortSignal) =>
+      api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),
     placeBatch: (orders: BatchOrder[]) => api.rest('/orders/batch', batchSchema, { method: 'POST', body: { orders } }),
   };
 }

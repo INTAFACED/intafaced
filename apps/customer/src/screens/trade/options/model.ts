@@ -114,13 +114,13 @@ export function analyse(legs: readonly Leg[], multiplier = '1'): Analysis | null
     const nextX = knots[i + 1];
     const nextY = values[i + 1];
     if (nextX === undefined || nextY === undefined || y === ZERO || nextY === ZERO) return;
-    if ((y < ZERO) === (nextY < ZERO)) return;
+    if (y < ZERO === nextY < ZERO) return;
     const walk = ratio(times(sub(ZERO, y), sub(nextX, x)), sub(nextY, y));
     note(walk === null ? null : add(x, walk));
   });
   const lastY = values[values.length - 1]!;
   const lastX = knots[knots.length - 1]!;
-  if (slope !== ZERO && lastY !== ZERO && (lastY < ZERO) !== (slope < ZERO)) {
+  if (slope !== ZERO && lastY !== ZERO && lastY < ZERO !== slope < ZERO) {
     const walk = ratio(sub(ZERO, lastY), slope);
     note(walk === null ? null : add(lastX, walk));
   }
@@ -167,7 +167,15 @@ export function chartGeometry(rows: readonly PayoffRow[], width = 1000, height =
 }
 
 export type PresetId = 'longCall' | 'longPut' | 'straddle' | 'strangle' | 'bullCallSpread' | 'bearPutSpread' | 'ironCondor';
-export const PRESET_IDS: readonly PresetId[] = ['longCall', 'longPut', 'straddle', 'strangle', 'bullCallSpread', 'bearPutSpread', 'ironCondor'];
+export const PRESET_IDS: readonly PresetId[] = [
+  'longCall',
+  'longPut',
+  'straddle',
+  'strangle',
+  'bullCallSpread',
+  'bearPutSpread',
+  'ironCondor',
+];
 
 /**
  * A preset only fills in the shape (sides, rights, strikes, quantity 1). Prices stay empty: they are the person's own.
@@ -188,11 +196,28 @@ export function buildPreset(id: PresetId, centre: string, step: string): Leg[] |
   const shapes: Record<PresetId, Array<[Side, Right, number]>> = {
     longCall: [['buy', 'call', 0]],
     longPut: [['buy', 'put', 0]],
-    straddle: [['buy', 'call', 0], ['buy', 'put', 0]],
-    strangle: [['buy', 'put', -1], ['buy', 'call', 1]],
-    bullCallSpread: [['buy', 'call', 0], ['sell', 'call', 1]],
-    bearPutSpread: [['buy', 'put', 0], ['sell', 'put', -1]],
-    ironCondor: [['buy', 'put', -2], ['sell', 'put', -1], ['sell', 'call', 1], ['buy', 'call', 2]],
+    straddle: [
+      ['buy', 'call', 0],
+      ['buy', 'put', 0],
+    ],
+    strangle: [
+      ['buy', 'put', -1],
+      ['buy', 'call', 1],
+    ],
+    bullCallSpread: [
+      ['buy', 'call', 0],
+      ['sell', 'call', 1],
+    ],
+    bearPutSpread: [
+      ['buy', 'put', 0],
+      ['sell', 'put', -1],
+    ],
+    ironCondor: [
+      ['buy', 'put', -2],
+      ['sell', 'put', -1],
+      ['sell', 'call', 1],
+      ['buy', 'call', 2],
+    ],
   };
   const legs = shapes[id].map(([side, right, k]) => make(side, right, k));
   return legs.every((leg): leg is Leg => leg !== null) ? legs : null;
@@ -242,7 +267,9 @@ export function ticketCost(input: TicketInput): TicketCost | null {
     return { premium, direction: 'pay', collateral: null, fee, total: { amount: total, asset: input.quote } };
   }
   const collateral: Amount =
-    input.right === 'call' ? { amount: str(units), asset: input.base } : { amount: str(times(strike, units)), asset: input.settle ?? input.quote };
+    input.right === 'call'
+      ? { amount: str(units), asset: input.base }
+      : { amount: str(times(strike, units)), asset: input.settle ?? input.quote };
   return { premium, direction: 'receive', collateral, fee, total: collateral };
 }
 
@@ -286,8 +313,14 @@ export function ticketBlock(input: BlockInput): TicketBlock | null {
 }
 
 /** What the settlement policy still lacks, as keys the screen words in plain English. */
-export function policyGaps(policy: { settlementAssetLawStamped: boolean; settlementFixingConfigured: boolean }): Array<'settlement' | 'fixing'> {
-  return [...(policy.settlementAssetLawStamped ? [] : (['settlement'] as const)), ...(policy.settlementFixingConfigured ? [] : (['fixing'] as const))];
+export function policyGaps(policy: {
+  settlementAssetLawStamped: boolean;
+  settlementFixingConfigured: boolean;
+}): Array<'settlement' | 'fixing'> {
+  return [
+    ...(policy.settlementAssetLawStamped ? [] : (['settlement'] as const)),
+    ...(policy.settlementFixingConfigured ? [] : (['fixing'] as const)),
+  ];
 }
 
 const DAY = 86_400_000;

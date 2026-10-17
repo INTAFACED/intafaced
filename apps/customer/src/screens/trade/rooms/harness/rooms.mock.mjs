@@ -157,7 +157,10 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
   };
 
   page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => message.type() === 'error' && !/Failed to load resource/.test(message.text()) && errors.push(message.text()));
+  page.on(
+    'console',
+    (message) => message.type() === 'error' && !/Failed to load resource/.test(message.text()) && errors.push(message.text()),
+  );
 
   const send = async (route, result) => {
     if (result === 'abort') return route.abort('connectionreset');
@@ -176,7 +179,10 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
 
     if (path.startsWith('ticker/')) {
       const row = tickers()['BTC/USDT'];
-      return send(route, json({ ...row, symbol: decodeURIComponent(path.slice(7)), last: TEST_LAST, close: TEST_LAST, bid: '59999.9', ask: '60000.1' }));
+      return send(
+        route,
+        json({ ...row, symbol: decodeURIComponent(path.slice(7)), last: TEST_LAST, close: TEST_LAST, bid: '59999.9', ask: '60000.1' }),
+      );
     }
     if (path === 'orders/preview' && method === 'POST' && room === 'options') {
       const market = testChain.find((m) => m.symbol === body.symbol);
@@ -224,7 +230,8 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
     'algo.policy': () => trpcOk(state.schedulerOn ? TEST_POLICY_ON : TEST_POLICY_OFF),
     'algo.createTwap': () => trpcOk(state.algos.get('TEST-algo-running').parent),
     'algo.get': ({ algoId }) => (state.algos.has(algoId) ? trpcOk(state.algos.get(algoId).parent) : trpcRefusal('trade.algo_not_found')),
-    'algo.progress': ({ algoId }) => (state.algos.has(algoId) ? trpcOk(state.algos.get(algoId).progress) : trpcRefusal('trade.algo_not_found')),
+    'algo.progress': ({ algoId }) =>
+      state.algos.has(algoId) ? trpcOk(state.algos.get(algoId).progress) : trpcRefusal('trade.algo_not_found'),
     ...Object.fromEntries(
       [
         ['pause', 'paused'],
@@ -261,7 +268,9 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
       return trpcOk(quoteWith(quoteId, { status: 'bound', lifecycle: 'bound', acceptedAt: bound.acceptedAt, fillPrice: bound.fillPrice }));
     },
     'rfq.expire': ({ quoteId }) =>
-      state.quotes.has(quoteId) ? trpcOk(quoteWith(quoteId, { status: 'expired', lifecycle: 'expired' })) : trpcRefusal('trade.otc_quote_missing'),
+      state.quotes.has(quoteId)
+        ? trpcOk(quoteWith(quoteId, { status: 'expired', lifecycle: 'expired' }))
+        : trpcRefusal('trade.otc_quote_missing'),
     'otc.settle': ({ quoteId }) => {
       if (!state.quotes.has(quoteId)) return trpcRefusal('trade.otc_quote_missing');
       quoteWith(quoteId, { status: 'settled', lifecycle: 'settled', acceptedAt: bound.acceptedAt, fillPrice: bound.fillPrice });

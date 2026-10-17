@@ -5,7 +5,8 @@ import { defineCopy } from '../../../shared/i18n';
 const messages = {
   // Page
   Options: 'Options',
-  'Options description': 'Read the contracts, price a strategy, and place paper option orders. Live option orders are blocked until the settlement rule is published.',
+  'Options description':
+    'Read the contracts, price a strategy, and place paper option orders. Live option orders are blocked until the settlement rule is published.',
   'Tab chain': 'Chain',
   'Tab strategy': 'Strategy builder',
   'Tab orders': 'Orders',
@@ -128,7 +129,8 @@ const messages = {
   Loss: 'Loss',
   'Margin blocker': 'The change in margin and other ways to build this position are not shown: no margin calculator is published yet.',
   Greeks: 'Greeks',
-  'Greeks intro': 'Greeks need a spot price, volatility, time to expiry, rate and yield, which you type. Each leg is priced as one long unit. If the pricing library is not linked, no numbers are shown.',
+  'Greeks intro':
+    'Greeks need a spot price, volatility, time to expiry, rate and yield, which you type. Each leg is priced as one long unit. If the pricing library is not linked, no numbers are shown.',
   'Contract size hint': 'Multiplies every leg',
   'Spot price': 'Spot price',
   Volatility: 'Volatility',
@@ -182,7 +184,8 @@ const messages = {
   'Fee, estimate': 'Fee (estimate)',
   'Held by the service': 'Held by the service',
   'Total to commit': 'Total to commit',
-  'Cost note': 'Premium is price x size x contract size. Full collateral: a sold call holds the underlying, a sold put holds strike x size. A dash means the service did not say.',
+  'Cost note':
+    'Premium is price x size x contract size. Full collateral: a sold call holds the underlying, a sold put holds strike x size. A dash means the service did not say.',
   'Confirm order title': 'Place this order?',
   'Confirm order body': '{kind} order: {side} {size} of {contract} at {price}. Total to commit {total}.',
   'Go back': 'Go back',
@@ -205,7 +208,8 @@ const messages = {
   'Keep order': 'Keep order',
   'Cancel all orders': 'Cancel all open orders',
   'Cancel all title': 'Cancel all open option orders',
-  'Cancel all body': 'Cancels {count} open option orders, one at a time. Each row shows its own answer. Anything already filled stays filled.',
+  'Cancel all body':
+    'Cancels {count} open option orders, one at a time. Each row shows its own answer. Anything already filled stays filled.',
   'Cancel all go': 'Cancel {count} orders',
   'Cancelled row': 'Cancelled',
   'Cancel blocked': 'Another request is in progress. Try again after it finishes.',
@@ -217,7 +221,8 @@ const messages = {
 
   // Positions
   'Positions not published': 'Option positions are not published yet',
-  'Positions blocker': 'There is no way to read your open option positions yet. None are shown, because building them from your fills would invent a position.',
+  'Positions blocker':
+    'There is no way to read your open option positions yet. None are shown, because building them from your fills would invent a position.',
 
   // Settlement
   'Settlement and exercise': 'Settlement and exercise',
@@ -244,7 +249,8 @@ const messages = {
   'Rule call put': 'A call gives the buyer the right to buy the underlying at the strike on expiry. A put gives the right to sell it.',
   'Rule european': 'Options here are European: they are exercised at expiry only, never before.',
   'Rule expiry': 'Each contract expires at the time shown in the chain. After that it cannot be traded.',
-  'Rule collateral': 'Selling needs full collateral: a sold call holds the underlying, a sold put holds the strike times the size. There is no margin loan.',
+  'Rule collateral':
+    'Selling needs full collateral: a sold call holds the underlying, a sold put holds the strike times the size. There is no margin loan.',
   'Rule fees': 'The fee for an order is estimated in the cost block and shown again before you confirm.',
   'Rule paper': 'A paper contract is a practice market. Orders take no hold and never touch your real balance.',
   'Rule live blocked': 'Live option orders are blocked until the settlement asset rule and the settlement price source are published.',

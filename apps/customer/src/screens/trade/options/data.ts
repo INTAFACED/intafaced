@@ -32,7 +32,10 @@ function onlyOptions(load: Loadable<Order[]>, symbols: ReadonlySet<string>): Loa
 }
 
 /** Open and closed orders in option markets. History is only fetched while its tab shows. */
-export function useOptionOrders(symbols: ReadonlySet<string>, historyShown: boolean): { open: Loadable<Order[]>; closed: Loadable<Order[]> } {
+export function useOptionOrders(
+  symbols: ReadonlySet<string>,
+  historyShown: boolean,
+): { open: Loadable<Order[]>; closed: Loadable<Order[]> } {
   const open = useOpenOrders();
   const closed = useClosedOrders(historyShown);
   return useMemo(() => ({ open: onlyOptions(open, symbols), closed: onlyOptions(closed, symbols) }), [open, closed, symbols]);

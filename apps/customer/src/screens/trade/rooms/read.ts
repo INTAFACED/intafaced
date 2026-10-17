@@ -30,7 +30,12 @@ export function useRoomApi(): RoomApi {
 }
 
 /** A public read (no sign-in needed). `enabled` false stops all polling. */
-export function usePublicRead<T>(key: string, load: (signal: AbortSignal) => ReturnType<Fetcher<T>>, intervalMs: number, enabled = true): Loadable<T> {
+export function usePublicRead<T>(
+  key: string,
+  load: (signal: AbortSignal) => ReturnType<Fetcher<T>>,
+  intervalMs: number,
+  enabled = true,
+): Loadable<T> {
   const env = useDataEnv();
   const source = useMemo<Source<T>>(
     () => (enabled ? env.poller.source<T>(key, load, { intervalMs }) : (constantSource(OFF) as Source<T>)),
@@ -42,7 +47,12 @@ export function usePublicRead<T>(key: string, load: (signal: AbortSignal) => Ret
 }
 
 /** A read that needs a signed-in user. Signed out is a typed refusal, never an empty list. */
-export function usePrivateRead<T>(key: string, load: (signal: AbortSignal) => ReturnType<Fetcher<T>>, intervalMs: number, enabled = true): Loadable<T> {
+export function usePrivateRead<T>(
+  key: string,
+  load: (signal: AbortSignal) => ReturnType<Fetcher<T>>,
+  intervalMs: number,
+  enabled = true,
+): Loadable<T> {
   const env = useDataEnv();
   const source = useMemo<Source<T>>(() => {
     if (!env.userId) return constantSource(SIGNED_OUT) as Source<T>;

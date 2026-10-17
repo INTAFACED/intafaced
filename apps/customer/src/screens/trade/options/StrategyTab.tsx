@@ -22,7 +22,8 @@ import { optionsCopy } from './copy';
 import { PayoffChart } from './PayoffChart';
 import { analyse, buildPreset, legIssues, PRESET_IDS, UNLIMITED, type Leg, type LegField, type PayoffRow, type PresetId } from './model';
 
-type GreeksView = { kind: 'ok'; delta: string; gamma: string; vega: string; theta: string; npv: string } | { kind: 'refused'; words: Words };
+type GreeksView =
+  { kind: 'ok'; delta: string; gamma: string; vega: string; theta: string; npv: string } | { kind: 'refused'; words: Words };
 
 const blankLeg = (from: ListedMarket | null): Leg => ({
   side: 'buy',
@@ -34,7 +35,13 @@ const blankLeg = (from: ListedMarket | null): Leg => ({
 
 const places = 6;
 
-export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMarket | null; onGreeksLinked: (linked: boolean | null) => void }) {
+export function StrategyTab({
+  selected,
+  onGreeksLinked,
+}: {
+  selected: ListedMarket | null;
+  onGreeksLinked: (linked: boolean | null) => void;
+}) {
   const { t } = optionsCopy.useCopy();
   const api = useRoomApi();
   const [legs, setLegs] = useState<Leg[]>([]);
@@ -61,13 +68,28 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
   }
 
   const inputsReady =
-    dec(inputs.spot) !== null && dec(inputs.spot)! > 0n && dec(inputs.vol) !== null && dec(inputs.vol)! > 0n && dec(inputs.tte) !== null && dec(inputs.tte)! > 0n && dec(inputs.rate) !== null && dec(inputs.yld) !== null;
+    dec(inputs.spot) !== null &&
+    dec(inputs.spot)! > 0n &&
+    dec(inputs.vol) !== null &&
+    dec(inputs.vol)! > 0n &&
+    dec(inputs.tte) !== null &&
+    dec(inputs.tte)! > 0n &&
+    dec(inputs.rate) !== null &&
+    dec(inputs.yld) !== null;
 
   async function askGreeks() {
     setAsking(true);
     const answers = await Promise.all(
       legs.map((leg) =>
-        api.greeks({ right: leg.right, spot: inputs.spot, strike: leg.strike, volatility: inputs.vol, timeToExpiry: inputs.tte, riskFreeRate: inputs.rate, dividendYield: inputs.yld }),
+        api.greeks({
+          right: leg.right,
+          spot: inputs.spot,
+          strike: leg.strike,
+          volatility: inputs.vol,
+          timeToExpiry: inputs.tte,
+          riskFreeRate: inputs.rate,
+          dividendYield: inputs.yld,
+        }),
       ),
     );
     const views = answers.map((answer): GreeksView => {
@@ -77,7 +99,13 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
       return { kind: 'ok', delta, gamma, vega, theta, npv };
     });
     setGreeks(views);
-    onGreeksLinked(views.some((v) => v.kind === 'ok') ? true : views.some((v) => v.kind === 'refused' && v.words.code?.includes('unlinked')) ? false : null);
+    onGreeksLinked(
+      views.some((v) => v.kind === 'ok')
+        ? true
+        : views.some((v) => v.kind === 'refused' && v.words.code?.includes('unlinked'))
+          ? false
+          : null,
+    );
     setAsking(false);
   }
 
@@ -96,7 +124,11 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
       value: (r) => r.pnl,
       cell: (r) => {
         const v = dec(r.pnl)!;
-        return <span className={v > 0n ? 'text-up-text' : v < 0n ? 'text-down-text' : undefined}>{`${v > 0n ? '+' : ''}${fmtAmount(r.pnl, { places })}`}</span>;
+        return (
+          <span
+            className={v > 0n ? 'text-up-text' : v < 0n ? 'text-down-text' : undefined}
+          >{`${v > 0n ? '+' : ''}${fmtAmount(r.pnl, { places })}`}</span>
+        );
       },
     },
     { id: 'word', header: t('Outcome'), cell: (r) => (dec(r.pnl)! > 0n ? t('Profit') : dec(r.pnl)! < 0n ? t('Loss') : t('Break-even')) },
@@ -110,7 +142,11 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
 
       <section aria-label={t('Presets')} className="flex flex-wrap items-end gap-3">
         <Field density="dense" label={t('Preset')}>
-          <Select items={Object.fromEntries(PRESET_IDS.map((id) => [id, t(`Preset ${id}`)]))} value={preset} onValueChange={(v) => v && setPreset(v as PresetId)}>
+          <Select
+            items={Object.fromEntries(PRESET_IDS.map((id) => [id, t(`Preset ${id}`)]))}
+            value={preset}
+            onValueChange={(v) => v && setPreset(v as PresetId)}
+          >
             <SelectTrigger size={32} aria-label={t('Preset')}>
               <SelectValue />
             </SelectTrigger>
@@ -174,9 +210,20 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
                   <Input kind="decimal" precision={8} value={leg.qty} onValueChange={(v) => patch(i, { qty: v })} className="w-24" />
                 </Field>
                 <Field density="dense" label={t('Your price')} hint={t('Entered by you')} error={fieldError(leg, 'premium')}>
-                  <Input kind="decimal" precision={8} value={leg.premium} onValueChange={(v) => patch(i, { premium: v })} className="w-28" />
+                  <Input
+                    kind="decimal"
+                    precision={8}
+                    value={leg.premium}
+                    onValueChange={(v) => patch(i, { premium: v })}
+                    className="w-28"
+                  />
                 </Field>
-                <Button variant="ghost" size={28} aria-label={t('Remove leg', { n: String(i + 1) })} onClick={() => change(legs.filter((_, at) => at !== i))}>
+                <Button
+                  variant="ghost"
+                  size={28}
+                  aria-label={t('Remove leg', { n: String(i + 1) })}
+                  onClick={() => change(legs.filter((_, at) => at !== i))}
+                >
                   {t('Remove')}
                 </Button>
               </div>
@@ -202,7 +249,10 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
             items={[
               {
                 label: t('Net price'),
-                value: analysis.netPremium.kind === 'flat' ? t('Even') : `${analysis.netPremium.kind === 'debit' ? t('You pay') : t('You receive')} ${money(analysis.netPremium.amount)}`,
+                value:
+                  analysis.netPremium.kind === 'flat'
+                    ? t('Even')
+                    : `${analysis.netPremium.kind === 'debit' ? t('You pay') : t('You receive')} ${money(analysis.netPremium.amount)}`,
               },
               { label: t('Best result'), value: analysis.maxProfit === UNLIMITED ? t('Unlimited') : money(analysis.maxProfit) },
               { label: t('Worst result'), value: analysis.maxLoss === UNLIMITED ? t('Unlimited') : money(analysis.maxLoss) },
@@ -228,25 +278,65 @@ export function StrategyTab({ selected, onGreeksLinked }: { selected: ListedMark
             <Input kind="decimal" precision={8} value={multiplier} onValueChange={setMultiplier} className="w-24" />
           </Field>
           <Field density="dense" label={t('Spot price')}>
-            <Input kind="decimal" precision={8} value={inputs.spot} onValueChange={(v) => setInputs({ ...inputs, spot: v })} className="w-28" />
+            <Input
+              kind="decimal"
+              precision={8}
+              value={inputs.spot}
+              onValueChange={(v) => setInputs({ ...inputs, spot: v })}
+              className="w-28"
+            />
           </Field>
           <Field density="dense" label={t('Volatility')} hint={t('Volatility hint')}>
-            <Input kind="decimal" precision={8} value={inputs.vol} onValueChange={(v) => setInputs({ ...inputs, vol: v })} className="w-24" />
+            <Input
+              kind="decimal"
+              precision={8}
+              value={inputs.vol}
+              onValueChange={(v) => setInputs({ ...inputs, vol: v })}
+              className="w-24"
+            />
           </Field>
           <Field density="dense" label={t('Years to expiry')}>
-            <Input kind="decimal" precision={8} value={inputs.tte} onValueChange={(v) => setInputs({ ...inputs, tte: v })} className="w-24" />
+            <Input
+              kind="decimal"
+              precision={8}
+              value={inputs.tte}
+              onValueChange={(v) => setInputs({ ...inputs, tte: v })}
+              className="w-24"
+            />
           </Field>
           <Field density="dense" label={t('Interest rate')}>
-            <Input kind="decimal" precision={8} value={inputs.rate} onValueChange={(v) => setInputs({ ...inputs, rate: v })} className="w-24" />
+            <Input
+              kind="decimal"
+              precision={8}
+              value={inputs.rate}
+              onValueChange={(v) => setInputs({ ...inputs, rate: v })}
+              className="w-24"
+            />
           </Field>
           <Field density="dense" label={t('Dividend yield')}>
-            <Input kind="decimal" precision={8} value={inputs.yld} onValueChange={(v) => setInputs({ ...inputs, yld: v })} className="w-24" />
+            <Input
+              kind="decimal"
+              precision={8}
+              value={inputs.yld}
+              onValueChange={(v) => setInputs({ ...inputs, yld: v })}
+              className="w-24"
+            />
           </Field>
-          <Button variant="secondary" size={32} loading={asking} disabled={analysis === null || !inputsReady} onClick={() => void askGreeks()}>
+          <Button
+            variant="secondary"
+            size={32}
+            loading={asking}
+            disabled={analysis === null || !inputsReady}
+            onClick={() => void askGreeks()}
+          >
             {t('Get Greeks')}
           </Button>
         </div>
-        {analysis === null ? <p className="m-0 text-xs text-fg-2">{t('Greeks need legs')}</p> : !inputsReady ? <p className="m-0 text-xs text-fg-2">{t('Greeks need inputs')}</p> : null}
+        {analysis === null ? (
+          <p className="m-0 text-xs text-fg-2">{t('Greeks need legs')}</p>
+        ) : !inputsReady ? (
+          <p className="m-0 text-xs text-fg-2">{t('Greeks need inputs')}</p>
+        ) : null}
       </section>
     </div>
   );

@@ -57,7 +57,15 @@ describe('countdown', () => {
 describe('all-in cost', () => {
   it('buy pays the value; spread cost is value minus mid value', () => {
     const cost = costOf(TEST_QUOTES.open);
-    expect(cost).toMatchObject({ value: '30060', midValue: '30000', spreadCost: '60', agrees: true, spreadBps: 20, feeBps: '0', direction: 'pay' });
+    expect(cost).toMatchObject({
+      value: '30060',
+      midValue: '30000',
+      spreadCost: '60',
+      agrees: true,
+      spreadBps: 20,
+      feeBps: '0',
+      direction: 'pay',
+    });
   });
   it('sell receives the value; spread cost is mid value minus value', () => {
     const cost = costOf(TEST_QUOTES.sell);

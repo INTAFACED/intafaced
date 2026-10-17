@@ -14,7 +14,13 @@ import {
   type Leg,
 } from './model';
 
-const leg = (side: Leg['side'], right: Leg['right'], strike: string, premium: string, qty = '1'): Leg => ({ side, right, strike, qty, premium });
+const leg = (side: Leg['side'], right: Leg['right'], strike: string, premium: string, qty = '1'): Leg => ({
+  side,
+  right,
+  strike,
+  qty,
+  premium,
+});
 
 describe('legIssues', () => {
   it('flags missing and invalid fields, and allows a price of zero', () => {

@@ -137,7 +137,8 @@ export function operationOf(symbol: string): Operation | null {
 }
 
 export type DeskState = 'loading' | 'unreadable' | 'closed' | 'open';
-export type RequestBlock = 'signed-out' | 'desk-loading' | 'desk-unreadable' | 'desk-closed' | 'no-pair' | 'bad-size' | 'off-lot' | 'locked' | 'busy';
+export type RequestBlock =
+  'signed-out' | 'desk-loading' | 'desk-unreadable' | 'desk-closed' | 'no-pair' | 'bad-size' | 'off-lot' | 'locked' | 'busy';
 
 export interface RequestDraft {
   signedIn: boolean;

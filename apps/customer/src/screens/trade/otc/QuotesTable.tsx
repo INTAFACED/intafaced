@@ -75,13 +75,29 @@ export function QuotesTable({
         header: t('Quote id'),
         pin: 'start',
         value: (r) => r.id,
-        cell: (r) => <span className="font-mono" title={r.id}>{shortId(r.id)}</span>,
+        cell: (r) => (
+          <span className="font-mono" title={r.id}>
+            {shortId(r.id)}
+          </span>
+        ),
         sortable: true,
         sortType: 'text',
       },
       { id: 'pair', header: t('Pair'), value: (r) => (q(r) ? `${q(r)?.baseAsset}/${q(r)?.quoteAsset}` : null), sortable: true },
-      { id: 'side', header: t('Side'), value: (r) => q(r)?.side ?? null, cell: (r) => (q(r) ? (q(r)?.side === 'buy' ? t('Buy') : t('Sell')) : '—') },
-      { id: 'qty', header: t('Quantity'), numeric: true, value: (r) => q(r)?.qty ?? null, cell: (r) => fmtAmount(q(r)?.qty), sortable: true },
+      {
+        id: 'side',
+        header: t('Side'),
+        value: (r) => q(r)?.side ?? null,
+        cell: (r) => (q(r) ? (q(r)?.side === 'buy' ? t('Buy') : t('Sell')) : '—'),
+      },
+      {
+        id: 'qty',
+        header: t('Quantity'),
+        numeric: true,
+        value: (r) => q(r)?.qty ?? null,
+        cell: (r) => fmtAmount(q(r)?.qty),
+        sortable: true,
+      },
       {
         id: 'price',
         header: t('Quoted price'),
@@ -90,7 +106,14 @@ export function QuotesTable({
         cell: (r) => fmtPrice(q(r)?.quotedPrice, null),
         sortable: true,
       },
-      { id: 'value', header: t('Value'), numeric: true, value: (r) => q(r)?.userNotional ?? null, cell: (r) => fmtAmount(q(r)?.userNotional), sortable: true },
+      {
+        id: 'value',
+        header: t('Value'),
+        numeric: true,
+        value: (r) => q(r)?.userNotional ?? null,
+        cell: (r) => fmtAmount(q(r)?.userNotional),
+        sortable: true,
+      },
       { id: 'cp', header: t('Counterparty'), value: (r) => q(r)?.counterparty ?? null },
       {
         id: 'when',

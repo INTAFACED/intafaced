@@ -39,11 +39,19 @@ export default function Screen(_props: ScreenProps) {
   const chips = (
     <>
       <Freshness asOf={asOfOf(markets)} refused={markets.status === 'refused'} />
-      <Badge variant="outline">{allowed ? (allowed.liveOptionsOrders ? t('Live orders allowed') : t('Live orders blocked')) : t('Live orders unknown')}</Badge>
       <Badge variant="outline">
-        {!allowed || !allowed.paperOptionsOrders ? t('Paper orders blocked') : list && list.some((m) => m.paper) ? t('Paper orders allowed') : t('No paper contract listed')}
+        {allowed ? (allowed.liveOptionsOrders ? t('Live orders allowed') : t('Live orders blocked')) : t('Live orders unknown')}
       </Badge>
-      <Badge variant="outline">{greeksLinked === null ? t('Greeks not tried') : greeksLinked ? t('Greeks available') : t('Greeks not linked here')}</Badge>
+      <Badge variant="outline">
+        {!allowed || !allowed.paperOptionsOrders
+          ? t('Paper orders blocked')
+          : list && list.some((m) => m.paper)
+            ? t('Paper orders allowed')
+            : t('No paper contract listed')}
+      </Badge>
+      <Badge variant="outline">
+        {greeksLinked === null ? t('Greeks not tried') : greeksLinked ? t('Greeks available') : t('Greeks not linked here')}
+      </Badge>
     </>
   );
 

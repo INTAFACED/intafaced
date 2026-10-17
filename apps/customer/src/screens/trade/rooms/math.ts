@@ -102,7 +102,7 @@ export function splitWeighted(total: Decimal, weights: readonly number[], lot: D
   const l = positive(lot);
   if (t === null || l === null || weights.length < 1 || weights.some((w) => !Number.isInteger(w) || w < 1)) return null;
   const sum = weights.reduce((a, b) => a + b, 0);
-  const parts = weights.map((w) => (((t * BigInt(w)) / BigInt(sum)) / l) * l);
+  const parts = weights.map((w) => ((t * BigInt(w)) / BigInt(sum) / l) * l);
   if (parts.some((p) => p <= 0n)) return null;
   const used = parts.slice(0, -1).reduce((a, b) => a + b, 0n);
   parts[parts.length - 1] = t - used;

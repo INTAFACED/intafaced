@@ -54,10 +54,25 @@ export const testChain: ListedMarket[] = [
   row({ symbol: 'TEST-BTC-25DEC26-70000-P', optionType: 'put', strike: '70000', expiryDatetime: '2026-12-25T08:00:00.000Z' }),
   row({ symbol: 'TEST-BTC-26MAR27-65000-C', optionType: 'call', strike: '65000', expiryDatetime: '2027-03-26T08:00:00.000Z' }),
   row({ symbol: 'TEST-BTC-26MAR27-65000-P', optionType: 'put', strike: '65000', expiryDatetime: '2027-03-26T08:00:00.000Z' }),
-  row({ symbol: 'TEST-ETH-25DEC26-3000-C', base: 'ETH', baseId: 'ETH', optionType: 'call', strike: '3000', expiryDatetime: '2026-12-25T08:00:00.000Z', contractSize: '1' }),
+  row({
+    symbol: 'TEST-ETH-25DEC26-3000-C',
+    base: 'ETH',
+    baseId: 'ETH',
+    optionType: 'call',
+    strike: '3000',
+    expiryDatetime: '2026-12-25T08:00:00.000Z',
+    contractSize: '1',
+  }),
   row({ symbol: 'TEST-BTC-LIVE-65000-C', optionType: 'call', strike: '65000', expiryDatetime: '2026-12-25T08:00:00.000Z', paper: false }),
   row({ symbol: 'TEST-BTC-NOTERMS-C', optionType: null, strike: null, expiryDatetime: null, contractSize: null }),
-  row({ symbol: 'TEST-BTC-CLOSED-80000-C', optionType: 'call', strike: '80000', expiryDatetime: '2026-12-25T08:00:00.000Z', sessionOpen: false, orderable: false }),
+  row({
+    symbol: 'TEST-BTC-CLOSED-80000-C',
+    optionType: 'call',
+    strike: '80000',
+    expiryDatetime: '2026-12-25T08:00:00.000Z',
+    sessionOpen: false,
+    orderable: false,
+  }),
 ];
 
 /** TEST policy as it reads once paper options are allowed and live is still blocked. */

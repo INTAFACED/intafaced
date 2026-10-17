@@ -10,7 +10,18 @@ import type { BadgeTone } from '@intafaced/ui';
 import { Badge, Button, KeyValue, fmtAmount, fmtPrice } from '../rooms/ui';
 import { otcCopy } from './copy';
 import { ConfirmDialog, type Confirming } from './ConfirmDialog';
-import { allowedActions, atOf, costOf, countdownOf, lifecycleOf, noteSymbol, phaseOf, sameQuote, type Lifecycle, type Phase } from './model';
+import {
+  allowedActions,
+  atOf,
+  costOf,
+  countdownOf,
+  lifecycleOf,
+  noteSymbol,
+  phaseOf,
+  sameQuote,
+  type Lifecycle,
+  type Phase,
+} from './model';
 
 const LIFE_LOOK: Record<Lifecycle, { tone: BadgeTone; icon: typeof CircleCheck }> = {
   open: { tone: 'lime', icon: CircleDashed },
@@ -87,14 +98,20 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
     {
       label: t('Spread cost'),
       value: money(cost.spreadCost),
-      hint: cost.spreadCost !== null && !cost.agrees ? t('Spread figures differ', { returned: money(cost.spreadReturned) ?? '—' }) : t('Spread cost note'),
+      hint:
+        cost.spreadCost !== null && !cost.agrees
+          ? t('Spread figures differ', { returned: money(cost.spreadReturned) ?? '—' })
+          : t('Spread cost note'),
     },
     { label: t('Fee'), value: t('Fee zero') },
     { label: t('Counterparty'), value: `${quote.counterparty} · ${quote.counterpartyId}` },
     { label: t('Created'), value: at(quote.createdAt) },
     {
       label: t('Expires'),
-      value: life === 'open' ? `${expiresText} · ${countdown.state === 'firm' ? t('Time left', { time: countdown.text }) : t('Time is up')}` : expiresText,
+      value:
+        life === 'open'
+          ? `${expiresText} · ${countdown.state === 'firm' ? t('Time left', { time: countdown.text }) : t('Time is up')}`
+          : expiresText,
     },
     ...(quote.acceptedAt || quote.fillPrice
       ? [
@@ -134,13 +151,28 @@ export function QuoteCard({ api, writer, quote, readAt, now, onCheck, onQuote }:
       {life === 'expired' ? <Refusal words={roomWords({ code: 'trade.otc_quote_expired' })} size="inline" /> : null}
       <KeyValue density="dense" items={items} now={now} />
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" size={32} disabled={!allowed.includes('accept') || lockedWhy !== null} onClick={() => setConfirming('accept')}>
+        <Button
+          variant="primary"
+          size={32}
+          disabled={!allowed.includes('accept') || lockedWhy !== null}
+          onClick={() => setConfirming('accept')}
+        >
           {t('Accept')}
         </Button>
-        <Button variant="primary" size={32} disabled={!allowed.includes('settle') || lockedWhy !== null} onClick={() => setConfirming('settle')}>
+        <Button
+          variant="primary"
+          size={32}
+          disabled={!allowed.includes('settle') || lockedWhy !== null}
+          onClick={() => setConfirming('settle')}
+        >
           {t('Settle')}
         </Button>
-        <Button variant="secondary" size={32} disabled={!allowed.includes('expire') || lockedWhy !== null} onClick={() => setConfirming('expire')}>
+        <Button
+          variant="secondary"
+          size={32}
+          disabled={!allowed.includes('expire') || lockedWhy !== null}
+          onClick={() => setConfirming('expire')}
+        >
           {t('Expire')}
         </Button>
         <Button

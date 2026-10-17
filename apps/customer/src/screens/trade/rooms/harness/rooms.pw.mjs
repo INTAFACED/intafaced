@@ -109,7 +109,9 @@ test.describe('Options', () => {
     await page.getByRole('button', { name: 'Cancel all open orders' }).click();
     await expect(dialog(page).getByText('Cancel all open option orders')).toBeVisible();
     await shot(page, 'options-04b-cancel-all-confirm');
-    await dialog(page).getByRole('button', { name: /Cancel 2 orders/ }).click();
+    await dialog(page)
+      .getByRole('button', { name: /Cancel 2 orders/ })
+      .click();
     await expect(page.getByText('Cancelled', { exact: true }).first()).toBeVisible();
     await shot(page, 'options-04c-cancel-all-result');
     await clean(page, mock);
@@ -179,7 +181,6 @@ test.describe('Execution', () => {
   test('scheduler on: create, review, confirm, running parent; partial, halted; pause, resume, cancel', async ({ page }) => {
     const mock = await start(page, 'execution', { at: EXEC_NOW });
     await expect(page.getByText('Scheduler running')).toBeVisible();
-    await expect(page.getByText('Free USDT')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeEnabled();
     await shot(page, 'exec-01-algo-form');

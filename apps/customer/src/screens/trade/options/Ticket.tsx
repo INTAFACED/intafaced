@@ -67,7 +67,13 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
     signedIn: writer.signedIn,
     pending: writer.note.state !== 'none',
     contract: market
-      ? { paper: market.paper, open: isOpen(market), complete: isComplete(market), tick: market.precision.price, lot: market.precision.amount }
+      ? {
+          paper: market.paper,
+          open: isOpen(market),
+          complete: isComplete(market),
+          tick: market.precision.price,
+          lot: market.precision.amount,
+        }
       : null,
     allowed: allowed ? { options: allowed.optionsOrders, paper: allowed.paperOptionsOrders, live: allowed.liveOptionsOrders } : null,
     size,
@@ -149,7 +155,13 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
         { label: reviewCost.direction === 'pay' ? t('Premium you pay') : t('Premium you receive'), value: money(reviewCost.premium) },
         { label: t('Collateral held, estimate'), value: reviewCost.collateral ? money(reviewCost.collateral) : t('None for a buy') },
         { label: t('Fee, estimate'), value: reviewCost.fee ? `${fmtAmount(reviewCost.fee, { places: 8 })} ${quote}` : null },
-        { label: t('Held by the service'), value: review?.preview.holdAmount && review.preview.holdAsset ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}` : null },
+        {
+          label: t('Held by the service'),
+          value:
+            review?.preview.holdAmount && review.preview.holdAsset
+              ? `${fmtAmount(review.preview.holdAmount, { places: 8 })} ${review.preview.holdAsset}`
+              : null,
+        },
         { label: t('Total to commit'), value: money(reviewCost.total) },
       ]
     : [];
@@ -187,13 +199,30 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
       <p className="m-0 text-xs text-fg-2">{t('Limit only')}</p>
 
       <Field density="dense" label={t('Size in contracts')} hint={market ? t('Step {step}', { step: market.precision.amount }) : undefined}>
-        <Input kind="decimal" precision={market ? placesOf(market.precision.amount) : 8} value={size} onValueChange={setSize} disabled={!market} />
+        <Input
+          kind="decimal"
+          precision={market ? placesOf(market.precision.amount) : 8}
+          value={size}
+          onValueChange={setSize}
+          disabled={!market}
+        />
       </Field>
       <Field density="dense" label={t('Limit price')} hint={market ? t('Step {step}', { step: market.precision.price }) : undefined}>
-        <Input kind="decimal" precision={market ? placesOf(market.precision.price) : 8} value={price} onValueChange={setPrice} trailing={quote} disabled={!market} />
+        <Input
+          kind="decimal"
+          precision={market ? placesOf(market.precision.price) : 8}
+          value={price}
+          onValueChange={setPrice}
+          trailing={quote}
+          disabled={!market}
+        />
       </Field>
       <Field density="dense" label={t('Time in force')}>
-        <Select items={{ GTC: t('Good till cancelled'), IOC: t('Fill now or cancel'), FOK: t('Fill all or cancel') }} value={tif} onValueChange={(v) => v && setTif(v as Tif)}>
+        <Select
+          items={{ GTC: t('Good till cancelled'), IOC: t('Fill now or cancel'), FOK: t('Fill all or cancel') }}
+          value={tif}
+          onValueChange={(v) => v && setTif(v as Tif)}
+        >
           <SelectTrigger size={32} aria-label={t('Time in force')} className="w-full">
             <SelectValue />
           </SelectTrigger>
@@ -228,7 +257,14 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
       ) : null}
 
       {review ? (
-        <Button variant={side === 'buy' ? 'buy' : 'sell'} size={40} fullWidth loading={writer.busy} disabled={block !== null} onClick={() => setOpen(true)}>
+        <Button
+          variant={side === 'buy' ? 'buy' : 'sell'}
+          size={40}
+          fullWidth
+          loading={writer.busy}
+          disabled={block !== null}
+          onClick={() => setOpen(true)}
+        >
           {t('Place order')}
         </Button>
       ) : (
