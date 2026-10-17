@@ -32,7 +32,24 @@ export function networkLabel(chainId: number | null | undefined): { name: string
   return known ? { ...known, known: true } : { name: 'Unrecognised network', note: 'Not confirmed as INTACHAIN.', known: false };
 }
 
-export type Source<T> = { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string };
+/** `httpStatus` is the gateway's answer when there was one; 502, 503 and 504 mean the service behind it is not running. */
+export type Source<T> =
+  { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string; httpStatus?: number };
+
+/** True when the gateway says the service behind it is not running, which a second attempt cannot change. */
+export const isServiceNotRunning = (httpStatus: number | undefined): boolean =>
+  httpStatus === 502 || httpStatus === 503 || httpStatus === 504;
+
+/**
+ * A reason is dropped into a sentence of ours, so it loses its own full stop and any bare HTTP code:
+ * "The service refused this request (502)." becomes "The service refused this request", never "(…(502).)."
+ */
+export function plainReason(text: string): string {
+  return text
+    .replace(/\s*\(\s*\d{3}\s*\)/g, '')
+    .trim()
+    .replace(/[\s.!?;:,…]+$/u, '');
+}
 
 export interface ProtocolSnapshot {
   chain: Source<ChainStatus>;
@@ -61,6 +78,7 @@ export type BlockerCode =
   | 'no_chain_service'
   | 'no_bridge_service'
   | 'source_down'
+  | 'source_not_running'
   | 'chain_unreachable'
   | 'chain_mismatch'
   | 'suite_missing'
@@ -102,9 +120,11 @@ function needs<K extends keyof ProtocolSnapshot>(
   return (snap) => {
     const source = snap[key] as Source<never>;
     if (source.status === 'ok') return then(source.data as never, snap);
+    if (source.status === 'down' && isServiceNotRunning(source.httpStatus))
+      return blocker('source_not_running', { source: sourceName[key] });
     return blocker('source_down', {
       source: sourceName[key],
-      reason: source.status === 'down' ? source.message : 'still checking',
+      reason: source.status === 'down' ? plainReason(source.message) : 'still checking',
     });
   };
 }
@@ -115,7 +135,7 @@ const always =
   () =>
     blocker(code);
 const chainUp = needs('chain', (c) => {
-  if (!c.reachable) return blocker('chain_unreachable', { reason: c.reason ?? c.refusalCode ?? 'no reason returned' });
+  if (!c.reachable) return blocker('chain_unreachable', { reason: plainReason(c.reason ?? c.refusalCode ?? 'no reason given') });
   if (c.observedChainId !== null && c.observedChainId !== c.configuredChainId)
     return blocker('chain_mismatch', { configured: String(c.configuredChainId), observed: String(c.observedChainId) });
   return null;
@@ -128,7 +148,7 @@ const venue = needs('indexer', (i) =>
   i.clob.live && i.clob.kind === 'sovereign-venue' ? null : blocker('venue_not_live', { kind: i.clob.kind }),
 );
 const finality = needs('indexer', (i) => {
-  if (i.halted) return blocker('indexer_halted', { reason: i.halted.reason });
+  if (i.halted) return blocker('indexer_halted', { reason: plainReason(i.halted.reason) });
   if (i.finalizedHeight === null) return blocker('finality_unset');
   if (i.behindBy === null) return blocker('behind_unknown');
   return null;

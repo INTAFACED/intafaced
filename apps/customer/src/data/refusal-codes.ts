@@ -148,6 +148,7 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['kyc.', 'verify'],
   ['kyc_', 'verify'],
   ['token.params_', 'notSetUp'],
+  ['token_params.', 'notSetUp'],
   ['trade.lifecycle', 'marketNotOpen'],
   ['trade.market_', 'marketNotOpen'],
   ['trade.venue_', 'marketNotOpen'],

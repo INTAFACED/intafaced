@@ -54,6 +54,20 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(html).not.toContain('token.params_missing');
     expect(html).not.toContain('Try again');
   });
+  it('never prints a setting name that sits inside a sentence, and shows no button for it', () => {
+    const html = renderToStaticMarkup(
+      <Failure
+        result={refusal({ message: 'Missing token_params.fee_discount_schedule', code: 'token.params_missing' })}
+        retry={() => undefined}
+      />,
+    );
+    expect(html).not.toContain('token_params');
+    expect(html).not.toContain('fee_discount_schedule');
+    expect(html).toContain('Not set up yet');
+    expect(html).not.toContain('Try again');
+    const plain = renderToStaticMarkup(<Failure result={refusal({ message: 'Version 1.2 is not available' })} retry={() => undefined} />);
+    expect(plain).toContain('Version 1.2 is not available');
+  });
   it('never says nothing was changed for a write whose outcome is unknown, even with a code', () => {
     const html = renderToStaticMarkup(
       <Failure

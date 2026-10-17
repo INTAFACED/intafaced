@@ -217,9 +217,9 @@ test('the Mining liveness read still distinguishes responding process from absen
     await login(page, '/mining');
     await expect(page.getByRole('heading', { name: 'Mining activity unavailable', exact: true })).toBeVisible();
     await page.locator('.mining-room summary').click();
-    await expect(page.getByText('mining.ledger_unavailable', { exact: true })).toBeVisible();
-    await expect(page.locator('.mining-room')).toContainText('have not been checked');
-    await expect(page.locator('.mining-room')).toContainText('before an instruction can be submitted here');
+    await expect(page.getByText('mining.ledger_unavailable', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.mining-room')).toContainText('have not been tested');
+    await expect(page.locator('.mining-room')).toContainText('Nothing can be submitted here until your account is connected to the pool');
     expect(state.reads.filter((r) => r.procedure === 'health')).toHaveLength(1);
   });
 });
