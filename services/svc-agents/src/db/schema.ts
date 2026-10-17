@@ -63,6 +63,10 @@ export const agentDefinitions = agents.table(
     agentId: text('agent_id').primaryKey(),
     version: integer('version').notNull().default(1),
     guardrail: jsonb('guardrail').notNull(),
+    /** Stored display name. Null when unpublished — never composed from the id. */
+    name: text('name'),
+    /** Stored purpose. Null when unpublished — never composed from tools or copy. */
+    purpose: text('purpose'),
     /** Per-agent kill-switch. The module-wide one lives in packages/config flags. */
     enabled: boolean('enabled').notNull().default(true),
     createdAt: createdAt(),
@@ -231,6 +235,8 @@ export const usageWindows = agents.table(
     sealedAt: tstz('sealed_at'),
     /** What settlement posted. Written once, at seal. Never a running total. */
     chargedAmount: amount('charged_amount'),
+    /** Asset that amount was posted in. Null on windows sealed before this column. */
+    chargedAsset: text('charged_asset'),
     /** The business idempotency key handed to `feeCharge`. */
     chargeKey: text('charge_key'),
     /** svc-ledger's transaction id — the other half of the reconciliation. */
