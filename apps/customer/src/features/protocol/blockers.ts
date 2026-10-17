@@ -1,3 +1,4 @@
+import { isServiceNotConnected } from '../../shared/api';
 import type { AuditStatus, ChainStatus, DexHealth, IndexerStatus, ProtocolHealth } from './api';
 
 /**
@@ -36,11 +37,8 @@ export function networkLabel(chainId: number | null | undefined): { name: string
 export type Source<T> =
   { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string; code?: string };
 
-/**
- * Only the gateway's "this service is not connected in this environment" answer is permanent. A 502 or 504 is a crash, a
- * restart or a timeout, and a service can send its own 503, so the HTTP status alone never means "not connected".
- */
-export const isServiceNotConnected = (code: string | undefined): boolean => code === 'edge.upstream_unwired';
+/** The gateway's "this service is not connected in this environment" answer; the shared client owns the rule. */
+export { isServiceNotConnected };
 
 /** What the chain status says went wrong, in plain words. The service's own text carries an RPC address and spec references, so it is never shown. */
 export function chainReasonWords(refusalCode: string | null | undefined): string {
@@ -144,7 +142,9 @@ function needs<K extends keyof ProtocolSnapshot>(
       return blocker('source_not_connected', { service: serviceName[key] });
     return blocker('source_down', {
       source: sourceName[key],
-      reason: source.status === 'down' ? inSentence(source.message) : 'still checking',
+      // An unreachable source's message is the generic "didn't answer, try again", which repeats the sentence and
+      // offers a button the blocker list doesn't have.
+      reason: source.status !== 'down' ? 'still checking' : source.reason === 'unreachable' ? 'no reply' : inSentence(source.message),
     });
   };
 }
