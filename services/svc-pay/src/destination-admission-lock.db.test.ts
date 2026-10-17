@@ -140,7 +140,7 @@ describe('payout admission locks the destination it names', () => {
     }
   }, 15_000);
 
-  it('does not treat an admission older than the configured payout approval TTL as in flight', async () => {
+  it('keeps an outcome-less admission in flight however old it is, with or without a tier', async () => {
     const freshId = await destination('card-sandbox', 'dest-fresh-ref');
     const staleId = await destination('bank-payout', 'dest-stale-ref');
     const freshSettlement = await settlement('w-fresh');
@@ -178,7 +178,9 @@ describe('payout admission locks the destination it names', () => {
     await sql`
       INSERT INTO pay.control_merchant_profiles (merchant_id, tier_id)
       VALUES (${merchantId}, 'test-tier')`;
-    expect(await removeMerchantPayoutDestination(sql, { merchantId, destinationId: staleId }, fail)).toEqual({ removed: true });
+    await expect(removeMerchantPayoutDestination(sql, { merchantId, destinationId: staleId }, fail)).rejects.toMatchObject({
+      code: 'pay.payout_destination_in_flight',
+    });
     await expect(removeMerchantPayoutDestination(sql, { merchantId, destinationId: freshId }, fail)).rejects.toMatchObject({
       code: 'pay.payout_destination_in_flight',
     });

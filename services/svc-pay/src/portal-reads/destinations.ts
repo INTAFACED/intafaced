@@ -22,11 +22,9 @@ import { assertPortalPageLimit, portalFilters, pageCursor } from './common.js';
  * in flight: a live approval (pending or approved, not yet expired) or a
  * payout admission that has not reached a terminal outcome.
  *
- * An admission with no outcome is in flight only while it is younger than the
- * merchant's configured payout approval TTL (`control_tiers.approval_ttl_seconds`).
- * That is the existing payout timeout. When the merchant has no tier, no
- * duration is configured, so the admission stays in flight: a blank timeout
- * is not turned into a number. Re-running `payoutSettlement` is what writes
+ * An admission with no outcome stays in flight however old it is: recovery
+ * pays to the destination copied onto the admission, so removing it early
+ * would not stop that payout. Re-running `payoutSettlement` is what writes
  * the terminal outcome (settled, reversed, rail_refused, or identity_cancelled).
  */
 export const DESTINATION_CHANGE_FLOW = 'owner_write' as const;
@@ -208,20 +206,6 @@ export async function removeMerchantPayoutDestination(
              SELECT 1 FROM pay.payout_outcomes o
               WHERE o.admission_id = p.id
                 AND o.kind IN ('settled', 'reversed', 'identity_cancelled', 'rail_refused')
-           )
-           AND (
-             NOT EXISTS (
-               SELECT 1
-                 FROM pay.control_merchant_profiles prof
-                 JOIN pay.control_tiers tier ON tier.id = prof.tier_id
-                WHERE prof.merchant_id = p.merchant_id
-             )
-             OR p.admitted_at > now() - (
-               SELECT make_interval(secs => tier.approval_ttl_seconds)
-                 FROM pay.control_merchant_profiles prof
-                 JOIN pay.control_tiers tier ON tier.id = prof.tier_id
-                WHERE prof.merchant_id = p.merchant_id
-             )
            )
       ) AS live
     `;

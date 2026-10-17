@@ -106,7 +106,7 @@ export async function insertPayoutAdmission(
     // between this check and the admission insert. A rail with no stored row
     // (an offered destination that was never saved) locks nothing.
     await tx`
-      SELECT id FROM pay.merchant_payout_destinations
+      SELECT 1 FROM pay.merchant_payout_destinations
        WHERE merchant_id = ${record.merchant_id}
          AND rail_id = ${record.rail_id}
          AND kind = ${record.destination_kind}
