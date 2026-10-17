@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { LedgerError } from '@intafaced/ledger-client';
+import { DualControlError, dualControlRefuse, MISSING_OPERATOR } from './dual-control.js';
 
 /** Pool handle, or the client `sql.begin` passes. Both run the freeze SQL. */
 type FreezeDb = Sql | TransactionSql;
@@ -80,9 +81,11 @@ export async function readFreeze(sql: FreezeDb): Promise<FreezeState> {
  * Durable replay order and idempotency use an outbox sequence allocated under
  * that lock; neither timestamp nor UUID decides which switch occurred first.
  *
- * A freeze always carries a reason and an actor; a thaw carries only the actor
- * and clears the reason, because "why it is frozen" is meaningless once it is
- * not. The database enforces the first half (`posting_freeze_attributed_ck`).
+ * A freeze always carries a reason and an actor. A thaw carries the caller and
+ * a second operator who is not that caller and not the actor who froze the
+ * book. One actor string does not clear the row. The reason is cleared only
+ * when the thaw is accepted, because "why it is frozen" is meaningless once it
+ * is not. The database enforces an attributed freeze (`posting_freeze_attributed_ck`).
  *
  * STOP §4.2b #3: a second freeze MUST NOT silently overwrite a prior freeze's
  * reason/actor (recon hourly used to clobber an operator freeze). Same
@@ -96,9 +99,38 @@ export async function readFreeze(sql: FreezeDb): Promise<FreezeState> {
  * outbox recover path. The retry does not take this UPDATE, so it does not
  * insert a second row and does not move `changed_at` again.
  */
+export type FreezeCommand =
+  | { readonly frozen: true; readonly reason: string; readonly actor: string }
+  | { readonly frozen: false; readonly actor: string; readonly confirmOperatorId?: string | null };
+
+/**
+ * A thaw needs two distinct operators, and the confirming one cannot be the
+ * person who froze the book. An already-open book is not a refusal: a second
+ * clear is a no-op. Blank, whitespace, and the same id in another hex case
+ * are the same person.
+ */
+export function unfreezeRefusal(
+  current: { readonly frozen: boolean; readonly actor: string | null },
+  actor: string | null,
+  confirmOperatorId: string | null,
+): { readonly code: typeof MISSING_OPERATOR; readonly message: string } | null {
+  if (!current.frozen) return null;
+  const pair = dualControlRefuse(actor, confirmOperatorId);
+  if (pair) return pair;
+  const confirm = (confirmOperatorId ?? '').trim().toLowerCase();
+  const freezer = (current.actor ?? '').trim().toLowerCase();
+  if (freezer.length > 0 && confirm === freezer) {
+    return {
+      code: MISSING_OPERATOR,
+      message: 'the operator who froze posting cannot be the one who clears it',
+    };
+  }
+  return null;
+}
+
 export async function writeFreeze(
   sql: Sql,
-  next: { frozen: true; reason: string; actor: string } | { frozen: false; actor: string },
+  next: FreezeCommand,
 ): Promise<{ state: FreezeState; switched: boolean }> {
   return sql.begin(async (tx) => writeFreezeInTransaction(tx, next));
 }
@@ -106,7 +138,7 @@ export async function writeFreeze(
 /** Caller owns the transaction and the post-commit publication boundary. */
 export async function writeFreezeInTransaction(
   sql: TransactionSql,
-  next: { frozen: true; reason: string; actor: string } | { frozen: false; actor: string },
+  next: FreezeCommand,
 ): Promise<{ state: FreezeState; switched: boolean }> {
   const rows = await sql<FreezeRow[]>`
     SELECT frozen, reason, actor, changed_at, changed_at::text AS changed_at_precise
@@ -116,6 +148,10 @@ export async function writeFreezeInTransaction(
   const current = toState(rows[0]);
   if (next.frozen && current.frozen) return resolveAttributedFreeze(current, next);
   if (!next.frozen && !current.frozen) return { state: current, switched: false };
+  if (!next.frozen) {
+    const refusal = unfreezeRefusal(current, next.actor, next.confirmOperatorId ?? null);
+    if (refusal) throw new DualControlError(refusal.message);
+  }
 
   const updated = await sql<FreezeRow[]>`
     UPDATE posting_freeze
@@ -271,8 +307,10 @@ export class MemoryPostingFreeze {
     return this.state;
   }
 
-  unfreeze(actor: string): FreezeState {
+  unfreeze(actor: string, confirmOperatorId?: string | null): FreezeState {
     if (!this.state.frozen) return this.state;
+    const refusal = unfreezeRefusal(this.state, actor, confirmOperatorId ?? null);
+    if (refusal) throw new DualControlError(refusal.message);
     this.state = snapshotNow(false, null, actor);
     return this.state;
   }
