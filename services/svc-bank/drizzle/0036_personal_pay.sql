@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS "bank"."personal_transfers" (
   "transfer_id" text PRIMARY KEY,
   "ledger_tx_id" text,
   "from_user_id" text NOT NULL,
+  -- The space that was debited, so a later sweep can require the booked
+  -- entries to be this send and not some other movement under the same key.
+  "from_space_id" uuid NOT NULL,
   "to_user_id" text NOT NULL,
   "asset_id" text NOT NULL,
   "amount" numeric(38, 18) NOT NULL,

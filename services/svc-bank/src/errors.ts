@@ -464,6 +464,8 @@ export type BankErrorCode =
   | 'bank.personal_request_not_payer'
   | 'bank.personal_request_not_payee'
   | 'bank.personal_request_amount_mismatch'
+  /** The transfer's recipient is not the request's payee. Nothing is posted. */
+  | 'bank.personal_request_payee_mismatch'
   | 'bank.personal_request_claim_held'
   | 'bank.personal_request_conflict'
   | 'bank.personal_request_self'

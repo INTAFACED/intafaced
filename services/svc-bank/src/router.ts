@@ -288,6 +288,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.personal_request_closed':
       case 'bank.personal_request_expired':
       case 'bank.personal_request_amount_mismatch':
+      case 'bank.personal_request_payee_mismatch':
       case 'bank.personal_request_claim_held':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 

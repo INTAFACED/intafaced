@@ -9,9 +9,9 @@
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import type { SpaceService } from '../spaces/space-service.js';
+import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from './transfer-service.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
@@ -74,6 +74,7 @@ interface TransferRow {
   transfer_id: string;
   ledger_tx_id: string | null;
   from_user_id: string;
+  from_space_id: string;
   to_user_id: string;
   asset_id: string;
   amount: string;
@@ -115,7 +116,7 @@ const REQUEST_COLS = `
 `;
 
 const TRANSFER_COLS = `
-  transfer_id, ledger_tx_id, from_user_id, to_user_id, asset_id, amount::text AS amount, note,
+  transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note,
   from_handle, to_handle, request_id, status, created_at
 `;
 
@@ -145,7 +146,7 @@ function effectiveStatus(row: RequestRow, now: Date): RequestStatus {
 export class PersonalPayService {
   constructor(
     private readonly sql: Sql,
-    private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey'>,
+    private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
     private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary'>,
     private readonly options: {
@@ -179,6 +180,7 @@ export class PersonalPayService {
     }
     const instruction = {
       actorUserId: input.actorUserId,
+      fromSpaceId: input.fromSpaceId,
       toUserId,
       assetId: from.assetId,
       amount: input.amount,
@@ -208,6 +210,7 @@ export class PersonalPayService {
           requestId,
           transferId: input.transferId,
           payerUserId: input.actorUserId,
+          toUserId,
           assetId: from.assetId,
           amount: input.amount,
           now,
@@ -216,9 +219,9 @@ export class PersonalPayService {
       const handles = await this.snapshotHandles(input.actorUserId, toUserId);
       const inserted = await tx<TransferRow[]>`
         INSERT INTO bank.personal_transfers (
-          transfer_id, from_user_id, to_user_id, asset_id, amount, note, from_handle, to_handle, request_id, status, created_at
+          transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, note, from_handle, to_handle, request_id, status, created_at
         ) VALUES (
-          ${input.transferId}, ${input.actorUserId}, ${toUserId}, ${from.assetId},
+          ${input.transferId}, ${input.actorUserId}, ${input.fromSpaceId}, ${toUserId}, ${from.assetId},
           ${formatAmount(input.amount)}::numeric, ${note}, ${handles.from}, ${handles.to}, ${requestId}, 'reserved', ${now}
         )
         RETURNING ${tx.unsafe(TRANSFER_COLS)}
@@ -242,10 +245,21 @@ export class PersonalPayService {
       });
       ledgerTxId = posted.ledgerTxId;
     } catch (err) {
-      const already = await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
-      if (!already) {
+      // A typed refusal proved this send did not post. Looking the key up would
+      // adopt whatever else is booked under it, including an own-space move.
+      if (isDefinitePersonalRefusal(err)) {
         await this.abandon(input.transferId, requestId);
         throw err;
+      }
+      // Timeout, network, or 5xx: the post may still land. Keep the reservation
+      // and the request claim. Adopt the key only when its entries are this send.
+      const already = await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
+      if (!already) throw err;
+      if (!(await this.bookedSendMatches(already, input.fromSpaceId, toUserId, from.assetId, input.amount))) {
+        throw new BankError(
+          `Transfer ${input.transferId} is not this send (bank.personal_transfer_conflict)`,
+          'bank.personal_transfer_conflict',
+        );
       }
       ledgerTxId = already.id;
     }
@@ -497,13 +511,22 @@ export class PersonalPayService {
 
   private async claim(
     tx: TransactionSql,
-    input: { requestId: string; transferId: string; payerUserId: string; assetId: string; amount: Amount; now: Date },
+    input: {
+      requestId: string;
+      transferId: string;
+      payerUserId: string;
+      toUserId: string;
+      assetId: string;
+      amount: Amount;
+      now: Date;
+    },
   ): Promise<void> {
     const updated = await tx<RequestRow[]>`
       UPDATE bank.personal_requests
          SET claim_transfer_id = ${input.transferId}, updated_at = ${input.now}
        WHERE id = ${input.requestId}
          AND payer_user_id = ${input.payerUserId}
+         AND payee_user_id = ${input.toUserId}
          AND asset_id = ${input.assetId}
          AND amount = ${formatAmount(input.amount)}::numeric
          AND status = 'open'
@@ -523,6 +546,12 @@ export class PersonalPayService {
       throw new BankError(
         `Only the person asked to pay can settle request ${input.requestId} (bank.personal_request_not_payer)`,
         'bank.personal_request_not_payer',
+      );
+    }
+    if (row.payee_user_id !== input.toUserId) {
+      throw new BankError(
+        `Payment recipient is not the person who asked (bank.personal_request_payee_mismatch)`,
+        'bank.personal_request_payee_mismatch',
       );
     }
     if (row.asset_id !== input.assetId || parseAmount(row.amount) !== input.amount) {
@@ -659,22 +688,80 @@ export class PersonalPayService {
 
   private async sweepStale(userId: string, now: Date): Promise<void> {
     const cutoff = new Date(now.getTime() - STALE_RESERVATION_MS);
-    const rows = await this.sql<Array<{ transfer_id: string; request_id: string | null }>>`
-      SELECT transfer_id, request_id FROM bank.personal_transfers
+    const rows = await this.sql<
+      Array<{
+        transfer_id: string;
+        request_id: string | null;
+        from_space_id: string;
+        to_user_id: string;
+        asset_id: string;
+        amount: string;
+      }>
+    >`
+      SELECT transfer_id, request_id, from_space_id, to_user_id, asset_id, amount::text AS amount
+        FROM bank.personal_transfers
        WHERE from_user_id = ${userId} AND status = 'reserved' AND created_at < ${cutoff}
     `;
     for (const row of rows) {
       const posted = await this.ledger.getTxByKey(`bank.transfer:${row.transfer_id}:0`);
-      if (posted) {
-        await this.sql`
-          UPDATE bank.personal_transfers SET status = 'posted', ledger_tx_id = ${posted.id}
-           WHERE transfer_id = ${row.transfer_id} AND status = 'reserved'
-        `;
-        if (row.request_id) await this.finishRequest(row.request_id, row.transfer_id, posted.id, now);
-      } else {
+      if (!posted) {
         await this.abandon(row.transfer_id, row.request_id);
+        continue;
       }
+      let matches = false;
+      try {
+        matches = await this.bookedSendMatches(posted, row.from_space_id, row.to_user_id, row.asset_id, parseAmount(row.amount));
+      } catch (err) {
+        this.logAdoptMismatch(row.transfer_id, row.request_id, posted.id, err);
+        continue;
+      }
+      if (!matches) {
+        this.logAdoptMismatch(row.transfer_id, row.request_id, posted.id);
+        continue;
+      }
+      await this.sql`
+        UPDATE bank.personal_transfers SET status = 'posted', ledger_tx_id = ${posted.id}
+         WHERE transfer_id = ${row.transfer_id} AND status = 'reserved'
+      `;
+      if (row.request_id) await this.finishRequest(row.request_id, row.transfer_id, posted.id, now);
     }
+  }
+
+  /**
+   * The booked transaction is this send only when it is the `bankTransfer` pair:
+   * a credit of the sender's space (available falls) and a debit of the recipient's
+   * primary space (available rises), same asset and amount, and no other leg.
+   */
+  private async bookedSendMatches(tx: LedgerTx, fromSpaceId: string, toUserId: string, assetId: string, amount: Amount): Promise<boolean> {
+    if (tx.entries.length !== 2) return false;
+    const from = await this.spaces.get(fromSpaceId);
+    if (from.assetId !== assetId) return false;
+    const dest = await this.spaces.findPrimary(toUserId, assetId);
+    if (!dest) return false;
+    const fromAccountId = (await this.ledger.balance(accountForSpace(from))).accountId;
+    const toAccountId = (await this.ledger.balance(accountForSpace(dest))).accountId;
+    if (fromAccountId === '' || toAccountId === '') return false;
+    const credit = tx.entries.find(
+      (entry) => entry.direction === 'credit' && entry.accountId === fromAccountId && entry.assetId === assetId && entry.amount === amount,
+    );
+    const debit = tx.entries.find(
+      (entry) => entry.direction === 'debit' && entry.accountId === toAccountId && entry.assetId === assetId && entry.amount === amount,
+    );
+    return credit !== undefined && debit !== undefined;
+  }
+
+  private logAdoptMismatch(transferId: string, requestId: string | null, ledgerTxId: string, err?: unknown): void {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        service: 'svc-bank',
+        event: 'bank.personal_transfer_adopt_mismatch',
+        transferId,
+        requestId,
+        ledgerTxId,
+        detail: err instanceof Error ? err.name : null,
+      }),
+    );
   }
 
   private async abandon(transferId: string, requestId: string | null): Promise<void> {
@@ -818,16 +905,68 @@ export class PersonalPayService {
 
 function sameTransfer(
   row: TransferRow,
-  input: { actorUserId: string; toUserId: string; assetId: string; amount: Amount; note: string | null; requestId: string | null },
+  input: {
+    actorUserId: string;
+    fromSpaceId: string;
+    toUserId: string;
+    assetId: string;
+    amount: Amount;
+    note: string | null;
+    requestId: string | null;
+  },
 ): boolean {
   return (
     row.from_user_id === input.actorUserId &&
+    row.from_space_id === input.fromSpaceId &&
     row.to_user_id === input.toUserId &&
     row.asset_id === input.assetId &&
     parseAmount(row.amount) === input.amount &&
     (row.note ?? null) === input.note &&
     (row.request_id ?? null) === input.requestId
   );
+}
+
+/**
+ * Codes svc-ledger answers with 4xx (`s2s-http.ts` `httpError`). A typed one of
+ * these, or any other `ledger.*` code carrying a 4xx status, proved this send
+ * did not commit. A 5xx and a transport error did not.
+ */
+const LEDGER_CLIENT_4XX: ReadonlySet<string> = new Set([
+  'ledger.insufficient_funds',
+  'ledger.owner_identity_space',
+  'ledger.unauthenticated',
+  'ledger.idempotency_conflict',
+  'ledger.frozen',
+  'ledger.history_range_invalid',
+  'ledger.history_range_too_large',
+  'ledger.history_page_socket',
+  'ledger.history_cursor_invalid',
+  'ledger.recipe_required',
+]);
+
+function ledgerRefusalCode(err: unknown): string | null {
+  if (typeof err !== 'object' || err === null || !('code' in err)) return null;
+  const code = (err as { code: unknown }).code;
+  if (typeof code !== 'string' || !code.startsWith('ledger.')) return null;
+  return code;
+}
+
+function httpStatus(err: unknown): number | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const record = err as { status?: unknown; statusCode?: unknown };
+  if (typeof record.status === 'number') return record.status;
+  if (typeof record.statusCode === 'number') return record.statusCode;
+  return null;
+}
+
+/** A BankError or a 4xx ledger refusal. Anything else may have committed. */
+function isDefinitePersonalRefusal(err: unknown): boolean {
+  if (err instanceof BankError) return true;
+  const code = ledgerRefusalCode(err);
+  if (code === null) return false;
+  const status = httpStatus(err);
+  if (status !== null) return status >= 400 && status < 500;
+  return LEDGER_CLIENT_4XX.has(code);
 }
 
 function sameRequest(

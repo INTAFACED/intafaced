@@ -11,9 +11,18 @@ import { issueAccessToken, verifyAccessToken, type Scope } from '@intafaced/auth
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount,
+  recipes,
+  subAccountAvailable,
+  userAvailable,
+  type Amount,
+} from '@intafaced/ledger-client';
 import { createBankRouter } from '../router.js';
 import { createBankServices, memoryLedgerHistory, memoryRecipientState, type BankServices } from '../bank-service.js';
+import { PersonalPayService } from './personal-pay.js';
 import type { LedgerHistoryPages } from '../activity/activity-service.js';
 import { memoryPartyHandles } from './party-handles.js';
 import { eventPersonalRequestNotices, type RequestCreatedNotice } from './request-notices.js';
@@ -350,6 +359,232 @@ describe('personal send and request (Postgres)', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:pay-request-'))).toHaveLength(1);
+  });
+
+  async function bobPots(namedId: string) {
+    return {
+      primary: formatAmount((await ledger.balance(userAvailable(BOB, 'USDT'))).amount),
+      named: formatAmount((await ledger.balance(subAccountAvailable(namedId, 'USDT'))).amount),
+    };
+  }
+
+  /** A refusal the door may wrap. The ledger code lives on the cause when the sentence is not published. */
+  function refusalText(err: unknown): string {
+    const chunks: string[] = [];
+    let current: unknown = err;
+    for (let depth = 0; depth < 5 && current !== undefined && current !== null; depth += 1) {
+      if (typeof current !== 'object') {
+        chunks.push(String(current));
+        break;
+      }
+      const record = current as { message?: unknown; code?: unknown; cause?: unknown };
+      if (record.message !== undefined) chunks.push(String(record.message));
+      if (record.code !== undefined) chunks.push(String(record.code));
+      current = record.cause;
+    }
+    return chunks.join('\n');
+  }
+
+  it('refuses to mark a request paid when the transfer pays the payer or a third user', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const expiresAt = '2026-12-01T00:00:00.000Z';
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '12.5',
+      expiresAt,
+      idempotencyKey: 'request-payee-mismatch',
+    });
+    await ledger.post(
+      recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('40'), rail: 'test', railRef: `bob-named-${Math.random()}` }),
+    );
+    const primary = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    const named = await bob.spaces.create({ assetId: 'USDT', name: 'Spending' });
+    await bank.transfers.transfer({
+      transferId: 'fund-bob-named-space',
+      fromSpaceId: primary.id,
+      toSpaceId: named.id,
+      amount: parseAmount('20'),
+    });
+    const before = await bobPots(named.id);
+    const selfId = 'pay-request-to-self';
+
+    await expect(
+      bob.transfers.toUser({
+        transferId: selfId,
+        fromSpaceId: named.id,
+        toUserId: BOB,
+        amount: '12.5',
+        requestId: opened.requestId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('bank.personal_request_payee_mismatch'),
+    });
+
+    const afterSelf = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(afterSelf.status).toBe('open');
+    expect(afterSelf.ledgerTxId).toBeNull();
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${selfId}:0`)).toBe(false);
+    expect(await bobPots(named.id)).toEqual(before);
+
+    await bank.spaces.ensurePrimary(CY, 'USDT');
+    const thirdId = 'pay-request-to-third';
+    await expect(
+      bob.transfers.toUser({
+        transferId: thirdId,
+        fromSpaceId: named.id,
+        toUserId: CY,
+        amount: '12.5',
+        requestId: opened.requestId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('bank.personal_request_payee_mismatch'),
+    });
+
+    const afterThird = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(afterThird.status).toBe('open');
+    expect(afterThird.ledgerTxId).toBeNull();
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${thirdId}:0`)).toBe(false);
+    expect(await bobPots(named.id)).toEqual(before);
+    expect(formatAmount((await ledger.balance(userAvailable(CY, 'USDT'))).amount)).toBe('0');
+  });
+
+  it('does not adopt an own-space ledger transaction as payment of a request', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '12.5',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-key-reuse',
+    });
+    await ledger.post(
+      recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('40'), rail: 'test', railRef: `bob-own-${Math.random()}` }),
+    );
+    const primary = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    const named = await bob.spaces.create({ assetId: 'USDT', name: 'Spending' });
+    const own = await bank.transfers.transfer({
+      transferId: 'own-space-key',
+      fromSpaceId: primary.id,
+      toSpaceId: named.id,
+      amount: parseAmount('12.5'),
+    });
+
+    const refused = await bob.transfers
+      .toUser({
+        transferId: 'own-space-key',
+        fromSpaceId: primary.id,
+        toUserId: ADA,
+        amount: '12.5',
+        requestId: opened.requestId,
+      })
+      .then(
+        () => {
+          throw new Error('expected a refusal');
+        },
+        (err: unknown) => err,
+      );
+    expect(refusalText(refused)).toMatch(/idempotency_conflict|bank\.personal_transfer_conflict/);
+
+    const request = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(request.status).toBe('open');
+    expect(request.ledgerTxId).toBeNull();
+    const posted = await db.sql<Array<{ status: string }>>`
+      SELECT status FROM bank.personal_transfers WHERE transfer_id = 'own-space-key' AND status = 'posted'
+    `;
+    expect(posted).toHaveLength(0);
+    await expect(ada.transfers.get({ ledgerTxId: own.ledgerTxId })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringContaining('bank.personal_transfer_not_found'),
+    });
+  });
+
+  it('keeps the request claim when the ledger reply is lost and resumes the same transfer', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '12.5',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-lost-reply',
+    });
+    await ledger.post(
+      recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('40'), rail: 'test', railRef: `bob-lost-${Math.random()}` }),
+    );
+    const primary = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    const transferId = 'lost-reply-send';
+    let posts = 0;
+    let lookups = 0;
+    const personal = new PersonalPayService(
+      db.sql,
+      {
+        getTx: (id) => ledger.getTx(id),
+        getTxByKey: async (key) => {
+          lookups += 1;
+          if (lookups === 1) return null;
+          return ledger.getTxByKey(key);
+        },
+        balance: (ref) => ledger.balance(ref),
+      },
+      {
+        transferToUser: async (input) => {
+          const posted = await bank.transfers.transferToUser(input);
+          posts += 1;
+          if (posts === 1) throw new Error('timeout');
+          return posted;
+        },
+      },
+      bank.spaces,
+      { handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }) },
+    );
+    const sendInput = {
+      actorUserId: BOB,
+      transferId,
+      fromSpaceId: primary.id,
+      toUserId: ADA,
+      amount: parseAmount('12.5') as Amount,
+      requestId: opened.requestId,
+    };
+
+    await expect(personal.send(sendInput)).rejects.toThrow('timeout');
+
+    const reserved = await db.sql<Array<{ status: string }>>`
+      SELECT status FROM bank.personal_transfers WHERE transfer_id = ${transferId}
+    `;
+    expect(reserved).toEqual([{ status: 'reserved' }]);
+    const claimed = await db.sql<Array<{ claim_transfer_id: string | null; status: string; ledger_tx_id: string | null }>>`
+      SELECT claim_transfer_id, status, ledger_tx_id FROM bank.personal_requests WHERE id = ${opened.requestId}
+    `;
+    expect(claimed).toEqual([{ claim_transfer_id: transferId, status: 'open', ledger_tx_id: null }]);
+
+    await expect(
+      bob.transfers.toUser({
+        transferId: 'lost-reply-new1',
+        fromSpaceId: primary.id,
+        toUserId: ADA,
+        amount: '12.5',
+        requestId: opened.requestId,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('bank.personal_request_claim_held'),
+    });
+
+    const booked = ledger.journal().find((tx) => tx.idempotencyKey === `bank.transfer:${transferId}:0`);
+    const again = await personal.send(sendInput);
+    expect(again.ledgerTxId).toBe(booked?.id);
+    const paid = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(paid.status).toBe('paid');
+    expect(paid.ledgerTxId).toBe(booked?.id);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:'))).toHaveLength(1);
   });
 
   it('refuses a session that lacks the procedure scope', async () => {
