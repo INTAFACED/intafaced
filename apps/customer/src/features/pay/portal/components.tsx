@@ -6,7 +6,7 @@ import { PayTime } from '../components';
 import type { ListState } from './hooks';
 import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
 import { portalCopy, type PlainKey } from './copy';
-import { ComingSoonCard } from './frame-options/ComingSoonCard';
+import { ComingSoonCard } from './chrome/ComingSoonCard';
 import { isComingSoon, refusalText, refusalTitle } from './refusal';
 import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
 

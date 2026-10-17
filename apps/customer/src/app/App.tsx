@@ -15,7 +15,7 @@ import { matchPath } from './path-match';
 import { screens } from './screens';
 import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
-import { isMerchantArea } from '../features/pay/portal/frame-options/model';
+import { isMerchantArea } from '../features/pay/portal/chrome/model';
 
 function configuredTeamHref(path: string): string | undefined {
   const configured: string | undefined = import.meta.env.VITE_TEAM_URL;

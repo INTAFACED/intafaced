@@ -5,7 +5,7 @@ import { usePreferences } from '../shared/preferences';
 import type { Door } from './navigation';
 import { shellCopy } from './shell-copy';
 import { MobileTabs, TopBar } from './TopBar';
-import { isMerchantArea } from '../features/pay/portal/frame-options/model';
+import { isMerchantArea } from '../features/pay/portal/chrome/model';
 
 /** The signed-in frame (UI-SPEC 3.1): sticky top bar, content, phone tab bar. New screens render straight into `main`; old views are wrapped in `.legacy-room` by their caller. */
 export function Shell({ door, path, children }: { door?: Door; path: string; children: ReactNode }) {

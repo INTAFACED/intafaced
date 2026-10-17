@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, Menu, Search } from 'lucide-react';
 import {
   Button,
   Dialog,
@@ -17,10 +17,8 @@ import { useResource } from '../../../../shared/resource';
 import { createPortalApi } from '../api';
 import { groups } from '../home-layout/Navigation';
 import { layoutCopy } from '../home-layout/copy';
-import { currentHref, frameOption } from './model';
+import { currentHref } from './model';
 import './frames.css';
-
-const currentFrame = () => frameOption(typeof location === 'undefined' ? '' : location.search);
 
 /** What the business pill says, from the verification status the account already reports. */
 function useBusinessStatus(): { kind: StatusKind; label: string } {
@@ -41,7 +39,7 @@ function useBusinessStatus(): { kind: StatusKind; label: string } {
 }
 
 /** The business name with its status pill. Opens the list of accounts to switch between. */
-export function BusinessSwitcher({ compact = false }: { compact?: boolean }) {
+function BusinessSwitcher() {
   const status = useBusinessStatus();
   const [open, setOpen] = useState(false);
   return (
@@ -50,15 +48,11 @@ export function BusinessSwitcher({ compact = false }: { compact?: boolean }) {
         <span className="pfo-business-tile" aria-hidden="true">
           <Building2 size={16} />
         </span>
-        {!compact && (
-          <>
-            <span className="pfo-business-text">
-              <span className="pfo-business-name">Your business</span>
-              {status.label && <StatusTag status={status.kind} label={status.label} />}
-            </span>
-            <ChevronsUpDown size={14} aria-hidden="true" className="pfo-business-chevron" />
-          </>
-        )}
+        <span className="pfo-business-text">
+          <span className="pfo-business-name">Your business</span>
+          {status.label && <StatusTag status={status.kind} label={status.label} />}
+        </span>
+        <ChevronsUpDown size={14} aria-hidden="true" className="pfo-business-chevron" />
       </DialogTrigger>
       <DialogContent>
         <DialogTitle>Your accounts</DialogTitle>
@@ -78,8 +72,8 @@ export function BusinessSwitcher({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** The portal's pages in their groups. One item is current; lime marks only that one. */
-export function SideMenu({ here, close }: { here: string; close?: () => void }) {
+/** The portal's pages in their groups, for the phone drawer. One item is current; lime marks only that one. */
+function SideMenu({ here, close }: { here: string; close?: () => void }) {
   const { t } = layoutCopy.useCopy();
   const current = currentHref(here);
   return (
@@ -95,35 +89,6 @@ export function SideMenu({ here, close }: { here: string; close?: () => void }) 
         </section>
       ))}
     </nav>
-  );
-}
-
-/** Desktop left menu ("side" frame): business at the top, pages below, collapsible to icons. */
-export function SideBar({ here }: { here: string }) {
-  const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--pfo-side-w', collapsed ? '68px' : '248px');
-    return () => {
-      root.style.removeProperty('--pfo-side-w');
-    };
-  }, [collapsed]);
-  return (
-    <aside className="pfo-sidebar" data-collapsed={collapsed || undefined}>
-      <div className="pfo-sidebar-head">
-        <BusinessSwitcher compact={collapsed} />
-        <Button
-          variant="ghost"
-          size={32}
-          aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}
-          aria-expanded={!collapsed}
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          {collapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
-        </Button>
-      </div>
-      {!collapsed && <SideMenu here={here} />}
-    </aside>
   );
 }
 
@@ -175,22 +140,15 @@ function PaymentSearch() {
 
 /** The slim top bar inside the merchant area. It replaces the consumer bar: no market search, no Simple/Pro. */
 export function MerchantTopBar({ path, account }: { path: string; account: ReactNode }) {
-  const side = currentFrame() === 'side';
   return (
-    <header className={`pfo-top ${side ? 'pfo-top--side' : 'pfo-top--tabs'}`}>
+    <header className="pfo-top">
       <div className="pfo-phone">
         <PhoneMenu key={path} here={path} />
       </div>
-      {side ? (
-        <span className="pfo-phone-title">Your business</span>
-      ) : (
-        <>
-          <a className="pfo-brand" href="/home" aria-label="Go to Home">
-            <Wordmark />
-          </a>
-          <BusinessSwitcher />
-        </>
-      )}
+      <a className="pfo-brand" href="/home" aria-label="Go to Home">
+        <Wordmark />
+      </a>
+      <BusinessSwitcher />
       <div className="pfo-top-end">
         <PaymentSearch />
         <a className="pfo-personal" href="/home">

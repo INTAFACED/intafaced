@@ -12,8 +12,8 @@ import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
-import { MerchantTopBar } from '../features/pay/portal/frame-options/Chrome';
-import { isMerchantArea } from '../features/pay/portal/frame-options/model';
+import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
+import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
