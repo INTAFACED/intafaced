@@ -1,12 +1,22 @@
 import { defineCopy } from '../../shared/i18n';
 import './support-desk.css';
 
-// English source only.
-export const quantMemoryCopy = defineCopy('quant-memory', {
-  title: 'Saving to the library is switched off',
-  body: 'Saved strategies are not private to your account yet: everyone using this service shares one library, a restart erases it, and there is no version history. Until each account has its own storage, nothing you build here is saved to it. Your draft stays on this device.',
+const en = {
+  title: 'Saving to a library is off on this service',
+  body: 'Your draft stays on this device.',
   next: 'Keep your strategy source somewhere you control.',
-});
+} as const;
+const es = {
+  title: 'Guardar en una biblioteca está desactivado en este servicio',
+  body: 'Tu borrador se queda en este dispositivo.',
+  next: 'Guarda el código de tu estrategia en un lugar que controles.',
+} satisfies Record<keyof typeof en, string>;
+const fr = {
+  title: 'L’enregistrement dans une bibliothèque est désactivé sur ce service',
+  body: 'Ton brouillon reste sur cet appareil.',
+  next: 'Conserve le code de ta stratégie dans un endroit que tu maîtrises.',
+} satisfies Record<keyof typeof en, string>;
+export const quantMemoryCopy = defineCopy('quant-memory', en, { es, fr });
 
 export function QuantMemoryNotice() {
   const copy = quantMemoryCopy.useCopy();
