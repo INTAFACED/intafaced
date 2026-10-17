@@ -39,6 +39,9 @@ import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
+import { deskTrpcError } from './desk/errors.js';
+import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
+import { presentAlgoDesk } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -145,6 +148,12 @@ const algoParentOutputSchema = z.object({
   projectedEndsAt: z.string(),
   /** Distinguishes user pause from tick outage; null until first stretch. */
   scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
+});
+
+const algoGetOutputSchema = algoParentOutputSchema.extend({
+  children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
+  misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
+  filledQty: decimal,
 });
 
 const marketOutput = z.object({
@@ -274,6 +283,8 @@ function presentFill(fill: FillRecord) {
 function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
+  const desk = deskTrpcError(err);
+  if (desk) return desk;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -735,6 +746,7 @@ export function createTradeRouter(
      * Size required; desk names the price (no mid on the wire). Not a book fill.
      */
     rfq: router({
+      ...rfqHistoryProcedures(trade),
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
           z
@@ -822,6 +834,7 @@ export function createTradeRouter(
      */
     algo: router({
       policy: publicProcedure.query(() => describeAlgoPolicy()),
+      ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
         .input(
@@ -859,8 +872,14 @@ export function createTradeRouter(
 
       get: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
-        .output(algoParentOutputSchema)
-        .query(({ ctx, input }) => guard(async () => presentAlgo(await trade.getAlgo(ctx.principal, input.algoId)))),
+        .output(algoGetOutputSchema)
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const parent = await trade.getAlgo(ctx.principal, input.algoId);
+            const progress = await trade.algoProgress(ctx.principal, input.algoId);
+            return { ...presentAlgo(parent), ...presentAlgoDesk(parent, progress.filledQty) };
+          }),
+        ),
 
       progress: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
@@ -945,6 +964,7 @@ export function createTradeRouter(
      */
     options: router({
       policy: publicProcedure.query(() => describeOptionsPolicy()),
+      ...optionsDeskProcedures(trade),
     }),
 
     /**
@@ -1244,6 +1264,8 @@ export function createTradeRouter(
           }),
         ),
     }),
+
+    scale: scaleProcedures(trade),
   });
 }
 
