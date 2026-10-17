@@ -185,7 +185,22 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               assetId: assetIdIn,
               amount: z.string().trim().min(1).max(80),
               customerRef: z.string().trim().min(1).max(200).optional(),
+              customerEmail: z.string().trim().min(3).max(254).optional(),
               description: z.string().trim().min(1).max(2000).optional(),
+              dueAt: iso.optional(),
+              lineItems: z
+                .array(
+                  z
+                    .object({
+                      description: z.string().trim().min(1).max(500),
+                      quantity: z.string().trim().min(1).max(80),
+                      unitAmount: z.string().trim().min(1).max(80),
+                      kind: z.enum(['charge', 'credit']).default('charge'),
+                    })
+                    .strict(),
+                )
+                .max(40)
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.create(await callerOf(ctx), input))),

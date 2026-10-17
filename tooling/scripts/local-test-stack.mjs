@@ -726,6 +726,16 @@ function serviceDefs(secrets) {
         // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
         // test accounts; "LOCAL TEST — not a real approval".
         IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+        // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
+        // transport, a lifetime, and a rate budget are published. local-outbox is refused
+        // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
+        // not an owner decision. The confirm link is written to the outbox file, labelled
+        // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
+        IDENTITY_MAIL_TRANSPORT: 'local-outbox',
+        IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
+        IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+        IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+        IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from

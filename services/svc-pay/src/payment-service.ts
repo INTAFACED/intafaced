@@ -87,7 +87,11 @@ import {
 import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
-import { listMerchantPayoutDestinations } from './portal-reads/destinations.js';
+import {
+  listMerchantPayoutDestinations,
+  removeMerchantPayoutDestination,
+  setDefaultMerchantPayoutDestination,
+} from './portal-reads/destinations.js';
 import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
 import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
 import { listMerchantStatement } from './portal-reads/statement.js';
@@ -300,6 +304,10 @@ export type PayErrorCode =
   | 'pay.refund_not_found'
   /** Destination inventory page size unpublished. Blank is not 50. */
   | 'pay.destination_list_limit_unset'
+  /** No saved destination with this id for this merchant. Same answer as a foreign id. */
+  | 'pay.payout_destination_not_found'
+  /** Remove refused: a payout that still names this destination has not finished. */
+  | 'pay.payout_destination_in_flight'
   /** Refund list page size unpublished. Blank is not 50. */
   | 'pay.refund_list_limit_unset'
   /** Statement page size unpublished. Blank is not 50. */
@@ -5116,9 +5124,19 @@ export class PayService {
     throw new PayError(message, code);
   }
 
-  /** Saved payout destinations, masked. No set-default and no remove: that change flow does not exist. */
+  /** Saved payout destinations, masked. `default` only after the owner marks one. */
   listPayoutDestinations(input: { merchantId: string; limit?: number; cursor?: string }) {
     return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Owner write. Same authority as setPayoutDestination: no second approval. */
+  setDefaultPayoutDestination(input: { merchantId: string; destinationId: string }) {
+    return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Owner write. Refuses while a payout that names this destination is in flight. */
+  removePayoutDestination(input: { merchantId: string; destinationId: string }) {
+    return removeMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
 
   listRefunds(input: Parameters<typeof listMerchantRefunds>[2]) {

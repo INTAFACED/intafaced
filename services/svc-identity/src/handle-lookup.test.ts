@@ -47,7 +47,8 @@ const users = new Map([
 function setup(limiter?: HandleLookupLimiter) {
   const findActiveByHandle = vi.fn(async (handle: string) => users.get(handle.toLowerCase()) ?? null);
   const handleOf = vi.fn(async (userId: string) => (userId === ME ? 'Me_Self' : null));
-  const auth = { findActiveByHandle, handleOf } as unknown as AuthService;
+  const selfView = vi.fn(async (userId: string) => (userId === ME ? { handle: 'Me_Self', emailVerified: false } : null));
+  const auth = { findActiveByHandle, handleOf, selfView } as unknown as AuthService;
   const router = createIdentityRouter(auth, {} as unknown as RankService, {
     registrationOpen: true,
     ...(limiter ? { handleLookupLimiter: limiter } : {}),
@@ -140,7 +141,7 @@ describe('identity.me', () => {
   it('returns exactly the caller userId and handle', async () => {
     const { router } = setup();
     const me = await router.createCaller(await ctx()).me();
-    expect(me).toEqual({ userId: ME, handle: 'Me_Self' });
+    expect(me).toEqual({ userId: ME, handle: 'Me_Self', emailVerified: false });
   });
 });
 

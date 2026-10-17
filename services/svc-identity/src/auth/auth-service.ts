@@ -22,7 +22,10 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
+
+export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
@@ -107,6 +110,9 @@ export class AuthError extends Error {
       | 'auth.password_policy'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.email_confirm_invalid'
+      | 'auth.email_confirm_unwired'
+      | 'auth.email_confirm_rate_limited'
       | 'auth.too_many_attempts'
       | 'auth.invite_invalid'
       | 'auth.invite_used'
@@ -353,6 +359,12 @@ export class AuthService {
    * ordinary session.
    */
   private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
+  /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
+  private emailConfirmMail: PasswordResetMail | undefined;
+  private emailConfirmTtlSeconds: number | undefined;
+  private emailConfirmRateMax: number | undefined;
+  private emailConfirmRateWindowSeconds: number | undefined;
+  private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
   private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
 
@@ -413,6 +425,39 @@ export class AuthService {
   /** Test clock. Production uses the real clock. */
   usePasswordResetClock(now: () => Date): void {
     this.passwordResetNow = now;
+  }
+
+  /**
+   * Install the shared mail port plus the owner-published confirmation lifetime
+   * and rate budget. Any missing piece refuses every request the same way.
+   */
+  useEmailConfirmation(input: {
+    mail: PasswordResetMail | undefined;
+    ttlSeconds: number | undefined;
+    rateMax: number | undefined;
+    rateWindowSeconds: number | undefined;
+  }): void {
+    this.emailConfirmMail = input.mail;
+    this.emailConfirmTtlSeconds = input.ttlSeconds;
+    this.emailConfirmRateMax = input.rateMax;
+    this.emailConfirmRateWindowSeconds = input.rateWindowSeconds;
+  }
+
+  /** Test clock for confirmation expiry. Production uses the real clock. */
+  useEmailConfirmationClock(now: () => Date): void {
+    this.emailConfirmNow = now;
+  }
+
+  private emailConfirmDeps() {
+    return {
+      sql: this.sql,
+      mail: this.emailConfirmMail,
+      ttlSeconds: this.emailConfirmTtlSeconds,
+      rateMax: this.emailConfirmRateMax,
+      rateWindowSeconds: this.emailConfirmRateWindowSeconds,
+      now: this.emailConfirmNow,
+      log: this.log,
+    };
   }
 
   /** Founder desk scopes are added only when this directory says the user is a live founder. */
@@ -977,6 +1022,16 @@ export class AuthService {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
+  /** Signed-in. Mails a one-time link to this account's own address. Never returns the token. */
+  async requestEmailConfirmation(input: { userId: string }): Promise<{ accepted: true }> {
+    return requestEmailConfirmation(this.emailConfirmDeps(), input);
+  }
+
+  /** Public link. Sets `email_verified_at` once for the account the token was issued to. */
+  async confirmEmail(input: { token: string }): Promise<{ userId: string }> {
+    return confirmEmail(this.emailConfirmDeps(), input);
+  }
+
   /**
    * Signed-out reset, step 2. A correct proof replaces the hash and ends every
    * session. This call does not sign the person in.
@@ -1435,8 +1490,21 @@ export class AuthService {
    * is gone, which a live session should not be able to reach.
    */
   async handleOf(userId: string): Promise<string | null> {
-    const rows = await this.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${userId} LIMIT 1`;
-    return rows[0]?.handle ?? null;
+    const view = await this.selfView(userId);
+    return view?.handle ?? null;
+  }
+
+  /**
+   * The caller's own handle and whether the current email is confirmed, for
+   * `identity.me`. Null only when the account row is gone.
+   */
+  async selfView(userId: string): Promise<{ handle: string; emailVerified: boolean } | null> {
+    const rows = await this.sql<Array<{ handle: string; email_verified_at: Date | string | null }>>`
+      SELECT handle, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { handle: row.handle, emailVerified: isEmailConfirmed(row) };
   }
 
   /**

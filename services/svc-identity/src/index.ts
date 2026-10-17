@@ -5,6 +5,7 @@ import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contra
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
+import { openIdentityMail } from './auth/local-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { onboardingUserFromRow } from './auth/onboarding-user.js';
@@ -149,6 +150,11 @@ await sql`SELECT challenge_id FROM customer_step_ups LIMIT 0`.catch(() => {
     'identity schema is out of date: customer_step_ups is missing — apply drizzle/0033_customer_step_up.sql before starting svc-identity',
   );
 });
+await sql`SELECT email_verified_at FROM users LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: users.email_verified_at is missing — apply drizzle/0034_email_confirmation.sql before starting svc-identity',
+  );
+});
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -213,9 +219,22 @@ if (env.PAY_URL) {
   });
 }
 // Lifetime can be published without a mail port. With either one missing, every
-// reset request refuses auth.reset_unwired. No mailer is installed in this
-// process: svc-notify is a different module, and this service does not invent one.
+// reset request refuses auth.reset_unwired. The only transport this process
+// can install is the local-outbox file, and only when APP_ENV is exactly dev
+// or test. Staging and production stay unwired. No provider is configured.
+const mail = openIdentityMail({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_MAIL_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+});
+auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+auth.useEmailConfirmation({
+  mail,
+  ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
+  rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
+  rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
