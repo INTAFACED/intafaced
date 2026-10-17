@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   assertProdTotpKey,
+  assertSigningEncKey,
+  SIGNING_ENC_KEY_REQUIRED,
   decryptTotpSecret,
   encryptTotpSecret,
   isEncryptedTotpSecret,
@@ -83,6 +85,27 @@ describe('assertProdTotpKey — prod boot refuses a missing TOTP key', () => {
     for (const APP_ENV of ['dev', 'test', 'staging'] as const) {
       expect(() => assertProdTotpKey({ APP_ENV, IDENTITY_TOTP_SECRET_KEY: '' })).not.toThrow();
       expect(() => assertProdTotpKey({ APP_ENV, IDENTITY_TOTP_SECRET_KEY: undefined })).not.toThrow();
+    }
+  });
+});
+
+describe('assertSigningEncKey — prod and staging boot refuse a missing signing key', () => {
+  it('throws when prod or staging has a blank, missing, or short key', () => {
+    for (const APP_ENV of ['prod', 'staging'] as const) {
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: '' })).toThrow(SIGNING_ENC_KEY_REQUIRED);
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: undefined })).toThrow(SIGNING_ENC_KEY_REQUIRED);
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: 'short' })).toThrow(SIGNING_ENC_KEY_REQUIRED);
+    }
+  });
+
+  it('accepts a 32-byte key in prod and staging, and lets dev and test boot without one', () => {
+    const raw = randomBytes(32);
+    for (const APP_ENV of ['prod', 'staging'] as const) {
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: raw.toString('base64') })).not.toThrow();
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: raw.toString('hex') })).not.toThrow();
+    }
+    for (const APP_ENV of ['dev', 'test'] as const) {
+      expect(() => assertSigningEncKey({ APP_ENV, API_KEY_SIGNING_ENC_KEY: '' })).not.toThrow();
     }
   });
 });

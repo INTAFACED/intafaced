@@ -38,7 +38,17 @@ function fixture(privateAuthoritySecret = WS, edgeAuthoritySecret = EDGE) {
     installRawBody: false,
     door: {
       async getApiKeyOwnership() {
-        return { id: KEY, userId: USER, revoked: false, ipAllowlist: [], productScopes: [], originAllowlist: [], domainWhitelist: [] };
+        return {
+          id: KEY,
+          userId: USER,
+          revoked: false,
+          ipAllowlist: [],
+          productScopes: [],
+          originAllowlist: [],
+          domainWhitelist: [],
+          requireSignature: false,
+          requireNonEmptyIpAllowlist: false,
+        };
       },
     },
   });

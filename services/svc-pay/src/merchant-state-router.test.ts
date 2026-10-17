@@ -67,6 +67,6 @@ describe('legacy merchant writer shares founder controls', () => {
   });
   it('missing live control integration fails closed', async () => {
     const caller = createMerchantStateRouter(state).createCaller(ctx);
-    await expect(caller.merchantState.set(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    await expect(caller.merchantState.set(input)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });
