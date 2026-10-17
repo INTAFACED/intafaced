@@ -77,3 +77,10 @@ describe('rail names and reasons', () => {
     });
   });
 });
+
+describe('stale rail age', () => {
+  it('rounds up so the age never equals the limit, and ignores a missing age', () => {
+    expect(railDetail({ ok: false, detail: 'rail.health_stale ageMs=30400' })).toContain('31 seconds ago');
+    expect(railDetail({ ok: false, detail: 'rail.health_stale ageMs=' })).not.toContain('seconds ago)');
+  });
+});

@@ -31,8 +31,9 @@ type Facts = Readonly<Record<string, string>>;
 
 const REASON_WORDS: Readonly<Record<string, (ok: boolean, facts: Facts) => string>> = {
   'rail.health_stale': (_ok, facts) => {
-    const age = Number(facts.ageMs);
-    const since = Number.isFinite(age) && age >= 0 ? ` (the last one was ${Math.round(age / 1000)} seconds ago)` : '';
+    const age = /^\d+$/.test(facts.ageMs ?? '') ? Number(facts.ageMs) : NaN;
+    // Rounded up, so an age just past the limit never reads as the limit itself.
+    const since = Number.isFinite(age) ? ` (the last one was ${Math.ceil(age / 1000)} seconds ago)` : '';
     return `No health report in the last ${STALE_AFTER_SECONDS} seconds${since}`;
   },
   'rail.probe_failed': () => 'The last health check failed, so the rail is treated as down',
