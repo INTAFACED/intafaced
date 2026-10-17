@@ -23,7 +23,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0077      | W6 conversion quotes and order intents                | used                                            |
 | 0078      | W10 B2B ramp (switched off)                           | used                                            |
 | 0079      | W5 auto-trip window                                   | used                                            |
-| 0080      | unassigned                                            | free; ask W0 before using                       |
+| 0080      | destination page key and statement scan lease         | used                                            |
 | 0081      | subscription.create idempotency, one open subscription per mandate | used                               |
 | 0082      | reserved: merchant business profile (portal backend) | do not use                                      |
 | 0083      | dispute cases, rail deadlines, evidence bytes         | used                                            |

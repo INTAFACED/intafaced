@@ -30,6 +30,11 @@ const hash = `sha256:${'a'.repeat(64)}`;
 const window = { kind: 'preset', preset: 'today' } as const;
 /** An explicit range must sit on UTC midnights. */
 const series = { from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' } as const;
+/** Statement reads refuse without a window. Seven days sits inside the 92-day technical cap. */
+function statementWindow(): { from: string; to: string } {
+  const to = Date.now() + 24 * 60 * 60 * 1000;
+  return { from: new Date(to - 7 * 24 * 60 * 60 * 1000).toISOString(), to: new Date(to).toISOString() };
+}
 export const ghost = (): string => randomUUID();
 
 // ── G: founder-only ─────────────────────────────────────────────────────────
@@ -256,6 +261,8 @@ export interface ProbeIds {
   inviteId: string;
   /** W1: a pending payout approval (the owner of that merchant is its maker). */
   approvalId: string;
+  /** `refund.posted` event id for payment.refunds.get. */
+  refundEventId: string;
   invoiceId: string;
   evidenceId: string;
 }
@@ -275,6 +282,7 @@ export const idsOfEntity = (e: Entity): ProbeIds => ({
   memberId: e.memberId,
   inviteId: e.inviteId,
   approvalId: e.approvalId,
+  refundEventId: e.refundEventId,
   invoiceId: e.invoiceId,
   evidenceId: e.evidenceId,
 });
@@ -293,6 +301,7 @@ export const ghostIds = (): ProbeIds => ({
   memberId: ghost(),
   inviteId: ghost(),
   approvalId: ghost(),
+  refundEventId: ghost(),
   invoiceId: ghost(),
   evidenceId: ghost(),
 });
@@ -359,6 +368,18 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
   },
   { path: 'merchant.balances', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
+  {
+    path: 'merchant.payoutDestinations.list',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
+  },
+  {
+    path: 'merchant.statement.list',
+    scope: 'pay:read',
+    own: 'ok',
+    input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }),
+  },
   // W5: the merchant-readable halt status for a named merchant (merchant-safe shape; an unnamed read is the global switch only).
   { path: 'payHalts.status', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   // payment.*
@@ -374,6 +395,8 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'payment.get', scope: 'pay:read', own: 'ok', input: (i) => ({ paymentId: i.paymentId }) },
   { path: 'payment.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'payment.history', scope: 'pay:read', own: 'ok', input: (i) => ({ paymentId: i.paymentId, limit: 50 }) },
+  { path: 'payment.refunds.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.get', scope: 'pay:read', own: 'ok', input: (i) => ({ refundEventId: i.refundEventId }) },
   // settlement.*
   {
     path: 'settlement.run',
@@ -388,6 +411,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ settlementId: i.settlementId, railId: 'crypto-native' }),
   },
   { path: 'settlement.get', scope: 'pay:read', own: 'ok', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'settlement.lifecycle', scope: 'pay:read', own: 'ok', input: (i) => ({ settlementId: i.settlementId }) },
   { path: 'settlement.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.release', scope: 'pay:write', own: 'service', input: (i) => ({ settlementId: i.settlementId, reason: 'probe' }) },
   // kyb.*
@@ -686,6 +710,22 @@ export const LIST_PROCS: ListProc[] = [
     expectedIds: (e) => [e.settlementId],
   },
   {
+    name: 'trpc merchant.payoutDestinations.list',
+    call: { via: 'trpc', path: 'merchant.payoutDestinations.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: pageRows,
+  },
+  {
+    name: 'trpc payment.refunds.list',
+    call: { via: 'trpc', path: 'payment.refunds.list', input: (e) => ({ merchantId: e.merchantId, limit: 200 }) },
+    rows: pageRows,
+    expectedIds: (e) => [e.refundEventId],
+  },
+  {
+    name: 'trpc merchant.statement.list',
+    call: { via: 'trpc', path: 'merchant.statement.list', input: (e) => ({ merchantId: e.merchantId, limit: 200, ...statementWindow() }) },
+    rows: pageRows,
+  },
+  {
     name: 'trpc merchantOps.invoices.list',
     call: { via: 'trpc', path: 'merchantOps.invoices.list', input: () => ({ limit: 200 }) },
     rows: pageRows,
@@ -917,6 +957,11 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'payment.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.list', area: 'settlement', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.get', area: 'settlement', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'settlement.lifecycle', area: 'settlement', input: (i) => ({ settlementId: i.settlementId }) },
+  { path: 'merchant.payoutDestinations.list', area: 'settlement.payout', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'payment.refunds.get', area: 'payment', input: (i) => ({ refundEventId: i.refundEventId }) },
+  { path: 'merchant.statement.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50, ...statementWindow() }) },
   // The merchant metrics need BOTH `payment` and `settlement` over the subject; neither is a default grant, so one name stands for the pair.
   { path: 'merchantMetrics.snapshot', area: 'payment', input: (i) => ({ merchantId: i.merchantId, window }) },
   { path: 'merchantMetrics.series', area: 'payment', input: (i) => ({ merchantId: i.merchantId, ...series }) },

@@ -85,6 +85,10 @@ import {
 import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { listMerchantPayoutDestinations } from './portal-reads/destinations.js';
+import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
+import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
+import { listMerchantStatement } from './portal-reads/statement.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -281,6 +285,22 @@ export type PayErrorCode =
   | 'pay.settlement_not_found'
   /** settlement.list page size unpublished. Blank is not 50. */
   | 'pay.settlement_list_limit_unset'
+  /** A refund event id that is missing or not this caller's. Same refusal either way. */
+  | 'pay.refund_not_found'
+  /** Destination inventory page size unpublished. Blank is not 50. */
+  | 'pay.destination_list_limit_unset'
+  /** Refund list page size unpublished. Blank is not 50. */
+  | 'pay.refund_list_limit_unset'
+  /** Statement page size unpublished. Blank is not 50. */
+  | 'pay.statement_list_limit_unset'
+  /** `merchant.statement.list` without both `from` and `to`. A statement is not the whole history. */
+  | 'pay.statement_range_required'
+  /** Statement window longer than the 92-day technical safety bound. */
+  | 'pay.statement_range_too_wide'
+  /** More than 2000 candidate ledger keys in one statement request. */
+  | 'pay.statement_too_large'
+  /** A statement scan for this merchant is still leased, or this process is already running two. */
+  | 'pay.statement_busy'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
@@ -4663,6 +4683,38 @@ export class PayService {
     if (kybRefuse) {
       throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
     }
+  }
+
+  private portalFail(message: string, code: PayErrorCode): never {
+    throw new PayError(message, code);
+  }
+
+  /** Saved payout destinations, masked. No set-default and no remove: that change flow does not exist. */
+  listPayoutDestinations(input: { merchantId: string; limit?: number; cursor?: string }) {
+    return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code));
+  }
+
+  listRefunds(input: Parameters<typeof listMerchantRefunds>[2]) {
+    return listMerchantRefunds(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Merchant id only. The router fences before any amount parse or ledger read. A miss is `pay.refund_not_found`. */
+  locateRefund(refundEventId: string) {
+    return locateRefundMerchant(this.sql, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  /** The refund projection. Call only after the merchant fence. A miss is `pay.refund_not_found`. */
+  readRefund(refundEventId: string) {
+    return readMerchantRefund(this.sql, this.ledger, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  listStatement(input: Parameters<typeof listMerchantStatement>[2]) {
+    return listMerchantStatement(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
+  readPayoutLifecycle(settlementId: string) {
+    return readPayoutLifecycleProjection(this.sql, settlementId, (message, code) => this.portalFail(message, code));
   }
 }
 
