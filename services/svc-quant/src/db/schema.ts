@@ -68,4 +68,43 @@ export const backtestRuns = quant.table(
   (t) => [primaryKey({ columns: [t.accountId, t.idempotencyKey] })],
 );
 
-export const schema = { strategies, strategyVersions, writeReceipts, backtestRuns };
+export const runs = quant.table(
+  'runs',
+  {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id'),
+    scopeKey: text('scope_key').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    kind: text('kind').notNull(),
+    strategyId: text('strategy_id'),
+    strategyVersion: integer('strategy_version'),
+    startedAt: tstz('started_at').notNull(),
+    finishedAt: tstz('finished_at'),
+    outcomeCode: text('outcome_code'),
+    result: jsonb('result'),
+  },
+  (t) => [uniqueIndex('runs_scope_key_idx').on(t.scopeKey, t.idempotencyKey)],
+);
+
+export const claims = quant.table(
+  'claims',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .unique()
+      .references(() => runs.id),
+    userId: uuid('user_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    pnl: text('pnl').notNull(),
+    environment: text('environment').notNull(),
+    kind: text('kind').notNull(),
+    claimLabel: text('claim_label').notNull(),
+    live: boolean('live').notNull(),
+    simulated: boolean('simulated').notNull(),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('claims_user_key_idx').on(t.userId, t.idempotencyKey)],
+);
+
+export const schema = { strategies, strategyVersions, writeReceipts, backtestRuns, runs, claims };

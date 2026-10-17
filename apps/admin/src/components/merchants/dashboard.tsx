@@ -2,6 +2,7 @@ import type { FounderGlobalMetrics } from '@intafaced/contracts';
 import type { DashboardData } from '@/lib/merchants/loaders';
 import { amountFor, sumByAsset, compareDecimal, type AssetAmount } from '@/lib/merchants/money';
 import { railChip } from '@/lib/merchants/chips';
+import { railDetail, railName } from '@/lib/merchants/rails';
 import { stalestFreshness, type Freshness } from '@/lib/merchants/time';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { BarChart, type BarPoint } from './bar-chart';
@@ -202,11 +203,19 @@ function DashboardBody({
               <tbody>
                 {metrics.railHealth.map((rail) => (
                   <tr key={rail.railId}>
-                    <th scope="row">{rail.railId}</th>
+                    <th scope="row">
+                      {railName(rail.railId)}
+                      {railName(rail.railId) !== rail.railId ? (
+                        <>
+                          {' '}
+                          <code className="mp-sub">{rail.railId}</code>
+                        </>
+                      ) : null}
+                    </th>
                     <td>
                       <StatusChip spec={railChip(rail.ok)} />
                     </td>
-                    <td className="mp-muted">{rail.detail ?? '—'}</td>
+                    <td className="mp-muted">{railDetail(rail)}</td>
                   </tr>
                 ))}
               </tbody>

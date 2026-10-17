@@ -179,6 +179,26 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Owner-published lifetime for an email or phone change proof, in seconds.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_CONTACT_CHANGE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a contact-change proof.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
        * Mail transport. Blank / unset → unwired; confirmation and reset requests
        * refuse. `local-outbox` is the only implemented transport and is refused
        * at boot unless APP_ENV is exactly dev or test. Any other name refuses

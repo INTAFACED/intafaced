@@ -23,6 +23,7 @@ import type { OtcDeskService } from './otc/otc-service.js';
 import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_RESIDUAL } from './copy/auto-mirror-place.js';
 import { copyLawStatusLine } from './copy/fee-share-law.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './copy/errors.js';
+import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './copy/disclosure.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
@@ -30,6 +31,8 @@ import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
+import { convertHistoryProcedures } from './convert/convert-history-router.js';
+import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -263,6 +266,8 @@ function presentFill(fill: FillRecord) {
  * order may not have been placed at all.
  */
 function toTrpcError(err: unknown): TRPCError {
+  const historyError = convertHistoryTrpcError(err);
+  if (historyError) return historyError;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -335,6 +340,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_flatten_drift':
       case 'trade.copy_flatten_unavailable':
       case 'trade.copy_flatten_partial':
+      case 'trade.copy_disclosure_unpublished':
+      case 'trade.copy_disclosure_required':
+      case 'trade.copy_disclosure_version_stale':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -613,6 +621,8 @@ export function createTradeRouter(
             }),
           ),
         ),
+
+      ...convertHistoryProcedures(trade),
     }),
 
     /**
@@ -966,6 +976,47 @@ export function createTradeRouter(
         }
         return copy.deskStatus();
       }),
+
+      disclosure: scopedProcedure('trade:read', { module: 'trade' })
+        .output(
+          z
+            .object({
+              published: z.boolean(),
+              version: z.string().nullable(),
+              text: z.string().nullable(),
+              accepted: z.boolean(),
+            })
+            .strict(),
+        )
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!copy) return UNPUBLISHED_COPY_DISCLOSURE_VIEW;
+            return copy.disclosure(ctx.principal);
+          }),
+        ),
+
+      acceptDisclosure: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            version: z.string().min(1).max(200),
+            clientAcceptId: z.string().min(1).max(200),
+          }),
+        )
+        .output(
+          z
+            .object({
+              version: z.string(),
+              acceptedAt: z.string().datetime(),
+              clientAcceptId: z.string(),
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError(COPY_DISCLOSURE_LAW_KEY, 'trade.copy_disclosure_unpublished');
+            return copy.acceptDisclosure(ctx.principal, input);
+          }),
+        ),
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(
