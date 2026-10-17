@@ -33,10 +33,28 @@ export function assertReserveMayBeConfigured(reserve: { rollingReserveBps: numbe
  * A merchant who already carries a non-null reserve must not be paid the full
  * settlement net. There is no recipe to hold the reserved part, so the payout
  * is refused and nothing is admitted.
+ *
+ * A database that has not migrated the control tables has no reserve rows.
+ * That is "no reserve", and the payout continues. Any other read failure still
+ * refuses the payout.
  */
 export async function assertPayoutReserveWired(sql: Sql, merchantId: string): Promise<void> {
-  const control = await loadMerchantControl(sql, merchantId);
+  let control;
+  try {
+    control = await loadMerchantControl(sql, merchantId);
+  } catch (error) {
+    if (missingControlTables(error)) return;
+    throw error;
+  }
   if (effectiveReserve(control) !== null) throw new ControlError('pay.reserve_ledger_unwired', UNWIRED);
+}
+
+/** Undefined-table on the W1 control tables only. Any other relation is a real fault. */
+function missingControlTables(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ((error as { code?: unknown }).code !== '42P01') return false;
+  const message = error instanceof Error ? error.message : '';
+  return message.includes('pay.control_merchant_profiles') || message.includes('pay.control_tiers');
 }
 
 export interface ReserveLedgerPort {
