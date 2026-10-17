@@ -88,6 +88,20 @@ assert.equal(source.includes('local_phantom'), false);
 
 console.log('local-test-stack: 6 refusal checks passed');
 
+// Matching reads order:<id> holds read-only from the ledger at boot. Without LEDGER_URL a
+// journal with resting orders boots closed (matching.hold_check_unwired). Ledger already starts
+// before matching; this only pins the env the matching process is given.
+{
+  const marker = "name: 'matching'";
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0, 'matching service block missing');
+  const next = source.indexOf("name: '", start + marker.length);
+  assert.ok(next > start, 'matching service block has no following service');
+  const block = source.slice(start, next);
+  assert.ok(block.includes("LEDGER_URL: urlOf('ledger')"), "matching env must contain LEDGER_URL: urlOf('ledger')");
+  console.log('local-test-stack: matching ledger hold wiring check passed');
+}
+
 // 7. Every Edge upstream, and every module the Customer app calls, points at a service this
 // stack starts or is listed as intentionally absent with a reason. `plan` changes nothing.
 const repo = resolve(here, '..', '..');
@@ -164,8 +178,13 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // The only Customer module allowed to be absent is mining (static placeholder room), with its reason on record.
-  assert.deepEqual(absentButUsed, ['mining'], `unexpected Customer modules without a service: ${absentButUsed}`);
+  // Absent on purpose, each with a reason in EDGE_ABSENT. mining is the static placeholder.
+  // protocol, indexer and dex are called by the Protocol rooms (#4835) and stay unwired.
+  assert.deepEqual(
+    [...absentButUsed].sort(),
+    ['dex', 'indexer', 'mining', 'protocol'],
+    `unexpected Customer modules without a service: ${absentButUsed}`,
+  );
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }

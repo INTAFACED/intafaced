@@ -21,7 +21,7 @@ import {
   persistStrike,
   persistTrail,
 } from './journal-persist.js';
-import type { AccountId, MarketId, OrderId, OrderSide } from './types.js';
+import type { AccountId, CancelReason, MarketId, OrderId, OrderSide } from './types.js';
 
 /**
  * THE ENGINE JOURNAL (§5.1).
@@ -61,7 +61,14 @@ export type JournalCommand =
       readonly at: string;
       readonly order: WireOrder;
     }
-  | { readonly kind: 'cancel'; readonly marketId: MarketId; readonly at: string; readonly orderId: OrderId }
+  | {
+      readonly kind: 'cancel';
+      readonly marketId: MarketId;
+      readonly at: string;
+      readonly orderId: OrderId;
+      /** Absent on older journals and on a caller cancel (`requested`). Replay removes the order either way. */
+      readonly reason?: CancelReason;
+    }
   | {
       readonly kind: 'in_flight';
       readonly marketId: MarketId;
@@ -377,5 +384,17 @@ export function encode(record: JournalRecord): string {
     });
   }
 
-  return JSON.stringify({ seq: record.seq, kind: record.kind, marketId: record.marketId, at: record.at, orderId: record.orderId });
+  if (record.kind === 'cancel') {
+    return JSON.stringify({
+      seq: record.seq,
+      kind: record.kind,
+      marketId: record.marketId,
+      at: record.at,
+      orderId: record.orderId,
+      ...(record.reason && record.reason !== 'requested' ? { reason: record.reason } : {}),
+    });
+  }
+
+  const uncovered: never = record;
+  throw new Error(`journal encode missed ${(uncovered as { kind: string }).kind}`);
 }
