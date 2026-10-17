@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -22,7 +22,6 @@ import {
   startsField,
   useBankRead,
   usePageLimit,
-  uuidField,
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
@@ -41,6 +40,15 @@ import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
+import { RecipientPicker } from './RecipientPicker';
+import { BusinessBank } from './BusinessBank';
+import { businessCopy } from './business-copy';
+import { RampJourneys } from './RampJourneys';
+import { rampDepthCopy } from './ramp-depth-copy';
+import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
+import type { Payee } from './payees';
+import { transferDepthCopy } from './transfer-depth-copy';
+import { assetSelectField, useHoldings } from './holdings';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
 const bankLabels = {
@@ -88,16 +96,6 @@ function BankPage({ room, description, children }: { room: string; description: 
     </Page>
   );
 }
-const assetField = {
-  name: 'assetId',
-  get label() {
-    return copyText('rooms.asset');
-  },
-  get hint() {
-    return copyText('rooms.exact.asset.code.this.does.not.convert');
-  },
-  validate: (value: string) => (value.length <= 16 ? null : copyText('rooms.asset.codes.are.limited.to.16.characters')),
-};
 const moneyValue = (value: string) =>
   decimalSchema.safeParse(value).success ? null : copyText('rooms.enter.an.exact.nonnegative.decimal');
 function spaceName(space: Space) {
@@ -146,12 +144,15 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const spaces = useBankRead('spaces.list', { limit });
   const unnamed = useBankRead('spaces.unnamed', undefined);
+  const held = useHoldings();
+  const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
+  const depthCopy = transferDepthCopy.useCopy();
   const create = () =>
     open({
       title: copyText('rooms.create.space'),
       procedure: 'spaces.create',
       fields: [
-        assetField,
+        assetSelectField(depthCopy.t('assetPicker'), depthCopy.t('assetPickerHint'), heldAssets),
         {
           name: 'name',
           label: copyText('rooms.space.name'),
@@ -190,12 +191,21 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
             <Button variant="ghost" onClick={spaces.reload}>
               <Text k="rooms.refresh" />
             </Button>
-            <Button onClick={create}>
+            <Button
+              onClick={create}
+              disabled={heldAssets.length === 0}
+              aria-describedby={heldAssets.length === 0 ? 'spaces-create-why' : undefined}
+            >
               <Text k="rooms.create.space" />
             </Button>
           </>
         }
       >
+        {heldAssets.length === 0 && held.resource.status === 'ready' && (
+          <p id="spaces-create-why" className="money-caption">
+            {depthCopy.t('noAssets')}
+          </p>
+        )}
         {(context.status === 'none' || spaces.resource.status === 'ready') && (
           <ResourceView resource={spaces.resource} reload={spaces.reload}>
             {(returned) => {
@@ -496,6 +506,11 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
     </div>
   );
 }
+/** The customer's other accounts in the same asset, the only places a space-to-space move can go. */
+function ownSpaces(spaces: Space[], from: Space | undefined, owner: string): Space[] {
+  if (!from) return [];
+  return spaces.filter((space) => space.id !== from.id && space.assetId === from.assetId && currentSpace(spaces, space.id, owner));
+}
 function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
   const { userId } = useSession();
   const context = spaceContext(search, 'from');
@@ -504,6 +519,8 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const [fromId, setFrom] = useState(context.status === 'valid' ? context.id : '');
   const [destination, setDestination] = useState<'space' | 'user'>('space');
   const [scheduled, setScheduled] = useState(false);
+  const [recipient, setRecipient] = useState<Payee | null>(null);
+  const depth = transferDepthCopy.useCopy();
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
       <Section title={copyText('rooms.new.transfer')}>
@@ -544,22 +561,39 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                       <Text k="rooms.destination" />
                     </span>
                     <select value={destination} onChange={(event) => setDestination(event.target.value as 'space' | 'user')}>
-                      <option value="space">
-                        <Text k="rooms.space.id" />
-                      </option>
-                      <option value="user">
-                        <Text k="rooms.user.id" />
-                      </option>
+                      <option value="space">{depth.t('toYourSpace')}</option>
+                      <option value="user">{depth.t('toPerson')}</option>
                     </select>
+                  </label>
+                  {destination === 'user' && (
+                    <>
+                      <RecipientPicker value={recipient} onChange={setRecipient} />
+                      <p className="money-caption">{depth.t('personNote')}</p>
+                    </>
+                  )}
+                  {destination === 'space' && (
+                    <p className="money-caption">
+                      {from && ownSpaces(spaces, from, userId ?? '').length === 0 ? depth.t('noOtherSpace') : depth.t('spaceNote')}
+                    </p>
+                  )}
+                  <label className="field">
+                    <span>{depth.t('noteField')}</span>
+                    <input disabled value="" readOnly aria-describedby="transfer-note-why" />
+                    <small id="transfer-note-why">{depth.t('noteReason')}</small>
                   </label>
                   <label className="money-check">
                     <input type="checkbox" checked={scheduled} onChange={(event) => setScheduled(event.target.checked)} />
                     <Text k="rooms.repeat.on.a.schedule" />
                   </label>
                   <Button
-                    disabled={!from}
+                    disabled={
+                      !from ||
+                      (destination === 'user' && !recipient) ||
+                      (destination === 'space' && ownSpaces(spaces, from, userId ?? '').length === 0)
+                    }
                     onClick={() => {
                       if (!from) return;
+                      if (destination === 'user' && !recipient) return;
                       open({
                         title: scheduled ? copyText('rooms.schedule.transfer') : copyText('rooms.transfer'),
                         procedure: scheduled
@@ -571,31 +605,36 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                             : 'transfers.toUser',
                         initial: { fromSpaceId: from.id },
                         fields: [
-                          destination === 'space'
-                            ? uuidField('toSpaceId', copyText('rooms.destination.space.id'))
-                            : {
-                                name: 'toUserId',
-                                label: copyText('rooms.recipient.user.id'),
-                                validate: (value) => (value.length <= 64 ? null : copyText('rooms.use.64.characters.or.fewer')),
-                              },
+                          ...(destination === 'space'
+                            ? [
+                                {
+                                  name: 'toSpaceId',
+                                  label: depth.t('whichSpace'),
+                                  options: ownSpaces(spaces, from, userId ?? '').map((space) => ({
+                                    value: space.id,
+                                    label: `${space.name} · ${funds(space.balance, space.assetId)}`,
+                                  })),
+                                },
+                              ]
+                            : []),
                           positiveMoney(from.assetId),
                           ...(scheduled ? [cadenceField, startsField] : []),
                         ],
                         facts: [
-                          [copyText('rooms.source'), from.name],
+                          [depth.t('from'), from.name],
+                          ...(destination === 'user' && recipient
+                            ? [[depth.t('recipient'), `@${recipient.handle}`] as [string, string]]
+                            : []),
                           [copyText('rooms.asset'), from.assetId],
                           [copyText('rooms.available.at.last.read'), amount(from.balance, from.assetId)],
                         ],
-                        notes: [
-                          copyText('rooms.the.service.checks.ownership.lock.policy.and'),
-                          copyText('rooms.use.the.destination.id.supplied.by.your'),
-                        ],
+                        notes: [destination === 'user' ? depth.t('personNote') : depth.t('spaceNote')],
                         validate: (input) =>
                           validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
                         input: (values, requestId) => ({
                           fromSpaceId: from.id,
-                          ...(destination === 'space' ? { toSpaceId: values.toSpaceId } : { toUserId: values.toUserId }),
+                          ...(destination === 'space' ? { toSpaceId: values.toSpaceId } : { toUserId: recipient!.userId }),
                           amount: values.amount,
                           ...(scheduled
                             ? { scheduleId: requestId, cadence: values.cadence, startsAt: iso(values.startsAt!) }
@@ -1214,75 +1253,96 @@ function Cards({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
-function Ramps() {
+function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = railCopy.useCopy();
+  const depth = rampDepthCopy.useCopy();
   return (
     <BankPage room="Ramps" description={t('description')}>
-      <OwnerRailRecords />
+      <RampJourneys open={open} />
+      <Section title={depth.t('historyTitle')} description={depth.t('historyLead')}>
+        <OwnerRailRecords />
+      </Section>
     </BankPage>
   );
 }
 function Analytics() {
-  const [values, setValues] = useState({ assetId: '', from: '', to: '' });
-  const [range, setRange] = useState<{ assetId: string; from: string; to: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const depth = transferDepthCopy.useCopy();
+  const held = useHoldings();
+  const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
+  const [chosen, setChosen] = useState('');
+  const [preset, setPreset] = useState<PeriodPreset>('30d');
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const [useCustom, setUseCustom] = useState(false);
+  const assetId = chosen || assets[0]?.assetId || '';
+  const range = useMemo(() => {
+    if (!assetId) return null;
+    if (useCustom) {
+      if (!Number.isFinite(Date.parse(custom.from)) || !Number.isFinite(Date.parse(custom.to))) return null;
+      if (Date.parse(custom.from) >= Date.parse(custom.to)) return null;
+      return { assetId, from: iso(custom.from), to: iso(custom.to) };
+    }
+    return { assetId, ...periodRange(preset, new Date(Math.floor(Date.now() / 60_000) * 60_000)) };
+  }, [assetId, preset, useCustom, custom.from, custom.to]);
   const query = useBankRead('analytics.spend', range, Boolean(range));
-  function load() {
-    if (!values.assetId.trim() || values.assetId.trim().length > 16) {
-      setError(copyText('rooms.enter.an.asset.code.of.1.to'));
-      return;
-    }
-    if (
-      !Number.isFinite(Date.parse(values.from)) ||
-      !Number.isFinite(Date.parse(values.to)) ||
-      Date.parse(values.from) >= Date.parse(values.to)
-    ) {
-      setError(copyText('rooms.choose.a.valid.start.before.the.end'));
-      return;
-    }
-    setError(null);
-    setRange({ assetId: values.assetId.trim(), from: iso(values.from), to: iso(values.to) });
-  }
+  const presetLabel = (value: PeriodPreset) =>
+    depth.t(value === '7d' ? 'period7d' : value === '30d' ? 'period30d' : value === 'month' ? 'periodMonth' : 'periodLastMonth');
   return (
     <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
       <Section title={copyText('rooms.movement.window')}>
-        <form
-          className="money-analytics-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            load();
-          }}
-        >
-          <Field
-            label={copyText('rooms.asset')}
-            value={values.assetId}
-            maxLength={16}
-            required
-            onChange={(event) => setValues({ ...values, assetId: event.target.value })}
-          />
-          <Field
-            label={copyText('rooms.from')}
-            type="datetime-local"
-            value={values.from}
-            required
-            onChange={(event) => setValues({ ...values, from: event.target.value })}
-          />
-          <Field
-            label={copyText('rooms.to')}
-            type="datetime-local"
-            value={values.to}
-            required
-            onChange={(event) => setValues({ ...values, to: event.target.value })}
-          />
-          <Button type="submit">
-            <Text k="rooms.read.movements" />
-          </Button>
-        </form>
-        {error && (
-          <p className="error-text" role="alert">
-            {error}
-          </p>
-        )}
+        <div className="money-analytics-form">
+          <label className="field">
+            <span>{depth.t('assetPicker')}</span>
+            <select value={assetId} onChange={(event) => setChosen(event.target.value)} disabled={assets.length === 0}>
+              {assets.length === 0 && <option value="">—</option>}
+              {assets.map((asset) => (
+                <option key={asset.assetId} value={asset.assetId}>
+                  {asset.assetId}
+                </option>
+              ))}
+            </select>
+            <small>{assets.length === 0 && held.resource.status === 'ready' ? depth.t('noAssets') : depth.t('assetPickerHint')}</small>
+          </label>
+          <div className="bd-periods" role="group" aria-label={depth.t('period')}>
+            {PERIOD_PRESETS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="bd-chip"
+                aria-pressed={!useCustom && preset === value}
+                onClick={() => {
+                  setUseCustom(false);
+                  setPreset(value);
+                }}
+              >
+                {presetLabel(value)}
+              </button>
+            ))}
+            <button type="button" className="bd-chip" aria-pressed={useCustom} onClick={() => setUseCustom(true)}>
+              {depth.t('periodCustom')}
+            </button>
+          </div>
+          {useCustom && (
+            <>
+              <Field
+                label={copyText('rooms.from')}
+                type="datetime-local"
+                value={custom.from}
+                onChange={(event) => setCustom({ ...custom, from: event.target.value })}
+              />
+              <Field
+                label={copyText('rooms.to')}
+                type="datetime-local"
+                value={custom.to}
+                onChange={(event) => setCustom({ ...custom, to: event.target.value })}
+              />
+              {!range && custom.from && custom.to && (
+                <p className="error-text" role="alert">
+                  {copyText('rooms.choose.a.valid.start.before.the.end')}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </Section>
       {range ? (
         <ResourceView resource={query.resource} reload={query.reload}>
@@ -1342,179 +1402,11 @@ function Analytics() {
     </BankPage>
   );
 }
-function BusinessApprovals({ accountId }: { accountId: string }) {
-  const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('business.pending', { accountId, limit });
+function Business({ open }: { open: (spec: ActionSpec) => void }) {
+  const { t } = businessCopy.useCopy();
   return (
-    <Section
-      title={copyText('rooms.pending.maker.checker.approvals')}
-      description={copyText('rooms.the.service.verifies.membership.for.this.bank')}
-    >
-      <ResourceView resource={query.resource} reload={query.reload}>
-        {(rows) => (
-          <>
-            {rows.length ? (
-              rows.map((approval) => (
-                <article className="money-record" key={approval.id}>
-                  <header>
-                    <div>
-                      <h3>
-                        {approval.status}
-                        <Text k="rooms.transfer.proposal" />
-                      </h3>
-                      <p>{date(approval.createdAt)}</p>
-                    </div>
-                    <strong className="numeric">{funds(approval.amount, approval.assetId)}</strong>
-                  </header>
-                  <dl className="detail-list">
-                    <div>
-                      <dt>
-                        <Text k="rooms.maker" />
-                      </dt>
-                      <dd>{approval.makerUserId}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.checker" />
-                      </dt>
-                      <dd>{approval.checkerUserId ?? copyText('rooms.not.yet.checked')}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.debit.space" />
-                      </dt>
-                      <dd>{approval.fromSpaceId}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.credit.space" />
-                      </dt>
-                      <dd>{approval.toSpaceId}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.reservation.transaction" />
-                      </dt>
-                      <dd>{approval.holdLedgerTxId ?? copyText('rooms.no.reservation.supplied')}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.posted.transaction" />
-                      </dt>
-                      <dd>{approval.ledgerTxId ?? copyText('rooms.not.posted')}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        <Text k="rooms.approval.reference" />
-                      </dt>
-                      <dd>{approval.id}</dd>
-                    </div>
-                  </dl>
-                  <p className="notice">
-                    <Text k="rooms.approval.rejection.and.cancellation.require.verified.company" />
-                  </p>
-                </article>
-              ))
-            ) : (
-              <NoRows title={copyText('rooms.no.pending.approvals.returned')}>
-                <Text k="rooms.an.empty.pending.list.does.not.imply" />
-              </NoRows>
-            )}
-            <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-          </>
-        )}
-      </ResourceView>
-    </Section>
-  );
-}
-function Business() {
-  const [limit, setLimit] = usePageLimit();
-  const [selected, setSelected] = useState<string | null>(null);
-  const query = useBankRead('business.list', { limit });
-  const { mode } = useSession();
-  return (
-    <BankPage room="Business" description={copyText('rooms.bank.membership.and.maker.checker.policy.records')}>
-      <Section title={copyText('rooms.company.money')}>
-        <div className="money-capability">
-          <h3>
-            <Text k="rooms.company.balance.and.write.authority.are.unavailable" />
-          </h3>
-          <p>
-            <Text k="rooms.the.connected.bank.contract.does.not.supply" />
-          </p>
-          <p>
-            <Text k="rooms.creating.a.company.bank.record.adding.members" />
-          </p>
-          <a className="text-link" href="/uc/account">
-            <Text k="rooms.account.identity.and.verification" />
-          </a>
-        </div>
-      </Section>
-      <Section
-        title={copyText('rooms.bank.policy.records')}
-        description={copyText('rooms.current.product.account.context.membership.does.not', { value1: mode })}
-        actions={
-          <Button variant="ghost" onClick={query.reload}>
-            <Text k="rooms.refresh" />
-          </Button>
-        }
-      >
-        <ResourceView resource={query.resource} reload={query.reload}>
-          {(rows) => (
-            <>
-              {rows.length ? (
-                rows.map((record) => (
-                  <article className="money-record" key={record.id}>
-                    <header>
-                      <div>
-                        <h3>{record.name}</h3>
-                        <p>
-                          {record.assetId} · {record.status}
-                        </p>
-                      </div>
-                      <span className="badge">
-                        <Text k="rooms.policy.record" />
-                      </span>
-                    </header>
-                    <dl className="detail-list">
-                      <div>
-                        <dt>
-                          <Text k="rooms.checker.threshold" />
-                        </dt>
-                        <dd>{funds(record.spendThreshold, record.assetId)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.created" />
-                        </dt>
-                        <dd>{date(record.createdAt)}</dd>
-                      </div>
-                      <div>
-                        <dt>
-                          <Text k="rooms.record.reference" />
-                        </dt>
-                        <dd>{record.id}</dd>
-                      </div>
-                    </dl>
-                    <p className="money-caption">
-                      <Text k="rooms.amounts.over.the.configured.threshold.require.separate" />
-                    </p>
-                    <Button variant="secondary" onClick={() => setSelected(record.id)}>
-                      <Text k="rooms.read.pending.approvals" />
-                    </Button>
-                  </article>
-                ))
-              ) : (
-                <NoRows title={copyText('rooms.no.bank.policy.memberships.returned')}>
-                  <Text k="rooms.verified.company.ownership.and.company.balances.remain" />
-                </NoRows>
-              )}
-              <Continuation count={rows.length} limit={limit} onMore={() => setLimit(Math.min(200, limit + 50))} />
-            </>
-          )}
-        </ResourceView>
-      </Section>
-      {selected && <BusinessApprovals accountId={selected} />}
+    <BankPage room="Business" description={t('lead')}>
+      <BusinessBank open={open} />
     </BankPage>
   );
 }
@@ -1748,11 +1640,11 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
     case '/bank/cards':
       return <Cards open={open} />;
     case '/bank/ramps':
-      return <Ramps />;
+      return <Ramps open={open} />;
     case '/bank/analytics':
       return <Analytics />;
     case '/bank/business':
-      return <Business />;
+      return <Business open={open} />;
     case '/uc/record':
       return <MoneyActivity />;
     default:

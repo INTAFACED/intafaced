@@ -7,6 +7,8 @@ import { cardCopy } from './card-copy';
 import { bps, Continuation, funds, ResourceView, Section, useBankRead, usePageLimit, type ActionSpec } from './components';
 import type { bankReads, cardSchema } from './contracts';
 import { t as copyText, Text } from './copy';
+import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
+import { useHoldings } from './holdings';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -29,6 +31,7 @@ function CardIdentity({ card }: { card: CardRecord }) {
   const { Copy } = cardCopy.useCopy();
   return (
     <div className="money-card-identity">
+      <CardFace card={card} />
       <h3>
         <Text k={card.simulated ? 'rooms.simulation.record' : 'rooms.card'} /> ·{' '}
         <bdi lang="zxx" dir="ltr">
@@ -436,6 +439,7 @@ function CardRead({
         <>
           <CardConfiguration card={card} expanded />
           <CardActions card={card} live={live} open={open} />
+          <CardControlPanels card={card} />
         </>
       )}
     </>
@@ -448,6 +452,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const [limit, setLimit] = usePageLimit();
   const programme = useBankRead('cards.programme', undefined);
   const query = useBankRead('cards.list', { limit });
+  const held = useHoldings();
   const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
   const serial = useRef(0);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -491,13 +496,21 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                   )}
                 </p>
               )}
-              <p className="money-caption">
-                <Copy k="issuanceUnavailable" />
-              </p>
             </>
           )}
         </ResourceView>
       </div>
+      <OrderCard
+        open={open}
+        programme={
+          programme.resource.status === 'loading'
+            ? undefined
+            : programme.resource.status === 'ready'
+              ? { id: programme.resource.data.id, simulated: programme.resource.data.simulated }
+              : null
+        }
+        assets={held.resource.status === 'ready' ? held.resource.data.assets : held.resource.status === 'failed' ? [] : undefined}
+      />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">
           <header>

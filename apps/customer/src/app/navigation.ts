@@ -50,6 +50,15 @@ export const rooms: readonly Room[] = [
     screen: 'money',
   },
   {
+    path: '/money/activity/:id',
+    title: 'Activity',
+    description: 'Transaction details',
+    door: 'Money',
+    area: 'money',
+    hidden: true,
+    screen: 'money',
+  },
+  {
     path: '/coin/:asset',
     title: 'Coin',
     description: 'Asset details and actions',
