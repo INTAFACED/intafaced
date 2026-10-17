@@ -9,15 +9,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AmountInput,
+  applyPrefill,
   bankPendingKey,
   Button,
+  cleanNote,
   CoinIcon,
+  contactLabel,
+  contactsFrom,
   createPersonalPayApi,
   dec,
   fmtAmount,
   fractionDigits,
   isHiddenPath,
+  NOTE_MAX,
   pendingOutcomes,
+  readSent,
+  receiptText,
+  recordSent,
   refusalCopy,
   resolveHandle,
   cleanHandle,
@@ -33,11 +41,17 @@ import {
   useHideBalances,
   HIDDEN_MASK,
   useSession,
+  useToast,
   type ApiClient,
   type ApiResult,
+  type Contact,
+  type PaymentRequest,
   type PersonalPayApi,
+  type SentEntry,
 } from './deps';
 import { payCopy } from './copy';
+import { personalCopy } from './personal-copy';
+import { copyText } from './share';
 import { checkAmount, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
 import type { IdentityState } from './identity-state';
 import type { z } from 'zod';
@@ -60,8 +74,9 @@ type Review = {
   source: Source;
   recipient: { userId: string; handle: string | null };
   firstTime: boolean;
+  note: string | null;
 };
-type Receipt = { amount: string; asset: string; handle: string | null };
+type Receipt = { entry: SentEntry; from: string };
 
 /**
  * The last confirmed payment per signed-in user, kept outside the screen. If the customer leaves Pay while a payment is
@@ -70,7 +85,16 @@ type Receipt = { amount: string; asset: string; handle: string | null };
 const lastReceipt = new Map<string, Receipt>();
 
 /** Send (UI-SPEC 5.10): who, what, how much, then a review that cannot be skipped. */
-export function SendCard({ identity }: { identity: IdentityState }) {
+export function SendCard({
+  identity,
+  prefill = null,
+  prefillKey = '',
+}: {
+  identity: IdentityState;
+  /** A payment link's suggestion for the form. It only fills fields; the customer still reviews and confirms. */
+  prefill?: PaymentRequest | null;
+  prefillKey?: string;
+}) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const [revision, reload] = useReducer((n: number) => n + 1, 0);
@@ -113,7 +137,16 @@ export function SendCard({ identity }: { identity: IdentityState }) {
       <StateBlock kind="error" title={payCopy.t('Couldn’t load your balances')} onRetry={retrySources} retryLabel={payCopy.t('Retry')} />
     );
   return (
-    <SendForm api={api} pay={pay} userId={userId as string} sources={loaded.list} handles={identity.status === 'handles'} reload={reload} />
+    <SendForm
+      api={api}
+      pay={pay}
+      userId={userId as string}
+      sources={loaded.list}
+      handles={identity.status === 'handles'}
+      reload={reload}
+      prefill={prefill}
+      prefillKey={prefillKey}
+    />
   );
 }
 
@@ -124,6 +157,8 @@ function SendForm({
   sources,
   handles,
   reload,
+  prefill,
+  prefillKey,
 }: {
   api: ApiClient;
   pay: PersonalPayApi;
@@ -131,7 +166,10 @@ function SendForm({
   sources: Source[];
   handles: boolean;
   reload: () => void;
+  prefill: PaymentRequest | null;
+  prefillKey: string;
 }) {
+  const personal = personalCopy.useCopy();
   // ── Who ──────────────────────────────────────────────────────────────────────────────────────────────────────
   // `handles` is what the server can do; `fallback` is set when a lookup finds the procedure missing after all.
   const [fallback, setFallback] = useState(false);
@@ -140,6 +178,12 @@ function SendForm({
   const [recipient, setRecipient] = useState<Recipient>({ kind: 'idle' });
   const [note, setNote] = useState<string | null>(null);
   const lookup = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
+  // What this device remembers: a private note for this payment, people paid before, and what a payment link suggested.
+  const [memo, setMemo] = useState('');
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const [remembered, rememberAgain] = useReducer((n: number) => n + 1, 0);
+  const contacts = useMemo(() => contactsFrom(readSent(userId)), [userId, remembered]);
+  const toast = useToast();
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -188,6 +232,21 @@ function SendForm({
     }
   }
 
+  /** A person paid before. A handle is looked up again, so a handle that moved to someone else is caught. */
+  function pickContact(contact: Contact) {
+    lookup.current.id += 1;
+    lookup.current.controller?.abort();
+    lookup.current.controller = null;
+    setNote(null);
+    if (byHandle && contact.handle) {
+      setTo(contact.handle);
+      void check(contact.handle);
+      return;
+    }
+    setTo(contact.handle ?? contact.userId);
+    setRecipient({ kind: 'found', userId: contact.userId, handle: byHandle ? contact.handle : null });
+  }
+
   async function paste() {
     try {
       const text = (await navigator.clipboard.readText()).trim();
@@ -213,6 +272,39 @@ function SendForm({
   useEffect(() => {
     if (sourceId === '' && firstId !== '') setSourceId(firstId);
   }, [sourceId, firstId]);
+  // A payment link fills the form once per link. Everything it sets can be changed, and nothing is sent without Review.
+  const appliedLink = useRef('');
+  useEffect(() => {
+    if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
+    appliedLink.current = prefillKey;
+    const notices: string[] = [prefill.note ? personal.t('requestBanner', { note: prefill.note }) : personal.t('requestBannerPlain')];
+    lookup.current.id += 1;
+    lookup.current.controller?.abort();
+    lookup.current.controller = null;
+    if (prefill.kind === 'handle' && byHandle) {
+      setTo(prefill.to);
+      void check(prefill.to);
+    } else if (prefill.kind === 'accountId') {
+      if (prefill.to === userId.toLowerCase()) {
+        setTo('');
+        setRecipient({ kind: 'problem', text: payCopy.t('That is you') });
+      } else {
+        setTo(prefill.to);
+        setRecipient({ kind: 'found', userId: prefill.to, handle: null });
+      }
+    } else {
+      setTo('');
+      setRecipient({ kind: 'idle' });
+      setNote(payCopy.t('Handles not on yet'));
+    }
+    const applied = applyPrefill(prefill, sources);
+    if (applied.sourceId) setSourceId(applied.sourceId);
+    setAmount(applied.amount);
+    setMemo(prefill.note ?? '');
+    if (applied.problem === 'assetNotHeld') notices.push(personal.t('requestAssetMissing', { asset: prefill.asset ?? '' }));
+    if (applied.problem === 'amountTooLarge') notices.push(personal.t('requestAmountTooLarge'));
+    setLinkNotice(notices.join(' '));
+  }, [prefill, prefillKey]);
   const amountCheck = checkAmount(amount, source);
   const hideBalances = useHideBalances();
   const availableText = source
@@ -324,6 +416,7 @@ function SendForm({
       source,
       recipient: { userId: recipient.userId, handle: recipient.handle },
       firstTime: !sentBefore(userId, recipient.userId),
+      note: cleanNote(memo),
     });
   }
 
@@ -355,8 +448,19 @@ function SendForm({
     }
     if (outcome.ok) {
       // Kept even if the screen was left meanwhile: the note is cleared by a definitive answer, so the receipt must outlive it.
-      const confirmed: Receipt = { amount: outcome.data.amount, asset: review.source.asset, handle: review.recipient.handle };
+      const entry: SentEntry = {
+        transferId: review.input.transferId,
+        ledgerTxId: outcome.data.ledgerTxId,
+        toUserId: review.recipient.userId,
+        handle: review.recipient.handle,
+        amount: outcome.data.amount,
+        asset: review.source.asset,
+        note: review.note,
+        at: new Date().toISOString(),
+      };
+      const confirmed: Receipt = { entry, from: labelFrom(review.source) };
       rememberRecipient(userId, review.recipient.userId);
+      recordSent(userId, entry);
       lastReceipt.set(key, confirmed);
       if (!mounted.current) return;
       setBusy(false);
@@ -364,6 +468,9 @@ function SendForm({
       setReceipt(confirmed);
       setReview(null);
       setAmount('');
+      setMemo('');
+      setLinkNotice(null);
+      rememberAgain();
       reload();
       return;
     }
@@ -382,7 +489,30 @@ function SendForm({
 
   // ── Receipt ──────────────────────────────────────────────────────────────────────────────────────────────────
   if (receipt) {
-    const shown = `${fmtAmount(receipt.amount, { places: 18 })} ${receipt.asset}`;
+    const { entry } = receipt;
+    const shownAmount = fmtAmount(entry.amount, { places: 18 });
+    const shown = `${shownAmount} ${entry.asset}`;
+    const labels = {
+      title: personal.t('receiptTitle'),
+      to: personal.t('receiptTo'),
+      amount: personal.t('receiptAmount'),
+      when: personal.t('receiptWhen'),
+      reference: personal.t('receiptReference'),
+      note: personal.t('noteRow'),
+    };
+    const copyReceipt = async () => {
+      const ok = await copyText(receiptText(entry, labels));
+      toast.add({ title: ok ? personal.t('receiptCopied') : personal.t('receiptCopyFailed'), timeout: ok ? 2000 : 4000 });
+    };
+    const sendAgain = () => {
+      lastReceipt.delete(key);
+      setReceipt(null);
+      const again = sources.find((row) => row.asset === entry.asset) ?? null;
+      setSourceId(again?.id ?? '');
+      setAmount(again ? entry.amount : '');
+      setMemo(entry.note ?? '');
+      pickContact({ userId: entry.toUserId, handle: entry.handle, lastAt: entry.at, times: 1 });
+    };
     return (
       <div className="pay-body" data-testid="pay-receipt">
         <div className="buy-receipt" role="status">
@@ -390,26 +520,52 @@ function SendForm({
             ✓
           </span>
           <h2 className="buy-receipt__title">
-            {receipt.handle
-              ? payCopy.t('Sent {amount} {asset} to @{handle}', {
-                  amount: fmtAmount(receipt.amount, { places: 18 }),
-                  asset: receipt.asset,
-                  handle: receipt.handle,
-                })
-              : payCopy.t('Sent {amount} {asset}', { amount: fmtAmount(receipt.amount, { places: 18 }), asset: receipt.asset })}
+            {entry.handle
+              ? payCopy.t('Sent {amount} {asset} to @{handle}', { amount: shownAmount, asset: entry.asset, handle: entry.handle })
+              : payCopy.t('Sent {amount} {asset}', { amount: shownAmount, asset: entry.asset })}
           </h2>
           <dl className="buy-receipt__rows">
+            <div>
+              <dt>{personal.t('receiptTo')}</dt>
+              <dd className={entry.handle ? undefined : 'pay-mono'}>{entry.handle ? `@${entry.handle}` : entry.toUserId}</dd>
+            </div>
+            <div>
+              <dt>{personal.t('receiptFrom')}</dt>
+              <dd>{receipt.from}</dd>
+            </div>
             <div>
               <dt>{payCopy.t('Amount')}</dt>
               <dd data-testid="pay-receipt-amount">{shown}</dd>
             </div>
+            <div>
+              <dt>{personal.t('receiptWhen')}</dt>
+              <dd>{new Date(entry.at).toLocaleString(personal.requestedLocale)}</dd>
+            </div>
+            <div>
+              <dt>{personal.t('receiptReference')}</dt>
+              <dd className="pay-mono" data-testid="pay-receipt-reference">
+                {entry.ledgerTxId}
+              </dd>
+            </div>
+            {entry.note ? (
+              <div>
+                <dt>{personal.t('noteRow')}</dt>
+                <dd>{entry.note}</dd>
+              </div>
+            ) : null}
           </dl>
           <div className="buy-receipt__actions">
             <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={ACTIVITY_HREF} role="link" />}>
               {payCopy.t('View activity')}
             </Button>
+            <Button variant="secondary" size={56} fullWidth onClick={() => void copyReceipt()}>
+              {personal.t('receiptCopy')}
+            </Button>
+            <Button variant="secondary" size={56} fullWidth onClick={sendAgain} data-testid="pay-send-again">
+              {personal.t('sendAgain')}
+            </Button>
             <Button
-              variant="secondary"
+              variant="ghost"
               size={56}
               fullWidth
               onClick={() => {
@@ -464,6 +620,12 @@ function SendForm({
           onRetry={() => void retryRecovery()}
           showActivity={!(recoveryProblem && !knownCleanup)}
         />
+      ) : null}
+
+      {linkNotice ? (
+        <p className="pay-banner" role="status" data-testid="pay-link-notice">
+          {linkNotice}
+        </p>
       ) : null}
 
       <div className="pay-field" data-testid="to-field">
@@ -537,6 +699,22 @@ function SendForm({
             <span className="pay-muted">{byHandle ? payCopy.t('Ask for their handle') : payCopy.t('Ask for their account ID')}</span>
           )}
         </div>
+        {contacts.length > 0 && recipient.kind !== 'found' ? (
+          <div className="pay-contacts" data-testid="pay-contacts">
+            <span className="pay-contacts__label">{personal.t('recent')}</span>
+            {contacts.map((contact) => (
+              <button
+                key={contact.userId}
+                type="button"
+                className="pay-chip"
+                onClick={() => pickContact(contact)}
+                data-testid="pay-contact"
+              >
+                {contactLabel(contact)}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="pay-field" data-testid="amount-field">
@@ -592,6 +770,23 @@ function SendForm({
         </div>
       </div>
 
+      <div className="pay-field" data-testid="note-field">
+        <label className="pay-field__label" htmlFor="pay-note">
+          {personal.t('note')}
+        </label>
+        <input
+          id="pay-note"
+          className="pay-text"
+          type="text"
+          value={memo}
+          maxLength={NOTE_MAX}
+          autoComplete="off"
+          placeholder={personal.t('notePlaceholder')}
+          onChange={(event) => setMemo(event.target.value)}
+        />
+        <span className="pay-hint">{personal.t('noteHint')}</span>
+      </div>
+
       <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="pay-review">
         {reason !== null && !waiting ? reason : payCopy.t('Review')}
       </Button>
@@ -623,6 +818,12 @@ function SendForm({
                   <dt>{payCopy.t('From')}</dt>
                   <dd>{labelFrom(review.source)}</dd>
                 </div>
+                {review.note ? (
+                  <div>
+                    <dt>{personal.t('noteRow')}</dt>
+                    <dd>{review.note}</dd>
+                  </div>
+                ) : null}
                 <div data-strong="">
                   <dt>{payCopy.t('Amount')}</dt>
                   <dd>
