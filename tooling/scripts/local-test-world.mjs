@@ -34,6 +34,7 @@ import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
+const SCRIPT_REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
 const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
@@ -958,6 +959,158 @@ export function planMerchantPopulate({
   return { stop: null, actions };
 }
 
+/**
+ * What `merchant.decideKyb` consumes. Same field set and key order as
+ * svc-pay `kybApprovalFields` (no reason) spread under `actionType` by
+ * `payActionPayloadHash`: actionType, decision, identityHash, merchantId.
+ * identityHash comes from `kyb.decisionBinding`. This function does not hash a profile.
+ */
+export const KYB_DECIDE_ACTION = 'pay.merchant_decide_kyb';
+export const KYB_FOUNDERS_MISSING = 'KYB pending: needs the two local founders (pnpm local:founder)';
+const KYB_HASH_RE = /^sha256:[0-9a-f]{64}$/;
+
+export function kybDecideApprovalFields({ merchantId, decision, identityHash }) {
+  return {
+    decision,
+    identityHash,
+    merchantId,
+  };
+}
+
+/** The object `payActionPayloadHash` stringifies. Key order is part of the hash. */
+export function kybDecideHashedBody(input) {
+  return { actionType: KYB_DECIDE_ACTION, ...kybDecideApprovalFields(input) };
+}
+
+export function kybDecidePayloadHash(input) {
+  return `sha256:${crypto
+    .createHash('sha256')
+    .update(JSON.stringify(kybDecideHashedBody(input)))
+    .digest('hex')}`;
+}
+
+/**
+ * Two enrolled local founders from `.env.founder-secrets.local` (pnpm local:founder enrol).
+ * Returns null when fewer than two distinct founders have a handle, password, user id and TOTP secret.
+ * This reads the founder vault only. It does not read the test-operator file.
+ */
+export function enrolledLocalFounders(vault) {
+  const rows = Array.isArray(vault?.founders) ? vault.founders : [];
+  const ready = [];
+  const seen = new Set();
+  for (const f of rows) {
+    if (!f || typeof f !== 'object') continue;
+    if (typeof f.userId !== 'string' || !f.userId) continue;
+    if (typeof f.handle !== 'string' || !f.handle) continue;
+    if (typeof f.password !== 'string' || !f.password) continue;
+    if (typeof f.totpSecret !== 'string' || !f.totpSecret) continue;
+    if (f.totpConfirmed === false) continue;
+    if (seen.has(f.userId)) continue;
+    seen.add(f.userId);
+    ready.push({
+      key: f.key,
+      handle: f.handle,
+      userId: f.userId,
+      password: f.password,
+      totpSecret: f.totpSecret,
+    });
+    if (ready.length === 2) break;
+  }
+  return ready.length === 2 ? ready : null;
+}
+
+/** Absolute vault paths. The stack checkout is included only when the marker recorded an absolute repo. */
+export function founderVaultFiles({ scriptRepo, stackRepo } = {}) {
+  const files = [];
+  for (const root of [scriptRepo, stackRepo]) {
+    if (typeof root !== 'string' || !path.isAbsolute(root)) continue;
+    const file = path.join(root, '.env.founder-secrets.local');
+    if (!files.includes(file)) files.push(file);
+  }
+  return files;
+}
+
+/**
+ * Open approval rows for one binding. The hash is interpolated only after it matches sha256,
+ * so a merchant id cannot become SQL. PENDING and APPROVED are reusable; anything else is a new proposal.
+ */
+export function openKybApprovalSql(payloadHash) {
+  if (!KYB_HASH_RE.test(payloadHash)) throw new Error('KYB approval lookup refused: payload hash is not sha256');
+  return `SELECT approval_id, operation_id, action_type, payload_hash, status, requester_id
+            FROM identity.action_approvals
+           WHERE action_type = 'pay.merchant_decide_kyb'
+             AND payload_hash = '${payloadHash}'
+             AND status IN ('PENDING', 'APPROVED')
+             AND expires_at > now()
+           ORDER BY created_at`;
+}
+
+/** An open row for this exact hash, or null. APPROVED wins over PENDING so a second propose is not filed. */
+export function pickReusableKybApproval(rows, payloadHash) {
+  const live = (rows ?? []).filter(
+    (r) =>
+      r &&
+      r.payloadHash === payloadHash &&
+      r.actionType === KYB_DECIDE_ACTION &&
+      (r.status === 'PENDING' || r.status === 'APPROVED') &&
+      typeof r.approvalId === 'string' &&
+      r.approvalId.length > 0 &&
+      typeof r.operationId === 'string' &&
+      r.operationId.length > 0 &&
+      typeof r.requesterId === 'string' &&
+      r.requesterId.length > 0,
+  );
+  return live.find((r) => r.status === 'APPROVED') ?? live.find((r) => r.status === 'PENDING') ?? null;
+}
+
+/**
+ * Whether to file a new proposal. `propose: false` when the founders are absent or a row for this
+ * binding is already PENDING or APPROVED. Callers must not propose on that result.
+ */
+export function planKybFounderApproval({ founders, pending, merchantId, decision, identityHash, policyVersion }) {
+  const pair = (Array.isArray(founders) ? founders : []).filter((f) => f && typeof f.userId === 'string' && f.userId);
+  const distinct = new Set(pair.map((f) => f.userId));
+  if (pair.length < 2 || distinct.size < 2) return { propose: false, refusal: KYB_FOUNDERS_MISSING };
+  if (!KYB_HASH_RE.test(String(identityHash ?? ''))) {
+    return { propose: false, refusal: 'KYB pending: decision binding has no identityHash' };
+  }
+  if (typeof merchantId !== 'string' || merchantId.length === 0) {
+    return { propose: false, refusal: 'KYB pending: merchant id is missing' };
+  }
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return { propose: false, refusal: 'KYB pending: decision is not approved or rejected' };
+  }
+  const hashed = kybDecideHashedBody({ merchantId, decision, identityHash });
+  const payloadHash = kybDecidePayloadHash({ merchantId, decision, identityHash });
+  const proposal = {
+    actionType: hashed.actionType,
+    targetService: 'svc-pay',
+    targetId: KYB_DECIDE_ACTION,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion,
+  };
+  const existing = pickReusableKybApproval(pending, payloadHash);
+  if (existing) {
+    const requesterIsFounder = distinct.has(existing.requesterId);
+    const approver = pair.find((f) => f.userId !== existing.requesterId);
+    if (!requesterIsFounder || !approver) {
+      return {
+        propose: false,
+        refusal: 'KYB pending: an approval for this binding is already open for someone else',
+      };
+    }
+    return { propose: false, reuse: existing, proposal, payloadHash, approverUserId: approver.userId };
+  }
+  return {
+    propose: true,
+    proposal,
+    payloadHash,
+    proposerUserId: pair[0].userId,
+    approverUserId: pair[1].userId,
+  };
+}
+
 export const RESULT_STATUSES = ['created', 'exists', 'refused', 'skipped', 'error'];
 
 /** Counts by status and by room, for the end-of-run table and the report. */
@@ -1547,19 +1700,25 @@ const MERCHANT_MONEY = new Set([
  *    null. This step reads PAY_MERCHANT_STARTER_FEE_BPS and does the same.
  * 4. KYB is pay.merchant.submitKyb (pay:write), then pay.merchant.decideKybStub
  *    while value movement is allow-sandbox. Under live-only the stub returns
- *    pay.kyb_operator_required and the step uses the local founder pair:
- *    identity actionApproval.propose / approve, then pay.merchant.decideKyb
- *    (admin:compliance, MFA, consumed approval pay.merchant_decide_kyb).
- *    If that pair cannot approve, the step stops at KYB pending.
+ *    pay.kyb_operator_required and the step uses the two local founders from
+ *    `pnpm local:founder` (not the test operators): they sign in with
+ *    auth.login and their TOTP, one proposes and the other approves
+ *    pay.merchant_decide_kyb, then pay.merchant.decideKyb consumes it
+ *    (admin:compliance, MFA). The hash is the live kyb.decisionBinding
+ *    identity, the same fields svc-pay consumes. If the founders are not
+ *    enrolled, the step stops at KYB pending and does not file a proposal.
  * 5. With the scopes, the same session calls payment.create / authorize /
  *    capture, payment.refund, merchant.createLink, merchantOps.invoices.create,
  *    mandate.create + subscription.create (crypto_invoice), and
  *    merchantOps.team.invite. Customers are the customerRef values on those
  *    payments (merchantOps.customers has no create).
  *
- * This step never calls issueAccessToken and never writes a pay table except
- * through those procedures. A missing pay scope or a missing starter fee is a
- * refusal, not a fallback.
+ * The merchant session never calls issueAccessToken and this step never writes
+ * a pay table except through those procedures. A missing pay scope or a missing
+ * starter fee is a refusal, not a fallback. The live KYB path mints one
+ * short-lived admin:compliance token for a founder who already signed in,
+ * because that scope is withheld from every session (the same local stand-in
+ * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
 async function populateMerchantStep(ctx) {
   const { user, record, secrets, log } = ctx;
@@ -1684,38 +1843,166 @@ async function recordMerchantCounts(user, record, merchantId) {
   );
 }
 
-/** Live-only KYB: the local operator pair proposes and approves, then decideKyb. Failure leaves KYB pending. */
-async function decideKybByFounderPair(log, merchantId) {
-  const gctx = await makeGatesContext({ log: (m) => log(`merchant kyb: ${m}`) });
-  const sessions = await gatesLocal.operatorSessions(gctx);
-  const payloadHash = gatesLocal.matchingPayloadHash('pay.merchant_decide_kyb', { merchantId, decision: 'approved' });
-  const proposal = {
-    actionType: 'pay.merchant_decide_kyb',
-    targetService: 'svc-pay',
-    targetId: 'pay.merchant_decide_kyb',
-    expectedVersion: '1',
-    payloadHash,
-    policyVersion: gatesLocal.MARKERS.policyVersion,
-  };
-  const proposed = await gctx.edge.mutate('identity', 'actionApproval.propose', proposal, sessions.a.token);
-  const row = proposed.json?.result?.data;
-  if (!row?.approvalId) return { ok: false, refusal: gatesLocal.refusalText(proposed) };
-  const approved = await gctx.edge.mutate(
-    'identity',
-    'actionApproval.approve',
-    { approvalId: row.approvalId, expectedPayloadHash: payloadHash },
-    sessions.b.token,
+function trpcData(res) {
+  const data = res?.json?.result?.data;
+  if (data && typeof data === 'object' && 'json' in data) return data.json;
+  return data;
+}
+
+function loadEnrolledFounders(gctx) {
+  for (const file of founderVaultFiles({ scriptRepo: SCRIPT_REPO, stackRepo: gctx?.marker?.repo })) {
+    const pair = enrolledLocalFounders(readJson(file, null));
+    if (pair) return pair;
+  }
+  return null;
+}
+
+function listOpenKybApprovals(secrets, payloadHash) {
+  return psql(secrets, 'svc_identity', openKybApprovalSql(payloadHash)).map(
+    ([approvalId, operationId, actionType, payloadHashRow, status, requesterId]) => ({
+      approvalId,
+      operationId,
+      actionType,
+      payloadHash: payloadHashRow,
+      status,
+      requesterId,
+    }),
   );
-  if (approved.json?.result?.data?.status !== 'APPROVED') return { ok: false, refusal: gatesLocal.refusalText(approved) };
-  const token = await sessions.a.complianceToken();
+}
+
+/** Sign-in is auth.login plus the vault TOTP, the same door `pnpm local:founder` enrols. No new account is registered. */
+async function signInLocalFounders(gctx, gates, founders) {
+  const sessions = [];
+  for (const founder of founders) {
+    let code;
+    try {
+      code = gctx.totp.totp(founder.totpSecret);
+    } catch (err) {
+      return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (${oneLine(err.message)})` };
+    }
+    const login = await gctx.edge.mutate('identity', 'auth.login', {
+      identifier: founder.handle,
+      password: founder.password,
+      totpCode: code,
+    });
+    const data = trpcData(login);
+    if (!data?.accessToken) return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (${gates.refusalText(login)})` };
+    let claims;
+    try {
+      claims = JSON.parse(Buffer.from(String(data.accessToken).split('.')[1], 'base64url').toString('utf8'));
+    } catch {
+      return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+    }
+    if (claims.sub !== founder.userId || claims.mfa !== true || typeof claims.sid !== 'string') {
+      return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+    }
+    sessions.push({
+      token: data.accessToken,
+      userId: claims.sub,
+      sessionId: claims.sid,
+      tier: claims.tier,
+    });
+  }
+  return { ok: true, sessions };
+}
+
+/**
+ * Sessions do not carry admin:compliance. kyb.decisionBinding and merchant.decideKyb require it.
+ * This is the short-lived mint local-test-gates already uses for a real signed-in session.
+ * The session id and the MFA claim come from the founder login. Nothing is written down,
+ * and the test operators are not involved.
+ */
+async function founderComplianceToken(gctx, session) {
+  const tier = ['none', 'basic', 'full', 'institutional'].includes(session.tier) ? session.tier : 'none';
+  const minted = await gctx.tokens.issueAccessToken(
+    { userId: session.userId, sessionId: session.sessionId, scopes: ['admin:compliance'], tier, mfa: true },
+    { secret: gctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+  );
+  return minted.token;
+}
+
+/**
+ * Live-only KYB. The two local founders propose and approve. If they are not enrolled, this
+ * returns before any proposal, so no PENDING row is left. An open proposal for the same binding
+ * is approved or consumed instead of filing another.
+ */
+async function decideKybByFounderPair(log, merchantId) {
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => log(`merchant kyb: ${m}`) });
+  const founders = loadEnrolledFounders(gctx);
+  if (!founders) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+
+  const signedIn = await signInLocalFounders(gctx, gates, founders);
+  if (!signedIn.ok) return signedIn;
+
+  let compliance;
+  try {
+    compliance = await founderComplianceToken(gctx, signedIn.sessions[0]);
+  } catch (err) {
+    return { ok: false, refusal: `KYB pending: founder session could not be used (${oneLine(err.message)})` };
+  }
+
+  const bindingRes = await gctx.edge.query('pay', 'kyb.decisionBinding', { merchantId }, compliance);
+  const identityHash = trpcData(bindingRes)?.identityHash;
+  if (!KYB_HASH_RE.test(String(identityHash ?? ''))) {
+    const why = gates.refusalText(bindingRes);
+    return {
+      ok: false,
+      refusal: why && !/^\s*$/.test(why) ? why : 'KYB pending: decision binding has no identityHash',
+    };
+  }
+
+  let pending = [];
+  try {
+    pending = listOpenKybApprovals(gctx.secrets, kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash }));
+  } catch (err) {
+    return { ok: false, refusal: `KYB pending: could not read open approvals (${oneLine(err.message)})` };
+  }
+
+  const plan = planKybFounderApproval({
+    founders: signedIn.sessions.map((s) => ({ userId: s.userId })),
+    pending,
+    merchantId,
+    decision: 'approved',
+    identityHash,
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  if (!plan.proposal) return { ok: false, refusal: plan.refusal };
+
+  let approval = plan.reuse ?? null;
+  if (plan.propose) {
+    const proposer = signedIn.sessions.find((s) => s.userId === plan.proposerUserId);
+    const proposed = await gctx.edge.mutate('identity', 'actionApproval.propose', plan.proposal, proposer.token);
+    const row = trpcData(proposed);
+    if (!row?.approvalId || !row?.operationId) return { ok: false, refusal: gates.refusalText(proposed) };
+    approval = {
+      approvalId: row.approvalId,
+      operationId: row.operationId,
+      status: row.status ?? 'PENDING',
+      requesterId: plan.proposerUserId,
+    };
+  }
+
+  if (approval.status === 'PENDING') {
+    const approver = signedIn.sessions.find((s) => s.userId === plan.approverUserId);
+    if (!approver) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+    const approved = await gctx.edge.mutate(
+      'identity',
+      'actionApproval.approve',
+      { approvalId: approval.approvalId, expectedPayloadHash: plan.payloadHash },
+      approver.token,
+    );
+    if (trpcData(approved)?.status !== 'APPROVED') return { ok: false, refusal: gates.refusalText(approved) };
+  }
+
   const decided = await gctx.edge.mutate(
     'pay',
     'merchant.decideKyb',
-    { merchantId, decision: 'approved', approvalId: row.approvalId, operationId: row.operationId },
-    token,
+    { merchantId, decision: 'approved', approvalId: approval.approvalId, operationId: approval.operationId },
+    compliance,
   );
-  const data = decided.json?.result?.data;
-  if (!data?.kybStatus) return { ok: false, refusal: gatesLocal.refusalText(decided) };
+  const data = trpcData(decided);
+  if (!data?.kybStatus) return { ok: false, refusal: gates.refusalText(decided) };
   return { ok: true, kybStatus: data.kybStatus };
 }
 
@@ -1738,7 +2025,7 @@ async function runMerchantAction(ctx, action, merchantId) {
       'merchant',
       `merchant "${action.legalName}"`,
       out.ok ? 'created' : 'refused',
-      out.ok ? `${out.data.id} fee ${out.data.feeBps} bps (published)` : out.refusal,
+      out.ok ? `${out.data.id} fee ${out.data.feeBps} bps from PAY_MERCHANT_STARTER_FEE_BPS` : out.refusal,
     );
     return out.ok ? { merchantId: out.data.id } : {};
   }
@@ -1760,7 +2047,7 @@ async function runMerchantAction(ctx, action, merchantId) {
     }
     const founders = await decideKybByFounderPair(log, merchant);
     if (!founders.ok) {
-      record('merchant', 'KYB pending', 'refused', `decideKybStub is live-only; founder pair refused: ${founders.refusal}`);
+      record('merchant', 'KYB pending', 'refused', founders.refusal);
       return { moneyClosed: true };
     }
     record('merchant', 'KYB decision', 'created', `founder pair ${founders.kybStatus}`);

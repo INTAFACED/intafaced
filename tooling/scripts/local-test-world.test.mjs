@@ -2,8 +2,9 @@
 // test stack, and its planning functions (welcome credits, founder pick, friend replies) are
 // idempotent and skip the right accounts. Run: node tooling/scripts/local-test-world.test.mjs
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,9 +39,19 @@ import {
   MERCHANT_LEGAL_NAME,
   MERCHANT_LINKS,
   MERCHANT_PAYMENTS,
+  KYB_DECIDE_ACTION,
+  KYB_FOUNDERS_MISSING,
+  enrolledLocalFounders,
+  founderVaultFiles,
   isPayScopeRefusal,
+  kybDecideApprovalFields,
+  kybDecideHashedBody,
+  kybDecidePayloadHash,
   merchantInvoiceId,
   merchantPaymentId,
+  openKybApprovalSql,
+  pickReusableKybApproval,
+  planKybFounderApproval,
   planMerchantPopulate,
   populateTransferId,
   populateUuid,
@@ -409,6 +420,132 @@ try {
   assert.equal(filled.stop, null);
   assert.deepEqual(filled.actions, []);
   assert.equal(merchantInvoiceId(userId, 1), merchantInvoiceId(userId, 1));
+
+  // ── live KYB: hash field set matches svc-pay, and an open proposal is not filed again ──
+  const identityHash = `sha256:${'ab'.repeat(32)}`;
+  const merchantId = '33333333-3333-4333-8333-333333333333';
+  const fields = kybDecideApprovalFields({ merchantId, decision: 'approved', identityHash });
+  assert.deepEqual(Object.keys(fields), ['decision', 'identityHash', 'merchantId']);
+  assert.equal('reason' in fields, false);
+  const hashed = kybDecideHashedBody({ merchantId, decision: 'approved', identityHash });
+  assert.deepEqual(Object.keys(hashed), ['actionType', 'decision', 'identityHash', 'merchantId']);
+  assert.equal(hashed.actionType, KYB_DECIDE_ACTION);
+  assert.deepEqual({ decision: hashed.decision, identityHash: hashed.identityHash, merchantId: hashed.merchantId }, fields);
+  const canonical = JSON.stringify(hashed);
+  assert.equal(
+    kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash }),
+    `sha256:${createHash('sha256').update(canonical).digest('hex')}`,
+  );
+  const oldShape = JSON.stringify({ actionType: KYB_DECIDE_ACTION, merchantId, decision: 'approved' });
+  assert.notEqual(
+    kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash }),
+    `sha256:${createHash('sha256').update(oldShape).digest('hex')}`,
+  );
+
+  const pair = [{ userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, { userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }];
+  const payloadHash = kybDecidePayloadHash({ merchantId, decision: 'approved', identityHash });
+  const pendingRow = {
+    approvalId: 'appr-1',
+    operationId: 'op-1',
+    actionType: KYB_DECIDE_ACTION,
+    payloadHash,
+    status: 'PENDING',
+    requesterId: pair[0].userId,
+  };
+  const reused = planKybFounderApproval({
+    founders: pair,
+    pending: [pendingRow],
+    merchantId,
+    decision: 'approved',
+    identityHash,
+    policyVersion: 'local-test:v1',
+  });
+  assert.equal(reused.propose, false);
+  assert.equal(reused.reuse.approvalId, 'appr-1');
+  assert.equal(reused.approverUserId, pair[1].userId);
+  assert.equal(
+    pickReusableKybApproval([pendingRow, { ...pendingRow, approvalId: 'appr-2', status: 'APPROVED' }], payloadHash).approvalId,
+    'appr-2',
+  );
+
+  const fresh = planKybFounderApproval({
+    founders: pair,
+    pending: [{ ...pendingRow, payloadHash: `sha256:${'00'.repeat(32)}` }],
+    merchantId,
+    decision: 'approved',
+    identityHash,
+    policyVersion: 'local-test:v1',
+  });
+  assert.equal(fresh.propose, true);
+  assert.equal(fresh.proposal.payloadHash, payloadHash);
+  assert.deepEqual(Object.keys(JSON.parse(canonical)), ['actionType', 'decision', 'identityHash', 'merchantId']);
+
+  const absent = planKybFounderApproval({
+    founders: [],
+    pending: [],
+    merchantId,
+    decision: 'approved',
+    identityHash,
+    policyVersion: 'local-test:v1',
+  });
+  assert.equal(absent.propose, false);
+  assert.equal(absent.reuse, undefined);
+  assert.equal(absent.refusal, KYB_FOUNDERS_MISSING);
+  assert.equal(JSON.stringify(absent).includes('approvalId'), false);
+  const noMerchant = planKybFounderApproval({
+    founders: pair,
+    pending: [],
+    merchantId: undefined,
+    decision: 'approved',
+    identityHash,
+    policyVersion: 'local-test:v1',
+  });
+  assert.equal(noMerchant.propose, false);
+  assert.equal(noMerchant.proposal, undefined);
+
+  const half = enrolledLocalFounders({
+    founders: [{ key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true }],
+  });
+  assert.equal(half, null);
+  const enrolled = enrolledLocalFounders({
+    founders: [
+      { key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      { key: 'phantom', handle: 'local_phantom', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      {
+        key: 'operator',
+        handle: 'local_test_operator_a',
+        userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        password: 'pw',
+        totpSecret: 'SECRET',
+        totpConfirmed: true,
+      },
+    ],
+  });
+  assert.deepEqual(
+    enrolled.map((f) => f.handle),
+    ['local_nitro', 'local_phantom'],
+  );
+  assert.equal(enrolledLocalFounders({ founders: [{ ...enrolled[0], totpConfirmed: false }, enrolled[1]] }), null);
+
+  const sql = openKybApprovalSql(payloadHash);
+  assert.ok(sql.includes(`payload_hash = '${payloadHash}'`));
+  assert.ok(sql.includes("'PENDING'"));
+  assert.equal(sql.includes(merchantId), false);
+  assert.throws(() => openKybApprovalSql(merchantId), /not sha256/);
+  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: '/tmp/a' }), ['/tmp/a/.env.founder-secrets.local']);
+  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: 'relative' }), ['/tmp/a/.env.founder-secrets.local']);
+
+  const worldSrc = readFileSync(script, 'utf8');
+  const kybFn = worldSrc.slice(
+    worldSrc.indexOf('async function decideKybByFounderPair'),
+    worldSrc.indexOf('async function runMerchantAction'),
+  );
+  assert.equal(kybFn.includes('operatorSessions'), false);
+  assert.equal(kybFn.includes('gatesApi()'), true);
+  assert.equal(kybFn.includes('actionApproval.propose'), true);
+  assert.ok(kybFn.indexOf('KYB_FOUNDERS_MISSING') < kybFn.indexOf('actionApproval.propose'));
+  assert.equal(worldSrc.includes('bps (published)'), false);
+  assert.ok(worldSrc.includes('bps from PAY_MERCHANT_STARTER_FEE_BPS'));
 
   console.log('local-test-world: all checks passed');
 } finally {
