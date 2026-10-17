@@ -17,6 +17,7 @@ import {
 import { PostgresLedger } from './postgres-ledger.js';
 import { HistoryTooLargeError } from './history.js';
 import { reconcileBalances, verifyChain, totalsByAsset, runReconciliation } from './reconcile.js';
+import { truncateBook, withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 
 /**
  * svc-ledger runs the SAME conformance suite as the in-memory reference
@@ -104,9 +105,7 @@ describe('PostgresLedger', () => {
    * *this* suite's schema via search_path.
    */
   const reset = async () => {
-    await db!.sql`
-      TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE
-    `;
+    await truncateBook(db!.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await db!.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
   };
 
@@ -250,10 +249,14 @@ describe('PostgresLedger', () => {
       expect(await verifyChain(db!.sql)).toMatchObject({ ok: true });
 
       // Someone with database access inflates an entry.
-      await db!.sql`
-        UPDATE ledger_entries SET amount = 999999
-         WHERE id = (SELECT MIN(id) FROM ledger_entries)
-      `;
+      // 0023 makes this UPDATE a refusal on its own, so the tamper goes through
+      // the break-glass path (guards off, then restored) to prove detection still works.
+      await withJournalGuardsOff(db!.sql, ['update'], async () => {
+        await db!.sql`
+          UPDATE ledger_entries SET amount = 999999
+           WHERE id = (SELECT MIN(id) FROM ledger_entries)
+        `;
+      });
 
       const result = await verifyChain(db!.sql);
       expect(result.ok).toBe(false);

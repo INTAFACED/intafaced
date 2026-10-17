@@ -600,6 +600,36 @@ describe('auto-invest PG-hard', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('an UNKNOWN convert outcome leaves the DCA row pending, never rejected', async () => {
+      const calls = { n: 0 };
+      bankWithConvert({
+        async convert() {
+          calls.n += 1;
+          // The reply was lost: the convert may have filled.
+          throw new Error('socket hang up');
+        },
+      });
+      await fund(USER_A, 'USDT', '500');
+      const now = new Date('2026-08-09T09:30:00.000Z');
+      const rule = await bank.autoInvest.createDca({
+        userId: USER_A,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt: now,
+      });
+
+      const first = await bank.autoInvest.runDue({ now, limit: 200 });
+      expect(first.rejected).toBe(0);
+      expect(first.settled).toBe(0);
+      expect(first.failures).toEqual([{ ruleId: rule.id, code: 'bank.auto_invest_run_failed' }]);
+      const runs = await bank.autoInvest.runsOf(rule.id);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('pending');
+      expect(calls.n).toBe(1);
+    });
+
     it('books the converted amount and does not convert a settled DCA row again', async () => {
       const calls = { n: 0 };
       bankWithConvert(fillingConvert(amt('0.002'), calls));

@@ -118,6 +118,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
       /**
+       * 32-byte AES-256 key (base64 or 64-char hex) for api_keys.request_signing_secret.
+       * Blank = signing opt-in refuses (no plaintext write). Prod and staging boot refuse if missing.
+       */
+      API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
