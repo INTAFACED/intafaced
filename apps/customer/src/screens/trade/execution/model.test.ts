@@ -223,6 +223,9 @@ describe('roomWords', () => {
     expect(w.body).toBe('The venue paused this market.');
     expect(w.code).toBe('trade.something_new');
   });
+  it('keeps shared words, not the service sentence, for a code outside the trade family', () => {
+    expect(roomWords({ code: 'ledger.something_new', message: 'svc-ledger posting 42 failed' }).body).not.toContain('svc-ledger');
+  });
   it('knows the price band code', () => {
     expect(roomWords({ code: 'trade.price_band', message: 'ignored' }).title).toBe('Price is too far from the market');
   });

@@ -213,24 +213,28 @@ export function ChainTab({
         </span>
       </div>
       <p className="m-0 text-xs text-fg-2">{t('No quote feed hint')}</p>
-      <Table
-        label={t('Option contracts')}
-        density="dense"
-        columns={columns}
-        rows={sorted}
-        getRowId={(m) => m.symbol}
-        status={markets.status === 'loading' || markets.status === 'empty' ? 'loading' : markets.status === 'error' ? 'error' : 'ready'}
-        onRetry={markets.status === 'error' ? markets.retry : undefined}
-        errorState={<EmptyState variant="refused" title={t('Could not load contracts')} reason={t('Try again reason')} />}
-        emptyState={none}
-        sort={sort}
-        onSortChange={(next) => setSort(next)}
-        minWidth={1100}
-        selection="single"
-        selectedIds={new Set(selected ? [selected] : [])}
-        onRowActivate={(m) => onSelect(m.symbol)}
-        maxHeight={480}
-      />
+      {markets.status === 'ready' && sorted.length === 0 ? (
+        none
+      ) : (
+        <Table
+          label={t('Option contracts')}
+          density="dense"
+          columns={columns}
+          rows={sorted}
+          getRowId={(m) => m.symbol}
+          status={markets.status === 'loading' || markets.status === 'empty' ? 'loading' : markets.status === 'error' ? 'error' : 'ready'}
+          onRetry={markets.status === 'error' ? markets.retry : undefined}
+          errorState={<EmptyState variant="refused" title={t('Could not load contracts')} reason={t('Try again reason')} />}
+          emptyState={none}
+          sort={sort}
+          onSortChange={(next) => setSort(next)}
+          minWidth={1100}
+          selection="single"
+          selectedIds={new Set(selected ? [selected] : [])}
+          onRowActivate={(m) => onSelect(m.symbol)}
+          maxHeight={480}
+        />
+      )}
     </div>
   );
 }

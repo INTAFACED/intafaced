@@ -114,9 +114,11 @@ export function roomWords(input: RefusalInput): Words {
     if (known) return { ...known, code: refusalSupportCode(code) };
     if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };
     const shared = refusalCopy(code);
-    // A code nobody here has words for keeps the service's own sentence, so the real blocker is never replaced by a generic line.
+    // A trade.* code nobody here has words for keeps the service's own sentence, so the real blocker is never replaced by a generic line.
+    // Other families (auth, scope, internal) keep the shared words, so no service wording leaks.
     const message = input.message?.trim();
-    if (message && classifyRefusal(code) === 'unknown') return { title: shared.title, body: message, code: refusalSupportCode(code) };
+    if (message && code.startsWith('trade.') && classifyRefusal(code) === 'unknown')
+      return { title: shared.title, body: message, code: refusalSupportCode(code) };
     return { title: shared.title, body: shared.body, code: refusalSupportCode(code) };
   }
   if (input.reason === 'unauthorized') return { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.' };
