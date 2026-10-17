@@ -56,7 +56,7 @@ describe('founder merchant reads', () => {
     paymentB = inserted.find((row) => row.merchant_id === merchantB)!.id;
     await sql`
       INSERT INTO pay.payment_events (payment_id, event, payload)
-      VALUES (${paymentA}, 'refunded', ${sql.json({ amount: '1.5', refundId: 'refund-a' })})`;
+      VALUES (${paymentA}, 'refund.posted', ${sql.json({ amount: '1.5', refundId: 'refund-a', source: 'clearing' })})`;
     await sql`
       INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status, payout_method, payout_ref)
       VALUES (${merchantA}, '2026-10-01', 'USDT', 10, 1, 9, 'pending', 'crypto', ${ADDRESS}),
@@ -130,7 +130,15 @@ describe('founder merchant reads', () => {
     const refunds = await caller.founderAdmin.merchants.section({ merchantId: merchantA, section: 'refunds', limit: 1 });
     expect(refunds).toMatchObject({
       section: 'refunds',
-      items: [expect.objectContaining({ paymentId: paymentA, amount: '1.5', outcome: 'refunded', refundId: 'refund-a' })],
+      items: [
+        expect.objectContaining({
+          paymentId: paymentA,
+          amount: '1.5',
+          status: 'posted',
+          refundId: 'refund-a',
+          ledgerEffect: { recorded: false, pot: null, ledgerTxId: null, direction: null },
+        }),
+      ],
     });
     await expect(caller.founderAdmin.merchants.section({ merchantId: merchantA, section: 'payments' })).rejects.toMatchObject({
       message: 'pay.payment_list_limit_unset',
@@ -171,7 +179,7 @@ describe('founder merchant reads', () => {
     const live = await caller.founderAdmin.live.summary({});
     expect(live.h1.payments.find((row) => row.status === 'captured')?.count).toBe(1);
     expect(live.h24.payments.find((row) => row.status === 'failed')?.count).toBe(1);
-    expect(live.h1.refunds.find((row) => row.status === 'refunded')?.count).toBe(1);
+    expect(live.h1.refunds.find((row) => row.status === 'posted')?.count).toBe(1);
     expect(live.queues.oldestPendingPayoutAt).not.toBeNull();
     expect(live.queues.oldestPendingPayoutAgeSeconds).toBeGreaterThanOrEqual(0);
     expect(live.queues.earliestDisputeDeadlineAt).not.toBeNull();

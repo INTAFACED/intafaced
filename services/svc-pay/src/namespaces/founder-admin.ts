@@ -106,7 +106,7 @@ export interface FounderAdminMounts {
   disputes?: DisputeCaseStore;
 }
 
-const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links']);
+const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links', 'destinations']);
 
 async function readWrap<T>(fn: () => Promise<T>): Promise<T> {
   try {

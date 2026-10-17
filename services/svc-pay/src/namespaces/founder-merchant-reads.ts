@@ -10,7 +10,6 @@ import type {
 import type { Sql } from 'postgres';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import { defaultDisputeCaseStore } from '../fraud/dispute-case.js';
-import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
 import { ActivityFeed } from '../merchant-ops/activity.js';
 import { CustomerDirectory } from '../merchant-ops/customers.js';
 import { DisputeOpsService } from '../merchant-ops/disputes.js';
@@ -52,7 +51,7 @@ export function concentrationShare(part: Amount, total: Amount): string | null {
   return formatAmount((part * SCALE) / total);
 }
 
-const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links']);
+const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links', 'destinations']);
 
 const badStatus = () => new MerchantOpsError('pay.list_status_invalid', 'bad_request');
 
@@ -106,7 +105,6 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
   const activity = new ActivityFeed(sql);
   const exports_ = new ExportService(sql, { disputes: deps.disputes ?? defaultDisputeCaseStore });
   const webhooks = new WebhookOps(sql);
-  const destinations = new MerchantPayoutDestinationStore(sql);
   const subscriptions = new SubscriptionService(sql);
 
   async function assertMerchant(merchantId: string): Promise<void> {
@@ -167,7 +165,8 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
             assetId: filters.assetId,
             from: filters.from,
             to: filters.to,
-            outcome: oneOf(filters.status, ['refunded', 'reversed']),
+            paymentId: filters.paymentId,
+            status: oneOf(filters.status, ['posted', 'settled', 'reversed']),
           });
           return { section: 'refunds', items: page.items, nextCursor: page.nextCursor };
         }
@@ -237,7 +236,7 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
           return { section: 'payouts', items: page.items, nextCursor: page.nextCursor };
         }
         case 'destinations': {
-          const page = await destinations.listMasked(input.merchantId, { limit, cursor });
+          const page = await pay!.listPayoutDestinations({ merchantId: input.merchantId, limit, cursor });
           return { section: 'destinations', items: page.items, nextCursor: page.nextCursor };
         }
         case 'customers': {
@@ -527,11 +526,27 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
            WHERE created_at >= now() - interval '24 hours'
            GROUP BY status`,
         sql<Array<{ status: string; h1: number; h24: number }>>`
-          SELECT CASE WHEN event = 'refund.reversed' THEN 'reversed' ELSE 'refunded' END AS status,
-                 count(*) FILTER (WHERE ts >= now() - interval '1 hour')::int AS h1,
+          SELECT CASE
+                   WHEN rev.ts IS NOT NULL THEN 'reversed'
+                   WHEN done.ts IS NOT NULL THEN 'settled'
+                   ELSE 'posted'
+                 END AS status,
+                 count(*) FILTER (WHERE e.ts >= now() - interval '1 hour')::int AS h1,
                  count(*)::int AS h24
-            FROM pay.payment_events
-           WHERE event IN ('refunded', 'refund.reversed') AND ts >= now() - interval '24 hours'
+            FROM pay.payment_events e
+            LEFT JOIN LATERAL (
+              SELECT ts FROM pay.payment_events d
+               WHERE d.payment_id = e.payment_id AND d.event = 'refunded'
+                 AND d.payload->>'refundId' = e.payload->>'refundId'
+               ORDER BY d.seq DESC LIMIT 1
+            ) done ON true
+            LEFT JOIN LATERAL (
+              SELECT ts FROM pay.payment_events r
+               WHERE r.payment_id = e.payment_id AND r.event = 'refund.reversed'
+                 AND r.payload->>'refundId' = e.payload->>'refundId'
+               ORDER BY r.seq DESC LIMIT 1
+            ) rev ON true
+           WHERE e.event = 'refund.posted' AND e.ts >= now() - interval '24 hours'
            GROUP BY 1`,
         sql<Array<{ approval_at: Date | null; payout_at: Date | null; dispute_due: Date | null }>>`
           SELECT

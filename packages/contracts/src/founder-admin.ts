@@ -372,14 +372,31 @@ const paymentItemSchema = z
 const refundItemSchema = z
   .object({
     id: z.string().uuid(),
+    refundId: z.string().min(1).max(128),
     paymentId: z.string().uuid(),
     merchantId: payMerchantIdSchema,
-    assetId: payAssetCodeSchema,
     amount: payAmountStringSchema,
-    refundId: z.string().min(1).max(128).nullable(),
-    outcome: z.enum(['refunded', 'reversed']),
-    failureCode: z.string().min(1).max(64).nullable(),
+    assetId: payAssetCodeSchema,
+    reason: z.string().nullable(),
+    actor: z.string().uuid().nullable(),
+    status: z.enum(['posted', 'settled', 'reversed']),
     createdAt: payTimestampSchema,
+    settledAt: payTimestampSchema.nullable(),
+    source: z.enum(['clearing', 'settled']).nullable(),
+    ledgerEffect: z
+      .object({
+        recorded: z.boolean(),
+        pot: z.enum(['clearing', 'merchantProceeds', 'userAvailable']).nullable(),
+        ledgerTxId: z.string().uuid().nullable(),
+        direction: z.enum(['debit', 'credit']).nullable(),
+      })
+      .strict(),
+    payment: z
+      .object({
+        paymentId: z.string().uuid(),
+        status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+      })
+      .strict(),
   })
   .strict();
 
@@ -425,10 +442,15 @@ const settlementItemSchema = z
 
 const destinationItemSchema = z
   .object({
+    id: z.string().uuid(),
+    merchantId: payMerchantIdSchema,
     railId: z.string().min(1).max(64),
     kind: z.string().min(1).max(32),
     destinationMasked: z.string().min(1).max(64),
-    updatedAt: payTimestampSchema,
+    screeningState: z.literal('not_recorded'),
+    defaultFlag: z.literal('unset'),
+    createdAt: payTimestampSchema,
+    lastUsedAt: payTimestampSchema.nullable(),
   })
   .strict();
 
