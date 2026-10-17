@@ -16,6 +16,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { formatAmount, MemoryLedger, parseAmount, recipes, type LedgerClient } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SqlCopyFollowStore } from './follow-store.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { CopyService } from '../controls/test-admission.js';
 import { copyFlattenClientOrderId, createFollowerFlattenPort } from './follower-flatten-port.js';
 import type { PlaceFollowerOrderInput, PlaceFollowerOrderPort } from './auto-mirror-place.js';
@@ -96,7 +97,7 @@ describe('copy.flatten follower port (TRD-0723)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db!.truncateAll();
+    await truncateTradeExceptOrderEvents(db!.sql);
     seq = 0;
   });
 

@@ -11,7 +11,8 @@ import { KpiStrip } from '../ui/Kpi';
 import { moneyPlaces } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { StatusChip } from '../ui/StatusChip';
-import { DateTime } from '../ui/DateTime';
+import { DateTime, useDayText } from '../ui/DateTime';
+import { utcDay } from '../model';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { LinkButton, MoneyFailure, TestBanner, payoutName, useTestMode } from './common';
 import { mc } from './copy';
@@ -27,6 +28,8 @@ const WEEK = 7 * 86_400_000;
 /** `/pay/money`: what you can pay out now, what is still on its way, and what happened lately. */
 export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
+  const dayText = useDayText();
+  const utcToday = dayText(utcDay(new Date(useNow(300_000))));
   const [picked, setAsset] = useUrlParam('asset', '');
   const test = useTestMode();
   const snapshot = useResource((s) => portal.snapshot(merchantId, 'today', s), `money:snapshot:${merchantId}`);
@@ -118,20 +121,20 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   },
                   {
                     label: t('balCaptured'),
-                    period: t('mnPeriodToday'),
+                    period: t('mnPeriodToday', { day: utcToday }),
                     href: `/pay/payments?date=today&${q}`,
                     value: capturedToday ? <MoneyText value={capturedToday} asset={asset} test={test} /> : '—',
                   },
                   {
                     label: t('balRefunded'),
-                    period: t('mnPeriodToday'),
+                    period: t('mnPeriodToday', { day: utcToday }),
                     href: `/pay/refunds?date=today&${q}`,
                     value: refundedToday ? <MoneyText value={refundedToday} asset={asset} test={test} /> : '—',
                     note: t('balRefundedNote'),
                   },
                   {
                     label: t('balRefundsIssued'),
-                    period: t('mnPeriodToday'),
+                    period: t('mnPeriodToday', { day: utcToday }),
                     href: '/pay/refunds?date=today',
                     value: <RefundsIssuedValue portal={portal} merchantId={merchantId} when="today" />,
                     note: t('balRefundsIssuedNote'),

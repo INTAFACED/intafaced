@@ -71,6 +71,7 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 /** Frozen 12-hex digests. Editing a socket reason must change reasonFingerprint(row.reason) and fail the pin. */
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
+  { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
   { name: 'futuresInsuranceTopup', fingerprint: 'de1438cd42bc' },
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
@@ -88,6 +89,7 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
+  ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
   ['futuresInsuranceTopup', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
@@ -104,10 +106,10 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (66 = 61 live + 5 socket)', () => {
+  it('pins live vs §13 socket counts on tip (67 = 61 live + 6 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 61, socket: 5 });
-    expect(inventory.recipes).toHaveLength(66);
+    expect(counts).toEqual({ live: 61, socket: 6 });
+    expect(inventory.recipes).toHaveLength(67);
     expect(liveRecipeKeys(inventory)).toHaveLength(61);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });

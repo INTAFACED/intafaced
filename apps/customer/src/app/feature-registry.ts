@@ -158,7 +158,7 @@ export const features: readonly Feature[] = [
     paths: ['/trade/copy'],
     status: 'blocked',
     reason:
-      'The leader fee share and the list of countries where copy trading is allowed are not approved yet, so the service refuses every new follow',
+      'The leader fee share and the list of countries where copy trading is allowed are not approved, so the service refuses every new follow',
     unlock: 'Approval of the leader fee share and of the country list',
     tab: 'trade',
   },
@@ -235,7 +235,7 @@ export const features: readonly Feature[] = [
   {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/chat', '/checkuser'],
+    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',

@@ -27,7 +27,7 @@ export function CostBlock({ rows, side, baseAsset, places }: { rows: CostRows; s
   ];
   return (
     <div className="buy-cost" data-testid="cost-block">
-      <KeyValue items={items} density="dense" aria-label={t('All-in cost')} unknownLabel={t('Not known yet')} />
+      <KeyValue items={items} density="dense" aria-label={t('All-in cost')} unknownLabel={t('Not known')} />
     </div>
   );
 }

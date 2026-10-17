@@ -24,6 +24,9 @@ const en = {
   // A header action the signed-in person's role does not allow, or that waits on their account details.
   headerActionNoRole: 'Your role doesn’t allow this. Ask the account owner.',
   headerActionWaiting: 'Available once your account details load.',
+  // Money that leaves the account needs a sign-in step the session has to carry. Where it does not, the control is off and says so.
+  moneyStepRefund: 'Refunding needs a confirmed sign-in step that this deployment does not offer.',
+  moneyStepPayout: 'Paying out needs a confirmed sign-in step that this deployment does not offer.',
   switchAccount: 'Switch account',
   yourBusiness: 'Your business',
   yourAccounts: 'Your accounts',

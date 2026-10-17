@@ -31,7 +31,7 @@ export const verificationCopy = defineCopy(
     country: 'Country code',
     countryHint: 'Two letters, for example US.',
     review: 'Review request',
-    documentBoundary: 'You can’t upload documents here yet. Not sure which level to pick? Verification help explains each one.',
+    documentBoundary: 'You can’t upload documents here. Not sure which level to pick? Verification help explains each one.',
     reviewTitle: 'Review your request',
     consequence: 'The service may open a pending request or return an existing record, including one with a different country.',
     permissionBoundary: 'This request does not approve your tier. Your account remains subject to its current permissions.',

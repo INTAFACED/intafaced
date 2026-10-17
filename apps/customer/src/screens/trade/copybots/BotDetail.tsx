@@ -85,7 +85,7 @@ const ACTIONS: Record<BotAction, { label: string; title: string; effect: string;
     label: 'Stop remaining slices',
     title: 'Stop this bot?',
     effect:
-      'The slices not yet placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
+      'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.',
     allowed: (s) => s === 'active' || s === 'paused' || s === 'halted',
     why: 'This bot has already ended',
   },
@@ -171,15 +171,15 @@ export function BotDetail({
             <h3 className="cb-h3">{t('Result')}</h3>
             <KeyValue
               items={[
-                { label: t('Average price'), value: null, hint: t('The service does not report it yet') },
-                { label: t('Cost versus the start price'), value: null, hint: t('The service does not report it yet') },
+                { label: t('Average price'), value: null, hint: t('The service does not report it') },
+                { label: t('Cost versus the start price'), value: null, hint: t('The service does not report it') },
               ]}
             />
             <EmptyState
               size="inline"
               variant="unavailable"
-              title={t('Slice orders aren’t listed here yet')}
-              reason={t('The service does not link a bot to its slice orders yet. Open the spot desk to see them in Order history.')}
+              title={t('Slice orders aren’t listed here')}
+              reason={t('The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.')}
               action={{ label: t('Open order history'), href: '/money/activity?tab=orders', variant: 'secondary' }}
             />
             <div className="cb-action-row">

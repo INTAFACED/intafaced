@@ -29,7 +29,7 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
     const [open, closed] = await Promise.all([trade.orders('open', symbol, 500), trade.orders('closed', symbol, 500)]);
     setChecking(false);
     if (!open.ok || !closed.ok) {
-      setNote(t('Could not check yet, try again'));
+      setNote(t('Could not check, try again'));
       return false;
     }
     const prefix = scaledPrefix(nonce);

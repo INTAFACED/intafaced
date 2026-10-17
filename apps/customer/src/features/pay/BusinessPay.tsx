@@ -18,6 +18,7 @@ import * as s from './schemas';
 import { LayoutFrame } from './portal/home-layout/Frame';
 import { Redirect } from './portal/chrome/PortalNotFound';
 import { addressOf } from './portal/payments/checkout-address';
+import { moneyReason } from './portal/access/money-step';
 import './portal/portal.css';
 
 /** Legacy room lookup. The shared portal frame owns navigation for every merchant route. */
@@ -558,6 +559,11 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       value={destination}
                       onChange={(event) => setDestination(event.target.value)}
                     />
+                    {pay.access('pay:payout') && (
+                      <p className="muted" role="note">
+                        {moneyReason('payout', pay.authority?.scopes)}
+                      </p>
+                    )}
                     <ReviewedAction
                       title={payCopy.t('payOutSettlement')}
                       variant="primary"

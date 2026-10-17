@@ -16,7 +16,7 @@ const messages = {
   'Account ID placeholder': 'Paste their Account ID',
   Paste: 'Paste',
   'Paste blocked': 'Your browser didn’t let us read the clipboard. Paste with Ctrl+V or ⌘V instead.',
-  'Handles not on yet': 'Paying by handle isn’t turned on yet. Use their Account ID for now.',
+  'Handles not on': 'Paying by handle isn’t turned on. Use their Account ID instead.',
   'Ask for their handle': 'Ask them for their handle. It starts with @.',
   'Ask for their account ID': 'Ask them for their Account ID. They can copy it from Receive.',
   'Checking handle': 'Checking…',
@@ -83,7 +83,7 @@ const messages = {
   'Account not found': 'We couldn’t find that account. Check the Account ID and try again.',
   'Not sent': 'The payment wasn’t sent. Nothing left your account. Try again.',
   'Check amount and recipient': 'Check who you’re paying and the amount, then try again.',
-  'Balance locked': 'That balance is locked for now. Pick another.',
+  'Balance locked': 'That balance is time-locked. Pick another.',
   'No safe storage': 'This browser can’t keep a safe note of the payment, so we haven’t sent it. Use a current Chrome, Safari or Firefox.',
   'Sign in again': 'Your session ended. Sign in to carry on.',
   // Loading and errors

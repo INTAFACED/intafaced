@@ -1,12 +1,6 @@
 /**
- * Unit card — GET /positions does not invent unrealized PnL or 24h percentage
- * 1. Promise: presentPosition leaves unrealizedPnl, percentage, contractSize null
- * 2. Break: fill unrealized from mark×size or percentage from a window
- * 3. Done bar: those three fields are hard-null; no mark arithmetic in presentPosition
- * 4. Class N
- * 5. Paths: svc-trade/src/futures/position-service.ts
- * 6. RED: unrealizedPnl: formatAmount(…)
- * 7. Collision: none — #1919 pins maintenanceMargin; this pins unrealized/percentage
+ * Present fills unrealised PnL from the mark the service actually read.
+ * A missing mark stays null with a reason. It is never a hardcoded 0.
  */
 
 import { readFileSync } from 'node:fs';
@@ -16,16 +10,15 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+const present = src.slice(src.indexOf('function presentPosition'), src.indexOf('export function storedEntryAfterFill'));
 
-describe('position present does not invent unrealized PnL', () => {
-  it('hard-nulls unrealizedPnl, percentage, and contractSize', () => {
-    expect(src).toMatch(/unrealizedPnl:\s*null/);
-    expect(src).toMatch(/percentage:\s*null/);
-    expect(src).toMatch(/contractSize:\s*null/);
-  });
-
-  it('does not format unrealized from a mark extra', () => {
-    expect(src).not.toMatch(/unrealizedPnl:\s*formatAmount/);
-    expect(src).not.toMatch(/unrealizedPnl:\s*extras/);
+describe('position present values unrealised PnL from the mark', () => {
+  it('uses the close planner helper and does not hard-null or invent 0', () => {
+    expect(present).toMatch(/unrealizedPnl\(/);
+    expect(present).toMatch(/positionPercentage\(/);
+    expect(present).not.toMatch(/unrealizedPnl:\s*null/);
+    expect(present).not.toMatch(/unrealizedPnl:\s*['"]0['"]/);
+    expect(present).not.toMatch(/percentage:\s*null/);
+    expect(present).not.toMatch(/contractSize:\s*null/);
   });
 });

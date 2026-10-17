@@ -13,7 +13,8 @@ import { useAcademyTracking } from './academy-tracking';
 import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
 import { kindLabel, pathLabel } from './AcademyLmsParts';
-import { Assessment, LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { Assessment } from './AcademyAssessment';
+import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -473,7 +474,7 @@ export function AcademyLearning({
                           <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
                         </div>
                       </section>
-                      <Assessment prompts={lesson.selfCheck} />
+                      <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
                       {receiptMatches && receipt?.success && (
                         <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
                           <h3>

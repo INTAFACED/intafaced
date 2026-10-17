@@ -145,6 +145,8 @@ export const en = {
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
+  'notify.trade.market_halted.title': 'Market halted',
+  'notify.trade.market_halted.body': 'New submits on {marketId} are refused. Cancels remain available.',
   // Liquidation copy names only fields the payload guarantees are present.
   // Realised loss, mark price and liquidation price are all nullable on
   // `trade.position.updated`, so none of them appears here: a notification that
@@ -184,6 +186,8 @@ export const en = {
   'notify.merchant.dispute_due.body': 'Respond to dispute {disputeId} by {responseDueAt}.',
   'notify.merchant.invited.title': 'Team invite',
   'notify.merchant.invited.body': 'You were invited to a merchant team as {role}. The invite ends {expiresAt}.',
+  'notify.bank.deposit.credited.title': 'Deposit credited',
+  'notify.bank.deposit.credited.body': '{amount} {asset} is in your available balance.',
   'notify.bank.margin_call.title': 'Margin call on your loan',
   'notify.bank.margin_call.body':
     'Add {cureCollateralAmount} {collateralAssetId} before {graceExpiresAt} or part of your collateral may be sold.',
@@ -227,7 +231,7 @@ export const en = {
   // No third-party product names (§0.7). Bodies stay general platform help.
   'support.kb.account_access.title': 'Sign-in and account access',
   'support.kb.account_access.body':
-    'If you cannot sign in, choose “Recover account access” on the sign-in screen. It opens the password reset page, which shows the steps: ask for a code, enter it, then choose a new password. If that page says reset is not switched on yet, write to support and a person will help. Support never asks for your password or recovery codes in chat.',
+    'If you cannot sign in, choose “Recover account access” on the sign-in screen. It opens the password reset page, which shows the steps: ask for a code, enter it, then choose a new password. If that page says reset is not switched on, write to support and a person will help. Support never asks for your password or recovery codes in chat.',
   'support.kb.security_basics.title': 'Security basics',
   'support.kb.security_basics.body':
     'Enable two-factor verification, review sessions, and treat unexpected withdrawal prompts as urgent. We never ask you to move funds to “verify” an account.',

@@ -46,7 +46,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         <AuditApprovals />
       </PageSection>
       <PageSection title="Combined feed">
-        <BlockerPanel blocker={BLOCKERS.audit_feed_missing} title="No single audit feed exists yet" size="inline" />
+        <BlockerPanel blocker={BLOCKERS.audit_feed_missing} title="No single audit feed exists" size="inline" />
       </PageSection>
     </DeskPage>
   );

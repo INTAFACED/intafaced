@@ -50,7 +50,7 @@ export function countdownOf(expiresAt: string, now: number): Countdown {
 
 /**
  * The quote as the person should treat it. `open-late` is open by the last answer but past its time by the clock:
- * the service may or may not know yet, so it must be re-read before anything is sent (no accept, no expire).
+ * the service may or may not know, so it must be re-read before anything is sent (no accept, no expire).
  */
 export type Phase = 'open' | 'open-late' | 'bound' | 'settled' | 'expired' | 'unknown';
 

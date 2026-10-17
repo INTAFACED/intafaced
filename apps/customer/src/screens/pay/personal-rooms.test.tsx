@@ -32,7 +32,7 @@ beforeAll(() => {
 
 it('shows every bill step with the controls off and the reason on screen', () => {
   const out = renderToString(<BillsCard />);
-  expect(out).toContain('Bill pay isn’t connected yet');
+  expect(out).toContain('Bill pay isn’t connected');
   for (const step of ['Choose a biller', 'Enter the bill reference', 'Enter the amount', 'Review and pay', 'Follow the status'])
     expect(out).toContain(step);
   expect(out).toContain('<fieldset class="pay-fieldset" disabled');
@@ -43,7 +43,7 @@ it('shows every bill step with the controls off and the reason on screen', () =>
 
 it('never shows a rate, a fee or an arrival time abroad', () => {
   const out = renderToString(<GlobalCard />);
-  expect(out).toContain('Sending abroad isn’t connected yet');
+  expect(out).toContain('Sending abroad isn’t connected');
   expect(out).toContain('We never estimate a rate');
   const quote = out.slice(out.indexOf('data-testid="global-quote"'), out.indexOf('</dl>', out.indexOf('data-testid="global-quote"')));
   expect(quote.match(/<dd>—<\/dd>/g)).toHaveLength(4);

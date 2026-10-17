@@ -310,7 +310,7 @@ describe('D26-P2-01b refuse-closed defaults (no invent)', () => {
     expect(WITHHELD_FROM_SESSION['pay:read']).toMatch(/merchant onboarding/i);
     expect(WITHHELD_FROM_SESSION['pay:write']).toMatch(/merchant onboarding/i);
     expect(WITHHELD_FROM_SESSION['pay:refund']).toMatch(/refund/i);
-    expect(WITHHELD_FROM_SESSION['pay:payout']).toMatch(/interactive/i);
+    expect(WITHHELD_FROM_SESSION['pay:payout']).toMatch(/step-up/i);
   });
 
   it('chargeback recipes remain OWNER SIGN-OFF / NOT WIRED — no invent reverse-money', () => {

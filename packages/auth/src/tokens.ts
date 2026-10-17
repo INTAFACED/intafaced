@@ -34,6 +34,12 @@ export const accessClaimsSchema = z.object({
   /** True once the session has passed 2FA. Gates SESSION_MFA_SCOPES. */
   mfa: z.boolean().default(false),
   sid: z.string().uuid(),
+  /**
+   * Pay scopes minted by `auth.stepUpPay`. Absent on a normal session and on
+   * every refresh. An API key may copy `pay:refund` / `pay:payout` only when
+   * this claim lists them.
+   */
+  stp: z.array(z.string()).optional(),
 });
 
 export type AccessClaims = z.infer<typeof accessClaimsSchema>;
@@ -106,6 +112,8 @@ export interface IssueAccessInput {
   apiKeyId?: string;
   /** Only for tokens minted from an API key (ADR pay.public-api §2.5). */
   keyEnv?: 'live' | 'sandbox';
+  /** Pay scopes this step-up mint is allowed to delegate onto a key. */
+  stepUpScopes?: readonly string[];
 }
 
 export async function issueAccessToken(input: IssueAccessInput, config: TokenConfig): Promise<{ token: string; expiresAt: Date }> {
@@ -120,6 +128,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     ...(input.subAccountId ? { sub_account: input.subAccountId } : {}),
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
+    ...(input.stepUpScopes && input.stepUpScopes.length > 0 ? { stp: [...input.stepUpScopes] } : {}),
   } satisfies JWTPayload)
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(input.userId)

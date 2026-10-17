@@ -18,6 +18,25 @@ const lakeSchema = z.discriminatedUnion('status', [
   }),
 ]);
 
+const yearLineSchema = z.object({
+  kind: z.enum(['fill', 'convert']),
+  postedAt: z.string(),
+  assetId: z.string(),
+  qty: z.string(),
+  fee: z.string().nullable(),
+  makerRebate: z.string().nullable(),
+  costBasis: z.string().nullable(),
+  proceeds: z.string().nullable(),
+  realized: z.string().nullable(),
+});
+
+const subAccountYearSchema = z.object({
+  subAccountId: z.string(),
+  lines: z.array(yearLineSchema),
+  realized: z.string().nullable(),
+  residuals: z.array(z.string()),
+});
+
 const previewSchema = z.object({
   empty: z.boolean(),
   complete: z.literal(false),
@@ -29,6 +48,8 @@ const previewSchema = z.object({
   lake: lakeSchema,
   indexer: lakeSchema,
   residuals: z.array(z.string()),
+  subAccountBooks: z.enum(['unwired', 'read']),
+  subAccounts: z.array(subAccountYearSchema),
 });
 
 const exportInput = z.object({

@@ -157,7 +157,7 @@ function SideForm({
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  // The id of the resting order that "Your order is in" is about; and whether the open list has shown it yet.
+  // The id of the resting order that "Your order is in" is about; and whether the open list has shown it.
   const [restingId, setRestingId] = useState<string | null>(null);
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
@@ -194,7 +194,7 @@ function SideForm({
     return () => clearTimeout(timer);
   }, [status]);
 
-  // ...and it goes as soon as that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
+  // ...and it goes the moment that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
   useEffect(() => {
     if (restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')) return;
     const open = openOrders.status === 'ready' ? openOrders.data : [];
@@ -568,7 +568,7 @@ function SideForm({
                 : type === 'limit' && tif === 'GTC'
                   ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                   : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-              : t('Fee not yet')}
+              : t('Fee unknown')}
         </span>
         {listed ? (
           <span className="dk-fees-listed" title={t('Fee listed title')}>

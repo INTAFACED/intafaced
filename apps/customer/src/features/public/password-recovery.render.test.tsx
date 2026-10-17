@@ -51,7 +51,7 @@ describe('other public pages', () => {
 
   it('says there is no store app and shows how to keep the web app on the home screen', () => {
     const page = html(<AppPage />);
-    expect(page).toContain('There is no store app yet');
+    expect(page).toContain('There is no store app');
     expect(page).toContain('Add to Home Screen');
   });
 

@@ -16,6 +16,7 @@ import { formatMoney } from '../ui/format';
 import { KpiStrip } from '../ui/Kpi';
 import { MoneyText } from '../ui/MoneyText';
 import { NamedBlocker, TestBanner } from './common';
+import { feeStory, hasAccountFee, percentOfBps } from '../ui/fee-story';
 import { bpsPercent, isCalcAmount, pricingAssets } from './model';
 import { EffectiveFeeView, useEffectiveFeeRates } from './fee-rate';
 import type { PortalApi } from '../api';
@@ -25,7 +26,8 @@ import type { PricingHistory as History } from './schemas';
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
 export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = portalCopy.useCopy();
-  const { access } = useMerchantAccess();
+  const { access, merchant: merchantRead } = useMerchantAccess();
+  const account = merchantRead.status === 'ready' ? merchantRead.data : null;
   const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
   const tiers = useResource((s) => portal.tiersList(merchantId, s), `money:tiers:${merchantId}`);
   const history = useResource((s) => portal.pricingHistory(merchantId, s), `money:pricing-history:${merchantId}`);
@@ -59,7 +61,14 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                     label: t('priceRate'),
                     period: t('mnPeriodNow'),
                     href: '/pay/pricing',
-                    value: first ? bpsPercent(first.feeBps) : <NotConfigured />,
+                    value:
+                      account && hasAccountFee(account) ? (
+                        percentOfBps(account.feeBps!)
+                      ) : first ? (
+                        bpsPercent(first.feeBps)
+                      ) : (
+                        <NotConfigured />
+                      ),
                     note: first && rules.length > 1 ? t('priceRateNote', { asset: rules[0]!.assetCode }) : undefined,
                   },
                   { label: t('priceAssets'), period: t('mnPeriodNow'), href: '/pay/pricing', value: String(assets.length) },
@@ -116,6 +125,8 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                 <Facts
                   items={[
                     [t('colTier'), tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>],
+                    // The fee taken at settlement is the account's own rate: the same sentence as on Overview.
+                    [t('priceAccountFee'), merchantRead.status === 'ready' ? feeStory(account) : <span className="muted">…</span>],
                     [
                       t('effectiveSince'),
                       profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,
@@ -123,11 +134,16 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                     [t('reserveTitle'), <ReserveText reserve={profile.reserve} />],
                   ]}
                 />
-                {rules.length === 0 && (
-                  <div className="pp-callout pp-callout--warn" role="note">
-                    <NotConfigured /> {t('pricingNotConfiguredBody')}
-                  </div>
-                )}
+                {rules.length === 0 &&
+                  (account && hasAccountFee(account) ? (
+                    <div className="pp-callout" role="note">
+                      {t('pricingNoSchedule')}
+                    </div>
+                  ) : (
+                    <div className="pp-callout pp-callout--warn" role="note">
+                      <NotConfigured /> {t('pricingNotConfiguredBody')}
+                    </div>
+                  ))}
               </PaySection>
 
               {rules.map((rule) => (

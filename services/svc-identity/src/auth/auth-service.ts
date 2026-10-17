@@ -5,9 +5,13 @@ import type { AccountState } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
+  isPayStepUpScope,
   issueAccessToken,
+  PAY_STEP_UP_ACCESS_TTL_SECONDS,
+  PAY_STEP_UP_FACTOR_TTL_SECONDS,
   scopesForFounderSession,
   SESSION_SCOPES,
+  type PayStepUpScope,
   type Scope,
   type TokenConfig,
 } from '@intafaced/auth';
@@ -59,7 +63,7 @@ import {
   syncNavigatorSessionOpen,
   syncNavigatorSessionsClosedForUser,
 } from '../agents/navigator-session-projection-sync.js';
-import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS } from './refresh-cookie.js';
+import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import type { RankService } from '../rank/rank-service.js';
 
@@ -127,7 +131,10 @@ export class AuthError extends Error {
       | 'auth.ip_allowlist_required'
       | 'auth.payee_email_unconfirmed'
       | 'auth.payee_phone_unverified'
-      | 'auth.payee_phone_unset',
+      | 'auth.payee_phone_unset'
+      | 'auth.step_up_required'
+      | 'auth.step_up_expired'
+      | 'pay.role_not_allowed',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -312,6 +319,15 @@ const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full:
 const STEP_UP_TTL_SECONDS = 300;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
+/** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
+export type PayStepUpGrant = {
+  readonly refundsCreate: boolean;
+  readonly payoutSend: boolean;
+};
+
+export type PayStepUpFactorProof =
+  { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
+
 export interface RegisterInput {
   handle: string;
   email: string;
@@ -345,6 +361,34 @@ function uniqueConstraintName(err: unknown): string {
   return typeof name === 'string' ? name : '';
 }
 
+/**
+ * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
+ * value above the ceiling is off. Never invents 120.
+ */
+function recoveryWindowMs(seconds: number | undefined): number {
+  if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds)) return 0;
+  if (seconds <= 0 || seconds > REFRESH_RECOVERY_SECONDS_CEILING) return 0;
+  return seconds * 1000;
+}
+
+/**
+ * Drop the sealed copy of `sessionId` held by its predecessor.
+ * The predecessor is the same user and already revoked, so the predicate
+ * stays on `sessions_user_idx` (`user_id`, `revoked`) instead of scanning
+ * every session row. `clearPredecessorSeal` and the plan test share this text.
+ */
+export function predecessorSealCleanup(userId: string, sessionId: string): { text: string; values: string[] } {
+  return {
+    text: 'UPDATE sessions SET successor_refresh = NULL WHERE user_id = $1 AND revoked = true AND successor_id = $2 AND successor_refresh IS NOT NULL',
+    values: [userId, sessionId],
+  };
+}
+
+export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: string): Promise<void> {
+  const query = predecessorSealCleanup(userId, sessionId);
+  await tx.unsafe(query.text, query.values);
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -354,6 +398,11 @@ export class AuthService {
   private readonly maxSubAccounts: number | undefined;
   /** How long a just-rotated refresh token may be presented again by a second tab. */
   private readonly reuseGraceMs: number;
+  /**
+   * Owner-published lost-reply window past the grace, in milliseconds.
+   * 0 is off: a presentation outside the grace window is reuse, as before.
+   */
+  private readonly recoveryMs: number;
   /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
@@ -364,6 +413,11 @@ export class AuthService {
    * ordinary session.
    */
   private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
+  /**
+   * svc-pay read: may this user refund or pay out for this merchant.
+   * Unset refuses the mint. A throw refuses the mint.
+   */
+  private payStepUpRoleSource: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null = null;
   /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
   private emailConfirmMail: PasswordResetMail | undefined;
   private emailConfirmTtlSeconds: number | undefined;
@@ -388,6 +442,7 @@ export class AuthService {
     pendingTotp?: PendingTotpEnrolmentStore,
     maxSubAccounts?: number,
     reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
+    recoverySeconds?: number,
   ) {
     this.webauthn = webauthn;
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
@@ -397,6 +452,7 @@ export class AuthService {
       maxSubAccounts !== undefined && Number.isFinite(maxSubAccounts) && maxSubAccounts >= 1 ? Math.floor(maxSubAccounts) : undefined;
     const grace = Number.isFinite(reuseGraceSeconds) ? Math.floor(reuseGraceSeconds) : DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
     this.reuseGraceMs = Math.min(120, Math.max(0, grace)) * 1000;
+    this.recoveryMs = recoveryWindowMs(recoverySeconds);
   }
 
   /** Cookie Max-Age. Same number as the refresh-token row lifetime. */
@@ -429,6 +485,11 @@ export class AuthService {
    */
   useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
     this.ownerPayScopeSource = source;
+  }
+
+  /** Install the svc-pay role read used by `stepUpPay`. Unset refuses every mint. */
+  usePayStepUpRoleSource(source: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null): void {
+    this.payStepUpRoleSource = source;
   }
 
   /** Test clock. Production uses the real clock. */
@@ -821,17 +882,26 @@ export class AuthService {
       rotated_at: Date | null;
       successor_id: string | null;
       successor_refresh: string | null;
+      device: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
       | { kind: 'grace'; tokens: SessionTokens }
+      | {
+          kind: 'recovered';
+          tokens: SessionTokens;
+          userId: string;
+          predecessorId: string;
+          successorId: string;
+          ageSeconds: number;
+        }
       | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -846,10 +916,22 @@ export class AuthService {
         }
         const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
         if (grace) return { kind: 'grace', tokens: grace };
+        const recovered = await this.recoverTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null, options.device);
+        if (recovered) {
+          return {
+            kind: 'recovered',
+            tokens: recovered.tokens,
+            userId: session.user_id,
+            predecessorId: session.id,
+            successorId: recovered.tokens.sessionId,
+            ageSeconds: recovered.ageSeconds,
+          };
+        }
         // A rotation stamps the predecessor. Presenting that token again,
-        // outside the grace window, is reuse and burns every live session.
-        // Logout and other explicit revokes leave no stamp: the token is
-        // dead, and saying so must not sign the person out elsewhere.
+        // outside the grace window and outside a published recovery window,
+        // is reuse and burns every live session. Logout and other explicit
+        // revokes leave no stamp: the token is dead, and saying so must not
+        // sign the person out elsewhere.
         if (!session.rotated_at && !session.successor_id) {
           throw new AuthError('Session not found', 'auth.session_invalid');
         }
@@ -865,6 +947,10 @@ export class AuthService {
       }
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
+      // The row that still holds a sealed copy of THIS session's refresh token
+      // is no longer pointing at the tip. Drop that copy in the same transaction,
+      // scoped to the user so it uses sessions_user_idx.
+      await clearPredecessorSeal(tx, session.user_id, session.id);
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
@@ -896,6 +982,18 @@ export class AuthService {
       };
     });
     if (result.kind === 'grace') return result.tokens;
+    if (result.kind === 'recovered') {
+      this.log.warn(
+        {
+          userId: result.userId,
+          predecessorId: result.predecessorId,
+          successorId: result.successorId,
+          ageSeconds: result.ageSeconds,
+        },
+        'auth.refresh_recovered',
+      );
+      return result.tokens;
+    }
     if (result.kind === 'reuse') {
       await this.sql`UPDATE sessions SET revoked = true, reuse_detected_at = now() WHERE user_id = ${result.userId} AND revoked = false`;
       await this.sql`UPDATE sessions SET reuse_detected_at = now() WHERE id = ${result.sessionId}`;
@@ -920,8 +1018,8 @@ export class AuthService {
    * Second tab, same cookie, inside the grace window. The row lock on the
    * predecessor serialises two refreshes: the loser sees the successor the
    * winner committed and returns that refresh token plus a new access token
-   * for the same successor session. Outside the window, or if the successor
-   * is already dead, the caller burns the family.
+   * for the same successor session. Outside the window the caller either
+   * recovers a lost reply or burns the family.
    */
   private async graceTokens(
     tx: Sql,
@@ -935,7 +1033,7 @@ export class AuthService {
   ): Promise<SessionTokens | null> {
     if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
-    const nextToken = openRefreshToken(this.tokens.secret, session.successor_refresh);
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
     const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
       SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
@@ -956,6 +1054,100 @@ export class AuthService {
       userId: successor.user_id,
       mfaRequired: false,
     };
+  }
+
+  /**
+   * Lost reply, past the grace window, inside the owner-published recovery
+   * window. Same row locks as `refresh`: the predecessor is already locked,
+   * and the successor is locked here, so a concurrent rotation of that
+   * successor cannot commit beside this read. Any doubt returns null and the
+   * caller burns the family. Does not rotate, revoke, or insert.
+   */
+  private async recoverTokens(
+    tx: Sql,
+    session: {
+      id: string;
+      user_id: string;
+      user_status: string;
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      device: string | null;
+    },
+    peekedScopes: readonly Scope[] | null,
+    requestDevice: string | undefined,
+  ): Promise<{ tokens: SessionTokens; ageSeconds: number } | null> {
+    if (this.recoveryMs <= 0) return null;
+    if (session.user_status !== 'active') return null;
+    if (!session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
+    if (!this.deviceAllowsRecovery(session.device, requestDevice)) return null;
+    const age = Date.now() - session.rotated_at.getTime();
+    if (!Number.isFinite(age) || age <= this.reuseGraceMs || age > this.recoveryMs) return null;
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
+    if (!nextToken) return null;
+    const rows = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        revoked: boolean;
+        mfa: boolean;
+        expires_at: Date;
+        rotated_at: Date | null;
+        successor_id: string | null;
+      }>
+    >`
+      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    `;
+    const successor = rows[0];
+    if (!successor || successor.user_id !== session.user_id) return null;
+    if (successor.revoked !== false) return null;
+    if (successor.rotated_at !== null) return null;
+    if (successor.successor_id !== null) return null;
+    if (successor.expires_at.getTime() <= Date.now()) return null;
+    const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      this.tokens,
+    );
+    return {
+      tokens: {
+        accessToken,
+        refreshToken: nextToken,
+        expiresAt: accessExpiresAt,
+        sessionId: successor.id,
+        userId: successor.user_id,
+        mfaRequired: false,
+      },
+      ageSeconds: Math.floor(age / 1000),
+    };
+  }
+
+  /**
+   * Open a sealed successor token only while it is still inside the longer of
+   * the grace and recovery windows. Older ciphertext is ignored even if the
+   * column still holds it. A bad seal returns null (fail closed).
+   */
+  private openSealedSuccessor(rotatedAt: Date, sealed: string): string | null {
+    const age = Date.now() - rotatedAt.getTime();
+    if (!Number.isFinite(age)) return null;
+    if (age > Math.max(this.reuseGraceMs, this.recoveryMs)) return null;
+    if (typeof sealed !== 'string' || sealed.length === 0) return null;
+    return openRefreshToken(this.tokens.secret, sealed);
+  }
+
+  /**
+   * The device check applies only when the predecessor stored a label and the
+   * request carries one. A mismatch, or a request device that is not a string,
+   * refuses recovery.
+   */
+  private deviceAllowsRecovery(stored: string | null, presented: string | undefined): boolean {
+    if (presented !== undefined && typeof presented !== 'string') return false;
+    const storedLabel = typeof stored === 'string' && stored.length > 0 ? stored : null;
+    const presentedLabel = typeof presented === 'string' && presented.length > 0 ? presented : null;
+    if (storedLabel !== null && presentedLabel !== null && storedLabel !== presentedLabel) return false;
+    return true;
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -1413,9 +1605,11 @@ export class AuthService {
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
-  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox' }> {
+    /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
+    payStepUp?: boolean;
+  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
-    assertDelegatableScopes(input.scopes, input.grantorScopes);
+    assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
     const rows = await transaction(
@@ -1429,7 +1623,7 @@ export class AuthService {
       },
       { isolation: 'read committed' },
     );
-    return { id: rows[0]!.id, key, prefix, mode };
+    return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
   async verifyApiKey(
@@ -1944,6 +2138,120 @@ export class AuthService {
     return { accessToken: token, expiresAt, scopes };
   }
 
+  /**
+   * Mint a short-lived access token that carries the requested pay:refund
+   * and/or pay:payout scopes plus the caller's ordinary session scopes.
+   * No refresh token is issued. A later refresh rebuilds scopes without these.
+   */
+  async stepUpPay(input: {
+    userId: string;
+    sessionId: string;
+    merchantId: string;
+    scopes: readonly string[];
+    factorProof: PayStepUpFactorProof;
+  }): Promise<{ accessToken: string; expiresAt: Date; scopes: Scope[]; refreshable: false }> {
+    const requested = payStepUpScopes(input.scopes);
+    if (requested.length === 0) {
+      throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    }
+    const factor = await this.acceptPayStepUpFactor(input.userId, input.sessionId, input.factorProof);
+    await this.assertPayStepUpRole(input.userId, input.merchantId, requested);
+    const base = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...base];
+    for (const scope of requested) if (!scopes.includes(scope)) scopes.push(scope);
+    await this.sql`
+      INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
+    `;
+    const tier = await this.kycTier(input.userId);
+    const { token, expiresAt } = await issueAccessToken(
+      {
+        userId: input.userId,
+        sessionId: input.sessionId,
+        scopes,
+        tier,
+        mfa: true,
+        stepUpScopes: requested,
+      },
+      { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, PAY_STEP_UP_ACCESS_TTL_SECONDS) },
+    );
+    return { accessToken: token, expiresAt, scopes, refreshable: false };
+  }
+
+  private async acceptPayStepUpFactor(
+    userId: string,
+    sessionId: string,
+    proof: PayStepUpFactorProof,
+  ): Promise<'totp' | 'passkey' | 'proof'> {
+    if ('proofId' in proof) {
+      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
+        SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
+      `;
+      const row = rows[0];
+      if (!row || row.user_id !== userId || row.session_id !== sessionId) {
+        throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+      }
+      const expires = row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at);
+      if (expires.getTime() <= Date.now()) {
+        throw new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired');
+      }
+      const sessions = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
+      `;
+      if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      return 'proof';
+    }
+    if ('totpCode' in proof) {
+      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
+      await this.recordPayStepUpProof(userId, sessionId, 'totp');
+      return 'totp';
+    }
+    // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
+    // A body-supplied challenge is not accepted: a captured assertion would mint again.
+    const clientChallenge = readClientChallenge(proof.webauthn.response.clientDataJSON);
+    if (!clientChallenge) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    const held = await this.challenges.take(clientChallenge, 'step-up');
+    if (!held || held.userId !== userId) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.proveFreshFactor({
+      userId,
+      sessionId,
+      webauthn: proof.webauthn,
+      webauthnChallenge: held.challenge,
+    });
+    await this.recordPayStepUpProof(userId, sessionId, 'passkey');
+    return 'passkey';
+  }
+
+  private async recordPayStepUpProof(userId: string, sessionId: string, method: 'totp' | 'passkey'): Promise<void> {
+    const verifiedAt = new Date();
+    const expiresAt = new Date(verifiedAt.getTime() + PAY_STEP_UP_FACTOR_TTL_SECONDS * 1000);
+    await this.sql`
+      INSERT INTO pay_step_up_proofs (proof_id, user_id, session_id, method, verified_at, expires_at)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${method}, ${verifiedAt}, ${expiresAt})
+    `;
+  }
+
+  private async assertPayStepUpRole(userId: string, merchantId: string, scopes: readonly PayStepUpScope[]): Promise<void> {
+    if (!this.payStepUpRoleSource) {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    let grant: PayStepUpGrant;
+    try {
+      grant = await this.payStepUpRoleSource({ userId, merchantId });
+    } catch {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    for (const scope of scopes) {
+      const allowed = scope === 'pay:refund' ? grant.refundsCreate === true : grant.payoutSend === true;
+      if (!allowed) {
+        const permission = scope === 'pay:refund' ? 'refunds.create' : 'payout.send';
+        throw new AuthError(`Your role on this merchant does not allow ${permission}`, 'pay.role_not_allowed');
+      }
+    }
+  }
+
   async freezeIdentity(userId: string): Promise<{ userId: string; status: 'frozen'; subAccountsRevoked: number; apiKeysRevoked: number }> {
     const result = await transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
@@ -2139,6 +2447,16 @@ function readClientChallenge(clientDataJSONB64: string): string | null {
   } catch {
     return null;
   }
+}
+
+function payStepUpScopes(scopes: readonly string[]): PayStepUpScope[] {
+  if (scopes.length === 0) return [];
+  const out: PayStepUpScope[] = [];
+  for (const scope of scopes) {
+    if (!isPayStepUpScope(scope)) return [];
+    if (!out.includes(scope)) out.push(scope);
+  }
+  return out;
 }
 
 function mapWebAuthnError(err: unknown): AuthError {

@@ -24,7 +24,7 @@ const en = {
   holdingPriceRefused: 'This close could not be added to Trade. Refresh the holding history or choose a current market.',
   holdingPriceOrigin: 'Selected close from your {base} holding',
   holdingPriceApplied: 'Added to the limit-price draft. Edit below.',
-  holdingPriceWaiting: 'Price not applied yet',
+  holdingPriceWaiting: 'Price not applied',
   holdingPriceRetry: 'Market data could not be checked. Retry published markets before adding this price.',
   holdingPriceNotApplied: 'Price was not applied',
   holdingPriceRetired: 'The selected price was not applied. Choose a current market or select a fresh close from your holding.',
@@ -328,7 +328,7 @@ const en = {
   existingQuoteId: 'Existing quote ID',
   openQuotedOrder: 'Open quoted order ',
   quoteDeskPublished: 'Quote desk published',
-  quoteDeskRestricted: 'Quote desk not open yet',
+  quoteDeskRestricted: 'Quote desk not open',
   simulatedQuoteSettlementIsUnavailable: 'Simulated quote settlement is unavailable',
   side90eb04: 'Side ',
   buy: 'Buy',
@@ -570,7 +570,7 @@ const en = {
   orderManagementUnavailable: 'Order management unavailable',
   openOrdersHistoryFills: 'Open orders · History · Fills',
   selectAPublishedMarketToInspectItsOrdersAndFillsOrder:
-    'Select a published market to inspect its orders and fills. Order and fund status cannot be verified yet.',
+    'Select a published market to inspect its orders and fills. Order and fund status cannot be verified.',
   orderTicketUnavailable: 'Order ticket unavailable',
   aPublishedMarketIsRequiredToVerifyTradingRulesAndReview: 'A published market is required to verify trading rules and review your order.',
   orderAmount: 'Order amount',
@@ -729,7 +729,7 @@ const en = {
   quotesRequireActualDeskPricingTheNamedCounterpartyAndYourAccount:
     'Quotes require actual desk pricing, the named counterparty, and your account eligibility.',
   deskSpreadStakeEligibilityCounterpartyRoutingOrReferencePricingAuthorityIs:
-    'The quote desk is not open yet. Its prices (the spread added to each quote), the staking level needed to use it, and who takes the other side of your trade have not been approved.',
+    'The quote desk is not open. Its prices (the spread added to each quote), the staking level needed to use it, and who takes the other side of your trade have not been approved.',
   theRfqContractHasNoIsolatedSimulatedSettlementContractNoQuote:
     'The RFQ contract has no isolated simulated settlement contract. No quote request is routed from simulation into a live desk.',
   quoteSettledAt: 'Quote {dataQuoteId} settled at {dataFillPrice} {dataQuoteAsset}.',

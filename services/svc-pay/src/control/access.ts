@@ -30,16 +30,22 @@ export function ownerAccessPorts(sql: Sql): ControlAccessPorts {
   return { canViewMerchant: isOwner, canApprovePayout: isOwner };
 }
 
-/** The caller's role for ONE merchant: owner of that merchant, else an ACTIVE team member of it, else null. */
-export async function roleOnMerchant(sql: Sql, principal: Principal, merchantId: string): Promise<MerchantRole | null> {
-  if (!principal?.userId) return null;
-  const owned = await sql`SELECT 1 FROM pay.merchants WHERE id = ${merchantId} AND user_id = ${principal.userId}`;
+/** The user's role for ONE merchant: owner of that merchant, else an ACTIVE team member of it, else null. */
+export async function roleOnMerchantForUser(sql: Sql, userId: string, merchantId: string): Promise<MerchantRole | null> {
+  if (!userId) return null;
+  const owned = await sql`SELECT 1 FROM pay.merchants WHERE id = ${merchantId} AND user_id = ${userId}`;
   if (owned.length > 0) return 'owner';
   const member = await sql<Array<{ role: MerchantRole }>>`
     SELECT role FROM pay.merchant_team_members
-     WHERE merchant_id = ${merchantId} AND user_id = ${principal.userId} AND status = 'active'
+     WHERE merchant_id = ${merchantId} AND user_id = ${userId} AND status = 'active'
   `;
   return member[0]?.role ?? null;
+}
+
+/** The caller's role for ONE merchant: owner of that merchant, else an ACTIVE team member of it, else null. */
+export async function roleOnMerchant(sql: Sql, principal: Principal, merchantId: string): Promise<MerchantRole | null> {
+  if (!principal?.userId) return null;
+  return roleOnMerchantForUser(sql, principal.userId, merchantId);
 }
 
 export function teamAccessPorts(sql: Sql): ControlAccessPorts {

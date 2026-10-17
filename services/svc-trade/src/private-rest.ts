@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
+import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -39,7 +41,8 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
-import { presentFuturesErrorWire } from './futures/futures-error-wire.js';
+import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
+import { resolveOpenPositionMode } from './futures/account-mode.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './futures/margin-mode.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
@@ -113,6 +116,16 @@ export interface PrivateRestDeps {
   edgeSecret: string;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  icebergDisplay?: IcebergDisplayStore;
+  /**
+   * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
+   * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
+   */
+  findClientOrder?(
+    principal: Principal,
+    input: { symbol?: string; marketId?: string; clientOrderId?: string },
+  ): Promise<OrderRecord | null>;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -881,6 +894,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -1279,18 +1293,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       }
       const reduceOnly = body.reduceOnly === true;
       let positionMode: 'one_way' | 'hedge' | undefined;
-      if (body.positionMode === 'one_way' || body.positionMode === 'hedge') positionMode = body.positionMode;
-      if (!positionMode && !reduceOnly && deps.readAccountMode) {
-        const state = await deps.readAccountMode(principal);
-        if (state.mode == null) {
-          return reply.code(400).send({
-            error: state.code ?? 'trade.position_mode_unset',
-            message: 'position mode is unset',
-            mode: null,
-            source: state.source,
-          });
+      if (!reduceOnly) {
+        const stored = deps.readAccountMode ? await deps.readAccountMode(principal) : null;
+        const decision = resolveOpenPositionMode({
+          requested: body.positionMode,
+          stored: stored?.mode ?? null,
+        });
+        if (!decision.ok) {
+          return reply.code(400).send({ error: decision.code, message: decision.reason });
         }
-        positionMode = state.mode;
+        if (body.positionMode != null || stored?.mode != null) positionMode = decision.mode;
       }
 
       if (!symbol || !side || !size) {
@@ -1325,6 +1337,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         return reply.code(err.status).send({ error: err.code, message: err.message });
       }
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1506,6 +1519,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(200).send(pos);
     } catch (err) {
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1540,7 +1554,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (err instanceof MoneyError) {
         return reply.code(400).send({ error: 'trade.close_quantity_invalid', message: err.message });
       }
-      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
+        return reply.code(err.status).send(presentFuturesErrorWire(err));
+      }
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -2115,8 +2132,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     let input: PlaceOrderInput;
+    let displayQty: string | null = null;
     try {
       input = mapCreateOrderBody(parsed.data);
+      const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
+      input = attached.input;
+      displayQty = attached.displayQty;
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2124,10 +2145,46 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const order = await deps.placeOrder(principal, input);
+      const prior =
+        displayQty && deps.findClientOrder
+          ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
+          : null;
+      let order: OrderRecord;
+      try {
+        order = await deps.placeOrder(principal, input);
+      } catch (placeErr) {
+        if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
+          try {
+            const row = await deps.findClientOrder(principal, {
+              symbol: input.symbol,
+              marketId: input.marketId,
+              clientOrderId: input.clientOrderId,
+            });
+            if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
+          } catch {
+            // The customer's answer stays the original place error.
+          }
+        }
+        throw placeErr;
+      }
+      if (displayQty && deps.icebergDisplay) {
+        if (deps.findClientOrder && prior) {
+          const storedPeak = await deps.icebergDisplay.read(order.id);
+          if (!storedPeak) {
+            throw new TradeError(
+              'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
+              TRADE_ICEBERG_DISPLAY_INVALID,
+            );
+          }
+        } else {
+          await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
+        }
+      }
+      const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
-      return reply.code(201).send(presentCcxtOrder(order, symbol));
+      const wire = presentCcxtOrder(order, symbol);
+      return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

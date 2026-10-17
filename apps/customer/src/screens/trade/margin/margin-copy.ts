@@ -50,7 +50,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Cross margin': 'Cross margin',
   'Cross margin off': 'Not offered. A shared pool across positions would let one loss reach another.',
   'Portfolio margin': 'Portfolio margin',
-  'Portfolio margin off': 'Not offered. Its offset and floor rules are not published yet.',
+  'Portfolio margin off': 'Not offered. Its offset and floor rules are not published.',
   'Hedge mode': 'Hedge mode',
   'Hedge mode off': 'No position-mode setting is published. Until the platform sets one, new positions are refused.',
   'Collateral class': 'Collateral class',
@@ -65,7 +65,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Spot margin': 'Spot margin and borrowing',
   'Spot margin title': 'Spot margin is not offered',
   'Spot margin reason':
-    'Borrowing to buy spot has no borrow or repay service yet, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.',
+    'Borrowing to buy spot has no borrow or repay service, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.',
   'Trade spot': 'Trade spot',
   'Bank loans': 'See bank loans',
 
