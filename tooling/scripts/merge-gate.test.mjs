@@ -37,7 +37,7 @@ const chk = (name, bucket = 'pass', workflow = 'CI', workflowId = WORKFLOW_IDS[w
   link: `https://github.com/o/r/actions/runs/1/job/${name}`,
 });
 const REQ = [chk('Gitleaks', 'pass', 'Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')];
-const CI = ['Doctrine gates', 'Typecheck & build', 'Format', 'Tests (full)'].map((n) => chk(n));
+const CI = ['Doctrine gates', 'Typecheck & build', 'Format', 'Definition of Done', 'Tests (full)'].map((n) => chk(n));
 const pr = (extra = {}) => ({
   number: 7,
   state: 'OPEN',
@@ -152,7 +152,38 @@ test('coverage requires common jobs and the affected shard or full suite', () =>
   assert.deepEqual(coverageProblems(['tooling/scripts/a.mjs'], CI), []);
   assert.match(coverageProblems(['services/svc-trade/a.ts'], [...common, chk('Tests (trade)', 'skipping')]).join(), /Tests \(trade\)/);
   assert.match(coverageProblems(['tooling/scripts/a.mjs'], [...common, chk('Tests (trade)')]).join(), /Tests \(full\)/);
-  assert.match(coverageProblems(['apps/web/a.ts'], [chk('changes')]).join(), /Doctrine gates.*Typecheck.*Format.*Tests/);
+  assert.match(
+    coverageProblems(['apps/web/a.ts'], [chk('changes')]).join(),
+    /Doctrine gates.*Typecheck.*Format.*Definition of Done.*Tests/,
+  );
+});
+test('a red merge seal plus a skipped Definition of Done refuses', async () => {
+  const checks = [
+    ...REQ,
+    ...CI.filter((c) => c.name !== 'Definition of Done'),
+    chk('Definition of Done', 'skipping'),
+    chk('CI merge seal', 'fail'),
+  ];
+  const r = await world({
+    checks,
+    evidence: {
+      pass: true,
+      reasons: [],
+      classifications: [
+        {
+          check: 'CI/CI merge seal',
+          classification: 'inherited',
+          allowed: true,
+          noNewFailures: true,
+          reason: 'seal excused by a clear full suite',
+        },
+      ],
+      summary: [],
+    },
+  }).run();
+  assert.equal(r.code, 1);
+  assert.match(r.evalResult.reasons.join('\n'), /Definition of Done/);
+  assert.equal(r.verdict, 'FAIL');
 });
 test('PASS distinguishes full review merge base from tested target tip, never merges or writes receipt', async () => {
   const w = world();
@@ -371,7 +402,10 @@ function fakeGit(overrides = {}) {
   const git = (args) => {
     const key = args.join(' ');
     calls.push(key);
-    return overrides[key] ?? { status: 0, stdout: args[0] === 'rev-parse' ? `${TARGET}\n` : '', stderr: '' };
+    if (overrides[key]) return overrides[key];
+    if (args[0] === 'cat-file' && args[1] === '-t') return { status: 0, stdout: 'commit\n', stderr: '' };
+    if (args[0] === 'rev-parse' && args[1] === 'FETCH_HEAD') return { status: 0, stdout: `${HEAD}\n`, stderr: '' };
+    return { status: 0, stdout: args[0] === 'rev-parse' ? `${TARGET}\n` : '', stderr: '' };
   };
   return { git, calls };
 }
@@ -503,7 +537,7 @@ test('late main-copy refusal cannot publish PASS or leave a receipt', async () =
     let calls = 0;
     const g = fakeGit();
     const git = (args) => {
-      if (args[0] === 'fetch' && ++calls === 2) return { status: 128, stderr: 'offline' };
+      if (args[0] === 'fetch' && args.at(-1) === 'main' && ++calls === 2) return { status: 128, stderr: 'offline' };
       return g.git(args);
     };
     await assert.rejects(runVerifiedGate(opts(), { git, gh: w.gh, receiptRoot, runGateFn: (o) => w.run(o) }), /could not fetch/);
@@ -516,7 +550,7 @@ test('PR drift during final main verification blocks receipt and PASS comment', 
     let fetches = 0;
     const g = fakeGit();
     const git = (args) => {
-      if (args[0] === 'fetch' && ++fetches === 2) w.w.pr = pr({ isDraft: true });
+      if (args[0] === 'fetch' && args.at(-1) === 'main' && ++fetches === 2) w.w.pr = pr({ isDraft: true });
       return g.git(args);
     };
     await assert.rejects(
@@ -587,7 +621,7 @@ test('declaration comment drift during main verification blocks the receipt', as
     let fetches = 0;
     const g = fakeGit();
     const git = (args) => {
-      if (args[0] === 'fetch' && ++fetches === 2) w.w.comments = [];
+      if (args[0] === 'fetch' && args.at(-1) === 'main' && ++fetches === 2) w.w.comments = [];
       return g.git(args);
     };
     await assert.rejects(
@@ -774,7 +808,10 @@ test('checks collapse by workflow id and job name, so a second CI cannot hide a 
     [{ databaseId: 55, workflowDatabaseId: 9001, status: 'completed' }],
   );
   assert.equal(joined[0].workflowId, 9001);
-  assert.throws(() => identifyChecks([{ name: 'Typecheck & build', workflow: 'CI', link: 'https://example.test/nope' }], []), /no workflow id/);
+  assert.throws(
+    () => identifyChecks([{ name: 'Typecheck & build', workflow: 'CI', link: 'https://example.test/nope' }], []),
+    /no workflow id/,
+  );
 });
 
 test('reviewer input fetches the PR head and writes the patch file, hash and file list', () => {
@@ -822,5 +859,96 @@ test('pre-receipt refuses a tested parent that is not the captured live main', a
         writeReceipt: () => assert.fail('stale main parent must not write a receipt'),
       }),
       /Tested main parent .* is not the live main ref/,
+    );
+  }));
+
+test('verified gate fetches the PR head before the patch and refuses a mismatched tip', async () =>
+  withReceipts(async (receiptRoot) => {
+    const w = world({ files: [{ filename: 'services/svc-bank/src/a.ts' }] });
+    const order = [];
+    const git = (args) => {
+      order.push(args.join(' '));
+      if (args[0] === 'cat-file') return { status: 0, stdout: 'commit\n', stderr: '' };
+      return fakeGit().git(args);
+    };
+    const stopped = await runVerifiedGate(opts({ comment: false }), {
+      git,
+      gh: w.gh,
+      receiptRoot,
+      writeReceipt: () => assert.fail('this probe must not write a receipt'),
+      runGateFn: (o, deps) => {
+        assert.equal(o.head, HEAD);
+        assert.ok(order.includes(`fetch -q origin ${HEAD}`), 'head is fetched before the patch is read');
+        const patch = deps.readCanonicalPatch({ base: BASE, head: HEAD });
+        assert.equal(patch.files.length, 0);
+        assert.ok(order.at(-1).includes(`${BASE}...${HEAD}`));
+        return { code: 1, comment: '', checks: [], snapshot: {}, declarationComments: '', evalResult: { reasons: ['probe'] } };
+      },
+    });
+    assert.equal(stopped.code, 1);
+    const mismatch = [];
+    const bad = (args) => {
+      mismatch.push(args.join(' '));
+      if (args.join(' ') === `fetch -q origin ${HEAD}`) return { status: 128, stderr: 'missing object' };
+      if (args[0] === 'cat-file') return { status: 0, stdout: 'commit\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'FETCH_HEAD') return { status: 0, stdout: `${BASE}\n`, stderr: '' };
+      return fakeGit().git(args);
+    };
+    await assert.rejects(
+      runVerifiedGate(opts(), {
+        git: bad,
+        gh: w.gh,
+        receiptRoot,
+        runGateFn: () => assert.fail('a mismatched tip must not reach the patch'),
+      }),
+      /does not match the reviewed head/,
+    );
+    assert.ok(mismatch.includes('fetch -q origin pull/7/head'));
+  }));
+
+test('canonical patch files must match the GitHub PR file list', async () => {
+  const hash = 'ab'.repeat(32);
+  const files = [{ filename: 'services/svc-bank/src/new.ts', previous_filename: 'services/svc-bank/src/old.ts' }];
+  const review = { reviewerSession: 'reviewer' };
+  const patch = {
+    hash,
+    files: ['services/svc-bank/src/new.ts', 'services/svc-bank/src/old.ts'],
+    patch: 'diff --git a/services/svc-bank/src/old.ts b/services/svc-bank/src/old.ts\n',
+  };
+  const ok = await world({ files, pr: pr({ changedFiles: 1, title: 'fix: rename' }) }).run(
+    {},
+    {
+      readCanonicalPatch: () => patch,
+      reviewValidator: () => ({ pass: true, reasons: [], review }),
+    },
+  );
+  assert.equal(ok.code, 0, ok.evalResult.reasons.join('; '));
+  await assert.rejects(
+    world({ files, pr: pr({ changedFiles: 1 }) }).run(
+      {},
+      { readCanonicalPatch: () => ({ ...patch, files: ['services/svc-bank/src/new.ts'] }) },
+    ),
+    /GitHub PR file list/,
+  );
+});
+
+test('pre-receipt re-check covers an infra-only change', async () =>
+  withReceipts(async (receiptRoot) => {
+    const review = { head: HEAD, base: BASE, reviewerSession: '22222222-2222-2222-2222-222222222222' };
+    const w = world({ files: [{ filename: 'packages/ui/package.json' }] });
+    await assert.rejects(
+      runVerifiedGate(opts(), {
+        git: fakeGit().git,
+        gh: w.gh,
+        receiptRoot,
+        runGateFn: (o) => w.run(o, { reviewValidator: () => ({ pass: true, reasons: [], review }) }),
+        reviewValidator: () => ({ pass: false, reasons: ['Latest exact-head verdict is FAIL'] }),
+        writeReceipt: () => assert.fail('infra-only withdrawal must never write a receipt'),
+      }),
+      /Opus review changed or was withdrawn/,
+    );
+    assert.equal(
+      w.calls.some((c) => c.args[1] === 'comment'),
+      false,
     );
   }));

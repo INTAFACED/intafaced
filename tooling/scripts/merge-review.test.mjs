@@ -560,10 +560,17 @@ test('canonical file list comes from diff headers, including rename, mode and em
     'empty.txt',
   ]);
   assert.deepEqual(filesInCanonicalPatch('diff --git "a/my file.ts" "b/my file.ts"\n'), ['my file.ts']);
+  assert.deepEqual(filesInCanonicalPatch('diff --git a/INTAFACED SOVEREIGN OS.pdf b/INTAFACED SOVEREIGN OS.pdf\n'), [
+    'INTAFACED SOVEREIGN OS.pdf',
+  ]);
+  assert.deepEqual(filesInCanonicalPatch('diff --git a/old.ts b/new-name.ts\n'), ['old.ts', 'new-name.ts']);
   assert.throws(() => filesInCanonicalPatch('diff --git a/only-one\n'), /without a file path/);
+  assert.throws(() => filesInCanonicalPatch('diff --git a/my file.ts b/other name.ts\n'), /without a file path/);
   const args = canonicalDiffArgs(base, head);
   assert.ok(args.includes('--no-renames'));
   assert.ok(args.includes('diff.noprefix=false'));
+  assert.ok(args.includes('diff.orderFile=/dev/null'));
+  assert.ok(args.includes('--diff-algorithm=myers'));
   assert.ok(args.includes('--full-index'));
 });
 
@@ -661,6 +668,7 @@ test('canonical patch hash ignores global git config and accepts a patch over 1 
   process.env.GIT_CONFIG_GLOBAL = config;
   try {
     assert.equal(pinnedGitEnv().GIT_CONFIG_GLOBAL, '/dev/null');
+    assert.equal(pinnedGitEnv({ GIT_NO_REPLACE_OBJECTS: '0' }).GIT_NO_REPLACE_OBJECTS, '1');
     const canonical = canonicalPatch({ git: (args) => runGit(repo, args), base: pinnedBase, head: pinnedHead });
     assert.ok(canonical.patch.length > 1024 * 1024);
     assert.ok(canonical.files.includes('old-name.txt'));

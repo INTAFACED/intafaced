@@ -185,6 +185,34 @@ export function mergeCommand(pr, head, repo = REPO) {
   return `gh pr merge ${pr} --match-head-commit ${head} -R ${repo} --squash`;
 }
 
+function sameFileSet(left, right) {
+  const a = [...new Set(left ?? [])].sort();
+  const b = [...new Set(right ?? [])].sort();
+  return a.length === b.length && a.every((file, index) => file === b[index]);
+}
+
+/**
+ * The canonical patch is a git object diff. Fetch the reviewed head first.
+ * A direct sha fetch that is already a commit matches by construction.
+ * The pull-ref fallback refuses when FETCH_HEAD is a different tip.
+ */
+export function fetchReviewedHead(git, { pr, head }) {
+  if (typeof git !== 'function') throw new GateError('A git runner is required to fetch the PR head.');
+  if (!/^[0-9a-f]{40}$/.test(head ?? '')) throw new GateError('PR head must be a full commit sha.');
+  const isCommit = () => {
+    const typed = git(['cat-file', '-t', head]);
+    return typed?.status === 0 && String(typed.stdout ?? '').trim() === 'commit';
+  };
+  const fetchedSha = git(['fetch', '-q', 'origin', head]);
+  if (fetchedSha && fetchedSha.status === 0 && isCommit()) return head;
+  const fetchedPull = git(['fetch', '-q', 'origin', `pull/${pr}/head`]);
+  if (!fetchedPull || fetchedPull.status !== 0) throw new GateError('Could not fetch the PR head commit.');
+  const tip = git(['rev-parse', 'FETCH_HEAD']);
+  if (String(tip?.stdout ?? '').trim() !== head) throw new GateError('Fetched pull head does not match the reviewed head.');
+  if (!isCommit()) throw new GateError('Fetched PR head is not a commit.');
+  return head;
+}
+
 function parseArgs(argv) {
   const o = { repo: REPO, timeoutMin: 150, pollSec: 30, comment: true, ciGraceSec: 300 };
   const rest = [];
@@ -359,6 +387,7 @@ export async function runGate(
     }
     if (!patch || !/^[a-f0-9]{64}$/.test(patch.hash ?? '') || !Array.isArray(patch.files))
       throw new GateError('Canonical patch did not return a hash and file list.');
+    if (!sameFileSet(patch.files, files)) throw new GateError('Canonical patch file list does not match the GitHub PR file list.');
   }
   let evidence = {
     pass: true,
@@ -418,6 +447,7 @@ export async function runGate(
     gate,
     evidence,
     protectedFiles,
+    infraSelection,
     review: reviewResult.review,
     patch,
     liveMain,
@@ -443,10 +473,10 @@ export async function runGate(
   };
 }
 
-/** Required jobs must have run; a workflow shell or a skipped test job proves no changed-path coverage. */
+/** Required jobs must have run. A skipped Definition of Done is a hole even when the merge seal is red. */
 export function coverageProblems(files, checks) {
   const ran = (name) => checks.some((c) => c.workflow === CI_WORKFLOW_NAME && c.name === name && ['pass', 'fail'].includes(c.bucket));
-  const problems = ['Doctrine gates', 'Typecheck & build', 'Format']
+  const problems = ['Doctrine gates', 'Typecheck & build', 'Format', 'Definition of Done']
     .filter((name) => !ran(name))
     .map((name) => `Required CI coverage missing or skipped: ${name}.`);
   const flags = classify(files);
@@ -545,6 +575,7 @@ export async function runVerifiedGate(
   try {
     const problem = mainCopyProblem(git);
     if (problem) throw new GateError(problem);
+    fetchReviewedHead(git, { pr: o.pr, head: o.head });
     const readLiveMain = ({ refresh = false } = {}) => {
       if (refresh) {
         try {
@@ -597,7 +628,7 @@ export async function runVerifiedGate(
         cur.mergeable === 'CONFLICTING'
       )
         throw new GateError('PR changed before receipt; run the gate again.');
-      if (result.evalResult.protectedFiles.length) {
+      if (result.evalResult.protectedFiles.length || result.evalResult.infraSelection) {
         let patch = result.patch;
         if (patch) {
           const again = readCanonicalPatch({ base: result.reviewBase, head: o.head });
@@ -647,7 +678,12 @@ export async function runVerifiedGate(
 export function pinnedGitEnv(base = process.env) {
   const env = {};
   for (const [key, value] of Object.entries(base)) {
-    if (key === 'GIT_CONFIG_PARAMETERS' || key === 'GIT_CONFIG_COUNT' || key.startsWith('GIT_CONFIG_KEY_') || key.startsWith('GIT_CONFIG_VALUE_'))
+    if (
+      key === 'GIT_CONFIG_PARAMETERS' ||
+      key === 'GIT_CONFIG_COUNT' ||
+      key.startsWith('GIT_CONFIG_KEY_') ||
+      key.startsWith('GIT_CONFIG_VALUE_')
+    )
       continue;
     if (
       key === 'GIT_EXTERNAL_DIFF' ||
@@ -666,6 +702,7 @@ export function pinnedGitEnv(base = process.env) {
   env.GIT_CONFIG_SYSTEM = '/dev/null';
   env.GIT_CONFIG_NOSYSTEM = '1';
   env.GIT_CONFIG_COUNT = '0';
+  env.GIT_NO_REPLACE_OBJECTS = '1';
   return env;
 }
 
@@ -695,22 +732,10 @@ export function writeReviewerInput({ pr, head, repo = REPO, dest, git }) {
   } catch (error) {
     throw new GateError(error.message);
   }
-  const haveHead = () => {
-    const typed = git(['cat-file', '-t', head]);
-    return typed?.status === 0 && String(typed.stdout ?? '').trim() === 'commit';
-  };
-  const fetchedSha = git(['fetch', '-q', 'origin', head]);
-  if (!fetchedSha || fetchedSha.status !== 0 || !haveHead()) {
-    const fetchedPull = git(['fetch', '-q', 'origin', `pull/${pr}/head`]);
-    if (!fetchedPull || fetchedPull.status !== 0) throw new GateError('Could not fetch the PR head commit.');
-    const tip = git(['rev-parse', 'FETCH_HEAD']);
-    if (String(tip?.stdout ?? '').trim() !== head) throw new GateError('Fetched pull head does not match the reviewed head.');
-    if (!haveHead()) throw new GateError('Fetched PR head is not a commit.');
-  }
+  fetchReviewedHead(git, { pr, head });
   const baseRun = git(['merge-base', 'origin/main', head]);
   const reviewBase = String(baseRun?.stdout ?? '').trim();
-  if (!baseRun || baseRun.status !== 0 || !/^[0-9a-f]{40}$/.test(reviewBase))
-    throw new GateError('PR merge base could not be resolved.');
+  if (!baseRun || baseRun.status !== 0 || !/^[0-9a-f]{40}$/.test(reviewBase)) throw new GateError('PR merge base could not be resolved.');
   let patch;
   try {
     patch = canonicalPatch({ git, base: reviewBase, head });

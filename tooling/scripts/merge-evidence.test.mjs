@@ -8,6 +8,7 @@ import {
   parseTestExecution,
   classifyFailure,
   collectEvidence,
+  opusPatchQuoted,
   parseFailureSignatures,
   parseInheritedDeclarations,
 } from './merge-evidence.mjs';
@@ -215,6 +216,46 @@ test('money invariant already failing on main is no new failure; a new money wor
   const added = pure({ headLog: money, baseLog: ui });
   assert.equal(added.classification, 'introduced');
   assert.equal(added.allowed, false);
+});
+
+test('a protected full-suite failure matching main is excused only when the PR leaves that workspace untouched', () => {
+  const elsewhere = pure({ headLog: money, baseLog: money, files: ['tooling/scripts/a.mjs'] });
+  assert.equal(elsewhere.allowed, true);
+  assert.equal(elsewhere.noNewFailures, true);
+  const untouchedUi = pure({ headLog: money, baseLog: money, files: ['packages/ui/src/card.ts'] });
+  assert.equal(untouchedUi.allowed, true);
+  const touched = pure({ headLog: money, baseLog: money, files: ['packages/ledger-client/src/transfer.ts'] });
+  assert.equal(touched.allowed, false);
+  assert.equal(touched.noNewFailures, undefined);
+  assert.match(touched.reason, /packages\/ledger-client/);
+  assert.match(touched.reason, /changes a file in that workspace/);
+});
+
+test('collector excuses a matching protected failure only when that workspace is untouched', async () => {
+  const i18n = passedUi.replaceAll('@intafaced/ui', '@intafaced/i18n');
+  const log = `${passedUi}\n${money}\n${i18n}`;
+  const seal = { workflow: 'CI', name: 'CI merge seal', bucket: 'fail', link: `https://github.com/${REPO}/actions/runs/200/job/301` };
+  const clear = fixture({ headLog: log, baseLog: log, files: ['packages/ui/src/card.ts'] });
+  clear.options.checks = [...clear.options.checks, seal];
+  const allowed = await collectEvidence(clear.options);
+  assert.equal(allowed.pass, true, allowed.reasons.join('; '));
+  assert.ok(allowed.classifications.some((c) => c.check === 'CI/CI merge seal' && c.allowed));
+  const edited = fixture({ headLog: log, baseLog: log, files: ['packages/ledger-client/src/transfer.ts'] });
+  edited.options.checks = [...edited.options.checks, seal];
+  const blocked = await collectEvidence(edited.options);
+  assert.equal(blocked.pass, false);
+  assert.match(blocked.reasons.join(' '), /packages\/ledger-client/);
+  assert.ok(blocked.classifications.some((c) => c.check === 'CI/CI merge seal' && !c.allowed));
+});
+
+test('opus patch quote ignores stale hashes and refuses two claims of the current hash', () => {
+  const current = 'ab'.repeat(32);
+  const stale = 'cd'.repeat(32);
+  assert.equal(opusPatchQuoted(`Patch-Hash: ${stale}\nPatch-Hash: ${current}`, current), true);
+  assert.equal(opusPatchQuoted(`Patch-Hash: ${current}\nPatch-Hash: ${stale}`, current), true);
+  assert.equal(opusPatchQuoted(`Patch-Hash: ${current}\nPatch-Hash: ${current}`, current), false);
+  assert.equal(opusPatchQuoted(`Patch-Hash: ${stale}`, current), false);
+  assert.equal(opusPatchQuoted(`\`\`\`\nPatch-Hash: ${current}\n\`\`\``, current), false);
 });
 
 test('doctrine/security and task with unknown provenance never get inherited allowance', () => {

@@ -442,7 +442,7 @@ function testExecutionProof(job, log, files, workspaceRoots) {
 }
 
 /** Classification describes evidence; allowance separately enforces the invariant policy. */
-export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, declaration, coverageProblem, workspaceRoots }) {
+export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, declaration, coverageProblem, workspaceRoots, files = [] }) {
   const result = (classification, allowed, reason, extra = {}) => ({ check: keyOf(check), classification, allowed, reason, ...extra });
   if (!headJob || !completed(headJob) || !isFailed(headJob))
     return result('unknown', false, 'no finished failing job bound to the head check');
@@ -472,10 +472,18 @@ export function classifyFailure({ check, headJob, baseJob, headLog, baseLog, dec
   if (!declaration) return result('unknown', false, 'identical exact-base failure lacks a unique owner/evidence declaration');
   const inherited = { failures: head.failures, owner: declaration.owner, evidence: declaration.evidence };
   const fullSuite = check.workflow === 'CI' && check.name === 'Tests (full)' && headJob.name === baseJob.name;
-  // Main is red in these workspaces already. Protected paths are not a second block when the signatures did not grow.
+  // Main is already red here. A protected workspace is excused only when this PR changes no file in it (D-129a).
   if (fullSuite && failingWorkspacesSubset(head.failures, base.failures, workspaceRoots)) {
     const stepProblem = testStepProblem(headJob, baseJob);
     if (stepProblem) return result('unknown', false, stepProblem, inherited);
+    const touched = touchedProtectedWorkspaces(head.failures, files, workspaceRoots);
+    if (touched.length)
+      return result(
+        'inherited',
+        false,
+        `identical exact-base protected failure in ${touched.join(', ')}; the PR changes a file in that workspace; owner ${declaration.owner}; evidence ${declaration.evidence}`,
+        inherited,
+      );
     return result(
       'inherited',
       true,
@@ -536,11 +544,14 @@ function plainDeclarationLines(input) {
   return lines;
 }
 
-/** One plain Patch-Hash line, equal to the gate's canonical patch. A fenced example does not count. */
+/**
+ * One plain Patch-Hash line for this patch. Lines for any other hash are stale and ignored.
+ * Two lines that both name the current hash still refuse. A fenced example does not count.
+ */
 export function opusPatchQuoted(declarations, patchHash) {
   if (!/^[a-f0-9]{64}$/.test(patchHash ?? '')) return false;
-  const found = plainDeclarationLines(declarations).filter((line) => /^Patch-Hash: [a-f0-9]{64}$/.test(line));
-  return found.length === 1 && found[0].slice('Patch-Hash: '.length) === patchHash;
+  const found = plainDeclarationLines(declarations).filter((line) => line === `Patch-Hash: ${patchHash}`);
+  return found.length === 1;
 }
 
 function workspaceOfFailure(failure, workspaceRoots) {
@@ -551,6 +562,17 @@ function workspaceOfFailure(failure, workspaceRoots) {
   if (!path || path.startsWith('/') || path.includes('\\') || path.split('/').includes('..')) return null;
   if (/^(?:apps|services|packages|tooling)\//.test(path)) return path.startsWith(`${root}/`) ? root : null;
   return root;
+}
+
+/** Protected workspaces this PR edits. D-129a excuses a matching failure only when this set is empty. */
+function touchedProtectedWorkspaces(headFailures, files, workspaceRoots) {
+  const touched = new Set();
+  for (const failure of headFailures) {
+    const root = workspaceOfFailure(failure, workspaceRoots);
+    if (!root || !isProtectedPath(root)) continue;
+    if ((files ?? []).some((file) => file === root || file.startsWith(`${root}/`))) touched.add(root);
+  }
+  return [...touched];
 }
 
 /** Every failing head workspace already fails on the tested main tip. Unknown provenance fails closed. */
@@ -795,6 +817,7 @@ export async function collectEvidence({
           declaration: owners.get(keyOf(check)),
           coverageProblem: coverageProblem(check, files),
           workspaceRoots,
+          files,
         }),
         headRunId,
         baseRunId,

@@ -83,9 +83,31 @@ function decodeGitQuoted(body) {
   return Buffer.from(bytes).toString('utf8');
 }
 
+/**
+ * Unquoted `a/P b/P` when P contains spaces. `--no-renames` makes both sides
+ * the same path, so the separator is the middle space and the halves match.
+ * A space-containing rename (sides differ) returns null and fails closed.
+ */
+function equalUnquotedHalves(rest) {
+  if ((rest.length - 1) % 2 !== 0) return null;
+  const half = (rest.length - 1) / 2;
+  if (rest[half] !== ' ') return null;
+  const left = rest.slice(0, half);
+  const right = rest.slice(half + 1);
+  if (!left.startsWith('a/') || !right.startsWith('b/')) return null;
+  const a = left.slice(2);
+  const b = right.slice(2);
+  if (!a || !b || a !== b || /[\0]/.test(a)) return null;
+  return [a, b];
+}
+
 /** Two a/ and b/ paths from one `diff --git` header. Quoted paths and renames included. */
 function pathsFromDiffGitHeader(line) {
   const rest = line.slice('diff --git '.length);
+  if (!rest.includes('"') && rest.includes(' ')) {
+    const halves = equalUnquotedHalves(rest);
+    if (halves) return halves;
+  }
   const paths = [];
   let i = 0;
   while (paths.length < 2) {
@@ -153,12 +175,15 @@ export function canonicalDiffArgs(base, head) {
     'diff.renames=false',
     '-c',
     'core.quotePath=true',
+    '-c',
+    'diff.orderFile=/dev/null',
     'diff',
     '--no-ext-diff',
     '--no-textconv',
     '--text',
     '--no-color',
     '--no-renames',
+    '--diff-algorithm=myers',
     '--full-index',
     '--unified=3',
     `${base}...${head}`,
