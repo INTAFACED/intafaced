@@ -6,11 +6,12 @@ import {
   matchingActionSpec,
   matchingEdgePath,
   matchingIdempotencyKey,
-  matchingPayloadHash,
   matchingTargetId,
 } from './matching-controls';
 
 const MARKET = '11111111-2222-4333-8444-555555555555';
+
+import { matchingPayloadHash } from './matching-hash';
 
 describe('blockers', () => {
   it('no longer names a route svc-edge now has (#4948)', () => {

@@ -9,11 +9,11 @@ import {
   MATCHING_TARGET_SERVICE,
   matchingEdgePath,
   matchingIdempotencyKey,
-  matchingPayloadHash,
   matchingTargetId,
   checkMatchingRequest,
   type MatchingActionSpec,
 } from './matching-controls';
+import { matchingPayloadHash } from './matching-hash';
 import { refused, type Outcome } from './outcome';
 import { parseSurveillanceCases, type SurveillanceCase } from './surveillance-model';
 

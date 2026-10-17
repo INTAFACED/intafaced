@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
-
 /**
  * The nine matching controls svc-edge routes to operators (`/admin/trade-ops/matching/...`, EDGEOPSBE #4948). Each needs an
  * APPROVED two-person approval filed against svc-matching with the exact action type and target below; svc-edge reads it
- * (never consumes it) and svc-matching consumes it. Pure data and rules: no network, no env.
+ * (never consumes it) and svc-matching consumes it. Pure data and rules: no network, no env, safe in the browser (the payload hash is in matching-hash.ts, server only).
  */
 
 export type MatchingActionName =
@@ -51,12 +49,6 @@ export const MATCHING_POLICY_VERSION = 'matching-control-v1';
 
 export const matchingTargetId = (a: MatchingActionSpec, marketId: string | null): string =>
   a.perMarket ? `${a.targetPrefix}:${marketId ?? ''}` : a.targetPrefix;
-
-/** The hash svc-matching recomputes at consume time (`matchingActionPayloadHash`): sha256 of { actionType, ...fields }. */
-export function matchingPayloadHash(a: MatchingActionSpec, marketId: string | null): string {
-  const payload = JSON.stringify(a.perMarket ? { actionType: a.actionType, marketId } : { actionType: a.actionType });
-  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
-}
 
 export function matchingEdgePath(a: MatchingActionSpec, marketId: string | null): string {
   return a.perMarket

@@ -54,6 +54,7 @@ export function MatchingControls({
   const [checking, setChecking] = useState(false);
   const specs = actions.map((n) => matchingActionSpec(n)).filter((a): a is MatchingActionSpec => a !== null);
   const target = symbol ?? 'every market';
+  const named = (label: string) => (symbol ? `${label} ${symbol}` : label);
   const send = (action: MatchingActionSpec, step: 'propose' | 'status' | 'run', approval = approvalId) =>
     tradeOpsAction(action.perMarket ? 'markets' : 'kill-switch', {
       action: action.name,
@@ -97,7 +98,7 @@ export function MatchingControls({
               <span className="w-40 text-sm font-medium">{a.label}</span>
               <ConfirmAction
                 trigger="Propose approval"
-                title={`Propose approval: ${a.label} ${target}`}
+                title={`Propose approval: ${named(a.label)}`}
                 consequence={`${copy.consequence(target)} This only files the request. Nothing changes on the book until a different operator approves it and you run it.`}
                 confirmLabel="Propose approval"
                 reasonMin={0}
@@ -116,7 +117,7 @@ export function MatchingControls({
               />
               <ConfirmAction
                 trigger={a.label}
-                title={`${a.label} ${target}`}
+                title={named(a.label)}
                 consequence={copy.consequence(target)}
                 confirmLabel={a.label}
                 tone={copy.tone}
