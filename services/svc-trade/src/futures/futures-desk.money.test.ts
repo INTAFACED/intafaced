@@ -214,6 +214,81 @@ describe('futures desk money', () => {
     });
   });
 
+  async function availableUsdt(): Promise<string> {
+    return formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount);
+  }
+
+  async function freezeExit(positionId: string, acceptedMark: string | null): Promise<void> {
+    await sql`
+      UPDATE trade.positions
+      SET status = 'closing', closing_reason = 'mark_missing', accepted_mark = ${acceptedMark}
+      WHERE id = ${positionId}
+    `;
+  }
+
+  it('settles a closing position at the frozen mark and returns the full margin', async () => {
+    feed('50000');
+    const pos = await openAlice('freeze-full');
+    const [locked] = await sql<{ margin: string }[]>`
+      SELECT margin_current::text AS margin FROM trade.positions WHERE id = ${pos.id}
+    `;
+    expect(amt(locked!.margin)).toBe(amt('5000'));
+    await freezeExit(pos.id!, '50000');
+    const before = await availableUsdt();
+    feed('49000');
+    const closed = await positions.closeQuantity(ALICE, pos.id!, { quantity: amt('1'), clientCloseId: 'freeze-full-close' });
+    expect(closed.realizedPnl).toBe('0');
+    expect(await availableUsdt()).toBe(formatAmount(add(amt(before), amt('5000'))));
+  });
+
+  it('refuses a partial close while the position is waiting on its frozen mark', async () => {
+    feed('50000');
+    const pos = await openAlice('freeze-partial');
+    await freezeExit(pos.id!, '50000');
+    const before = await availableUsdt();
+    feed('49000');
+    await expect(
+      positions.closeQuantity(ALICE, pos.id!, { quantity: amt('0.4'), clientCloseId: 'freeze-partial-close' }),
+    ).rejects.toMatchObject({
+      code: 'trade.position_closing_full_only',
+    });
+    const [row] = await sql<{ status: string; size: string; accepted_mark: string }[]>`
+      SELECT status, size::text, accepted_mark::text FROM trade.positions WHERE id = ${pos.id}
+    `;
+    expect(row?.status).toBe('closing');
+    expect(amt(row!.size)).toBe(amt('1'));
+    expect(amt(row!.accepted_mark)).toBe(amt('50000'));
+    expect(await availableUsdt()).toBe(before);
+  });
+
+  it('flattens a closing position at the frozen mark', async () => {
+    feed('50000');
+    const pos = await openAlice('freeze-all');
+    await freezeExit(pos.id!, '50000');
+    feed('49000');
+    const batch = await positions.closeAll(ALICE, { clientBatchId: 'freeze-batch' });
+    expect(batch.results).toEqual([expect.objectContaining({ positionId: pos.id, status: 'closed', realizedPnl: '0' })]);
+  });
+
+  it('refuses to settle a closing position when the frozen mark is missing', async () => {
+    feed('50000');
+    const pos = await openAlice('freeze-blank');
+    await freezeExit(pos.id!, null);
+    const before = await availableUsdt();
+    feed('49000');
+    await expect(
+      positions.closeQuantity(ALICE, pos.id!, { quantity: amt('1'), clientCloseId: 'freeze-blank-close' }),
+    ).rejects.toMatchObject({
+      code: 'trade.closing_basis_missing',
+    });
+    const [row] = await sql<{ status: string; accepted_mark: string | null }[]>`
+      SELECT status, accepted_mark::text FROM trade.positions WHERE id = ${pos.id}
+    `;
+    expect(row?.status).toBe('closing');
+    expect(row?.accepted_mark).toBeNull();
+    expect(await availableUsdt()).toBe(before);
+  });
+
   it('flatten closes around a mark refusal and a replay posts nothing', async () => {
     const aaa = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const mmm = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';

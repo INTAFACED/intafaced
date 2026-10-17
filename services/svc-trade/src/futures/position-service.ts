@@ -2186,13 +2186,45 @@ export class PositionService {
         });
         if (!lotCheck.ok) throw new FuturesError(lotCheck.reason, lotCheck.code, 400);
 
+        /**
+         * A `closing` row already asked to leave at freeze-time `accepted_mark`
+         * (ADR 2026-08-07 property 2). A smaller slice would settle the outage
+         * move and overwrite that basis for the remainder. Only the full size
+         * is accepted, and it posts nothing until that full close is priced.
+         */
+        const settlingFromClosing = row.status === 'closing';
+        if (settlingFromClosing && partial.quantity !== size) {
+          throw new FuturesError(
+            'position is waiting to exit at its frozen mark; only a full close is accepted',
+            'trade.position_closing_full_only',
+            400,
+          );
+        }
+
         const at = this.now();
         const markOrDark = await this.tryMarkForMarking(row.market_id, row.symbol, at, partial.quantity);
         if (!markOrDark.ok) {
           throw new FuturesError(markOrDark.detail, markOrDark.reason, 409);
         }
         const previous = readAcceptedMark(row);
-        const exitPrice = formatAmount(markOrDark.mark.price);
+        /**
+         * The fresh mark only triggers settlement once the feed is usable again.
+         * The exit price stays the freeze basis. A blank basis refuses rather
+         * than inventing a price from the mark that just came back.
+         */
+        let exitPrice: string;
+        if (settlingFromClosing) {
+          if (row.accepted_mark == null || row.accepted_mark.trim() === '') {
+            throw new FuturesError(
+              'closing position has no accepted_mark to settle at — refuse invent from current mark',
+              'trade.closing_basis_missing',
+              503,
+            );
+          }
+          exitPrice = formatAmount(parseAmount(row.accepted_mark));
+        } else {
+          exitPrice = formatAmount(markOrDark.mark.price);
+        }
         const margin = parseAmount(row.margin_current ?? row.margin_initial);
         const marginInitial = parseAmount(row.margin_initial);
         const releaseSequence = partial.quantity === size ? 1 : Number(row.margin_adjust_seq) + 1;
@@ -2214,7 +2246,11 @@ export class PositionService {
         if (!plan.close) throw new FuturesError(plan.reason, plan.code, 400);
 
         if (plan.profit > 0n) {
-          this.requirePayoutGrade(markOrDark.mark, previous, at);
+          // Freeze-time accepted_mark was gated when stored. The mark that
+          // unlocked this close must not re-price the payout (Denon §§3–4).
+          if (!settlingFromClosing) {
+            this.requirePayoutGrade(markOrDark.mark, previous, at);
+          }
           const source = this.deps.profitSource;
           if (source == null) {
             throw new FuturesError(

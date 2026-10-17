@@ -1,6 +1,7 @@
 -- Futures desk: client open id, nullable legacy leverage, close intents, batches, open requests, account mode.
 -- Reversal: 0052_futures_desk.down.sql
 -- Number reserved in runs/MIGRATION-NUMBERS.md by FUTDESKBE before this file was written.
+-- intafaced:destructive drops NOT NULL and DEFAULT 1 on trade.positions.leverage so a missing leverage stays null instead of an invented 1; no data is removed; reversal in 0052_futures_desk.down.sql
 
 ALTER TABLE "trade"."positions"
   ADD COLUMN IF NOT EXISTS "client_open_id" text;
