@@ -14,7 +14,7 @@ export const TIF_MISSING_MESSAGE = 'tif is required; missing TIF is not GTC';
 export const CLIENT_ORDER_ID_REUSE_MESSAGE = 'clientOrderId already used in this account/environment domain';
 
 /** Known TIF tokens. Unknown/blank is tif_missing — never a silent GTC map. */
-export const KNOWN_TIF = ['GTC', 'IOC', 'FOK', 'PO', 'GTD', 'GTT'] as const satisfies readonly TimeInForce[];
+export const KNOWN_TIF = ['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT'] as const satisfies readonly TimeInForce[];
 
 const FLAG = Symbol.for('intafaced.matching.core-tif');
 const STORE = Symbol.for('intafaced.matching.core-tif.seen');

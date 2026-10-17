@@ -269,7 +269,7 @@ export type Trade = z.infer<typeof tradeSchema>;
 
 export const orderTypeSchema = z.enum(['market', 'limit', 'stop', 'stop_limit', 'take_profit']);
 export const orderSideSchema = z.enum(['buy', 'sell']);
-export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD', 'GTT']);
+export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT']);
 export const orderStatusSchema = z.enum(['open', 'closed', 'canceled', 'expired', 'rejected']);
 
 export const orderSchema = z.object({

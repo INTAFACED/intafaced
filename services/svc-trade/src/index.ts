@@ -594,6 +594,7 @@ registerSpotOrderPreviewRest(app, {
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   feeSchedule,
+  feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

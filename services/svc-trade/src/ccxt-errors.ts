@@ -261,6 +261,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   // ── The order itself is malformed: fix it, then resubmit ──────────────────
   'trade.order_type_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_qty': { ccxt: 'InvalidOrder', status: 400 },
+  /** Notional or futures size is above the published max order. Do not retry the same size. */
+  'trade.max_order_exceeded': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_price': { ccxt: 'InvalidOrder', status: 400 },
   /** JSON number on an OCO/bracket leg — decimal string required. */
   'trade.ieee_money': { ccxt: 'InvalidOrder', status: 400 },
@@ -328,6 +330,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 10/20. Operator publishes; not a retry loop and not a symbol to drop.
    */
   'trade.fee_schedule_blank': { ccxt: 'BadRequest', status: 400 },
+  /** This product has no published rate. The spot rate is not a substitute. */
+  'trade.fee_product_unpublished': { ccxt: 'BadRequest', status: 400 },
   /**
    * Paper markets do not settle. Not a venue fault and not a retry: funding
    * the zero hold to make tradeFill succeed is the bug this refuses.

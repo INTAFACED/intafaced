@@ -123,6 +123,7 @@ function appWith(input: {
   ledgerPost?: () => Promise<never>;
   spotEnabled?: boolean;
   feeSchedule?: OwnerFeeSchedule;
+  feeDiscountBps?: (userId: string) => Promise<number>;
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -155,6 +156,7 @@ function appWith(input: {
     optionsSettlementLawStamped: false,
     slippageCapBps: 200,
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
+    ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
   });
   return { app, submit, ledgerPost };
 }
@@ -178,14 +180,35 @@ describe('POST /api/v1/orders/preview', () => {
       holdAsset: 'fixture-quote',
       holdAmount: '200',
       protectionPrice: null,
-      estimatedFee: '0.0004',
+      estimatedFee: '0.0002',
       feeAsset: 'fixture-base',
-      feeBps: 2,
-      feeRole: 'taker',
+      feeBps: 1,
+      feeRole: 'maker',
+      feeScheduleVersion: 'preview-test',
+      makerFeeBps: 1,
+      takerFeeBps: 2,
       orderable: true,
       refusals: [],
     });
     expect(submit).not.toHaveBeenCalled();
+    expect(ledgerPost).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('given a taker fee of 100 bps and a rank discount of 5000, a limit buy preview fee bps is 50', async () => {
+    const schedule = parseFeeScheduleJson(
+      JSON.stringify({ published: true, version: 'rank-50', makerBps: '100', takerBps: '100' }),
+    );
+    const { app, ledgerPost } = appWith({ feeSchedule: schedule, feeDiscountBps: async () => 5000 });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({
+      feeBps: 50,
+      makerFeeBps: 50,
+      takerFeeBps: 50,
+      feeScheduleVersion: 'rank-50',
+      orderable: true,
+    });
     expect(ledgerPost).not.toHaveBeenCalled();
     await app.close();
   });

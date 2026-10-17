@@ -59,7 +59,8 @@ import {
   type Pending,
 } from './pending';
 import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
-import { CONFLICT_CODE, resendOrder } from './resend';
+import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
+import { batchItemLabel, placeInstruction, placedCount, scaleLockStays, type DeskInstruction } from './ticket/scale-flow';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 
@@ -162,6 +163,7 @@ function SideForm({
   const [review, setReview] = useState<{ draft: Draft; preview: Preview; changed: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
+  const [instruction, setInstruction] = useState<DeskInstruction>('GTC');
   const busyRef = useRef(false);
   const mounted = useRef(true);
   const spendAsset = side === 'buy' ? market.quote : market.base;
@@ -241,12 +243,12 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      timeInForce: placeInstruction(instruction).timeInForce,
+      postOnly: placeInstruction(instruction).postOnly,
       clientOrderId: 'desk-preview',
     };
-  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type]); // eslint-disable-line react-hooks/exhaustive-deps
-  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}` : 'none';
+  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type, instruction]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.timeInForce}` : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
@@ -271,8 +273,8 @@ function SideForm({
         side: 'buy',
         type: 'market',
         amount: probe,
-        timeInForce: 'GTC',
-        postOnly: false,
+        timeInForce: placeInstruction(instruction).timeInForce,
+        postOnly: placeInstruction(instruction).postOnly,
         clientOrderId: 'desk-preview',
       })
       .then((result) => {
@@ -308,8 +310,8 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
-      timeInForce: 'GTC',
-      postOnly: false,
+      timeInForce: placeInstruction(instruction).timeInForce,
+      postOnly: placeInstruction(instruction).postOnly,
       clientOrderId: `desk:${crypto.randomUUID()}`,
     };
     const parsed = draftSchema.safeParse(fresh);
@@ -369,25 +371,31 @@ function SideForm({
       unmarkInFlight(sending.clientOrderId);
     }
     if (result.ok) {
+      const item = { clientOrderId: sending.clientOrderId, refused: result.data.status === 'rejected' };
       release(userId, sending.clientOrderId);
       if (mounted.current) {
-        const done = result.data;
-        const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
-        const complete = scaled(done.remaining) === 0n && done.status === 'closed';
-        restingSeen.current = false;
-        setRestingId(done.status === 'open' ? done.id : null);
-        setStatus(
-          complete
-            ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
-            : done.status === 'open'
-              ? t('Order placed open', { side: sideWord })
-              : t('Order placed done', { side: sideWord }),
-        );
-        setReview(null);
-        setAmount('');
-        setTotalEdit(null);
+        if (batchItemLabel(item) === 'refused' || placedCount([item]) === 0) {
+          setReview(null);
+          setStatus(t('Order refused'));
+        } else {
+          const done = result.data;
+          const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
+          const complete = scaled(done.remaining) === 0n && done.status === 'closed';
+          restingSeen.current = false;
+          setRestingId(done.status === 'open' ? done.id : null);
+          setStatus(
+            complete
+              ? t('Order placed filled', { side: sideWord, amount: fmtAmount(done.filled, { places: amountPlaces }), asset: market.base })
+              : done.status === 'open'
+                ? t('Order placed open', { side: sideWord })
+                : t('Order placed done', { side: sideWord }),
+          );
+          setReview(null);
+          setAmount('');
+          setTotalEdit(null);
+          onPlaced();
+        }
       }
-      onPlaced();
     } else if (result.reason === 'changed') {
       // Nothing was sent: the fresh preview differs from the reviewed one. Show the new numbers and ask again.
       release(userId, sending.clientOrderId);
@@ -529,6 +537,24 @@ function SideForm({
         placeholder="0"
         aria-label={t('Total')}
       />
+      <div className="dk-percents" role="group" aria-label={t('Time in force choice')}>
+        {(['GTC', 'IOC', 'FOK', 'PO'] as const).map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            aria-pressed={instruction === choice}
+            onClick={() => setInstruction(choice)}
+          >
+            {choice === 'GTC'
+              ? t('Good till cancel')
+              : choice === 'IOC'
+                ? t('Immediate or cancel')
+                : choice === 'FOK'
+                  ? t('Fill or kill')
+                  : t('Post only')}
+          </button>
+        ))}
+      </div>
       <dl className="dk-avail">
         <div>
           <dt>{t('Available')}</dt>
@@ -807,10 +833,10 @@ export const OrderPanel = memo(function OrderPanel({
       setSettled(t('Resent ok', { status: t(`Order status ${result.order.status}` as 'Order status open') }));
       refresh();
       onPlaced();
-    } else if (result.reason === 'unsure') {
+    } else if (scaleLockStays(resendOutcome(result))) {
       setResendNote(t('Resent unsure'));
       requestCheck();
-    } else if (result.code === CONFLICT_CODE) {
+    } else if (result.reason === 'refused' && result.code === CONFLICT_CODE) {
       setResendNote(t('Resent unsure'));
     } else {
       // The service said no, so nothing was placed. The marker can go.

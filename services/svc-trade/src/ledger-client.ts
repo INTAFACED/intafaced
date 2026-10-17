@@ -12,9 +12,12 @@ import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { installPreTradeCredit } from './futures/pretrade-credit.js';
 import { installPositionMode } from './futures/position-mode.js';
 import { installCollateralHaircut } from './futures/collateral-haircut.js';
+import { installSpotSizeCaps } from './spot/size-caps.js';
 
 /** CARD F5 — index.ts loads this client at boot; mill wraps place/open before hold/lock. */
 installPreTradeCredit();
+/** Spot notional cap. Runs outside the futures mill so futures code does not police spot. */
+installSpotSizeCaps();
 /** CARD F6 — explicit one_way / hedge before futuresMarginLock. */
 installPositionMode();
 /** CARD F8 — owner haircuts; yield/staked refuse; posted margin is not a loan. */

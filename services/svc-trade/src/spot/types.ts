@@ -19,7 +19,7 @@ export type MarketKind = 'spot' | 'futures' | 'options';
 export type MarketStatus = 'pending' | 'active' | 'halted' | 'delisted';
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
-export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
+export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'MOC' | 'GTD' | 'GTT';
 export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required';
 export type RecoveryReason = 'SUBMIT_UNKNOWN' | 'CANCEL_UNKNOWN' | 'AMEND_UNKNOWN' | 'RECONCILIATION_REQUIRED';
 export type AmendPriority = 'retained' | 'lost';
@@ -310,6 +310,8 @@ export type TradeErrorCode =
   | 'trade.market_kind_unsupported'
   | 'trade.order_type_unsupported'
   | 'trade.invalid_qty'
+  /** Spot notional or futures size is above the published TRADE_MAX_ORDER. No hold is posted. */
+  | 'trade.max_order_exceeded'
   | 'trade.invalid_price'
   /** JSON number on an OCO/bracket leg — decimal string required. IEEE 0.1 is not a price. */
   | 'trade.ieee_money'
@@ -345,6 +347,8 @@ export type TradeErrorCode =
    * listing-row maker_bps/taker_bps (10/20) and never invented bps.
    */
   | 'trade.fee_schedule_blank'
+  /** A product's own maker/taker rate is unpublished. The spot rate is not charged in its place. */
+  | 'trade.fee_product_unpublished'
   /**
    * Forex/commodity production listing or place without settlement law
    * (D26-P1-T7 / §13 `socket.forex-settlement` — needs D26-P0-05 + fiat rails).

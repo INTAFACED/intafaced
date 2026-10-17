@@ -44,6 +44,12 @@ export interface SpotOrderPreviewWire {
   feeAsset: string | null;
   feeBps: number | null;
   feeRole: 'maker' | 'taker' | null;
+  /** Owner schedule version. Null when the schedule is unpublished. */
+  feeScheduleVersion: string | null;
+  /** Discounted maker bps the fill would post if this order rests. */
+  makerFeeBps: number | null;
+  /** Discounted taker bps the fill would post if this order takes. */
+  takerFeeBps: number | null;
   orderable: boolean;
   refusals: SpotOrderPreviewRefusal[];
 }
@@ -67,6 +73,11 @@ export interface SpotOrderPreviewRestDeps {
   slippageCapBps: number | null;
   /** PTX-M21 owner fee/rebate schedule. Unpublished → typed refuse, never invent bps. */
   feeSchedule: OwnerFeeSchedule;
+  /**
+   * Snapshotted rank discount, the same read place uses. Absent in tests means
+   * zero. A failure refuses the fee rather than showing a rate the fill will not post.
+   */
+  feeDiscountBps?(userId: string): Promise<number>;
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -190,7 +201,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     }
 
     let tif: TimeInForce =
-      body.timeInForce === 'IOC' || body.timeInForce === 'FOK' || body.timeInForce === 'PO' || body.timeInForce === 'GTC'
+      body.timeInForce === 'IOC' ||
+      body.timeInForce === 'FOK' ||
+      body.timeInForce === 'PO' ||
+      body.timeInForce === 'MOC' ||
+      body.timeInForce === 'GTC'
         ? body.timeInForce
         : 'GTC';
     if (body.postOnly === true) {
@@ -324,8 +339,27 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
-    const feeRole: 'maker' | 'taker' | null = orderType === null ? null : tif === 'PO' ? 'maker' : 'taker';
-    const feeBps = feeRole === null ? null : previewFeeBps(deps.feeSchedule, feeRole);
+    let discountBps = 0;
+    let discountKnown = true;
+    if (deps.feeDiscountBps) {
+      try {
+        discountBps = await deps.feeDiscountBps(principal.userId);
+      } catch (error) {
+        discountKnown = false;
+        if (error instanceof TradeError) pushError(refusals, error, 'fee');
+        else {
+          refusals.push({ code: 'trade.perks_unavailable', field: 'fee', message: 'rank discount is unavailable' });
+        }
+      }
+    }
+
+    const takes = tif === 'IOC' || tif === 'FOK';
+    const rests = orderType === 'limit' && !takes;
+    const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
+    const makerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'maker', discountBps) : null;
+    const takerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'taker', discountBps) : null;
+    const feeScheduleVersion = deps.feeSchedule.published === true ? deps.feeSchedule.version : null;
+    const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;
     let feeAsset: string | null = null;
     if (feeRole === null) {
@@ -385,6 +419,9 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       feeAsset,
       feeBps,
       feeRole,
+      feeScheduleVersion,
+      makerFeeBps,
+      takerFeeBps,
       orderable: uniqueRefusals.length === 0,
       refusals: uniqueRefusals,
     };

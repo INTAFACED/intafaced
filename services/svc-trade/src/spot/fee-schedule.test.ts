@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   FEE_SCHEDULE_RESIDUAL,
+  feeScreenLines,
   FeeScheduleError,
   parseFeeScheduleJson,
   previewFeeBps,
+  publishedProductBps,
   requirePublishedFeeSchedule,
   TRADE_FEE_SCHEDULE_ENV,
   UNPUBLISHED_FEE_SCHEDULE,
@@ -42,6 +44,7 @@ describe('parseFeeScheduleJson', () => {
       makerBps: 10,
       takerBps: 20,
       makerRebateBps: null,
+      perpetual: null,
     });
   });
 
@@ -100,6 +103,15 @@ describe('previewFeeBps', () => {
     expect(previewFeeBps(schedule, 'maker')).toBe(10);
     expect(previewFeeBps(schedule, 'taker')).toBe(20);
   });
+
+  it('a rank discount of 5000 on a 100 bps taker fee previews 50, and zero discount posts the published rate', () => {
+    const schedule = parseFeeScheduleJson(
+      JSON.stringify({ published: true, version: 'rank-50', makerBps: '80', takerBps: '100' }),
+    );
+    expect(previewFeeBps(schedule, 'taker', 5000)).toBe(50);
+    expect(previewFeeBps(schedule, 'taker', 0)).toBe(100);
+    expect(previewFeeBps(schedule, 'maker', 0)).toBe(80);
+  });
 });
 
 describe('requirePublishedFeeSchedule', () => {
@@ -152,5 +164,40 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
 
   it('names the env key constantly', () => {
     expect(TRADE_FEE_SCHEDULE_ENV).toBe('TRADE_FEE_SCHEDULE');
+  });
+});
+
+describe('product rates and the fee screen (TRD-0466, TRD-0526)', () => {
+  const spotOnly = parseFeeScheduleJson(
+    JSON.stringify({ published: true, version: 'spot-only', makerBps: '10', takerBps: '20' }),
+  );
+
+  it('a perpetual fill is refused when only the spot rate is published', () => {
+    expect(publishedProductBps(spotOnly, 'spot')).toEqual({ makerBps: 10, takerBps: 20 });
+    expect(publishedProductBps(spotOnly, 'perpetual')).toBeNull();
+  });
+
+  it('a published perpetual block is its own rate', () => {
+    const both = parseFeeScheduleJson(
+      JSON.stringify({
+        published: true,
+        version: 'both',
+        makerBps: '10',
+        takerBps: '20',
+        perpetual: { makerBps: '4', takerBps: '8' },
+      }),
+    );
+    expect(publishedProductBps(both, 'perpetual')).toEqual({ makerBps: 4, takerBps: 8 });
+  });
+
+  it('a blank trade schedule does not change the withdrawal network fee', () => {
+    expect(feeScreenLines({ schedule: UNPUBLISHED_FEE_SCHEDULE, withdrawalNetworkFee: '1.25' })).toEqual({
+      trading: null,
+      withdrawalNetworkFee: '1.25',
+    });
+    expect(feeScreenLines({ schedule: spotOnly, withdrawalNetworkFee: '1.25' })).toEqual({
+      trading: { makerBps: 10, takerBps: 20 },
+      withdrawalNetworkFee: '1.25',
+    });
   });
 });
