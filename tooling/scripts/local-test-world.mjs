@@ -1126,6 +1126,170 @@ export function planMerchantPopulate({
   return { stop: null, actions };
 }
 
+// ── Merchant settlement, payout request and dispute (pure planners) ──────────
+//
+// Nothing here sends a payout and nothing here creates a refund. A payout REQUEST
+// (merchantControl.approvals.request) only files an approval row; the send
+// (settlement.payout) needs pay:payout through a step-up and populate never calls it.
+// Every planner reads first: a settled window, an open approval and an existing dispute are
+// EXISTS, never created twice.
+
+export const MERCHANT_SETTLEMENT_ASSET = 'USDT';
+/** Statuses a spec payment that reached `captured` can later show (settled and disputed come after). */
+const MERCHANT_SETTLED_STATUSES = new Set(['captured', 'settled', 'disputed']);
+/** One captured payment gets a dispute. The reason is a LOCAL TEST label, not a card-network code. */
+export const MERCHANT_DISPUTE = { n: 3, reasonCode: 'LOCAL-TEST product_not_received' };
+export const merchantDisputeId = (userId) => populateRef(`dispute-${String(userId).slice(0, 8)}-${MERCHANT_DISPUTE.n}`);
+export const OPEN_DISPUTE_ACTION = 'pay.fraud_open_dispute';
+/** Approvals that already stand for a payout request. An expired, rejected or voided one does not. */
+const PAYOUT_REQUEST_LIVE_STATUSES = new Set(['pending', 'approved', 'consumed']);
+/** Rail the request names when the merchant has no saved destination yet; the service then refuses by itself. */
+export const MERCHANT_PAYOUT_FALLBACK_RAIL = 'crypto-native';
+
+/** `YYYY-MM-DD` (UTC) of an ISO instant, or null. The settlement window label is exactly this. */
+export function utcDayLabel(iso) {
+  const t = Date.parse(String(iso ?? ''));
+  return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : null;
+}
+
+/** Distinct UTC days (sorted) of the spec's captured payments that are still captured, settled or disputed. */
+export function merchantSettlementWindows(userId, payments) {
+  const byId = new Map((payments ?? []).map((p) => [p.id, p]));
+  const days = new Set();
+  for (const spec of MERCHANT_PAYMENTS) {
+    if (spec.want !== 'captured') continue;
+    const p = byId.get(merchantPaymentId(userId, spec.n));
+    if (!p || !MERCHANT_SETTLED_STATUSES.has(p.status)) continue;
+    const day = utcDayLabel(p.createdAt);
+    if (day) days.add(day);
+  }
+  return [...days].sort();
+}
+
+/** Which windows still need `settlement.run`, and which already have a settlement for this asset. */
+export function planMerchantSettlement({ windows, settlements, assetId = MERCHANT_SETTLEMENT_ASSET }) {
+  const have = new Map();
+  for (const s of settlements ?? []) if (s.assetId === assetId) have.set(s.window, s);
+  const run = [];
+  const exists = [];
+  for (const window of windows ?? []) {
+    if (have.has(window)) exists.push(have.get(window));
+    else run.push(window);
+  }
+  return { run, exists };
+}
+
+/**
+ * The one settlement a payout request is filed for: the oldest `posted` one with a net above zero.
+ * An approval already pending, approved or consumed for it is the existing request.
+ */
+export function planMerchantPayoutRequest({ settlements, approvals }) {
+  const target =
+    [...(settlements ?? [])]
+      .filter((s) => s.status === 'posted' && Number(s.net) > 0)
+      .sort((a, b) => String(a.window).localeCompare(String(b.window)))[0] ?? null;
+  if (!target) return { target: null, existing: null };
+  const existing = (approvals ?? []).find((a) => a.settlementId === target.id && PAYOUT_REQUEST_LIVE_STATUSES.has(a.status)) ?? null;
+  return { target, existing };
+}
+
+/** The pay.fraud_open_dispute approval fields. Key order is part of the hash (`payActionPayloadHash`). */
+export function openDisputeApprovalFields({ disputeId, paymentId, merchantId, amount, assetId }) {
+  return { disputeId, paymentId, merchantId, amount, assetId };
+}
+
+export function openDisputeHashedBody(input) {
+  return { actionType: OPEN_DISPUTE_ACTION, ...openDisputeApprovalFields(input) };
+}
+
+export function openDisputePayloadHash(input) {
+  return `sha256:${crypto
+    .createHash('sha256')
+    .update(JSON.stringify(openDisputeHashedBody(input)))
+    .digest('hex')}`;
+}
+
+/** Open approval rows for one dispute binding. The hash is interpolated only after it matches sha256. */
+export function openDisputeApprovalSql(payloadHash) {
+  if (!/^sha256:[0-9a-f]{64}$/.test(payloadHash)) throw new Error('dispute approval lookup refused: payload hash is not sha256');
+  return `SELECT approval_id, operation_id, action_type, payload_hash, status, requester_id
+            FROM identity.action_approvals
+           WHERE action_type = '${OPEN_DISPUTE_ACTION}'
+             AND payload_hash = '${payloadHash}'
+             AND status IN ('PENDING', 'APPROVED')
+             AND expires_at > now()
+           ORDER BY created_at`;
+}
+
+/**
+ * Whether a dispute exists, can be opened, or must be skipped. `payments` are the observed rows
+ * ({ id, status, capturedAmount }); `existing` is the dispute case read back by id, or null.
+ * The amount is the payment's own captured amount, never a made-up number.
+ */
+export function planMerchantDispute({ userId, merchantId, payments, existing }) {
+  const disputeId = merchantDisputeId(userId);
+  if (existing) return { kind: 'exists', disputeId, dispute: existing };
+  const paymentId = merchantPaymentId(userId, MERCHANT_DISPUTE.n);
+  const payment = (payments ?? []).find((p) => p.id === paymentId);
+  if (!payment) return { kind: 'skip', disputeId, reason: 'the payment to dispute does not exist yet' };
+  if (payment.status !== 'captured' && payment.status !== 'settled') {
+    return { kind: 'skip', disputeId, reason: `the payment is ${payment.status}, only a captured payment is disputed` };
+  }
+  if (!(Number(payment.capturedAmount) > 0)) return { kind: 'skip', disputeId, reason: 'the payment has no captured amount' };
+  return {
+    kind: 'open',
+    disputeId,
+    fields: openDisputeApprovalFields({
+      disputeId,
+      paymentId,
+      merchantId,
+      amount: payment.capturedAmount,
+      assetId: MERCHANT_SETTLEMENT_ASSET,
+    }),
+  };
+}
+
+/**
+ * Pair approval for one action binding, for any action type. `pair` is two signed-in LOCAL TEST
+ * approvers ({ userId }); `open` the rows the lookup returned. Same rules as the KYB planner: nothing is
+ * proposed without two distinct approvers, an open row is reused, and a row filed by someone else is refused.
+ */
+export function planPairApproval({ pair, open, actionType, payloadHash, policyVersion, missing }) {
+  const people = (Array.isArray(pair) ? pair : []).filter((f) => f && typeof f.userId === 'string' && f.userId);
+  const distinct = new Set(people.map((f) => f.userId));
+  if (people.length < 2 || distinct.size < 2) return { propose: false, refusal: missing };
+  const proposal = {
+    actionType,
+    targetService: 'svc-pay',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion,
+  };
+  const live = (open ?? []).filter(
+    (r) =>
+      r &&
+      r.payloadHash === payloadHash &&
+      r.actionType === actionType &&
+      (r.status === 'PENDING' || r.status === 'APPROVED') &&
+      typeof r.approvalId === 'string' &&
+      r.approvalId &&
+      typeof r.operationId === 'string' &&
+      r.operationId &&
+      typeof r.requesterId === 'string' &&
+      r.requesterId,
+  );
+  const reuse = live.find((r) => r.status === 'APPROVED') ?? live.find((r) => r.status === 'PENDING') ?? null;
+  if (reuse) {
+    const approver = people.find((f) => f.userId !== reuse.requesterId);
+    if (!distinct.has(reuse.requesterId) || !approver) {
+      return { propose: false, refusal: `${actionType}: an approval for this binding is already open for someone else` };
+    }
+    return { propose: false, reuse, proposal, payloadHash, approverUserId: approver.userId };
+  }
+  return { propose: true, proposal, payloadHash, proposerUserId: people[0].userId, approverUserId: people[1].userId };
+}
+
 /**
  * What `merchant.decideKyb` consumes. Same field set and key order as
  * svc-pay `kybApprovalFields` (no reason) spread under `actionType` by
@@ -1136,6 +1300,8 @@ export const KYB_DECIDE_ACTION = 'pay.merchant_decide_kyb';
 export const KYB_FOUNDERS_MISSING =
   'KYB pending: local test stack founder pair is not enrolled (pnpm local:stack seeds local_test_founder_a and local_test_founder_b; vault is founders.json in the stack state directory)';
 const KYB_HASH_RE = /^sha256:[0-9a-f]{64}$/;
+const DISPUTE_APPROVERS_MISSING =
+  'dispute not opened: local test stack approver pair is not enrolled (pnpm local:stack seeds local_test_founder_a and local_test_founder_b, or two TEST operators in operators.json)';
 
 export function kybDecideApprovalFields({ merchantId, decision, identityHash }) {
   return {
@@ -2308,6 +2474,7 @@ async function populateMerchantStep(baseCtx) {
     if (out.moneyClosed) moneyOpen = false;
   }
   if (merchantId && moneyOpen) await recordMerchantCounts(user, record, merchantId);
+  if (merchantId && moneyOpen) await populateMerchantMoneyBlock(ctx, merchantId);
 }
 
 function emptyMerchantObservation() {
@@ -2371,6 +2538,206 @@ async function recordMerchantCounts(user, record, merchantId) {
   );
 }
 
+/**
+ * Short-lived access token for one scope, minted the way `founderComplianceToken` mints admin:compliance:
+ * the approver's own session id and MFA claim, five minutes, nothing written down.
+ */
+async function approverScopedToken(gctx, session, scope) {
+  const tier = ['none', 'basic', 'full', 'institutional'].includes(session.tier) ? session.tier : 'none';
+  const minted = await gctx.tokens.issueAccessToken(
+    { userId: session.userId, sessionId: session.sessionId, scopes: [scope], tier, mfa: true },
+    { secret: gctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+  );
+  return minted.token;
+}
+
+/**
+ * pay.fraud.openDispute through two LOCAL TEST approvers (the local founders when their vault exists,
+ * else the stack's two TEST operators; never a real account). One proposes, the other approves, the
+ * approval is consumed by the open call. Called only after a read found no dispute with this id.
+ */
+async function openDisputeByApprovalPair(log, fields, reasonCode) {
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => log(`merchant dispute: ${m}`) });
+  const founders = loadEnrolledFounders(gctx);
+  const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) return { ok: false, refusal: DISPUTE_APPROVERS_MISSING };
+  if (!signedIn.ok) return signedIn;
+
+  let treasury;
+  try {
+    treasury = await approverScopedToken(gctx, signedIn.sessions[0], 'admin:treasury');
+  } catch (err) {
+    return { ok: false, refusal: `dispute not opened: the approver session could not be used (${oneLine(err.message)})` };
+  }
+
+  const payloadHash = openDisputePayloadHash(fields);
+  let open = [];
+  try {
+    open = psql(gctx.secrets, 'svc_identity', openDisputeApprovalSql(payloadHash)).map(
+      ([approvalId, operationId, actionType, payloadHashRow, status, requesterId]) => ({
+        approvalId,
+        operationId,
+        actionType,
+        payloadHash: payloadHashRow,
+        status,
+        requesterId,
+      }),
+    );
+  } catch (err) {
+    return { ok: false, refusal: `dispute not opened: could not read open approvals (${oneLine(err.message)})` };
+  }
+  const plan = planPairApproval({
+    pair: signedIn.sessions.map((s) => ({ userId: s.userId })),
+    open,
+    actionType: OPEN_DISPUTE_ACTION,
+    payloadHash,
+    policyVersion: gates.MARKERS.policyVersion,
+    missing: DISPUTE_APPROVERS_MISSING,
+  });
+  if (!plan.proposal) return { ok: false, refusal: plan.refusal };
+
+  let approval = plan.reuse ?? null;
+  if (plan.propose) {
+    const proposer = signedIn.sessions.find((s) => s.userId === plan.proposerUserId);
+    const proposed = await gctx.edge.mutate('identity', 'actionApproval.propose', plan.proposal, proposer.token);
+    const row = trpcData(proposed);
+    if (!row?.approvalId || !row?.operationId) return { ok: false, refusal: gates.refusalText(proposed) };
+    approval = {
+      approvalId: row.approvalId,
+      operationId: row.operationId,
+      status: row.status ?? 'PENDING',
+      requesterId: plan.proposerUserId,
+    };
+  }
+  if (approval.status === 'PENDING') {
+    const approver = signedIn.sessions.find((s) => s.userId === plan.approverUserId);
+    if (!approver) return { ok: false, refusal: DISPUTE_APPROVERS_MISSING };
+    const approved = await gctx.edge.mutate(
+      'identity',
+      'actionApproval.approve',
+      { approvalId: approval.approvalId, expectedPayloadHash: plan.payloadHash },
+      approver.token,
+    );
+    if (trpcData(approved)?.status !== 'APPROVED') return { ok: false, refusal: gates.refusalText(approved) };
+  }
+  const opened = await gctx.edge.mutate(
+    'pay',
+    'fraud.openDispute',
+    { ...fields, reasonCode, markPaymentDisputed: true, approvalId: approval.approvalId, operationId: approval.operationId },
+    treasury,
+  );
+  const data = trpcData(opened);
+  if (!data?.disputeId) return { ok: false, refusal: gates.refusalText(opened) };
+  return { ok: true, status: data.status, ledgerWire: data.ledgerWire, approvalId: approval.approvalId };
+}
+
+/**
+ * Settlement, payout request and dispute for the TEST merchant, after the catalogue exists.
+ * Each item reads first (EXISTS) and records the service's own refusal when the door is shut.
+ * It never calls settlement.payout and never creates a refund.
+ */
+async function populateMerchantMoneyBlock(ctx, merchantId) {
+  const { user, record, log } = ctx;
+  const userId = user.account.userId;
+  const payments = [];
+  for (const spec of MERCHANT_PAYMENTS) {
+    if (spec.want !== 'captured') continue;
+    const got = await call(user, 'q', 'pay', 'payment.get', { paymentId: merchantPaymentId(userId, spec.n) });
+    if (got.ok)
+      payments.push({ id: got.data.id, status: got.data.status, createdAt: got.data.createdAt, capturedAmount: got.data.capturedAmount });
+    else if (!/NOT_FOUND|not found/i.test(got.refusal)) return record('merchant', 'settlement', 'refused', got.refusal);
+  }
+  const listSettlements = () => call(user, 'q', 'pay', 'settlement.list', { merchantId, assetId: MERCHANT_SETTLEMENT_ASSET, limit: 200 });
+
+  // 1. Settlement: one run per UTC day that holds a captured seed payment.
+  const windows = merchantSettlementWindows(userId, payments);
+  let settlements = [];
+  if (windows.length === 0) {
+    record(
+      'merchant',
+      'settlement',
+      'skipped',
+      'no captured seed payment to settle (card-sandbox rail is off or payments are not captured yet)',
+    );
+  } else {
+    const before = await listSettlements();
+    if (!before.ok) record('merchant', 'settlement', 'refused', before.refusal);
+    else {
+      const plan = planMerchantSettlement({ windows, settlements: before.data.items ?? [] });
+      for (const s of plan.exists) {
+        record(
+          'merchant',
+          `settlement ${s.window} ${s.assetId}`,
+          'exists',
+          `${s.id} ${s.status} gross ${s.gross} fees ${s.fees} net ${s.net}`,
+        );
+      }
+      for (const window of plan.run) {
+        const out = await call(user, 'm', 'pay', 'settlement.run', { merchantId, window, assetId: MERCHANT_SETTLEMENT_ASSET });
+        record(
+          'merchant',
+          `settlement ${window} ${MERCHANT_SETTLEMENT_ASSET}`,
+          out.ok ? 'created' : 'refused',
+          out.ok ? `${out.data.id} ${out.data.status} gross ${out.data.gross} fees ${out.data.fees} net ${out.data.net}` : out.refusal,
+        );
+      }
+      const after = await listSettlements();
+      settlements = after.ok ? (after.data.items ?? []) : (before.data.items ?? []);
+    }
+  }
+
+  // 2. Payout request: file the approval request only. No payout is sent.
+  const approvals = await call(user, 'q', 'pay', 'merchantControl.approvals.list', { merchantId, limit: 200 });
+  const pr = planMerchantPayoutRequest({
+    settlements: settlements.filter((s) => windows.includes(s.window)),
+    approvals: approvals.ok ? (approvals.data.items ?? []) : [],
+  });
+  if (!approvals.ok) record('merchant', 'payout request', 'refused', approvals.refusal);
+  else if (!pr.target) {
+    record('merchant', 'payout request', 'skipped', 'no posted settlement with a net above zero to request a payout for');
+  } else if (pr.existing) {
+    record('merchant', 'payout request', 'exists', `${pr.existing.approvalId} ${pr.existing.status} for settlement ${pr.target.id}`);
+  } else {
+    const dests = await call(user, 'q', 'pay', 'merchant.payoutDestinations.list', { merchantId, limit: 50 });
+    const railId = (dests.ok ? (dests.data.items ?? [])[0]?.railId : null) ?? MERCHANT_PAYOUT_FALLBACK_RAIL;
+    const out = await call(user, 'm', 'pay', 'merchantControl.approvals.request', {
+      merchantId,
+      settlementId: pr.target.id,
+      railId,
+    });
+    record(
+      'merchant',
+      'payout request',
+      out.ok ? 'created' : 'refused',
+      out.ok
+        ? `${out.data.approvalId} ${out.data.status} ${out.data.amount} ${out.data.assetCode} on ${out.data.railId}, request only, nothing sent`
+        : `${out.refusal} (rail ${railId})`,
+    );
+  }
+
+  // 3. Dispute on one captured payment.
+  const disputeId = merchantDisputeId(userId);
+  const found = await call(user, 'q', 'pay', 'fraud.getDispute', { disputeId });
+  if (!found.ok && !/not found|dispute_not_found/i.test(found.refusal)) {
+    return record('merchant', 'dispute', 'refused', found.refusal);
+  }
+  const dplan = planMerchantDispute({ userId, merchantId, payments, existing: found.ok ? found.data : null });
+  if (dplan.kind === 'exists') {
+    record('merchant', 'dispute', 'exists', `${dplan.disputeId} ${dplan.dispute.status}, ${dplan.dispute.amount} ${dplan.dispute.assetId}`);
+  } else if (dplan.kind === 'skip') {
+    record('merchant', 'dispute', 'skipped', dplan.reason);
+  } else {
+    const out = await openDisputeByApprovalPair(log, dplan.fields, MERCHANT_DISPUTE.reasonCode);
+    record(
+      'merchant',
+      'dispute',
+      out.ok ? 'created' : 'refused',
+      out.ok ? `${dplan.disputeId} ${out.status} ledger ${out.ledgerWire ?? 'n/a'}, approval ${out.approvalId}` : out.refusal,
+    );
+  }
+}
+
 function trpcData(res) {
   const data = res?.json?.result?.data;
   if (data && typeof data === 'object' && 'json' in data) return data.json;
@@ -2399,7 +2766,8 @@ export function enrolledTestOperatorPair(file) {
 
 /** Operator A and B signed in with their TOTP (replay-safe, through gates). Sessions carry the admin-scoped approval token. */
 async function signInTestOperatorPair(gctx, gates) {
-  if (!enrolledTestOperatorPair(readJson(gctx.paths.operators, null))) return null;
+  const pair = enrolledTestOperatorPair(readJson(gctx.paths.operators, null));
+  if (!pair) return null;
   let sessions;
   try {
     sessions = await gates.operatorSessions(gctx);
@@ -2410,13 +2778,18 @@ async function signInTestOperatorPair(gctx, gates) {
   for (const letter of ['a', 'b']) {
     const sess = sessions[letter];
     const token = await sess.approvalToken();
-    let tier = 'none';
+    let claims = {};
     try {
-      tier = JSON.parse(Buffer.from(String(sess.token).split('.')[1], 'base64url').toString('utf8')).tier ?? 'none';
+      claims = JSON.parse(Buffer.from(String(sess.token).split('.')[1], 'base64url').toString('utf8'));
     } catch {
-      /* tier stays none */
+      /* unreadable token: the identity check below refuses */
     }
-    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier });
+    // Trust only the account the pair names: the signed-in subject must be that operator before any elevated token is used.
+    const expected = pair.find((p) => p.key === letter)?.userId;
+    if (!expected || claims.sub !== expected || sess.op.userId !== expected) {
+      return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (operator ${letter.toUpperCase()} signed in as a different account)` };
+    }
+    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier: claims.tier ?? 'none' });
   }
   return { ok: true, sessions: out };
 }
