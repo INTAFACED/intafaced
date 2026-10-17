@@ -3,7 +3,10 @@ import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, Field } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
-import { BackLink, Chip, Facts, Gate, Kpi, KpiGrid, ListShell, Money, MoneyLines, MoreFooter, PortalFailure } from '../components';
+import { BackLink, Chip, Facts, Gate, Kpi, KpiGrid, ListShell, Money, MoneyLines, MoreFooter, NotLive, PortalFailure } from '../components';
+import { reason } from '../chrome/copy';
+import { KpiStrip } from '../ui/Kpi';
+import { buildCsv, downloadText } from '../csv';
 import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, type ListState } from '../hooks';
 import { DAY_MS } from '../model';
@@ -60,15 +63,33 @@ export function CustomersView({
     <div className="stack">
       <Gate resource={summary} retry={retry} rows={2}>
         {(s) => (
-          <KpiGrid label={t('customerKpis')}>
-            <Kpi label={t('kpiCustomers')} value={s.customerCount} />
-            <Kpi label={t('kpiActive30')} value={s.activeSinceCount} note={t('kpiActive30Note')} />
-            <Kpi
-              label={t('kpiRepeat')}
-              value={s.customerCount === 0 ? '—' : `${Math.round((s.repeatCustomerCount * 100) / s.customerCount)}%`}
-              note={t('kpiRepeatNote', { count: s.repeatCustomerCount })}
-            />
-          </KpiGrid>
+          <KpiStrip
+            label={t('customerKpis')}
+            tiles={[
+              { label: t('kpiCustomers'), period: t('periodAllTime'), href: '/pay/customers', value: s.customerCount },
+              {
+                label: t('kpiActive30'),
+                period: t('periodLast30'),
+                href: '/pay/payments?date=30d',
+                value: s.activeSinceCount,
+                note: t('kpiActive30Note'),
+              },
+              {
+                label: t('kpiRepeat'),
+                period: t('periodAllTime'),
+                href: '/pay/customers',
+                value: s.customerCount === 0 ? '—' : `${Math.round((s.repeatCustomerCount * 100) / s.customerCount)}%`,
+                note: t('kpiRepeatNote', { count: s.repeatCustomerCount }),
+              },
+              {
+                label: t('kpiNew'),
+                period: t('periodAllTime'),
+                href: '/pay/customers',
+                value: Math.max(0, s.customerCount - s.repeatCustomerCount),
+                note: t('kpiNewNote'),
+              },
+            ]}
+          />
         )}
       </Gate>
       <PaySection title={t('customersTitle')} description={t('customersBody')}>
@@ -130,7 +151,11 @@ export function CustomersView({
                         </small>
                       )}
                     </th>
-                    <td className="numeric">{c.paymentCount}</td>
+                    <td className="numeric">
+                      <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+                        {c.paymentCount}
+                      </a>
+                    </td>
                     <td>
                       <MoneyLines items={c.totals.map((x) => ({ assetCode: x.assetId, amount: x.capturedAmount }))} />
                     </td>
@@ -147,6 +172,28 @@ export function CustomersView({
                 ))}
               </DataTable>
               {list.status === 'ready' && <MoreFooter state={list} onMore={loadMore} />}
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  downloadText(
+                    'customers.csv',
+                    buildCsv(
+                      ['reference', 'payments', 'captured', 'refunded', 'first_seen', 'last_seen'],
+                      rows.map((c) => [
+                        c.customerRef,
+                        c.paymentCount,
+                        c.totals.map((x) => `${x.capturedAmount} ${x.assetId}`).join('; '),
+                        c.totals.map((x) => `${x.refundedAmount} ${x.assetId}`).join('; '),
+                        c.firstSeenAt,
+                        c.lastSeenAt,
+                      ]),
+                      { generatedAt: new Date().toISOString(), asOf: new Date().toISOString() },
+                    ),
+                  )
+                }
+              >
+                {t('exportPage')}
+              </Button>
             </>
           )}
         </ListShell>
@@ -191,7 +238,12 @@ export function CustomerDetailView({ customer, reload }: { customer: Resource<Cu
                 <Kpi label={t('colLastSeen')} value={<PayTime value={c.lastSeenAt} />} />
               </KpiGrid>
               <Facts items={[[t('colReference'), <span className="pp-mono pp-copy">{c.customerRef}</span>]]} />
-              <p className="muted pp-note">{t('customerSeriesSoon')}</p>
+              <NotLive reason={reason('reasonLists')} title={t('customerSeriesTitle')}>
+                {t('customerSeriesSoon')}
+              </NotLive>
+              <a className="text-link" href={`/pay/payments?q=${encodeURIComponent(c.customerRef)}`}>
+                {t('customerAllPayments')}
+              </a>
             </PaySection>
             <PaySection title={t('recentPayments')} description={t('recentPaymentsBody', { count: c.recentPayments.length })}>
               {c.recentPayments.length === 0 ? (
@@ -200,8 +252,10 @@ export function CustomerDetailView({ customer, reload }: { customer: Resource<Cu
                 <DataTable label={t('recentPayments')} headers={[t('colPayment'), t('colAmount'), t('colStatus'), t('colOpened')]}>
                   {c.recentPayments.map((p) => (
                     <tr key={p.paymentId}>
-                      <th scope="row" className="pp-mono">
-                        {p.paymentId.slice(0, 8)}…
+                      <th scope="row">
+                        <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.paymentId)}`}>
+                          {t('openPayment')}
+                        </a>
                       </th>
                       <td>
                         <Money value={p.amount} asset={p.assetId} />

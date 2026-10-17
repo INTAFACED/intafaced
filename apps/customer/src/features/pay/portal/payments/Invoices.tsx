@@ -144,7 +144,7 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
                   );
                 }}
               >
-                {t('inv_exportPage')}
+                {t('exportPage')}
               </Button>
             </div>
             <p className="muted pp-note">

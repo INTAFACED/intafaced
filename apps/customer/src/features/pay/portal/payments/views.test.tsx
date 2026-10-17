@@ -367,6 +367,7 @@ describe('customers', () => {
     expect(out).toContain('300.5');
     expect(out).toContain('Recent payments');
     expect(out).toContain('Paid');
-    expect(out).toContain('Daily charts for a single customer aren’t connected yet.');
+    expect(out).toContain('Daily volume and payment count');
+    expect(out).toContain('The daily history for one customer isn’t available for your account yet.');
   });
 });
