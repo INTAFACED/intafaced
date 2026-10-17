@@ -8,23 +8,28 @@ import { bps, Continuation, funds, ResourceView, Section, useBankRead, usePageLi
 import type { bankReads, cardSchema } from './contracts';
 import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
-import { orderBlock, type OrderBlock } from './card-controls';
+import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
 
-function CardReference({ id }: { id: string }) {
+export function CardReference({ id }: { id: string }) {
   const { Copy } = cardCopy.useCopy();
   return (
-    <dl className="money-card-reference">
-      <dt className="money-visually-hidden">
-        <Copy k="reference" />
-      </dt>
-      <dd lang="zxx" dir="ltr">
-        {id}
-      </dd>
-    </dl>
+    <details className="money-card-details">
+      <summary>
+        <Copy k="details" />
+      </summary>
+      <dl className="money-card-reference">
+        <dt>
+          <Copy k="reference" />
+        </dt>
+        <dd lang="zxx" dir="ltr">
+          {id}
+        </dd>
+      </dl>
+    </details>
   );
 }
 
@@ -114,28 +119,34 @@ function CardConfiguration({ card, expanded = false }: { card: CardRecord; expan
   );
 }
 
-function CardActions({
+export function CardActions({
   card,
-  live,
+  programme,
   disabled,
   open,
 }: {
   card: CardRecord;
-  live: boolean;
+  /** What the card service says its programme is. Only a card that belongs to that programme can be frozen or closed. */
+  programme: { id: string; simulated: boolean } | null | undefined;
   disabled?: boolean;
   open: (spec: ActionSpec) => void;
 }) {
   const current = useBankView();
+  const { Copy, t } = cardCopy.useCopy();
+  // A card from another issuer (or a live card under the simulation label) is never changed from here: the programme
+  // would only update this record while the real issuer keeps approving payments.
+  const changeable = !!programme && programme.id !== 'none' && card.issuer === programme.id && card.simulated === programme.simulated;
   const protect = (spec: ActionSpec) => {
-    if (!disabled && live && !card.simulated && card.status !== 'closed' && current() && !document.querySelector('[role="dialog"]'))
-      open(spec);
+    if (!disabled && changeable && card.status !== 'closed' && current() && !document.querySelector('[role="dialog"]')) open(spec);
   };
-  if (!live || card.simulated || card.status === 'closed')
+  if (card.status === 'closed' || !changeable)
     return (
       <p className="money-caption">
-        <Text k="rooms.issuer.actions.remain.unavailable.for.this.record" />
+        <Copy k={card.status === 'closed' ? 'closedNote' : 'noProgrammeNote'} />
       </p>
     );
+  // The review shows the card by its last four digits, never its reference.
+  const cardFact: [string, string] = [copyText('rooms.card'), maskedPan(card.panTail)];
   const verifyOutcome: ActionSpec['verifyOutcome'] = (data, input) =>
     !!data &&
     typeof data === 'object' &&
@@ -154,14 +165,13 @@ function CardActions({
           protect({
             title: card.status === 'frozen' ? copyText('rooms.unfreeze.card') : copyText('rooms.freeze.card'),
             procedure: 'cards.setStatus',
-            facts: [
-              [copyText('rooms.card'), card.id],
-              [copyText('rooms.funding.asset'), card.assetId],
-            ],
+            facts: [cardFact, [copyText('rooms.funding.asset'), card.assetId]],
             notes: [
-              card.status === 'frozen'
-                ? copyText('rooms.resume.issuer.use.of.this.existing.card')
-                : copyText('rooms.ask.the.issuer.to.freeze.this.existing'),
+              card.simulated
+                ? t(card.status === 'frozen' ? 'simUnfreeze' : 'simFreeze')
+                : card.status === 'frozen'
+                  ? copyText('rooms.resume.issuer.use.of.this.existing.card')
+                  : copyText('rooms.ask.the.issuer.to.freeze.this.existing'),
             ],
             input: () => ({ cardId: card.id, status: card.status === 'frozen' ? 'active' : 'frozen' }),
             verifyOutcome,
@@ -177,8 +187,8 @@ function CardActions({
           protect({
             title: copyText('rooms.close.card'),
             procedure: 'cards.setStatus',
-            facts: [[copyText('rooms.card'), card.id]],
-            notes: [copyText('rooms.close.this.card.this.action.does.not')],
+            facts: [cardFact],
+            notes: [card.simulated ? t('simClose') : copyText('rooms.close.this.card.this.action.does.not')],
             input: () => ({ cardId: card.id, status: 'closed' }),
             verifyOutcome,
           })
@@ -308,13 +318,13 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
 
 function CardRead({
   card,
-  live,
+  programme,
   open,
   refreshCards,
   orderBlocked,
 }: {
   card: CardRecord;
-  live: boolean;
+  programme: { id: string; simulated: boolean } | null | undefined;
   orderBlocked: OrderBlock;
   open: (spec: ActionSpec) => void;
   refreshCards: () => void;
@@ -441,7 +451,7 @@ function CardRead({
       {showFacts && (
         <>
           <CardConfiguration card={card} expanded />
-          <CardActions card={card} live={live} open={open} />
+          <CardActions card={card} programme={programme} open={open} />
           <CardControlPanels card={card} orderBlock={orderBlocked} />
         </>
       )}
@@ -471,7 +481,6 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const rows = query.resource.status === 'ready' ? query.resource.data : [];
   const card = selected ? currentOwnerRecord(rows, selected.id) : undefined;
   const other = card ? rows.filter((row) => row.id !== card.id) : rows;
-  const live = programme.resource.status === 'ready' && !programme.resource.data.simulated && programme.resource.data.id !== 'none';
   const refresh = () => {
     if (current()) query.reload();
   };
@@ -534,7 +543,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                 <CardRead
                   key={JSON.stringify([card.id, card.assetId, card.settlementAssetId, selected.serial])}
                   card={card}
-                  live={live}
+                  programme={orderProgramme}
                   open={open}
                   refreshCards={refresh}
                   orderBlocked={ordering}
@@ -590,7 +599,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
                       >
                         <Text k="rooms.decisions.and.declines" />
                       </Button>
-                      <CardActions card={row} live={live} disabled={!currentOwnerRecord(rows, row.id)} open={open} />
+                      <CardActions card={row} programme={orderProgramme} disabled={!currentOwnerRecord(rows, row.id)} open={open} />
                     </div>
                     <CardConfiguration card={row} />
                   </article>

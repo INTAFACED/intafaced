@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
+import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 
 /** A reference identifies one record in the current owner response. This
@@ -35,26 +36,12 @@ export function useBankView() {
   return () => mounted.current && latest.current === view && location.href === view.href && !!userId && api.canWrite();
 }
 
-/** Returned timestamps use the actual requested formatter locale, independently
- * of authored-copy fallback. Direction isolation preserves localized date order. */
+/** Returned timestamps share the app's one look ("18 Oct, 01:05") in the viewer's zone, with a picked zone named. */
 export function ReportedTime({ value }: { value: string }) {
-  const { language, timeZone } = usePreferences();
-  const formatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(language, {
-        ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-    [language, timeZone],
-  );
+  const { timeZone } = usePreferences();
   return Number.isFinite(Date.parse(value)) ? (
-    <time dateTime={value} lang={formatter.resolvedOptions().locale} dir="auto">
-      {formatter.format(new Date(value))}
+    <time dateTime={value} lang="en-GB" dir="auto">
+      {stamp(value, timeZone)}
     </time>
   ) : (
     <Text k="components.date.unavailable" />
