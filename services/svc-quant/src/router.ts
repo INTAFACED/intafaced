@@ -1,14 +1,15 @@
 import { z } from 'zod';
-import { publicJurisdictionProcedure, publicProcedure, router, TRPCError, type Context } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, publicProcedure, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
-import { runBacktest } from './backtest/run.js';
+import { backtestBodyOf, runBacktest } from './backtest/run.js';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
   QUANT_BACKTEST_LAKE_MISSING,
   QUANT_BACKTEST_SURFACE_REFUSED,
   QUANT_BACKTEST_WALK_FORWARD_REQUIRED,
   QUANT_CASH_UNSET,
+  QUANT_CLAIM_PNL_UNSET,
   QUANT_CLIENT_STRATEGY_ID_UNSET,
   QUANT_DATABASE_POOL_MAX_UNSET,
   QUANT_DATABASE_URL_UNSET,
@@ -17,6 +18,14 @@ import {
   QUANT_IDEMPOTENCY_CONFLICT,
   QUANT_IDEMPOTENCY_KEY_UNSET,
   QUANT_LIST_CURSOR_INVALID,
+  QUANT_OPS_RUNS_FROM_UNSET,
+  QUANT_OPS_RUNS_LIMIT_UNSET,
+  QUANT_OPS_RUNS_TO_UNSET,
+  QUANT_RUN_NOT_FOUND,
+  QUANT_RUN_NOT_SIMULATED,
+  QUANT_RUN_RESULT_CAP_UNSET,
+  QUANT_RUN_RESULT_TOO_LARGE,
+  QUANT_RUN_UNFINISHED,
   QUANT_SANDBOX_MAX_OPS_UNSET,
   QUANT_SANDBOX_MAX_SOURCE_UNSET,
   QUANT_SANDBOX_UNWIRED,
@@ -27,7 +36,13 @@ import {
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
   QuantError,
 } from './errors.js';
-import { claimMarketplace } from './marketplace/claim.js';
+import { requireSimulatedStamp } from './honesty.js';
+import { claimFromRun } from './marketplace/claim.js';
+import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound, RUN_RESULT_MAX_BYTES } from './runs/limit.js';
+import { createMemoryRunRepository } from './runs/memory-repository.js';
+import type { RunRepository } from './runs/repository.js';
+import { trackRun } from './runs/track.js';
+import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
 import { buildSavedStrategy } from './studio/save.js';
@@ -80,7 +95,7 @@ const runOutput = z
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
     const code =
-      err.code === QUANT_STUDIO_NOT_FOUND
+      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -88,6 +103,11 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+            err.code === QUANT_RUN_UNFINISHED ||
+            err.code === QUANT_RUN_NOT_SIMULATED ||
+            err.code === QUANT_RUN_RESULT_CAP_UNSET ||
+            err.code === QUANT_RUN_RESULT_TOO_LARGE ||
+            err.code === QUANT_CLAIM_PNL_UNSET ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -103,7 +123,10 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
                 err.code === QUANT_IDEMPOTENCY_CONFLICT ||
                 err.code === QUANT_STRATEGY_VERSION_UNSET ||
-                err.code === QUANT_LIST_CURSOR_INVALID
+                err.code === QUANT_LIST_CURSOR_INVALID ||
+                err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
+                err.code === QUANT_OPS_RUNS_FROM_UNSET ||
+                err.code === QUANT_OPS_RUNS_TO_UNSET
               ? 'BAD_REQUEST'
               : err.code === 'quant.sandbox_timeout'
                 ? 'TIMEOUT'
@@ -160,6 +183,47 @@ const costEvidence = z.object({
   source: z.string(),
 });
 
+const costBreakdown = z
+  .object({
+    fees: costEvidence.nullable(),
+    slippage: costEvidence.nullable(),
+    latency: costEvidence.nullable(),
+  })
+  .nullable();
+
+const runDetailOutput = z.object({
+  runId: z.string(),
+  kind: z.enum(['backtest', 'sandbox']),
+  strategyId: z.string().nullable(),
+  strategyVersion: z.number().int().positive().nullable(),
+  started: z.string(),
+  finished: z.string().nullable(),
+  outcome: z.string().nullable(),
+  equityCurve: z.array(z.object({ ts: z.string(), equity: decimal })).nullable(),
+  trades: z.array(z.object({ ts: z.string(), symbol: z.string(), qty: decimal, price: decimal })).nullable(),
+  costs: costBreakdown,
+  pnl: decimal.nullable(),
+});
+
+function sandboxBody(ran: {
+  pnl: string;
+  environment: RunResultBody['environment'];
+  kind: RunResultBody['kind'];
+  claimLabel: RunResultBody['claimLabel'];
+}): RunResultBody {
+  return {
+    equityCurve: null,
+    trades: null,
+    costs: null,
+    pnl: ran.pnl,
+    simulated: true,
+    live: false,
+    environment: ran.environment,
+    kind: ran.kind,
+    claimLabel: ran.claimLabel,
+  };
+}
+
 const backtestOutput = z
   .object({
     ok: z.literal(true),
@@ -188,6 +252,10 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly studioServiceAllowlist?: readonly string[];
   /** Omitted only when DATABASE_URL is unset: studio and backtest then refuse by name. */
   readonly strategies?: StrategyRepository;
+  /** Omitted in tests: an in-memory run log. Production passes Postgres. */
+  readonly runs?: RunRepository;
+  /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
+  readonly runResultCap?: number | null;
 }
 
 const strategyMetadata = z.object({
@@ -208,6 +276,7 @@ const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
 export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
+  const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
@@ -366,7 +435,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         .input(
           z
             .object({
-              id: z.string().min(1),
+              id: z.string().min(1).optional(),
+              strategyId: z.string().min(1).optional(),
               name: z.string().min(1).max(128).optional(),
               ...accountField,
               ...writeKeyField,
@@ -381,11 +451,15 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             const prior = await replayOf(accountId, input.idempotencyKey);
             if (prior?.operation === 'create') return prior.response;
             if (prior) idempotencyConflict(prior.operation);
-            const found = await strategies.get({ accountId, id: input.id });
+            const strategyId = input.strategyId?.trim() || input.id?.trim() || '';
+            if (!strategyId) throw new QuantError('quant.params_invalid', 'strategyId is unset');
+            const found = await strategies.get({ accountId, id: strategyId });
             if (!found) missingStrategy();
+            const name = `${found.name} copy`;
+            if (name.length > 128) throw new QuantError('quant.params_invalid', 'strategy name is longer than 128 characters');
             const built = buildSavedStrategy(
               {
-                name: input.name ?? found.name,
+                name,
                 blocks: found.blocks,
                 risk: found.risk,
                 cash: found.cash,
@@ -407,22 +481,39 @@ export function createQuantRouter(deps: QuantRouterDeps) {
 
       /** Run the caller's saved source. Another account's id is not found. */
       run: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ id: z.string().min(1), ...accountField }).merge(environmentInput))
+        .input(z.object({ id: z.string().min(1), ...accountField, ...writeKeyField }).merge(environmentInput))
         .output(runOutput)
         .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.studio.run', { language: 'javascript' }, async () => {
             try {
-              const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
+              const accountId = accountOf(ctx, input.accountId);
+              const found = await strategies.get({ accountId, id: input.id });
               if (!found) missingStrategy();
-              return runSandbox(
+              const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              return await trackRun(
+                runs,
                 {
-                  language: found.language,
-                  source: found.source,
-                  cash: found.cash,
-                  environment: input.environment ?? found.environment,
-                  presentedAs: input.presentedAs ?? found.environment,
+                  userId: accountId,
+                  idempotencyKey,
+                  kind: 'sandbox',
+                  strategyId: found.id,
+                  strategyVersion: found.version,
                 },
-                deps,
+                async () =>
+                  runSandbox(
+                    {
+                      language: found.language,
+                      source: found.source,
+                      cash: found.cash,
+                      environment: input.environment ?? found.environment,
+                      presentedAs: input.presentedAs ?? found.environment,
+                    },
+                    deps,
+                  ),
+                (value, err) => ({
+                  detail: err || !value ? null : sandboxBody(value),
+                  response: err ? null : value,
+                }),
               );
             } catch (err) {
               toTrpc(err);
@@ -501,39 +592,96 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (prior) idempotencyConflict(prior.operation);
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               const found = await strategies.get({ accountId, id: input.strategyId });
-              if (!found) missingStrategy();
-              const version =
-                input.strategyVersion == null
-                  ? found.version
-                  : found.versions.find((row) => row.version === input.strategyVersion)?.version;
-              if (!version) missingStrategy();
-              const ran = runBacktest(
+              const resolved =
+                found == null
+                  ? null
+                  : input.strategyVersion == null
+                    ? found.version
+                    : (found.versions.find((row) => row.version === input.strategyVersion)?.version ?? null);
+              let recorded: RunResultBody | null = null;
+              return await trackRun(
+                runs,
                 {
-                  strategyId: found.id,
-                  strategyVersion: version,
-                  symbol: input.symbol,
-                  walkForward: input.walkForward,
-                  outOfSampleStatus: input.outOfSampleStatus,
-                  costModel: input.costModel as BacktestCostModel | null | undefined,
-                  strategyVariantCount: input.strategyVariantCount,
-                  environment: input.environment,
-                  presentedAs: input.presentedAs,
+                  userId: accountId,
+                  idempotencyKey,
+                  kind: 'backtest',
+                  strategyId: input.strategyId,
+                  strategyVersion: resolved ?? input.strategyVersion ?? null,
                 },
-                lake,
+                async () => {
+                  if (!found || resolved == null) missingStrategy();
+                  const ran = runBacktest(
+                    {
+                      strategyId: found.id,
+                      strategyVersion: resolved,
+                      symbol: input.symbol,
+                      walkForward: input.walkForward,
+                      outOfSampleStatus: input.outOfSampleStatus,
+                      costModel: input.costModel as BacktestCostModel | null | undefined,
+                      strategyVariantCount: input.strategyVariantCount,
+                      environment: input.environment,
+                      presentedAs: input.presentedAs,
+                      cash: found.cash,
+                    },
+                    lake,
+                  );
+                  recorded = backtestBodyOf(ran);
+                  return strategies.saveBacktest({
+                    accountId,
+                    idempotencyKey,
+                    strategyId: found.id,
+                    strategyVersion: resolved,
+                    symbol: input.symbol,
+                    result: ran,
+                  });
+                },
+                (_value, err) => ({
+                  detail: err && typeof err === 'object' ? (backtestBodyOf(err) ?? recorded) : recorded,
+                  response: err ? null : _value,
+                }),
               );
-              return strategies.saveBacktest({
-                accountId,
-                idempotencyKey,
-                strategyId: found.id,
-                strategyVersion: version,
-                symbol: input.symbol,
-                result: ran,
-              });
             } catch (err) {
               toTrpc(err);
             }
           }),
         ),
+
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1), ...accountField }))
+        .output(runDetailOutput)
+        .query(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const row = await runs.get({ userId, id: input.runId });
+            if (!row) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return {
+              runId: row.id,
+              kind: row.kind,
+              strategyId: row.strategyId,
+              strategyVersion: row.strategyVersion,
+              started: row.started,
+              finished: row.finished,
+              outcome: row.outcome,
+              equityCurve: row.detail?.equityCurve?.map((point) => ({ ts: point.ts, equity: point.equity })) ?? null,
+              trades:
+                row.detail?.trades?.map((trade) => ({ ts: trade.ts, symbol: trade.symbol, qty: trade.qty, price: trade.price })) ?? null,
+              costs: row.detail?.costs
+                ? {
+                    fees: row.detail.costs.fees ? { kind: row.detail.costs.fees.kind, source: row.detail.costs.fees.source } : null,
+                    slippage: row.detail.costs.slippage
+                      ? { kind: row.detail.costs.slippage.kind, source: row.detail.costs.slippage.source }
+                      : null,
+                    latency: row.detail.costs.latency
+                      ? { kind: row.detail.costs.latency.kind, source: row.detail.costs.latency.source }
+                      : null,
+                  }
+                : null,
+              pnl: row.detail?.pnl ?? null,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
     }),
 
     sandbox: router({
@@ -551,14 +699,31 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               language,
               source: z.string().min(1).max(sandboxSourceInputMax(deps.limits.maxSource)),
               cash: decimal.optional().nullable(),
+              ...writeKeyField,
             })
             .merge(environmentInput),
         )
         .output(runOutput)
-        .mutation(async ({ input }) =>
+        .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.sandbox.run', { language: input.language }, async () => {
             try {
-              return runSandbox(input, deps);
+              const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              const userId = ctx.principal ? (ctx.principal.sub_account ?? ctx.principal.userId) : null;
+              return await trackRun(
+                runs,
+                {
+                  userId,
+                  idempotencyKey,
+                  kind: 'sandbox',
+                  strategyId: null,
+                  strategyVersion: null,
+                },
+                async () => runSandbox(input, deps),
+                (value, err) => ({
+                  detail: err || !value ? null : sandboxBody(value),
+                  response: err ? null : value,
+                }),
+              );
             } catch (err) {
               toTrpc(err);
             }
@@ -571,27 +736,155 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         .input(
           z
             .object({
-              strategyId: z.string().min(1),
-              pnl: decimal.optional(),
+              runId: z.string().min(1),
+              ...writeKeyField,
             })
-            .merge(environmentInput),
+            .merge(environmentInput)
+            .strict(),
         )
         .output(
           simulatedStamp.extend({
             ok: z.literal(true),
-            strategyId: z.string(),
-            pnl: decimal.optional(),
+            runId: z.string(),
+            pnl: decimal,
           }),
         )
-        .mutation(async ({ input }) =>
+        .mutation(async ({ input, ctx }) =>
           withQuantSpan('quant.marketplace.claim', { language: 'claim' }, async () => {
             try {
-              return claimMarketplace(input);
+              if (
+                (input.environment != null && input.environment.trim() !== '') ||
+                (input.presentedAs != null && input.presentedAs.trim() !== '')
+              ) {
+                requireSimulatedStamp(
+                  input.environment != null && input.environment.trim() !== '' ? input.environment : 'paper',
+                  input.presentedAs,
+                );
+              }
+              const userId = accountOf(ctx, undefined);
+              const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              const run = await runs.get({ userId, id: input.runId });
+              const claimed = claimFromRun({
+                run,
+                callerId: userId,
+                environment: input.environment,
+                presentedAs: input.presentedAs,
+              });
+              const row = await runs.claimOnce({
+                id: `clm_${crypto.randomUUID()}`,
+                runId: claimed.runId,
+                userId,
+                idempotencyKey,
+                pnl: claimed.pnl,
+                environment: claimed.environment,
+                kind: claimed.kind,
+                claimLabel: claimed.claimLabel,
+              });
+              return {
+                ok: true as const,
+                runId: row.runId,
+                pnl: row.pnl,
+                environment: row.environment,
+                kind: row.kind,
+                claimLabel: row.claimLabel,
+                live: false as const,
+                simulated: true as const,
+              };
             } catch (err) {
               toTrpc(err);
             }
           }),
         ),
+    }),
+
+    ops: router({
+      runs: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+        .input(
+          z
+            .object({
+              from: z.string().optional().nullable(),
+              to: z.string().optional().nullable(),
+              kind: z.enum(['backtest', 'sandbox']).optional().nullable(),
+              userId: z.string().uuid().optional().nullable(),
+              limit: z.number().int().optional(),
+              cursor: z.string().optional().nullable(),
+            })
+            .optional(),
+        )
+        .output(
+          z.object({
+            runs: z.array(
+              z.object({
+                id: z.string(),
+                kind: z.enum(['backtest', 'sandbox']),
+                userId: z.string().uuid().nullable(),
+                started: z.string(),
+                duration: z.number().int().nullable(),
+                outcome: z.string().nullable(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) => {
+          try {
+            const limit = assertOpsRunsLimit(input?.limit);
+            const cursor = input?.cursor?.trim() ? input.cursor.trim() : null;
+            const page = await runs.list({
+              from: optionalWindowBound(input?.from, 'from'),
+              to: optionalWindowBound(input?.to, 'to'),
+              kind: input?.kind ?? null,
+              userId: input?.userId ?? null,
+              limit,
+              cursor,
+            });
+            return {
+              runs: page.runs.map((row) => ({
+                id: row.id,
+                kind: row.kind,
+                userId: row.userId,
+                started: row.started,
+                duration: row.duration,
+                outcome: row.outcome,
+              })),
+              nextCursor: page.nextCursor,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      runCounts: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+        .input(
+          z
+            .object({
+              from: z.string().optional().nullable(),
+              to: z.string().optional().nullable(),
+            })
+            .optional(),
+        )
+        .output(
+          z.object({
+            byKind: z.object({ backtest: z.number().int(), sandbox: z.number().int() }),
+            byOutcome: z.array(z.object({ outcome: z.string(), count: z.number().int() })),
+            asOf: z.string(),
+          }),
+        )
+        .query(async ({ input }) => {
+          try {
+            const counts = await runs.counts({
+              from: requireWindowBound(input?.from, 'from'),
+              to: requireWindowBound(input?.to, 'to'),
+            });
+            return {
+              byKind: { backtest: counts.byKind.backtest, sandbox: counts.byKind.sandbox },
+              byOutcome: counts.byOutcome.map((row) => ({ outcome: row.outcome, count: row.count })),
+              asOf: counts.asOf,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
     }),
   });
 }

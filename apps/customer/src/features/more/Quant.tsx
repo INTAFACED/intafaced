@@ -163,6 +163,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const idempotencyKey = crypto.randomUUID();
                 action.stage({
                   title: () => copyText('quant.review.simulated.run'),
                   confirm: () => copyText('quant.run.simulation'),
@@ -180,7 +181,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     const res = await api.mutate(
                       'quant',
                       'sandbox.run',
-                      { language, source, cash, environment: 'paper', presentedAs: 'paper' },
+                      { language, source, cash, environment: 'paper', presentedAs: 'paper', idempotencyKey },
                       runSchema.refine(
                         (data) =>
                           data.language === language &&
@@ -406,6 +407,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!validAnalysis || action.disabled) return;
+                    const idempotencyKey = crypto.randomUUID();
                     const request: HistoricalRequest = {
                       strategyId: strategyId.trim(),
                       symbol: symbol.trim(),
@@ -424,6 +426,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       },
                       environment: 'backtest',
                       presentedAs: 'simulated',
+                      idempotencyKey,
                     };
                     const view = action.viewIdentity;
                     action.stage({
