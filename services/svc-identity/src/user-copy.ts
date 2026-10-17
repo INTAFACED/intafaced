@@ -47,6 +47,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
+  'auth.step_up_required': "Confirm it's you with a passkey or authenticator code.",
+  'auth.step_up_expired': 'That confirmation expired. Confirm again.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

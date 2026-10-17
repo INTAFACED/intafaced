@@ -28,6 +28,8 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
+import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
@@ -573,6 +575,12 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  * so an unauthenticated caller cannot fan out invoices to every customer on the
  * platform.
  */
+registerPayStepUpGrantRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
 registerOwnerPayScopeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   installRawBody: false,

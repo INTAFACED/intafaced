@@ -343,6 +343,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.payee_phone_unverified':
     case 'auth.payee_phone_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.step_up_required':
+    case 'auth.step_up_expired':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+    case 'pay.role_not_allowed':
+      return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
   }
 }
 
@@ -1039,6 +1044,76 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * Confirm it's you, then mint a ten-minute access token that can refund
+       * or pay out. The token is not refreshable. A plain session cannot call
+       * payment.refund or settlement.payout.
+       *
+       * Input: `{ merchantId, scopes: ('pay:refund' | 'pay:payout')[], factorProof }`.
+       * `factorProof` is exactly one of `{ totpCode }`, `{ webauthn, webauthnChallenge }`,
+       * or `{ proofId }` from a factor verified in the last five minutes
+       * (`proveFreshFactor`, STEPUP #4880).
+       * Output: `{ accessToken, expiresAt, scopes, refreshable: false }`.
+       * Refusals: `auth.step_up_required`, `auth.step_up_expired`, `pay.role_not_allowed`.
+       * Nothing is minted on a refusal.
+       */
+      stepUpPay: protectedProcedure
+        .input(
+          z.object({
+            merchantId: z.string().uuid(),
+            scopes: z
+              .array(z.enum(['pay:refund', 'pay:payout']))
+              .min(1)
+              .max(2),
+            factorProof: z.union([
+              z.object({ totpCode: z.string().regex(/^\d{6}$/) }).strict(),
+              z
+                .object({
+                  webauthn: z.object({
+                    id: z.string().min(1),
+                    rawId: z.string().min(1),
+                    type: z.literal('public-key'),
+                    response: z.object({
+                      clientDataJSON: z.string().min(1),
+                      authenticatorData: z.string().min(1),
+                      signature: z.string().min(1),
+                      userHandle: z.string().nullish(),
+                    }),
+                    clientExtensionResults: z.record(z.unknown()).optional(),
+                  }),
+                  webauthnChallenge: z.string().min(1),
+                })
+                .strict(),
+              z.object({ proofId: z.string().uuid() }).strict(),
+            ]),
+          }),
+        )
+        .output(
+          z.object({
+            accessToken: z.string(),
+            expiresAt: z.string(),
+            scopes: z.array(z.string()),
+            refreshable: z.literal(false),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            if (ctx.principal.kid || ctx.principal.sub_account) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot confirm a payment' });
+            }
+            const elevated = await auth.stepUpPay({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              merchantId: input.merchantId,
+              scopes: input.scopes,
+              factorProof: input.factorProof,
+            });
+            return { ...elevated, expiresAt: elevated.expiresAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
     }),
 
     totp: router({
@@ -1641,7 +1716,15 @@ export function createIdentityRouter(
             mode: z.enum(['live', 'sandbox']).optional(),
           }),
         )
-        .output(z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.enum(['live', 'sandbox']) }))
+        .output(
+          z.object({
+            id: z.string(),
+            key: z.string(),
+            prefix: z.string(),
+            mode: z.enum(['live', 'sandbox']),
+            scopes: z.array(z.string()),
+          }),
+        )
         .mutation(async ({ ctx, input }) => {
           try {
             // `grantorScopes` comes from the verified principal, never from the
@@ -1649,13 +1732,25 @@ export function createIdentityRouter(
             // ceiling has to be read from the token that asked for it.
             // A key (`kid`) is already a delegate and cannot mint another.
             assertDelegateCannotGrant(ctx.principal.kid);
-            return await auth.createApiKey({
+            const money = input.scopes.filter((scope) => scope === 'pay:refund' || scope === 'pay:payout');
+            const stepped = new Set(ctx.principal.stp ?? []);
+            const payStepUp = money.length > 0 && money.every((scope) => stepped.has(scope) && ctx.principal.scopes.includes(scope));
+            if (money.length > 0 && !payStepUp) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `${userCopy('auth.step_up_required')} [auth.step_up_required]`,
+              });
+            }
+            const created = await auth.createApiKey({
               userId: ctx.principal.userId,
               ...input,
               grantorScopes: ctx.principal.scopes,
               grantorKid: ctx.principal.kid,
+              payStepUp,
             });
+            return { ...created, scopes: created.scopes ?? input.scopes };
           } catch (err) {
+            if (err instanceof TRPCError) throw err;
             if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
               throw toTrpcError(err);
             }
