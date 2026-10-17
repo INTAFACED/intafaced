@@ -24,5 +24,9 @@ describe('describeBusinessPolicy — bank.business honesty door', () => {
     expect(p.payrollSameAssetOnly).toBe(true);
     expect(p.inventsPayrollRates).toBe(false);
     expect(p.payrollRateUnsetCode).toBe('bank.business_payroll_rate_unset');
+    expect(p.closeNeedsSecondAdmin).toBe(true);
+    expect(p.thresholdChangeNeedsSecondAdmin).toBe(true);
+    expect(p.memberHandlesFromIdentity).toBe(true);
+    expect(p.approvalHistoryUsesHandles).toBe(true);
   });
 });

@@ -40,12 +40,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import {
+  localStackState,
+  assertActiveLocalStack,
+  processRecordMatches,
+  readProcessIdentity,
+  postgresProcessMatches,
+} from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
-const STATE = path.join(os.homedir(), '.intafaced', 'local-test-stack');
+const STATE = localStackState();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
@@ -113,7 +120,7 @@ const SCHEMAS = [
   'blueprint',
 ];
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — balances are test funds, not real money';
+const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -147,7 +154,7 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 function baseEnv() {
   // A clean environment: nothing from the caller's shell leaks into services.
-  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp') };
+  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp'), LOCAL_STACK_STATE: STATE };
 }
 
 function freeGb() {
@@ -231,12 +238,9 @@ function readProcs() {
 }
 const writeProcs = (procs) => writePrivate(P.procs, JSON.stringify(procs, null, 2));
 
-/** A record is "ours and alive" only if the pid is alive AND its argv still matches. */
+/** Verify each record independently, including while other stack services are down. */
 function ownedAlive(rec) {
-  if (!rec?.pid) return false;
-  const cmd = psCommand(rec.pid);
-  if (!cmd) return false;
-  return cmd.startsWith(rec.argv[0]) && rec.argv.slice(1).every((a) => cmd.includes(a));
+  return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
 function startProc(name, argv, env, cwd) {
@@ -283,8 +287,8 @@ function psql(secrets, sql, { db = 'postgres', user = DB_ADMIN, password = secre
 function pgRunning() {
   const pidFile = path.join(P.pgdata, 'postmaster.pid');
   if (!fs.existsSync(pidFile)) return false;
-  const pid = Number(fs.readFileSync(pidFile, 'utf8').split('\n')[0]);
-  return Boolean(pid) && psCommand(pid).includes(P.pgdata);
+  const [pid, directory, started] = fs.readFileSync(pidFile, 'utf8').split('\n');
+  return directory === P.pgdata && postgresProcessMatches(P.pgdata, Number(started) * 1000, readProcessIdentity(Number(pid)));
 }
 
 function ensurePostgres(secrets) {
@@ -1183,7 +1187,7 @@ async function cmdStart(flags) {
  */
 function ensureMarket() {
   const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
-    env: { PATH: process.env.PATH, HOME: os.homedir() },
+    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
@@ -1200,7 +1204,7 @@ async function cmdStop(names = []) {
     const rec = procs[name];
     if (!rec) continue;
     if (rec.pid && psCommand(rec.pid) && !ownedAlive(rec)) {
-      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line, refusing to signal it`);
+      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line or start time, refusing to signal it`);
       bad = true;
       continue;
     }
@@ -1243,7 +1247,13 @@ function cmdPlan(flags) {
   const bp = buildPlan(flags.includes('--rebuild'), act);
   const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
   if (flags.includes('--json'))
-    return say(JSON.stringify({ host: HOST, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer }, null, 2));
+    return say(
+      JSON.stringify(
+        { host: HOST, stateDir: STATE, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer },
+        null,
+        2,
+      ),
+    );
   say('INTAFACED local test stack, plan (nothing is started or changed)');
   for (const sv of services)
     say(
@@ -1448,6 +1458,7 @@ async function cmdFund(rawArgs) {
   }
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['ledger'] });
 
   // `who` = "house": stock the house market-maker pot, which Convert settles against (quotes are principal
   // inventory, not book trades: services/svc-trade/src/convert/settle.ts). Without BTC in that pot an accepted

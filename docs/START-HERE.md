@@ -1,8 +1,10 @@
 # START HERE — plain map of INTAFACED (for Nitro)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **One page.** Read this when confused. Agents: load this _after_ `AGENTS.md` if the human needs orientation, not instead of the law.
 
-**Ship rules (Denon / Shehzad / Nitro agents):** [`CONTRIBUTING.md`](../CONTRIBUTING.md) §0 — review and verify your change, then merge your own PR when required protection checks pass; do not wait for full CI green or Nitro; `audited:true` is not a coding gate.
+**Ship rules (Denon / Shehzad / Nitro agents):** follow the merge rule in [`AGENTS.md`](../AGENTS.md) (merge check plus review of the exact head); `audited:true` is not a coding gate.
 
 **Re-derive every session (do not trust frozen SHAs in chat):**  
 `git fetch origin main && git rev-parse --short origin/main` · `gh pr list --state open`  
@@ -12,7 +14,7 @@
 [`ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md`](ALIGNMENT-RESEARCH-VERDICT-2026-08-03.md) ·  
 [`REDUNDANT-VS-PORT-2026-08-03.md`](REDUNDANT-VS-PORT-2026-08-03.md) ·  
 [`DENON-CALL-EXTRACT-2026-08-03.md`](DENON-CALL-EXTRACT-2026-08-03.md).  
-**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Removal is attended-only and needs the explicit `pnpm wt:gc:apply -- --yes`; `--apply` on its own prints the plan and refuses. Read that plan before you pass `--yes` — this tool has deleted live work ([`LANE-CLOSEOUT-OPS-2026-08-08.md`](LANE-CLOSEOUT-OPS-2026-08-08.md)). It never deletes branches, only checkouts, and `pnpm wt <branch>` restores one. Never code on the main checkout. After merge, preserve any remaining local work, remove the finished worktree from its home checkout with `git worktree remove --force <path>`, and keep the local branch.
+**Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Never code on the main checkout. After merge, preserve any remaining local work, remove only your own finished worktree with `git worktree remove <path>` (never `--force`), and keep the branch.
 Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md).
 
 ---
@@ -127,7 +129,7 @@ History only (may lag): [`STATUS-2026-07-27.md`](STATUS-2026-07-27.md)
 
 1. **Never edit in the main folder** — worktree + feature branch.
 2. **Never push straight to main** — PR only.
-3. **Agents verify the changed behavior and required protection checks. Do not wait for CI green.** Full-suite CI and `pnpm verify` are informational; report unrelated failures honestly.
+3. **Agents verify the changed behavior, then follow the merge rule in [`AGENTS.md`](../AGENTS.md).** Report unrelated failures honestly.
 4. **One service / one concern per PR.**
 5. **Money only via ledger recipes; no float balances; no partner names in UI.**
 6. **Don’t rebuild services already on main** (or reopen merged Denon work).

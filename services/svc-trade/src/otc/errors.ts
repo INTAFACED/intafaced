@@ -35,12 +35,9 @@ export class OtcError extends Error {
   }
 }
 
-/** Stable residual — DIRECTION §8 RFQ spreads / stake gate / principal choice. */
-export const OTC_DESK_LAW_RESIDUAL =
-  'DIRECTION §8 RFQ spreads, staked-tier threshold, and principal-vs-maker are owner-only — refuse-closed';
+/** Customer text when OTC desk law is unpublished. Spec id stays in the server log. */
+export const OTC_DESK_LAW_RESIDUAL = 'OTC quotes are not available yet: the spread, minimum stake, and counterparty are not set.';
 
-export const RFQ_ALLOCATION_RESIDUAL =
-  'PTX-M12-R04/R08 allocation, sub-accounts, average-price and bunched breaks are owner law — refuse-closed; never invent a split';
+export const RFQ_ALLOCATION_RESIDUAL = 'This request cannot be split across accounts yet: allocation rules are not set.';
 
-export const RFQ_GIVE_UP_RESIDUAL =
-  'PTX-M12-R08 give-up, carrying account, affirmation and settlement instruction are owner law — refuse-closed; never invent a clearing map';
+export const RFQ_GIVE_UP_RESIDUAL = 'This request cannot be given up to another account yet: the clearing instructions are not set.';

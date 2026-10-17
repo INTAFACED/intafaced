@@ -53,8 +53,8 @@ const codes = (snapshot: ProtocolSnapshot, action: (typeof PROTOCOL_ACTIONS)[num
 const en = protocolCopy.forLocale('en');
 
 describe('Protocol blocker mapping', () => {
-  it('keeps the P1 GO constant false', () => {
-    expect(INTACHAIN_P1_GO).toBe(false);
+  it('records the P1 GO (D-134), so the constant is true', () => {
+    expect(INTACHAIN_P1_GO).toBe(true);
   });
 
   it('never leaves an action without a blocker, even when every service is healthy', () => {
@@ -66,8 +66,13 @@ describe('Protocol blocker mapping', () => {
     }
   });
 
-  it('puts the P1 GO first for INTACHAIN-native actions, and not at all for Base actions', () => {
-    for (const action of ['bridge', 'stake', 'unstake'] as const) expect(codes(healthy, action)[0], action).toBe('p1_go');
+  it('puts the P1 GO first for INTACHAIN-native actions only when no GO is recorded, and never for Base actions', () => {
+    for (const action of ['bridge', 'stake', 'unstake'] as const) {
+      expect(blockersFor(action, healthy, false)[0]?.code, action).toBe('p1_go');
+      expect(codes(healthy, action), action).not.toContain('p1_go');
+    }
+    expect(codes(healthy, 'bridge')[0]).toBe('no_bridge_service');
+    expect(codes(healthy, 'stake')[0]).toBe('no_chain_service');
     for (const action of ['swap', 'addLiquidity', 'smartAccount', 'launchToken'] as const)
       expect(codes(healthy, action)).not.toContain('p1_go');
     expect(codes(healthy, 'bridge')).toContain('no_bridge_service');

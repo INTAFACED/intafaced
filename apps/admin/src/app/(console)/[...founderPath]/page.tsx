@@ -41,9 +41,17 @@ export default async function FounderOpsPage({
     resolved.screen,
     merchantFilter || undefined,
     query.window === 'today' ? 1 : query.window === '30d' ? 30 : 7,
+    { query },
   );
   const view = (
-    <FounderScreenView screen={resolved.screen} data={data} path={path} resourceId={resolved.resourceId} merchantFilter={merchantFilter} />
+    <FounderScreenView
+      screen={resolved.screen}
+      data={data}
+      path={path}
+      resourceId={resolved.resourceId}
+      merchantFilter={merchantFilter}
+      query={query}
+    />
   );
   return path.startsWith('/merchants/') ? view : <FounderOpsShell>{view}</FounderOpsShell>;
 }
