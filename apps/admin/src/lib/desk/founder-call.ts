@@ -17,7 +17,7 @@ export interface FounderCallContext {
   readonly config: AdminSessionConfig;
 }
 
-export type DeskModule = 'identity' | 'pay' | 'support' | 'notify';
+export type DeskModule = 'identity' | 'pay' | 'support' | 'notify' | 'bank' | 'p2p' | 'academy' | 'market' | 'agents' | 'quant';
 
 export interface ServiceRefusal {
   /** Typed code from `error.data.cause.code`, or from a `[code]` suffix in the message, or null. */

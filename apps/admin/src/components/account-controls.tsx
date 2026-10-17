@@ -1,6 +1,8 @@
 'use client';
 import { useRef, useState } from 'react';
+import Link from 'next/link';
 import type { AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
+import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -27,6 +29,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [readAt, setReadAt] = useState<string | null>(null);
   const pending = useRef<{ key: string; requestId: string } | null>(null);
   const target: AccountControlTarget = area === 'merchant' ? { area, merchantId: id } : { area, userId: id };
   const controlAction = state?.restricted ? 'Restore access' : 'Restrict access';
@@ -47,6 +50,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
     setState(current);
     const events = (await read(`/api/accounts?${params}&history=true&limit=50`)) as AccountControlResult[];
     setHistory(events);
+    setReadAt(new Date().toISOString());
   }
   return (
     <section className="adm-workspace">
@@ -116,6 +120,11 @@ export function AccountControls({ csrf }: { csrf: string }) {
       {state && (
         <div className="adm-control-card">
           <h2>{state.restricted ? 'Restricted' : 'Access permitted'}</h2>
+          {readAt && (
+            <p className="adm-subtle" data-testid="account-asof">
+              As of {readAt} (when this console read the account)
+            </p>
+          )}
           <p className="adm-subtle">{controlExplanation(area)}</p>
           <form
             className="adm-form"
@@ -192,6 +201,23 @@ export function AccountControls({ csrf }: { csrf: string }) {
           {resultText(result)} <small>Reference {result.auditId}</small>
         </p>
       )}
+      <h2>What this desk cannot show</h2>
+      <div data-testid="account-gaps">
+        {ACCOUNT_GAPS.map((g) => (
+          <div key={g.id} className="adm-callout" data-tone="warn">
+            <strong>Not available: {g.label}</strong>
+            <p>{g.reason}</p>
+            <p className="adm-subtle">Back-end need {g.need} in the console’s needs list.</p>
+          </div>
+        ))}
+        <ul>
+          {ACCOUNT_LINKS.map((l) => (
+            <li key={l.href}>
+              <Link href={l.href}>{l.label}</Link> <span className="adm-subtle">{l.why}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
       {state && (
         <>
           <h2>Control history</h2>
