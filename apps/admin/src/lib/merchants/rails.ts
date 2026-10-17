@@ -1,11 +1,12 @@
 /**
  * Payment-rail ids as a founder should read them. The ids come from svc-pay's rail
  * registry; an id this console does not know is shown as the service sent it, never
- * guessed at.
+ * guessed at. The founder read carries no rail mode, so a name never claims TEST or
+ * live: the raw id (for example `card-sandbox`) is printed beside it.
  */
 const RAIL_NAMES: Readonly<Record<string, string>> = {
-  'crypto-native': 'Crypto transfers (TEST sandbox)',
-  'card-sandbox': 'Cards (TEST sandbox)',
+  'crypto-native': 'Crypto transfers',
+  'card-sandbox': 'Cards',
   'bank-payout': 'Bank payouts',
 };
 

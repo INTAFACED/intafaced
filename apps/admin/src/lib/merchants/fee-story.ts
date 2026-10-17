@@ -17,46 +17,30 @@ const LAYER_WORDS = { merchant: 'this merchant’s own rule', tier: 'its tier’
 
 export interface FeeLine {
   readonly assetCode: string;
-  /** "2.5%" or "from 0: 2.5%, from 1,000: 2%". */
+  /** One band: "2.5%" or "2.5% + 0.30 USDT flat". Several: "from 0.00: 2.5%, from 1,000.00: 2% + 0.10 USDT flat". */
   readonly percent: string;
-  readonly flat: string | null;
+  /** True when the rule has more than one band (steps by the merchant's monthly volume). */
+  readonly stepped: boolean;
   readonly layerWords: string;
 }
 
-/** The rule in force for each asset (most specific layer wins), as percent text. */
+/** The rule in force for each asset (most specific layer wins), as percent text. A flat fee sits on the band it belongs to. */
 export function feeLines(rules: PricingRules | null): FeeLine[] {
   if (!rules) return [];
   const assets = [...new Set(rules.map((r) => r.assetCode))].sort();
   return assets.flatMap((assetCode) => {
     const winner = rules.filter((r) => r.assetCode === assetCode).sort((a, b) => RANK[b.layer] - RANK[a.layer])[0];
     if (!winner) return [];
-    const bands = winner.bands;
-    const percent =
-      bands.length === 1 && bands[0]
-        ? percentText(bands[0].feeBps)
-        : bands.map((b) => `from ${formatAmount(b.fromAmount)}: ${percentText(b.feeBps)}`).join(', ');
-    const flats = bands.filter((b) => b.flatFee !== null && /[1-9]/.test(b.flatFee));
-    return [
-      {
-        assetCode,
-        percent,
-        flat:
-          flats.length === 1 && flats[0]?.flatFee
-            ? `${formatAmount(flats[0].flatFee)} ${assetCode}`
-            : flats.length > 1
-              ? 'a flat part per band'
-              : null,
-        layerWords: LAYER_WORDS[winner.layer],
-      },
-    ];
+    const part = (b: PricingRules[number]['bands'][number]) =>
+      `${percentText(b.feeBps)}${b.flatFee !== null && /[1-9]/.test(b.flatFee) ? ` + ${formatAmount(b.flatFee)} ${assetCode} flat` : ''}`;
+    const stepped = winner.bands.length > 1;
+    const percent = stepped ? winner.bands.map((b) => `from ${formatAmount(b.fromAmount)}: ${part(b)}`).join(', ') : part(winner.bands[0]!);
+    return [{ assetCode, percent, stepped, layerWords: LAYER_WORDS[winner.layer] }];
   });
 }
 
-export const FEE_WORKED_OUT_AT_SETTLEMENT = 'Fee is worked out when a payment settles; none has settled.';
+export const FEE_ACCOUNT_RATE = 'The fee taken at settlement is the rate on the merchant’s account, which this console does not read.';
 export const FEE_NOT_CONFIGURED = 'The merchant’s own fee is set on its account; this console’s pricing rules do not include it.';
-export const FEE_NOT_RECORDED = 'No fee was recorded for this settled payment.';
-
-/** True when the status mix of the selected window holds at least one settled payment. */
-export function hasSettledPayment(statusMix: readonly { status: string; count: number }[]): boolean {
-  return statusMix.some((s) => s.status === 'settled' && s.count > 0);
-}
+export const FEE_NO_SETTLEMENT_SNAPSHOT = 'No pricing-rule snapshot; the Fees column is what was taken.';
+export const FEE_NO_CAPTURE_SNAPSHOT = 'No pricing rule applied at capture, so no snapshot was recorded.';
+export const FEE_RECORDED_AT_CAPTURE = 'The pricing snapshot is written when the payment is captured.';

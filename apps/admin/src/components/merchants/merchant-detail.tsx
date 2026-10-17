@@ -11,7 +11,7 @@ import { CopyButton } from './copy-button';
 import { NotesPanel } from '@/components/founder-ops/notes-panel';
 import type { NotePage } from '@/lib/founder-ops/notes';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
-import { feeLines, FEE_NOT_CONFIGURED, FEE_WORKED_OUT_AT_SETTLEMENT, hasSettledPayment } from '@/lib/merchants/fee-story';
+import { feeLines, FEE_ACCOUNT_RATE, FEE_NOT_CONFIGURED } from '@/lib/merchants/fee-story';
 import { Chip } from '@/components/chip';
 import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
@@ -243,34 +243,42 @@ function UnreadableLimitAsks({ drilldown }: { drilldown: MerchantDetailData['dri
   );
 }
 
-/** The fee this merchant pays, from the pricing rule in force, in percent. One story with the merchant portal. */
+/**
+ * The pricing rule in force, in percent. It is not the fee taken: that is the rate on the merchant's account (read by the
+ * portal, not by this console), and the rule only writes the snapshot kept with each payment.
+ */
 function FeeCard({ data, here, testData }: { data: MerchantDetailData; here: string; testData: boolean }) {
-  const { drilldown, metrics } = data;
-  const settled = metrics.kind === 'ok' ? hasSettledPayment(metrics.data.statusMix) : null;
+  const { drilldown } = data;
   return (
-    <Card id="fee" title="Fee" sub="The pricing rule in force for this merchant, as a percent of each payment.">
+    <Card
+      id="fee"
+      title="Pricing rule"
+      sub="The rule in force for this merchant, as a percent. Steps follow the merchant’s monthly volume."
+    >
       {drilldown.kind !== 'ok' ? (
-        <FailureState failure={drilldown} what="The fee rule" retryHref={here} />
+        <FailureState failure={drilldown} what="The pricing rule" retryHref={here} />
       ) : (
         (() => {
           const lines = feeLines(drilldown.data.control.pricing);
-          if (lines.length === 0) return <p className="mp-warn">{FEE_NOT_CONFIGURED}</p>;
           return (
             <>
-              <ul data-testid="fee-lines">
-                {lines.map((line) => (
-                  <li key={line.assetCode}>
-                    <strong className="mp-num">{line.percent}</strong>
-                    {line.flat ? ` plus ${line.flat}` : ''} on {line.assetCode} payments, from {line.layerWords}.{' '}
-                    {testData ? (
-                      <Chip tone="info" title="A test value in a non-production environment. It is not INTAFACED pricing.">
-                        TEST
-                      </Chip>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-              {settled === false ? <p className="mp-muted">{FEE_WORKED_OUT_AT_SETTLEMENT}</p> : null}
+              {lines.length === 0 ? (
+                <p className="mp-warn">{FEE_NOT_CONFIGURED}</p>
+              ) : (
+                <ul data-testid="fee-lines">
+                  {lines.map((line) => (
+                    <li key={line.assetCode}>
+                      <strong className="mp-num">{line.percent}</strong> on {line.assetCode} payments, from {line.layerWords}.{' '}
+                      {testData ? (
+                        <Chip tone="info" title="A test value in a non-production environment. It is not INTAFACED pricing.">
+                          TEST
+                        </Chip>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mp-muted">{FEE_ACCOUNT_RATE}</p>
             </>
           );
         })()

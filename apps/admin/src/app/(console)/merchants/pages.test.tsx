@@ -268,8 +268,9 @@ describe('dashboard', () => {
     expect(out).toContain('href="/merchants/all?kyb=pending"');
     expect(out).toContain('Onboarding funnel');
     expect(out).toContain('rail down');
-    expect(out).toContain('Crypto transfers (TEST sandbox)');
-    expect(out).toContain('Cards (TEST sandbox)');
+    expect(out).toContain('Crypto transfers');
+    expect(out).toContain('Cards');
+    expect(out).not.toMatch(/TEST sandbox/);
     expect(out).toContain('Bank payouts');
     expect(out).toContain('bank-payout has nothing configured.');
     // Both down rails that sent no reason say so, in words, instead of a dash.
@@ -572,7 +573,7 @@ describe('merchant drill-down', () => {
       },
     });
 
-    it('shows the rule in force as a percent with a TEST chip, never as basis points, and says no payment has settled', async () => {
+    it('shows the rule in force as a percent with a TEST chip, never as basis points, and says the settlement fee is the account rate', async () => {
       services({ ...base, ...drilldown([rule('global', 250), rule('merchant', 150)]) });
       const out = html(await page());
       expect(out).toContain('1.5%');
@@ -580,10 +581,12 @@ describe('merchant drill-down', () => {
       expect(out).toContain('this merchant’s own rule');
       expect(out).toContain('>TEST<');
       expect(out).not.toMatch(/bps|No snapshot/);
-      expect(out).toContain('Fee is worked out when a payment settles; none has settled.');
+      expect(out).toContain('Pricing rule');
+      expect(out).not.toContain('The fee this merchant pays');
+      expect(out).toContain('The fee taken at settlement is the rate on the merchant’s account, which this console does not read.');
     });
 
-    it('drops the settlement sentence once a payment has settled', async () => {
+    it('keeps the account-rate line when a payment has settled', async () => {
       services({
         'founderAdmin.metrics.merchant': { ...snapshot, statusMix: [{ status: 'settled', count: 2 }] },
         'founderAdmin.metrics.merchantSeries': series,
@@ -591,14 +594,14 @@ describe('merchant drill-down', () => {
       });
       const out = html(await page());
       expect(out).toContain('2.5%');
-      expect(out).not.toContain('none has settled');
+      expect(out).toContain('rate on the merchant’s account');
     });
 
     it('says the account fee is outside the pricing rules rather than inventing a fee', async () => {
       services({ ...base, ...drilldown(null) });
       const out = html(await page());
       expect(out).toContain('The merchant’s own fee is set on its account; this console’s pricing rules do not include it.');
-      expect(out).not.toContain('none has settled');
+      expect(out).toContain('rate on the merchant’s account');
     });
   });
 

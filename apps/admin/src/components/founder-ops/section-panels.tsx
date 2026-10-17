@@ -5,7 +5,7 @@ import { CopyButton } from '@/components/merchants/copy-button';
 import { CsvButton } from '@/components/merchants/csv-button';
 import { Card, FailureState, KpiTile, MoneyText, shortId, StateBlock, StatusChip } from '@/components/merchants/ui';
 import { buildCsv } from '@/lib/merchants/csv';
-import { FEE_NOT_RECORDED, FEE_WORKED_OUT_AT_SETTLEMENT } from '@/lib/merchants/fee-story';
+import { FEE_NO_CAPTURE_SNAPSHOT, FEE_NO_SETTLEMENT_SNAPSHOT, FEE_RECORDED_AT_CAPTURE } from '@/lib/merchants/fee-story';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';
 import {
@@ -65,25 +65,25 @@ const dash = <span className="mp-muted">—</span>;
 const when = (iso: string | null): ReactNode => (iso === null ? dash : <time dateTime={iso}>{formatUtc(iso)}</time>);
 const whenText = (iso: string | null): string => iso ?? '';
 const orDash = (value: string | null | undefined): ReactNode => (value === null || value === undefined || value === '' ? dash : value);
-/** A payment without a fee snapshot: say why, in the same words as the merchant's own pages. */
-function NoFee({ status }: { status: string }) {
+/** A payment without a pricing snapshot. The snapshot is written at capture, so the words depend on whether capture happened. */
+export function NoFee({ status }: { status: string }) {
   if (status === 'failed') {
     return (
-      <span className="mp-muted" title="The payment failed, so no fee was worked out.">
+      <span className="mp-muted" title="The payment failed, so no pricing snapshot was written.">
         No fee: payment failed
       </span>
     );
   }
-  if (status === 'created' || status === 'authorized' || status === 'captured') {
+  if (status === 'created' || status === 'authorized') {
     return (
-      <span className="mp-muted" title={FEE_WORKED_OUT_AT_SETTLEMENT}>
-        Worked out at settlement
+      <span className="mp-muted" title={FEE_RECORDED_AT_CAPTURE}>
+        Recorded at capture
       </span>
     );
   }
   return (
-    <span className="mp-muted" title={FEE_NOT_RECORDED}>
-      Not recorded
+    <span className="mp-muted" title={FEE_NO_CAPTURE_SNAPSHOT}>
+      Not recorded: no pricing rule at capture
     </span>
   );
 }
@@ -250,7 +250,7 @@ const COLUMNS: { [S in keyof ItemMap]: readonly Col<Item<S>>[] } = {
             {moneyCell(r.pricing.fee, r.pricing.assetCode)} <Chip tone="info">{r.pricing.appliedLayer}</Chip>
           </>
         ) : (
-          <span className="mp-muted" title={FEE_NOT_RECORDED}>
+          <span className="mp-muted" title={FEE_NO_SETTLEMENT_SNAPSHOT}>
             Not recorded
           </span>
         ),

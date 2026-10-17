@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feeLines, hasSettledPayment, percentText } from './fee-story';
+import { feeLines, percentText } from './fee-story';
 
 const rule = (layer: 'global' | 'tier' | 'merchant', bands: Array<{ fromAmount: string; feeBps: number; flatFee: string | null }>) => ({
   layer,
@@ -24,28 +24,22 @@ describe('fee story', () => {
       rule('global', [{ fromAmount: '0', feeBps: 250, flatFee: null }]),
       rule('tier', [{ fromAmount: '0', feeBps: 200, flatFee: null }]),
     ]);
-    expect(lines).toEqual([{ assetCode: 'USDT', percent: '2%', flat: null, layerWords: 'its tier’s rule' }]);
+    expect(lines).toEqual([{ assetCode: 'USDT', percent: '2%', stepped: false, layerWords: 'its tier’s rule' }]);
   });
 
-  it('shows bands and a flat part', () => {
+  it('puts a flat fee only on the band it belongs to', () => {
     const [line] = feeLines([
       rule('merchant', [
         { fromAmount: '0', feeBps: 250, flatFee: '0.30' },
         { fromAmount: '1000', feeBps: 200, flatFee: null },
       ]),
     ]);
-    expect(line?.percent).toBe('from 0.00: 2.5%, from 1,000.00: 2%');
-    expect(line?.flat).toBe('0.30 USDT');
+    expect(line?.percent).toBe('from 0.00: 2.5% + 0.30 USDT flat, from 1,000.00: 2%');
+    expect(line?.stepped).toBe(true);
   });
 
   it('no rules means no lines', () => {
     expect(feeLines(null)).toEqual([]);
     expect(feeLines([])).toEqual([]);
-  });
-
-  it('knows whether a payment has settled', () => {
-    expect(hasSettledPayment([{ status: 'captured', count: 3 }])).toBe(false);
-    expect(hasSettledPayment([{ status: 'settled', count: 0 }])).toBe(false);
-    expect(hasSettledPayment([{ status: 'settled', count: 1 }])).toBe(true);
   });
 });
