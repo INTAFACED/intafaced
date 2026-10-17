@@ -1,7 +1,8 @@
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
+import { reason } from '../chrome/copy';
 import { PaySection } from '../../components';
-import { AsOf, BackLink, ComingSoon, Facts, Gate, Kpi, KpiGrid, Money as Amount, NotConfigured, SelectField } from '../components';
+import { AsOf, BackLink, NotLive, Facts, Gate, Kpi, KpiGrid, Money as Amount, NotConfigured, SelectField } from '../components';
 import { useNow, useUrlParam } from '../hooks';
 import { amountFor, bpsPercent } from './model';
 import type { PortalApi } from '../api';
@@ -120,7 +121,7 @@ export function MoneyView({
                   {t('balanceEmptyBody')}
                 </EmptyState>
               )}
-              <ComingSoon>{t('balanceHistoryGap')}</ComingSoon>
+              <NotLive reason={reason('reasonHistory')}>{t('balanceHistoryGap')}</NotLive>
             </div>
           );
         }}
@@ -143,7 +144,7 @@ export function MoneyView({
             )
           }
         </Gate>
-        <ComingSoon>{t('reserveGap')}</ComingSoon>
+        <NotLive reason={reason('reasonDetail')}>{t('reserveGap')}</NotLive>
       </PaySection>
     </div>
   );
@@ -153,7 +154,7 @@ export function BalanceActivity() {
   return (
     <div className="stack">
       <BackLink href="/pay/money">{t('moneyTitle')}</BackLink>
-      <ComingSoon>{t('activityGap')}</ComingSoon>
+      <NotLive reason={reason('reasonLists')}>{t('activityGap')}</NotLive>
       <div className="pp-actions">
         <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/payments" />}>
           {t('openPayments')}

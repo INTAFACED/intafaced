@@ -1,10 +1,11 @@
 import { Button, EmptyState } from '@intafaced/ui';
 import { useState } from 'react';
+import { reason } from '../chrome/copy';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Field } from '@intafaced/ui';
 import { PayDetails, PaySection } from '../../components';
 import { PortalReview } from '../ui/PortalReview';
-import { Chip, ComingSoon, Gate, ListShell, MoreFooter, PortalFailure, SelectField, Timeline } from '../components';
+import { Chip, NotLive, Gate, ListShell, MoreFooter, PortalFailure, SelectField, Timeline } from '../components';
 import { portalCopy, w3cCopy } from './copy';
 import { useCursorList, type ListState } from '../hooks';
 import { type StepState } from '../model';
@@ -267,8 +268,12 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
           />
           <p className="pp-declared">{t('declaredNotVerified')}</p>
         </fieldset>
-        <ComingSoon>{c('draftGap')}</ComingSoon>
-        {starterFeeBps === null && <ComingSoon title={t('noStarterPricingTitle')}>{t('noStarterPricingBody')}</ComingSoon>}
+        <NotLive reason={reason('reasonActions')}>{c('draftGap')}</NotLive>
+        {starterFeeBps === null && (
+          <NotLive reason={reason('reasonFees')} title={t('noStarterPricingTitle')}>
+            {t('noStarterPricingBody')}
+          </NotLive>
+        )}
         <PortalReview
           title={t('createAccount')}
           variant="primary"
@@ -370,7 +375,7 @@ function StepVerification({
           );
         }}
       </Gate>
-      <ComingSoon>{c('verificationGap')}</ComingSoon>
+      <NotLive reason={reason('reasonDocuments')}>{c('verificationGap')}</NotLive>
       <a className="text-link" href="/pay/onboarding/go-live">
         {c('continueDestination')}
       </a>
@@ -420,7 +425,7 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
   if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   return (
     <PaySection title={t('step3Title')} description={t('step3Body')}>
-      <ComingSoon>{c('goLiveGap')}</ComingSoon>
+      <NotLive reason={reason('reasonVerified')}>{c('goLiveGap')}</NotLive>
       <div className="pp-actions">
         <a className="text-link" href="/pay/pricing">
           {c('reviewPricing')}
@@ -432,7 +437,12 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
       <Gate resource={rails} retry={retry} rows={2}>
         {(all) => {
           const payoutRails = all.filter((rail) => rail.capabilities.includes('payout'));
-          if (payoutRails.length === 0) return <ComingSoon title={t('noPayoutRailTitle')}>{t('noPayoutRailBody')}</ComingSoon>;
+          if (payoutRails.length === 0)
+            return (
+              <NotLive reason={reason('reasonActions')} title={t('noPayoutRailTitle')}>
+                {t('noPayoutRailBody')}
+              </NotLive>
+            );
           const chosen = payoutRails.find((rail) => rail.id === railId) ?? payoutRails[0]!;
           const kind = railKind(chosen.id);
           const shapeOk = ref.trim() === '' || destinationShapeOk(kind, ref);

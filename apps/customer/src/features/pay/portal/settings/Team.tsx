@@ -1,5 +1,6 @@
 import { Arrives, ReadStamp, WindowExport } from '../ExtensionTools';
 import { extensionCopy as c, portalCopy } from './copy';
+import { reason } from '../chrome/copy';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
@@ -97,46 +98,12 @@ export function TeamView(props: {
           <ReadStamp at={at} />
         </>
       )}
-      <Arrives>{c.t('teamGap')}</Arrives>
+      <Arrives reason={reason('reasonHistory')}>{c.t('teamGap')}</Arrives>
       <p className="pp-callout" role="note">
         <strong>{t('mfaTitle')}</strong> {t('mfaBody')}
       </p>
 
-      <Gate resource={props.invitations} retry={refresh} rows={1}>
-        {(pending) =>
-          pending.length === 0 ? null : (
-            <PaySection title={t('invitesTitle')} description={t('invitesBody')}>
-              <ul className="pp-cards">
-                {pending.map((invite) => (
-                  <li key={invite.memberId} className="pp-card">
-                    <div>
-                      <strong>{t('inviteLine', { role: roleName(invite.role) })}</strong>
-                      <small className="muted">
-                        {t('invitedOn')} <PayTime value={invite.invitedAt} />
-                      </small>
-                    </div>
-                    <div className="pp-actions">
-                      <PortalReview
-                        title={t('accept')}
-                        variant="primary"
-                        description={t('acceptBody')}
-                        perform={() => portal.acceptInvite(invite.memberId)}
-                        onConfirmed={refresh}
-                      />
-                      <PortalReview
-                        title={t('decline')}
-                        description={t('declineBody')}
-                        perform={() => portal.declineInvite(invite.memberId)}
-                        onConfirmed={refresh}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </PaySection>
-          )
-        }
-      </Gate>
+      <Invitations portal={portal} invitations={props.invitations} refresh={refresh} />
 
       <PaySection
         title={t('membersTitle')}
@@ -400,4 +367,61 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
       </div>
     </PaySection>
   );
+}
+
+/** Invitations to join someone's team, with Accept and Decline. Shown to anyone who has been invited, with or without a business of their own. */
+export function Invitations({
+  portal,
+  invitations,
+  refresh,
+}: {
+  portal: PortalApi;
+  invitations: Resource<Invitation[]>;
+  refresh: () => void;
+}) {
+  const { t } = portalCopy.useCopy();
+  const roleName = (r: string) => t(`role_${r}` as 'role_owner');
+  return (
+    <Gate resource={invitations} retry={refresh} rows={1}>
+      {(pending) =>
+        pending.length === 0 ? null : (
+          <PaySection title={t('invitesTitle')} description={t('invitesBody')}>
+            <ul className="pp-cards">
+              {pending.map((invite) => (
+                <li key={invite.memberId} className="pp-card">
+                  <div>
+                    <strong>{t('inviteLine', { role: roleName(invite.role) })}</strong>
+                    <small className="muted">
+                      {t('invitedOn')} <PayTime value={invite.invitedAt} />
+                    </small>
+                  </div>
+                  <div className="pp-actions">
+                    <PortalReview
+                      title={t('accept')}
+                      variant="primary"
+                      description={t('acceptBody')}
+                      perform={() => portal.acceptInvite(invite.memberId)}
+                      onConfirmed={refresh}
+                    />
+                    <PortalReview
+                      title={t('decline')}
+                      description={t('declineBody')}
+                      perform={() => portal.declineInvite(invite.memberId)}
+                      onConfirmed={refresh}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </PaySection>
+        )
+      }
+    </Gate>
+  );
+}
+
+/** The same invitations for a person with no business account: the one thing on the team page that is theirs. */
+export function InvitationsOnly({ portal }: { portal: PortalApi }) {
+  const invitations = useResource((s) => portal.myInvitations(s), 'portal:team-invites');
+  return <Invitations portal={portal} invitations={invitations.resource} refresh={invitations.reload} />;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../../shared/api';
 import { createPortalApi } from './api';
-import { isComingSoon, refusalText } from './refusal';
+import { isNotLive, refusalText } from './refusal';
 
 type Call = { url: string; method: string; body: unknown };
 function harness(reply: (call: Call) => { status?: number; body: unknown }) {
@@ -225,7 +225,7 @@ describe('portal api (payout decisions)', () => {
     expect(refusalText(await check('pay.pricing_unconfigured'))).toMatch(/No price is set/);
     expect(refusalText(await check('pay.merchant_forbidden'))).toMatch(/does not have access/);
     const missing = await check('pay.not_built');
-    expect(isComingSoon(missing)).toBe(true);
+    expect(isNotLive(missing)).toBe(true);
   });
   it('refuses without a session before any request leaves', async () => {
     const calls: unknown[] = [];

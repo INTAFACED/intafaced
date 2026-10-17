@@ -1,7 +1,7 @@
 import { defineCopy } from '../../../shared/i18n';
 
 const en = {
-  loadedWindow: 'Showing your newest 200 records. Search and sorting work within these; full search and date filters are coming soon.',
+  loadedWindow: 'Showing your newest 200 records. Search and sorting work within these; full search and date filters aren’t connected yet.',
   readAt: 'Updated',
   staleRead: 'These figures are more than five minutes old. Refresh before you act.',
   refresh: 'Refresh',
@@ -27,7 +27,7 @@ const en = {
   pendingTip: 'The event is waiting for a delivery attempt.',
   deliveredTip: 'The receiver accepted the event.',
   failedTip: 'The last attempt failed. Check the receiver and its response code.',
-  deadTip: 'Automatic delivery attempts have stopped. Retrying from here is coming soon.',
+  deadTip: 'Automatic delivery attempts have stopped. Retrying from here isn’t connected yet.',
   scopes: 'Scopes',
   lastUsed: 'Last used',
   exportShown: 'Download shown records (CSV)',
@@ -51,7 +51,7 @@ const en = {
   accountStatus: 'Account status',
   invited: 'Invited',
   removed: 'Removed',
-  unavailable: 'Coming soon',
+  unavailable: 'Not available yet',
   createSubscription: 'Create subscription',
   paused: 'Paused',
   cancelled: 'Cancelled',
@@ -92,7 +92,7 @@ const en = {
   rate: 'Exchange rate',
   fee: 'Fee',
   cadence: 'Billing cadence',
-  arrives: 'Coming soon',
+  arrives: 'Not available yet',
   backHome: 'Back to overview',
   reference: 'Reference',
   copy: 'Copy reference',

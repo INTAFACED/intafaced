@@ -15,6 +15,7 @@ import { NotificationsView } from './Notifications';
 import { OnboardingView } from './Onboarding';
 import { TeamView } from './Team';
 import * as p from '../schemas';
+import { notLiveWords } from '../ui/test-words';
 // Everything below is TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const portal = {} as PortalApi;
 const html = (node: ReactElement) => renderToString(node);
@@ -93,7 +94,7 @@ describe('onboarding', () => {
   });
   it('refuses to open an account while no starting fee is published, and says why', () => {
     const out = html(<OnboardingView {...base} merchant={null} starterFeeBps={null} />);
-    expect(out).toContain('open your business account here soon');
+    expect(out).toContain('can be opened once INTAFACED publishes its starting fee');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Create my account<\/button>/);
   });
   it('moves to verification once the account exists, with the reference form and history', () => {
@@ -161,7 +162,7 @@ describe('onboarding', () => {
     expect(out).toContain('Destination saved for this visit');
     expect(out).not.toContain('You are live in sandbox');
     expect(out).toContain('Waiting for verification to be approved');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
   });
 });
 describe('team and roles', () => {
@@ -259,7 +260,7 @@ describe('team and roles', () => {
           })}
         />,
       ),
-    ).toContain('Coming soon');
+    ).toMatch(notLiveWords);
   });
   it('says how many rows are shown and whether more exist', () => {
     expect(html(<TeamView {...props('owner', { members: list([owner, member({})], true) })} />)).toMatch(
@@ -312,7 +313,7 @@ describe('exports', () => {
   it('has empty, loading, error and coming-soon states', () => {
     expect(render(list<p.ExportJob>([]))).toContain('No exports yet');
     expect(render({ status: 'loading' })).toContain('aria-busy="true"');
-    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toContain('Coming soon');
+    expect(render({ status: 'failed', failure: refusal('pay.not_built', 501, 'not_supported') })).toMatch(notLiveWords);
     expect(render({ status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') })).toContain('Try again');
   });
 });

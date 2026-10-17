@@ -14,6 +14,7 @@ import { DashboardInsights as DashboardView, type DashboardData } from './Dashbo
 import { DisputeDetailView, DisputesView } from './Disputes';
 import type { ListState } from '../hooks';
 import * as p from '../schemas';
+import { notLiveWords } from '../ui/test-words';
 // Everything below is TEST DATA written for these tests. None of it is a real merchant, customer or amount.
 const portal = {} as PortalApi;
 const html = (node: ReactElement) => renderToString(node);
@@ -136,7 +137,7 @@ describe('dashboard', () => {
     const soon = render(
       data({ today: failed('pay.not_built', 501, 'not_supported'), rolling_30d: failed('pay.not_built', 501, 'not_supported') }),
     );
-    expect(soon).toContain('Coming soon');
+    expect(soon).toMatch(notLiveWords);
     const down = render(data({ today: failed('', 503, 'unreachable') }));
     expect(down).toContain('Try again');
     expectPlain(down);
@@ -144,7 +145,7 @@ describe('dashboard', () => {
   it('labels what is not built yet: tier, limits and operator pauses', () => {
     const out = render(data());
     expect(out).toContain('Limits and approvals');
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
   });
   it('points a not-yet-verified merchant at setup, and a team member sees their role not an account record', () => {
     expect(render(data(), { ...merchantRecord, status: 'pending', kybStatus: 'none' })).toContain('Continue setup');
@@ -208,7 +209,7 @@ describe('disputes', () => {
         retry={noop}
       />,
     );
-    expect(out).toContain('Coming soon');
+    expect(out).toMatch(notLiveWords);
     expect(out).not.toContain('view=payments');
   });
   const detail = (patch: Partial<p.DisputeDetail> = {}): p.DisputeDetail => ({
@@ -337,6 +338,6 @@ describe('customers', () => {
     expect(out).toContain('300.5');
     expect(out).toContain('Recent payments');
     expect(out).toContain('Paid');
-    expect(out).toContain('Daily charts for a single customer are coming soon.');
+    expect(out).toContain('Daily charts for a single customer aren’t connected yet.');
   });
 });

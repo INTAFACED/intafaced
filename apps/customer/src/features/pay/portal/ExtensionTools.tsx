@@ -3,11 +3,11 @@ import { StatusTag, Button, Field } from '@intafaced/ui';
 import { PayTime } from '../components';
 import { useNow, useUrlParam } from './hooks';
 import { buildCsv, downloadText } from './csv';
-import { ComingSoon, SelectField } from './components';
+import { NotLive, SelectField } from './components';
 import { extensionCopy as c } from './extension-copy';
 
-export function Arrives({ children }: { children: ReactNode }) {
-  return <ComingSoon>{children}</ComingSoon>;
+export function Arrives({ reason, children }: { reason: string; children: ReactNode }) {
+  return <NotLive reason={reason}>{children}</NotLive>;
 }
 export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
   return (

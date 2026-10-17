@@ -1,4 +1,5 @@
 import type { ApiResult, RefusalReason } from '../../../shared/api';
+import { reason } from './chrome/copy';
 import { portalCopy, type PlainKey } from './copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -89,7 +90,7 @@ const codeOf = (result: Failed) => {
 };
 
 const registered = new Map<string, () => string>();
-const notLive = new Set<string>();
+const notLive = new Map<string, (() => string) | undefined>();
 
 /**
  * A package gives its own service codes their plain words, in its own copy file, without touching the shared table.
@@ -102,9 +103,16 @@ export function registerRefusals(map: Record<string, () => string>): void {
     registered.set(code, words);
   }
 }
-/** Codes that mean "this feature is switched off", so the page shows the Coming soon card instead of a refusal (for example sandbox conversion). */
-export function registerNotLive(codes: readonly string[]): void {
-  for (const code of codes) notLive.add(code);
+/**
+ * Codes that mean "this feature is switched off", so the page shows the not-live card instead of a refusal (for
+ * example sandbox conversion). Each code says what it is waiting for, in the reader's language.
+ */
+export function registerNotLive(map: Record<string, () => string>): void {
+  for (const [code, words] of Object.entries(map)) notLive.set(code, words);
+}
+/** What a not-live refusal is waiting for: its own words if it has them, else the general reason. */
+export function notLiveReason(result: Failed): string {
+  return notLive.get(codeOf(result))?.() ?? reason('reasonService');
 }
 /** For tests: the codes that have words, from the shared table and from packages. */
 export function knownRefusalCodes(): string[] {
@@ -112,7 +120,7 @@ export function knownRefusalCodes(): string[] {
 }
 
 /** The procedure exists on the wire but nothing sits behind it yet, or the gateway has not mounted it. */
-export function isComingSoon(result: Failed): boolean {
+export function isNotLive(result: Failed): boolean {
   const code = codeOf(result);
   if (code === 'pay.not_built' || notLive.has(code)) return true;
   return result.reason === 'not_mounted' && !code.startsWith('pay.');

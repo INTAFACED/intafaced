@@ -1,5 +1,6 @@
 import { formatAmount as fromScaled, parseAmount as toScaled } from '../../../../shared/money';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { reason } from '../chrome/copy';
 import { useId } from 'react';
 import { Button, DataTable, EmptyState, Field, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@intafaced/ui';
 import { PayTime, PaySection } from '../../components';
@@ -7,7 +8,7 @@ import {
   AsOf,
   BackLink,
   Chip,
-  ComingSoon,
+  NotLive,
   Facts,
   Gate,
   HaltBanner,
@@ -505,7 +506,9 @@ export function PayoutDetailView({
                 <PayoutCap usage={usage} assetId={s.assetId} testValues={testValues} now={now} retry={reload} />
               </PaySection>
 
-              <ComingSoon title={t('screeningSoonTitle')}>{t('screeningSoonBody')}</ComingSoon>
+              <NotLive reason={reason('reasonDetail')} title={t('screeningSoonTitle')}>
+                {t('screeningSoonBody')}
+              </NotLive>
             </>
           );
         }}

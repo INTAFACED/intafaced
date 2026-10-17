@@ -185,13 +185,13 @@ test('payment links: scoped records, URL search and availability, export and det
   await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, testLinks()));
   await signIn(page, '/pay/links');
   await expect(page.getByRole('link', { name: 'TEST workshop', exact: true })).toBeVisible();
-  await expect(page.getByText('2 shown from 2 loaded links.')).toBeVisible();
+  await expect(page.getByText('2 shown from 2 links.')).toBeVisible();
   await snap(page, 'P13-payment-links');
   await axe(page);
   await phone(page, 'P13-payment-links');
-  await page.getByLabel('Search loaded links').fill('workshop');
+  await page.getByLabel('Search links').fill('workshop');
   await expect(page).toHaveURL(/q=workshop/);
-  await expect(page.getByText('1 shown from 2 loaded links.')).toBeVisible();
+  await expect(page.getByText('1 shown from 2 links.')).toBeVisible();
   await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('expired');
   await expect(page.getByText('No links match these filters', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'Availability', exact: true }).selectOption('');

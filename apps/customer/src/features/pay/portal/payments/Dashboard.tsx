@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { LayoutDashboard } from './DashboardHome';
+import { reason } from '../chrome/copy';
 import { portalAmount } from '../presentation';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable, EmptyState, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { PaySection } from '../../components';
-import { AsOf, Chip, ComingSoon, Gate, Kpi, KpiGrid, Money, MoneyLines } from '../components';
+import { AsOf, Chip, NotLive, Gate, Kpi, KpiGrid, Money, MoneyLines } from '../components';
 import { portalCopy } from './copy';
 import { bars, utcDay } from '../model';
 import { hasActivity, mixShares, seriesAssets, seriesWindow } from './model';
@@ -132,7 +133,9 @@ export function DashboardInsights({
         )}
       </PaySection>
 
-      <ComingSoon title={t('controlSoonTitle')}>{t('controlSoonBody')}</ComingSoon>
+      <NotLive reason={reason('reasonLimits')} title={t('controlSoonTitle')}>
+        {t('controlSoonBody')}
+      </NotLive>
 
       {wholeAccountQuiet ? (
         <EmptyState

@@ -91,7 +91,7 @@ const axe = async (page) => {
 test('dashboard: Home-style figures, daily chart, retained insights and phone width', async ({ page }) => {
   const { mock, seen } = await setup(page);
   await signIn(page, '/pay/merchant');
-  await expect(page.getByRole('heading', { name: 'Merchant portal', level: 1 })).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Business overview', level: 1 })).toHaveCount(1);
   await expect(page.locator('.plo-kpi-strip')).toBeVisible();
   await expect(page.getByText('4 s behind').first()).toBeVisible();
   await expect(page.locator('.plo-number')).toHaveText('8,123.46');
@@ -388,9 +388,9 @@ test('payments: KPI strip, filters in the URL, search, load more, CSV with its t
   await page.getByLabel('Search', { exact: true }).fill('TEST-rail-0010');
   await expect(page).toHaveURL(/q=TEST-rail-0010/);
   await expect(table.getByRole('row')).toHaveCount(2);
-  await expect(page.getByText(/1 of the \d+ loaded payments match\./)).toBeVisible();
+  await expect(page.getByText(/1 of the \d+ payments shown match\./)).toBeVisible();
   await page.getByLabel('Search', { exact: true }).fill('no-such-thing');
-  await expect(page.getByRole('heading', { name: 'No loaded payment matches' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No payment shown matches' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(table.getByRole('row')).not.toHaveCount(2);
   const download = page.waitForEvent('download');
@@ -836,28 +836,26 @@ test('payouts: when approvals cannot be read, a payout shows "Approval unknown",
   await expect(page.getByRole('button', { name: 'Approve payout' })).toHaveCount(0);
 });
 
-test('team members who are not the owner are told payments and statements are owner-only, and get no payout links', async ({ page }) => {
+test('finance can read payments and settlements, is told links are owner-only, and gets no payout links', async ({ page }) => {
   await setup(page);
   await page.route('**/api/pay/trpc/merchant.me*', (route) => json(route, null));
   await page.route('**/api/pay/trpc/merchantOps.team.me*', (route) =>
     json(route, { merchantId: '11111111-1111-4111-8111-111111111111', userId: '22222222-2222-4222-8222-222222222222', role: 'finance' }),
   );
   await signIn(page, '/pay/payments');
-  await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
-  await snap(page, '50-payments-owner-only');
-  for (const path of [
-    '/pay/settlements',
-    '/pay/payouts',
-    `/pay/payments/${PAY_SETTLED}`,
-    `/pay/settlements/${STL_PAID}`,
-    `/pay/payouts/${STL_PAID}`,
-  ]) {
+  await expect(page.getByRole('heading', { name: 'Payments', level: 1 })).toBeVisible();
+  await expect(page.getByText('Only the account owner can open this page.')).toHaveCount(0);
+  await snap(page, '50-payments-finance');
+  for (const path of ['/pay/settlements', `/pay/payments/${PAY_SETTLED}`, `/pay/settlements/${STL_PAID}`]) {
     await go(page, path);
-    await expect(page.getByText('Only the account owner can open payments and statements for now.')).toBeVisible();
+    await expect(page.getByText('Only the account owner can open this page.')).toHaveCount(0);
   }
+  // Links are owner-only on the service, and the page says so up front.
+  await go(page, '/pay/links');
+  await expect(page.getByText('Only the account owner can open this page.')).toBeVisible();
   await go(page, '/pay/approvals');
   await expect(page.getByRole('list', { name: 'Payout requests' })).toBeVisible();
-  await expect(page.locator('a[href^="/pay/payouts/"]')).toHaveCount(0);
+  await expect(page.locator('.plo-content a[href^="/pay/payouts/"]')).toHaveCount(0);
 });
 
 test('settlement statement CSV carries the time the data was read, not the time of the download', async ({ page }) => {

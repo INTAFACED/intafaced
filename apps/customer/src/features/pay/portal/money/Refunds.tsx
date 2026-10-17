@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useSession } from '../../../session/session';
+import { reason } from '../chrome/copy';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PaySection, PayTime } from '../../components';
 import { MerchantRefund } from '../../MerchantRefund';
 import { ExactMoneyScope } from '../ui/ExactMoneyScope';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
-import { BackLink, ComingSoon, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from '../components';
+import { BackLink, NotLive, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from '../components';
 import { buildCsv, downloadText } from '../csv';
 import { useNow, useReadAt, useUrlParam } from '../hooks';
 import { isUuid, paymentRefunds, type PaymentRefund } from '../model';
@@ -51,8 +52,8 @@ export function Refunds({
       <BackLink href={refundId || create ? '/pay/refunds' : '/pay/merchant'}>
         {t(refundId || create ? 'backRefunds' : 'backMerchant')}
       </BackLink>
-      {!create && !refundId && <ComingSoon>{t('refundListGap')}</ComingSoon>}
-      {refundId && !paymentId && <ComingSoon>{t('refundIdGap')}</ComingSoon>}
+      {!create && !refundId && <NotLive reason={reason('reasonLists')}>{t('refundListGap')}</NotLive>}
+      {refundId && !paymentId && <NotLive reason={reason('reasonLists')}>{t('refundIdGap')}</NotLive>}
       <PaySection title={t('choosePayment')}>
         <form
           className="form-stack pp-form"
@@ -122,7 +123,7 @@ function RefundResults({
                 [t('amount'), <Money value={data.payment.capturedAmount} asset={data.payment.assetId} />],
               ]}
             />
-            <ComingSoon>{t('refundAuditGap')}</ComingSoon>
+            <NotLive reason={reason('reasonHistory')}>{t('refundAuditGap')}</NotLive>
             {authority ? (
               <ExactMoneyScope>
                 <MerchantRefund
@@ -135,7 +136,7 @@ function RefundResults({
                 />
               </ExactMoneyScope>
             ) : (
-              <ComingSoon>{t('refundAuthorityGap')}</ComingSoon>
+              <NotLive reason={reason('reasonOwner')}>{t('refundAuthorityGap')}</NotLive>
             )}
           </div>
         )}
@@ -220,7 +221,7 @@ export function RefundHistoryView({
                       }))}
                   />
                 </PaySection>
-                <ComingSoon>{t('refundAuditGap')}</ComingSoon>
+                <NotLive reason={reason('reasonHistory')}>{t('refundAuditGap')}</NotLive>
               </>
             ) : (
               <>

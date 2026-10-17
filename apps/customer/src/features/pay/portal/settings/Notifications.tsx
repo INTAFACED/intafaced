@@ -1,5 +1,6 @@
 import { Arrives } from '../ExtensionTools';
 import { extensionCopy as c, portalCopy } from './copy';
+import { reason } from '../chrome/copy';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
@@ -155,7 +156,7 @@ export function NotificationsView({
           <Gate resource={prefs} retry={reloadPrefs} rows={4}>
             {(rows) => <PreferenceRows rows={rows} portal={portal} />}
           </Gate>
-          <Arrives>{c.t('preferenceAuditGap')}</Arrives>
+          <Arrives reason={reason('reasonHistory')}>{c.t('preferenceAuditGap')}</Arrives>
         </PaySection>
       )}
     </div>
