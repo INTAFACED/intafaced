@@ -20,6 +20,7 @@ import {
 } from './model';
 import { blotterCsv, buildBlotter, filterBlotter, inAlgoWindow } from './blotter';
 import { TEST_BATCH, TEST_ORDERS, TEST_WINDOWS } from './fixtures';
+import { roomWords } from '../rooms/refusals';
 
 const draft: PlanDraft = {
   kind: 'twap',
@@ -213,6 +214,23 @@ describe('blotter', () => {
     const r = buildBlotter([{ ...TEST_ORDERS.manual, recoveryRequired: true } as Order], [], [], []);
     expect(r[0]!.state).toBe('recovery');
     expect(r[0]!.order).not.toBeNull();
+  });
+});
+
+describe('roomWords', () => {
+  it('keeps the service sentence for a code it has no words for, and the code as small text', () => {
+    const w = roomWords({ code: 'trade.something_new', message: 'The venue paused this market.' });
+    expect(w.body).toBe('The venue paused this market.');
+    expect(w.code).toBe('trade.something_new');
+  });
+  it('keeps shared words, not the service sentence, for a code outside the trade family', () => {
+    expect(roomWords({ code: 'ledger.something_new', message: 'svc-ledger posting 42 failed' }).body).not.toContain('svc-ledger');
+  });
+  it('knows the price band code', () => {
+    expect(roomWords({ code: 'trade.price_band', message: 'ignored' }).title).toBe('Price is too far from the market');
+  });
+  it('does not use the service sentence for a code it already explains', () => {
+    expect(roomWords({ code: 'scope.denied', message: 'raw words' }).body).not.toBe('raw words');
   });
 });
 

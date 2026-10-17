@@ -124,24 +124,36 @@ describe('the multiplexed door, over a real socket', () => {
   let base: string;
   const clients: Client[] = [];
 
-  async function boot(opts: { withMux: boolean; muxMax?: number | undefined; maxSubs?: number | undefined; maxOps?: number | undefined }) {
+  async function boot(opts: {
+    withMux: boolean;
+    muxMax?: number | undefined;
+    maxSubs?: number | undefined;
+    maxOps?: number | undefined;
+    muxSeats?: number | undefined;
+    marketMax?: number;
+    idleMs?: number;
+  }) {
+    const marketMax = opts.marketMax ?? 8;
+    const muxSeats = 'muxSeats' in opts ? opts.muxSeats : 8;
     app = Fastify({ logger: false });
     hub = new DepthHub(new StubSource(), {
       depthLimit: 50,
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
-      maxConnections: 8,
+      maxConnections: marketMax,
+      muxMaxConnections: muxSeats,
       marketsRefreshMs: 0,
     });
     tradeHub = new TradeHub({
       highWaterBytes: 1_000_000,
       maxLagTicks: 5,
-      maxConnections: 8,
+      maxConnections: marketMax,
+      muxMaxConnections: muxSeats,
       recentLimit: 10,
       ensureKnownMarket: (id) => hub.ensureKnownMarket(id),
     });
-    tickerHub = new TickerHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: 8, throttleMs: 1000 });
-    candleHub = new CandleHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: 8 });
+    tickerHub = new TickerHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: muxSeats, throttleMs: 1000 });
+    candleHub = new CandleHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: muxSeats });
     mux = createMuxGateway({
       session: {
         depth: hub,
@@ -152,6 +164,7 @@ describe('the multiplexed door, over a real socket', () => {
         maxSubscriptions: 'maxSubs' in opts ? opts.maxSubs : 6,
         maxOpsPerSecond: 'maxOps' in opts ? opts.maxOps : 50,
         highWaterBytes: 1_000_000,
+        idleMs: opts.idleMs ?? 60_000,
         log,
       },
       maxConnections: 'muxMax' in opts ? opts.muxMax : 2,
@@ -380,6 +393,73 @@ describe('the multiplexed door, over a real socket', () => {
 
     it('GET /stream with no market is the 400 it has always been', async () => {
       expect(await upgradeStatus(`ws://${base}/stream`)).toBe(400);
+    });
+  });
+
+  describe('mux seat pool, separate from ?market=', () => {
+    it('filling the mux pool does not block a ?market= socket, and the next mux attach is refused at_capacity', async () => {
+      await boot({ withMux: true, muxSeats: 1, marketMax: 1 });
+      const first = connect('/stream');
+      await first.open();
+      first.send({ op: 'subscribe', channels: [{ ch: 'book', market: BTC }] });
+      await first.until(() => first.frames.some((f) => f.op === 'ack'));
+      expect(first.frames.find((f) => f.op === 'ack').results[0].ok).toBe(true);
+      expect(hub.muxConnections).toBe(1);
+
+      const second = connect('/stream');
+      await second.open();
+      second.send({ op: 'subscribe', channels: [{ ch: 'book', market: BTC }] });
+      await second.until(() => second.frames.some((f) => f.op === 'ack'));
+      expect(second.frames.find((f) => f.op === 'ack').results[0]).toMatchObject({ ok: false, code: 'at_capacity' });
+      expect(second.closed).toBeNull();
+
+      const legacy = connect(`/stream?market=${BTC}`);
+      await legacy.until(() => legacy.frames.length >= 1);
+      expect(legacy.closed).toBeNull();
+      expect(legacy.frames[0]).toMatchObject({ type: 'snapshot', marketId: BTC });
+      expect(hub.muxConnections).toBe(1);
+      expect(hub.connections - hub.muxConnections).toBe(1);
+    });
+
+    it('blank mux seats refuse the attach with mux_max_seats_unset and still admit a ?market= socket', async () => {
+      await boot({ withMux: true, muxSeats: undefined, marketMax: 1 });
+      const muxClient = connect('/stream');
+      await muxClient.open();
+      muxClient.send({ op: 'subscribe', channels: [{ ch: 'book', market: BTC }] });
+      await muxClient.until(() => muxClient.frames.some((f) => f.op === 'ack'));
+      const result = muxClient.frames.find((f) => f.op === 'ack').results[0];
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain('mux_max_seats_unset');
+      expect(muxClient.closed).toBeNull();
+      expect(hub.muxConnections).toBe(0);
+
+      const legacy = connect(`/stream?market=${BTC}`);
+      await legacy.until(() => legacy.frames.length >= 1);
+      expect(legacy.closed).toBeNull();
+      expect(legacy.frames[0]).toMatchObject({ type: 'snapshot', marketId: BTC });
+    });
+  });
+
+  describe('idle mux sessions', () => {
+    it('closes after subscribe and unsubscribe-all once idle, and keeps a socket that still holds a subscription', async () => {
+      await boot({ withMux: true, idleMs: 1_000 });
+      const idle = connect('/stream');
+      const live = connect('/stream');
+      await idle.open();
+      await live.open();
+      idle.send({ op: 'subscribe', channels: [{ ch: 'ticker' }] });
+      live.send({ op: 'subscribe', channels: [{ ch: 'ticker' }] });
+      await idle.until(() => idle.frames.some((f) => f.op === 'ack'));
+      await live.until(() => live.frames.some((f) => f.op === 'ack'));
+      idle.send({ op: 'unsubscribe', channels: [{ ch: 'ticker' }] });
+      await idle.until(() => idle.frames.filter((f) => f.op === 'ack').length >= 2);
+
+      mux.sweepIdle(Date.now() + 1_000);
+      await idle.until(() => idle.closed !== null);
+      expect(idle.closed).toMatchObject({ code: 1008 });
+      expect(idle.closed?.reason).toContain('mux_idle');
+      expect(live.closed).toBeNull();
+      await vi.waitFor(() => expect(mux.connections).toBe(1));
     });
   });
 });

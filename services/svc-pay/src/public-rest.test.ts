@@ -117,6 +117,7 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
       label: input.label,
       expiresAt: new Date('2026-09-07T10:00:00.000Z'),
       maxUses: input.maxUses ?? null,
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
     })),
     listPaymentLinks: record('listPaymentLinks', async () => ({
       items: [
@@ -131,9 +132,25 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
           maxUses: 1,
           uses: 0,
           createdAt: '2026-08-07T10:00:00.000Z',
+          token: 'pl_testtokenvalue',
+          checkoutUrl: '/checkout?token=pl_testtokenvalue',
         },
       ],
       nextCursor: null,
+    })),
+    getPaymentLink: record('getPaymentLink', async () => ({
+      id: LINK,
+      prefix: 'pl_testtoke',
+      label: 'Invoice',
+      amount: '10',
+      currency: 'USDT',
+      active: true,
+      expiresAt: '2026-09-07T10:00:00.000Z',
+      maxUses: 1,
+      uses: 0,
+      createdAt: '2026-08-07T10:00:00.000Z',
+      token: 'pl_testtokenvalue',
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
     })),
     deactivatePaymentLink: record('deactivatePaymentLink', async () => ({ deactivated: true })),
     ...over,
@@ -1014,7 +1031,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(pay.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(0);
   });
 
-  it('creates through createPaymentLink and returns the token once', async () => {
+  it('creates through createPaymentLink and returns the checkout credential', async () => {
     const pay = stubPay();
     app = await build(pay);
 
@@ -1033,6 +1050,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       label: 'Invoice 42',
       expiresAt: '2026-09-07T10:00:00.000Z',
       maxUses: 1,
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
     });
     const args = pay.calls.find((c) => c.method === 'createPaymentLink')!.args[0] as {
       merchantId: string;
@@ -1041,12 +1059,14 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       currency: string;
       expiresAt: unknown;
       maxUses: number;
+      idempotencyKey: string;
     };
     expect(args.merchantId).toBe(MERCHANT);
     expect(args.label).toBe('Invoice 42');
     expect(args.currency).toBe('USDT');
     expect(args.maxUses).toBe(1);
     expect(args.expiresAt).toBeUndefined();
+    expect(args.idempotencyKey).toBe('link:invoice:42');
     expect(args.amount).toEqual(parseAmount('10.50'));
   });
 
@@ -1130,7 +1150,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(pay.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(1);
   });
 
-  it('REFUSES create/list/deactivate on another merchant BEFORE the service runs', async () => {
+  it('REFUSES create/list/get/deactivate on another merchant BEFORE the service runs', async () => {
     const pay = stubPay();
     app = await build(pay);
     const stranger = signed(principal({ sub: STRANGER, userId: STRANGER }));
@@ -1153,6 +1173,14 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(list.statusCode).toBe(404);
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(0);
 
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/v1/payment-links/${LINK}?merchantId=${MERCHANT}`,
+      headers: stranger,
+    });
+    expect(detail.statusCode).toBe(404);
+    expect(pay.calls.filter((c) => c.method === 'getPaymentLink')).toHaveLength(0);
+
     const deactivate = await app.inject({
       method: 'DELETE',
       url: `/v1/payment-links/${LINK}?merchantId=${MERCHANT}`,
@@ -1162,7 +1190,26 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(pay.calls.filter((c) => c.method === 'deactivatePaymentLink')).toHaveLength(0);
   });
 
-  it('lists through listPaymentLinks — token is not in the list shape', async () => {
+  it('reads one link through getPaymentLink, including the checkout credential', async () => {
+    const pay = stubPay();
+    app = await build(pay);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/payment-links/${LINK}?merchantId=${MERCHANT}`,
+      headers: signed(),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: LINK,
+      token: 'pl_testtokenvalue',
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
+    });
+    expect(pay.calls.find((c) => c.method === 'getPaymentLink')!.args).toEqual([MERCHANT, LINK]);
+  });
+
+  it('lists through listPaymentLinks and re-reads the checkout credential', async () => {
     const pay = stubPay();
     app = await build(pay);
 
@@ -1186,11 +1233,13 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
           maxUses: 1,
           uses: 0,
           createdAt: '2026-08-07T10:00:00.000Z',
+          token: 'pl_testtokenvalue',
+          checkoutUrl: '/checkout?token=pl_testtokenvalue',
         },
       ],
       nextCursor: null,
     });
-    expect(res.json().items[0]).not.toHaveProperty('token');
+    expect(res.json().items[0].checkoutUrl).toContain('pl_testtokenvalue');
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(1);
     expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[0]).toBe(MERCHANT);
     expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[1]).toMatchObject({ limit: 50 });
@@ -1213,6 +1262,8 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
               maxUses: 1,
               uses: 0,
               createdAt: '2026-08-07T10:00:00.000Z',
+              token: 'pl_testtokenvalue',
+              checkoutUrl: '/checkout?token=pl_testtokenvalue',
             },
           ],
           nextCursor: null,
