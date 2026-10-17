@@ -5,6 +5,7 @@ import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import type { KillSwitchSnapshot } from '@/lib/control-plane-browser';
 import { killBadge, killRefusalFor } from '@/lib/desk/module-kill-model';
 import './desk.css';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 
 export interface ModuleKillDeskProps {
   readonly module: ModuleId;
@@ -60,11 +61,13 @@ export function ModuleKillDesk({ module, snapshot, readAt, loading, writesBlocke
     >
       <div className="dk-badge" data-state={badge.state} data-testid="kill-badge" role="status">
         <strong>{badge.title}</strong>
-        <span className="dk-asof">{badge.asOf ? `As of ${badge.asOf} (when this console read the edge)` : 'No successful read yet'}</span>
+        <span className="dk-asof">
+          {badge.asOf ? `As of ${formatAsOf(badge.asOf)} (when this console read the edge)` : 'No successful read yet'}
+        </span>
         {badge.reason && <span className="dk-muted">Recorded reason: {badge.reason}</span>}
         {badge.lastChange && (
           <span className="dk-muted">
-            Last change for this module: {badge.lastChange.at}, run with the console credential {badge.lastChange.actor}
+            Last change for this module: {formatWhen(badge.lastChange.at)}, run with the console credential {badge.lastChange.actor}
             {badge.lastChange.confirmedBy ? `, approved by ${badge.lastChange.confirmedBy}` : ', approver not recorded'}; the requester is
             on the approval record: {badge.lastChange.reason}
           </span>

@@ -54,7 +54,7 @@ describe('bank desk', () => {
     expect(html).toContain('4.50%');
     expect(html).toContain('10.00000000');
     expect(html).toContain('1 row');
-    expect(html).toContain(`As of ${AT}`);
+    expect(html).toContain('As of 03:00:00 UTC');
   });
   it('lists every figure the service cannot give as "Not available" with its reason, never as a number', () => {
     const html = render(props('bank', view('bank', [])));
@@ -262,7 +262,7 @@ describe('plain "could not load" for a service that does not answer', () => {
     );
     expect(html).toContain('Could not load chain status');
     expect(html).toContain('Could not load audit status');
-    expect(html).toContain(`As of ${AT}`);
+    expect(html).toContain('As of 03:00:00 UTC');
     expect(html).toContain('svc-protocol did not answer.');
     expect(html).not.toMatch(/protocol\.chainStatus/);
   });

@@ -54,12 +54,16 @@ describe('assertOnlyPayoutDestinations (no store)', () => {
 });
 
 describe('memoryPayoutDestinations', () => {
-  it('require refuses until persist, then returns the stored EVM dest', async () => {
+  it('require refuses an unverified persist and returns a verified seed', async () => {
     const dests = memoryPayoutDestinations();
     await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).rejects.toMatchObject({
       code: 'pay.payout_destination_missing',
     });
     await dests.persist({ merchantId: 'm', railId: 'crypto-native', kind: 'crypto', ref: EVM });
+    await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).rejects.toMatchObject({
+      code: 'pay.payout_destination_missing',
+    });
+    await dests.seedVerified({ merchantId: 'm', railId: 'crypto-native', kind: 'crypto', ref: EVM });
     await expect(dests.require({ merchantId: 'm', railId: 'crypto-native' })).resolves.toEqual({
       kind: 'crypto',
       ref: EVM,

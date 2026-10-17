@@ -148,13 +148,18 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       from: new Date(0),
       to: new Date(Date.now() + 60000),
     });
+    await pay.destinationBook().seedVerified({
+      merchantId: child.id,
+      railId: 'card-sandbox',
+      kind: 'bank',
+      ref: 'DE89370400440532013000',
+    });
     const payout = {
       settlementId: settlement.id,
       railId: 'card-sandbox',
-      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
     };
     if (apiKey) {
-      // pay:payout is interactive-only, so an API key is refused before the MFA gate.
+      // pay:payout is interactive-only, so an API key is refused before MFA and before any payout.
       await expect(api.settlement.payout(payout)).rejects.toMatchObject({
         message: 'Scope "pay:payout" requires an interactive session and cannot be used from an API key',
       });
@@ -236,15 +241,22 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       });
       expect(created.statusCode, created.body).toBe(200);
       const id = created.json().id;
-      for (const action of ['authorize', 'capture']) {
+      for (const action of ['authorize', 'capture'] as const) {
         const result = await app.inject({
           method: 'POST',
           url: `/v1/payments/${id}/${action}`,
           headers: { ...headers, 'idempotency-key': `delegated-${action}` },
           payload: {},
         });
-        expect(result.statusCode, result.body).toBe(200);
-        expect(result.json().status).toBe(action === 'authorize' ? 'authorized' : 'captured');
+        if (action === 'capture') {
+          // The delegated key is sandbox, so capture is admitted and then refused
+          // before the ledger. The credential still reaches the capture grant.
+          expect(result.statusCode, result.body).toBe(403);
+          expect(result.json().error.code).toBe('pay.sandbox_live_account_refused');
+        } else {
+          expect(result.statusCode, result.body).toBe(200);
+          expect(result.json().status).toBe('authorized');
+        }
       }
       expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture']);
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -356,8 +368,13 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       const request = {
         settlementId: settlement.id,
         railId: 'card-sandbox',
-        destination: { kind: 'bank' as const, ref: 'DE89370400440532013000' },
       };
+      await pay.destinationBook().seedVerified({
+        merchantId: d.child.id,
+        railId: 'card-sandbox',
+        kind: 'bank',
+        ref: 'DE89370400440532013000',
+      });
       await expect(api.settlement.payout(request)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
       await expect(trees.revokePermission({ ...payoutPermission, reason: 'Cut off child payouts' })).rejects.toMatchObject({
         code: 'pay.identity_admission_unavailable',
@@ -372,7 +389,7 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       } else {
         await expect(
           pay.payoutSettlement({ ...request, destination: { kind: 'bank', ref: 'GB82WEST12345698765432' } }),
-        ).rejects.toMatchObject({ code: 'pay.payout_recovery_conflict' });
+        ).rejects.toMatchObject({ code: 'pay.payout_destination_not_allowed' });
         expect((await pay.payoutSettlement(request)).status).toBe('paid_out');
         expect((await pay.payoutSettlement(request)).status).toBe('paid_out');
         expect(await db.sql`SELECT kind FROM pay.payout_outcomes WHERE kind='identity_granted'`).toHaveLength(1);

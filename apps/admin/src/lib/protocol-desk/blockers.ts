@@ -1,5 +1,6 @@
 import { cellOfRow } from '@/lib/ops-desk/model';
 import type { Cell, DeskView } from '@/lib/ops-desk/types';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * The named blockers in front of every Protocol action, worked out from what the founder desk just read.
@@ -225,7 +226,7 @@ function needs<K extends keyof ProtocolFacts>(
     if (found.status === 'ok') return then(found.data as never, facts);
     return blocker('source_down', {
       source: SOURCE_NAMES[key],
-      reason: `${found.reason}${found.asOf ? `, as of ${found.asOf}` : ''}`,
+      reason: `${found.reason}${found.asOf ? `, as of ${formatAsOf(found.asOf)}` : ''}`,
     });
   };
 }

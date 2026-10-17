@@ -11,7 +11,7 @@ import * as schema from './db/schema.js';
 import { PostgresAccountStore } from './db/postgres-store.js';
 import { AccountRegistry } from './accounts/registry.js';
 import { ProtocolChain } from './chain/client.js';
-import { isZeroAddress } from './chain/availability.js';
+import { CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
@@ -132,7 +132,8 @@ app.get('/ready', async (_req, reply) => {
     await chain.client.getBlockNumber();
     return { ready: true };
   } catch (err) {
-    return reply.code(503).send({ ready: false, reason: (err as Error).message });
+    const refusal = classifyChainError(err, 'ready', env.PROTOCOL_RPC_URL);
+    return reply.code(503).send({ ready: false, code: refusal.code, reason: CHAIN_PUBLIC_TEXT[refusal.code] });
   }
 });
 

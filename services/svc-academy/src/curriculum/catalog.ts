@@ -147,7 +147,7 @@ const SPINE_SEED: readonly CurriculumSeed[] = [
   // ── Stage-2 platform-native expansion (not licensed library invent) ───────
   {
     slug: 'foundations-position-sizing',
-    title: 'Position sizing without invent',
+    title: 'Position sizing without inventing numbers',
     kind: 'playbook',
     path: 'foundations',
     order: 30,

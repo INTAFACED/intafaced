@@ -4,6 +4,7 @@ import { accountFactoryAbi, smartAccountAbi } from '../chain/abi.js';
 import { ProtocolChain } from '../chain/client.js';
 import { decodeSignatureEnvelope, getUserOperationHash, type UserOperation } from '../chain/userop.js';
 import { hashSessionSpec, type SessionSpec } from './spec.js';
+import { redactRpcUrl, redactSecrets } from '../chain/availability.js';
 import { withAuthoritySpan } from '../tracing.js';
 
 /**
@@ -237,19 +238,29 @@ export class SessionRelay {
     }
 
     return withAuthoritySpan('relay.submit', { operation: 'submit', account, authority: verification.authority }, async () => {
-      const response = await fetch(bundlerUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_sendUserOperation',
-          params: [serializeUserOperation(userOp), this.chain.config.entryPoint],
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(bundlerUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_sendUserOperation',
+            params: [serializeUserOperation(userOp), this.chain.config.entryPoint],
+          }),
+        });
+      } catch (err) {
+        const detail = redactSecrets(err instanceof Error ? err.message : String(err), bundlerUrl);
+        console.error(`svc-protocol chain refusal code=relay.bundler_unavailable detail=bundler ${redactRpcUrl(bundlerUrl)} ${detail}`);
+        throw new RelayRefusedError('relay.bundler_unavailable', 'The chain connection is not available right now.');
+      }
       const body = (await response.json()) as { result?: Hex; error?: { message?: string } };
       if (!response.ok || body.error) {
-        throw new RelayRefusedError('relay.bundler_rejected', body.error?.message ?? `Bundler HTTP ${response.status}`);
+        const raw = body.error?.message ?? `Bundler HTTP ${response.status}`;
+        const safe = redactSecrets(raw, bundlerUrl);
+        const leaked = safe !== raw || raw.includes(bundlerUrl) || /:\/\//.test(raw);
+        throw new RelayRefusedError('relay.bundler_rejected', leaked ? 'The bundler rejected the operation.' : raw);
       }
       return { userOpHash: body.result ?? verification.userOpHash, authority: verification.authority };
     });

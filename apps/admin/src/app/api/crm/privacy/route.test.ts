@@ -275,7 +275,7 @@ describe('founder-only privacy BFF', () => {
     );
     const response = await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }));
     expect(response.status).toBe(412);
-    expect(await response.json()).toEqual({ code: 'admin.upstream_refused' });
+    expect(await response.json()).toEqual({ code: 'admin.upstream_refused', upstream: 'ops.crm.revision_conflict' });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it.each(['foreign', 'duplicate', 'count', 'revision', 'extra'] as const)('refuses an invalid canonical preview: %s', async (wrong) => {
