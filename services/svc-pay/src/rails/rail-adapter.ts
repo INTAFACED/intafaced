@@ -173,6 +173,16 @@ export interface PaymentIntent {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
+/**
+ * What a rail status query may answer about one original payout key.
+ * `amount` and `assetId` are null when the rail can prove a send but does
+ * not echo the instruction. A disagreeing amount is not a send of this payout.
+ */
+export type PayoutRailStatus =
+  | { readonly status: 'sent'; readonly railRef: string; readonly amount: Amount | null; readonly assetId: string | null }
+  | { readonly status: 'not_sent' }
+  | { readonly status: 'unknown' };
+
 /** §6.1: `payout(s: SettlementInstruction)`. */
 export interface SettlementInstruction {
   readonly settlementId: string;
@@ -830,6 +840,20 @@ export interface RailAdapter {
   capture(ref: string): Promise<RailResult>;
   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
   payout(s: SettlementInstruction): Promise<RailResult>;
+
+  /**
+   * Provider idempotency key `payout` will use for this instruction.
+   * Absent means the core must not call `payout`: it cannot journal the key
+   * a reconciler would have to ask later.
+   */
+  payoutIdempotencyKey?(s: SettlementInstruction): string;
+
+  /**
+   * Whether the ORIGINAL key was sent. Absent means the core has no rail
+   * status query: a dispatched hold stays, and nothing here may reverse it.
+   * `unknown` is the same fact at call time (the rail cannot say).
+   */
+  queryPayout?(idempotencyKey: string): Promise<PayoutRailStatus>;
 
   /**
    * Verify and parse an inbound webhook.

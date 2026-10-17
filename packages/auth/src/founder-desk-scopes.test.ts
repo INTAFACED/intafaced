@@ -52,9 +52,10 @@ describe('founder desk scopes', () => {
       expect(() => assertDelegatableScopes([scope], [scope])).toThrow(/cannot be granted to an API key/);
     }
 
-    // 2FA on the session is the value-movement subset. Desk reads are issued
-    // before MFA; folding them into SESSION_MFA_SCOPES would lock the founder
-    // out of the desk they were just given.
+    // 2FA on the session is the value-movement subset plus pay:onboard
+    // (#4897 left it on the gate requireScope used before this split).
+    // Desk reads are issued before MFA; folding them into SESSION_MFA_SCOPES
+    // would lock the founder out of the desk they were just given.
     for (const scope of SESSION_MFA_SCOPES) {
       expect(INTERACTIVE_ONLY_SCOPES, scope).toContain(scope);
     }

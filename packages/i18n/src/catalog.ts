@@ -170,6 +170,10 @@ export const en = {
   'notify.agents.action.rejected.body': 'A guardrail blocked {tool} ({refusalCode}).',
   'notify.agents.action.completed.title': 'Agent action finished',
   'notify.agents.action.completed.body': 'Your agent finished ({kind}).',
+  'notify.pay.request_created.title': 'Payment request',
+  'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
+  'notify.pay.request_paid.title': 'Request paid',
+  'notify.pay.request_paid.body': '{payerHandle} paid your request for {amount} {assetId}.',
   'notify.bank.margin_call.title': 'Margin call on your loan',
   'notify.bank.margin_call.body':
     'Add {cureCollateralAmount} {collateralAssetId} before {graceExpiresAt} or part of your collateral may be sold.',

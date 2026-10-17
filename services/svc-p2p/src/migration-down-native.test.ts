@@ -23,7 +23,6 @@ const TRADE = '00000000-0000-4000-8000-0000000000a6';
 const OFFER = '00000000-0000-4000-8000-0000000000f0';
 const run = promisify(execFile);
 const runner = fileURLToPath(new URL('../scripts/migrate.ts', import.meta.url));
-const tsx = fileURLToPath(new URL('../../../node_modules/.bin/tsx', import.meta.url));
 
 describe('native transactional P2P counter down', () => {
   it('excludes an actual service claim before the guard and retains its history through DDL rollback', async () => {
@@ -87,7 +86,12 @@ describe('native transactional P2P counter down', () => {
 
   it('runs the production down runner atomically with tracking, restoring DDL on tracking failure', async () => {
     const db = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations: [] });
-    const invoke = (args: string[]) => run(tsx, [runner, ...args], { env: { ...process.env, DATABASE_URL: db.url }, timeout: 5000 });
+    const invoke = (args: string[]) =>
+      run(process.execPath, ['--import', 'tsx', runner, ...args], {
+        env: { ...process.env, DATABASE_URL: db.url },
+        timeout: 5000,
+        killSignal: 'SIGKILL',
+      });
     try {
       await invoke([]);
       expect(await db.sql`SELECT name FROM p2p.__migrations WHERE name=${upFile}`).toHaveLength(1);

@@ -499,6 +499,10 @@ services:
       # reachable halt. Host `.env` publishes it. `docker compose config` stays
       # valid because the variable has an empty default.
       MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
+      # Replay hold check. Read-only balances on svc-ledger. No default in env.ts:
+      # a blank URL leaves a book that replayed resting orders closed. Compose
+      # points at the ledger the same way svc-trade does.
+      LEDGER_URL: http://svc-ledger:4001
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -509,6 +513,8 @@ services:
     healthcheck: *healthcheck
     depends_on:
       <<: *needs-bus
+      svc-ledger:
+        condition: service_healthy
 
   # QuickFIX/J 3.0.2 acceptor (H1). Not the Node image.
   # Pin: services/svc-fix/PIN.quickfixj commit 6334e2d288e5 (QFJ 3.0.2).

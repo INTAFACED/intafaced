@@ -1,8 +1,9 @@
 # ADR addendum: A2 grantor stays owner-named (D26-P0-08)
 
-**Status:** **Accepted — 2026-08-15 (mechanism freeze, not A2 content).**  
+**Status:** **Accepted — 2026-08-15 (mechanism freeze, not A2 content).**
+**Published 2026-10-17:** Nitro named the four answers ("yes grant law"). `issueMerchantPayScopes` now grants `pay:read` and `pay:write` to the owner of one KYB-approved merchant, and refuses everyone else, a second merchant id, refund, payout, and a suspended or closed merchant. This addendum is the record of why issuance stayed refuse-closed until that naming. It is not an instruction to keep refusing.  
 **Cites (do not rewrite):** [`2026-08-12-pay-write-kyb-grant-mechanism-shape.md`](2026-08-12-pay-write-kyb-grant-mechanism-shape.md) — Layer A/B split and Layer B KYB money gate stay as written.  
-**Also on tip:** [`2026-08-13-pay-write-grant-a2-unpublished.md`](2026-08-13-pay-write-grant-a2-unpublished.md) (unpublished → refuse). This addendum corrects the packet: **mechanism only**. A2 answers are still owner.  
+**Also on tip:** [`2026-08-13-pay-write-grant-a2-unpublished.md`](2026-08-13-pay-write-grant-a2-unpublished.md) (the unpublished → refuse seal, kept as history). This addendum corrected the packet to **mechanism only** until the owner named the four answers. Those answers are now the published law in `packages/auth/src/merchant-pay-scope-grant.ts`.  
 **Decision owner (grantor / predicates / revocation):** Nitro (DIRECTION §8 item 4). **Written by:** Denon.  
 **Does not invent:** who may grant, role names, dual-control, per-scope KYB thresholds, sandbox temporary grants, or who revokes.
 
@@ -12,29 +13,27 @@
 
 > **`issueMerchantPayScopes` stays refuse-closed until the owner names grantor, predicates, and revocation. Approving KYB is not a grant.**
 
-That is the whole A2 freeze. Agents do not fill the four A2 fields in git. Layer B (`kybStatus` on live money doors) is not issuance and is not restated here.
+That was the A2 freeze. It ended when Nitro named the four answers on 2026-10-17. Approving KYB is still not itself a grant: a call site has to invoke `issueMerchantPayScopes`. Layer B (`kybStatus` on live money doors) is not issuance and is not restated here.
 
 ---
 
 ## What this does not change
 
 - Shape ADR Layer B (KYB money gate vs dossier vs scopes) — **untouched**.
-- `packages/auth` refuse stub — **untouched** this PR.
+- `packages/auth` refuse stub — replaced by the published owner law on 2026-10-17. The historical unpublished code is no longer thrown.
 - Open Denon pay PRs / `services/svc-pay` — **untouched**.
 - Ordinary sessions still do not carry `pay:*`.
 
 ---
 
-## What remains owner-open
+## The four answers (named 2026-10-17)
 
-Until Nitro publishes (config / authority store — not a source seed):
+1. The merchant owner receives the grant. Admin, finance, developer, and viewer do not.
+2. Approved KYB is required for `pay:read` and `pay:write`. `pay:refund` and `pay:payout` stay withheld.
+3. There is no sandbox temporary grant.
+4. A suspended or closed merchant is refused. Pending is allowed once KYB is approved. The grant names one merchant id.
 
-1. Who may invoke the grantor.
-2. Which KYB predicate applies before each of `pay:read` / `pay:write` / `pay:refund` / `pay:payout`.
-3. Sandbox vs live temporary grant (if any; never upgrades live).
-4. Who may revoke and whether suspension strips `pay:*`.
-
-Until those four are named by the owner, call sites must surface refuse. Wiring that invokes the named op is allowed; allowing is not.
+The product starter fee is still unset. A local-test stand-in is not that number.
 
 ---
 

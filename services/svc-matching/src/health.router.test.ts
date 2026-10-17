@@ -61,6 +61,9 @@ describe('GET /health venueHalted', () => {
       markets: 0,
       restingOrders: 0,
       journalRecords: 0,
+      admissionOpen: true,
+      admissionReason: null,
+      holdHalted: [],
     });
   });
 

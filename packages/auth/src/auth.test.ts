@@ -224,6 +224,8 @@ describe('delegation — an API key cannot exceed the session that minted it', (
     // A step-up session genuinely holds `trade:withdraw`. A long-lived key must
     // still never carry it (§9).
     expect(() => assertDelegatableScopes(['trade:withdraw'], ['trade:withdraw'])).toThrow(/interactive/);
+    expect(() => assertDelegatableScopes(['pay:onboard'], ['pay:onboard'])).toThrow(/interactive/);
+    expect(() => assertKeyScopesAllowed(['pay:onboard'])).toThrow(/API key/);
   });
 
   it('refuses unknown scope strings instead of storing them', () => {
@@ -354,6 +356,33 @@ describe('guards', () => {
       thrown = err;
     }
     expect(thrown).toMatchObject({ code: 'mfa.required' });
+  });
+
+  it('keeps pay:onboard off a key and still demands 2FA on a session', async () => {
+    const session = await principal({ scopes: ['pay:onboard'], mfa: false });
+    let withoutMfa: unknown;
+    try {
+      requireScope(session, 'pay:onboard');
+    } catch (err) {
+      withoutMfa = err;
+    }
+    expect(withoutMfa).toMatchObject({ code: 'mfa.required' });
+
+    const stepped = await principal({ scopes: ['pay:onboard'], mfa: true });
+    expect(() => requireScope(stepped, 'pay:onboard')).not.toThrow();
+
+    const keyed = await principal({
+      scopes: ['pay:onboard'],
+      mfa: true,
+      apiKeyId: '77777777-7777-4777-8777-777777777777',
+    });
+    let fromKey: unknown;
+    try {
+      requireScope(keyed, 'pay:onboard');
+    } catch (err) {
+      fromKey = err;
+    }
+    expect(fromKey).toMatchObject({ code: 'scope.interactive_only' });
   });
 });
 

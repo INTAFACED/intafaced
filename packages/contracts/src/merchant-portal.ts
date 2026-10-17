@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
+import { payAmountStringSchema, payAssetCodeSchema, payBpsSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
 import { payListCursorSchema } from './pay-merchant-reads.js';
 
 /**
@@ -11,6 +11,19 @@ import { payListCursorSchema } from './pay-merchant-reads.js';
  * not-configured state: this module does not publish a fee, a cap, or a terms
  * version.
  */
+
+/**
+ * Local-test starter fee, when the pay service was booted with one.
+ * Absent on the product: the starter fee is not set yet. `local_test` is the
+ * only source this contract names, so a screen can label it as a test fee.
+ */
+export const merchantStarterFeeSchema = z
+  .object({
+    bps: payBpsSchema,
+    source: z.literal('local_test'),
+  })
+  .strict();
+export type MerchantStarterFeeView = z.infer<typeof merchantStarterFeeSchema>;
 
 export const MERCHANT_PORTAL_ROLES = ['owner', 'admin', 'finance', 'developer', 'viewer'] as const;
 export const merchantPortalRoleSchema = z.enum(MERCHANT_PORTAL_ROLES);

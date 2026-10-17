@@ -28,6 +28,8 @@ export const SCOPES = [
   'pay:write',
   'pay:refund',
   'pay:payout',
+  // Opening a merchant account. Not an acquiring scope: it cannot move money.
+  'pay:onboard',
 
   // P2P
   'p2p:read',
@@ -128,7 +130,7 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
 /**
  * Scopes that must never be granted to a long-lived API key.
  *
- * Two membership tests, both closed:
+ * Three membership tests, all closed:
  *
  *   1. Moves value OFF the platform (`trade:withdraw`, `admin:treasury`,
  *      `bank:card`, `pay:payout`). A leaked key must not be able to do that on
@@ -143,6 +145,10 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
  *      before MFA; their second factor, where a procedure needs one, stays a
  *      local `requireMfa` — being interactive-only is not the same as
  *      requiring 2FA.
+ *   3. `pay:onboard` (#4897). It does not move money. It is interactive-only
+ *      so it can never sit on an API key. Main's `requireScope` treated every
+ *      member of this list as the 2FA gate, and a login token is issued with
+ *      `mfa: false`, so it stays in `SESSION_MFA_SCOPES` too.
  *
  * `pay:payout` was the value-movement miss: it sends a merchant's settled
  * balance out through a rail, the same class as `trade:withdraw`. Found by the
@@ -153,6 +159,7 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
   'admin:treasury',
   'bank:card',
   'pay:payout',
+  'pay:onboard',
   'admin:read',
   'admin:write',
   'admin:compliance',
@@ -167,8 +174,10 @@ export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
  * before MFA (`admin:read`, `support:ops`) and the ones whose procedures call
  * `requireMfa` themselves (`admin:write`, `admin:compliance`, `market:ops`)
  * are interactive-only — refused on an API key — and are not in this list.
+ * `pay:onboard` is in this list because #4897 put it on the list `requireScope`
+ * used as the 2FA gate.
  */
-export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
+export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout', 'pay:onboard'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
@@ -346,15 +355,15 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // moving through a merchant we onboarded. Granted by merchant onboarding, not
   // by holding an account.
   //
-  // Grant mechanism (D26-P0-08 → D26-P1-P10): ADR
-  // docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md + refuse-closed
-  // `issueMerchantPayScopes` / `assertMerchantPayScopeGrantAllowed`. DIRECTION
-  // §8 item 4 — never invent the grantor or KYB threshold. Layer B live KYB
-  // money gate is separate (`pay.kyb_required` in svc-pay).
+  // Grant mechanism (D26-P0-08 → P1-P10): `issueMerchantPayScopes`.
+  // Published 2026-10-17: the owner of one KYB-approved merchant receives
+  // pay:read and pay:write for that merchant. These four stay off ordinary
+  // sessions. Layer B (`pay.kyb_required`) is a separate money gate.
   'pay:read': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',
   'pay:payout': 'Merchant acquiring surface, and interactive-only (§9)',
+  'pay:onboard': 'Opens one root merchant account. Interactive only, so it can never sit on an API key. Not issued on an ordinary session.',
 
   // §18 card issuance. In INTERACTIVE_ONLY_SCOPES: it authorises spend from a
   // funded card, so it needs a 2FA session and must never sit on a long-lived
