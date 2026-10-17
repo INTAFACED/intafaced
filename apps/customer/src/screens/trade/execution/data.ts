@@ -36,7 +36,10 @@ export function useExecMarkets(): Loadable<ExecMarket[]> {
     async (signal) => {
       const result = await api.rest('/markets', z.array(deskListingSchema), { query: { limit: 500 }, signal });
       if (!result.ok) return result;
-      const rows = result.data.filter((m) => m.spot && !m.paper).map((m) => ({ ...toDeskMarket(m), taker: m.taker, maker: m.maker }));
+      const rows = result.data
+        .filter((m) => m.spot && !m.paper)
+        .map((m) => ({ ...toDeskMarket(m), taker: m.taker, maker: m.maker }))
+        .sort((a, b) => Number(b.open) - Number(a.open));
       return { ok: true, data: rows };
     },
     ROOM_INTERVALS.markets,

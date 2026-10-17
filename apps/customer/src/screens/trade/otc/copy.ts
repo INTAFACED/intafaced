@@ -18,6 +18,7 @@ const messages = {
   Desk: 'Desk',
   Open: 'Open',
   Closed: 'Closed',
+  'Desk open reason': 'The desk has published its spread, stake rule and counterparty.',
   'Desk closed reason': 'The desk spread, stake gate and counterparty are not published yet.',
   'Maker routing': 'Maker routing',
   Routed: 'Routed',
@@ -115,7 +116,8 @@ const messages = {
     'A price request holds nothing and has no id to look up until the desk answers. The lock is cleared. If the desk did answer, open the quote by id.',
   'Check done': 'Confirmed: the original request for {id} went through. The lock is cleared.',
   'Check not done': 'Confirmed: the original request for {id} did not take effect. The lock is cleared.',
-  'Check unresolved': '{id} is still in the same stage, so the original request may still land. New requests stay locked; check again shortly.',
+  'Check unresolved':
+    '{id} is still in the same stage, so the original request may still land. New requests stay locked; check again shortly.',
   'Check could not read': 'We couldn’t read {id} just now. New requests stay locked until it can be checked.',
 
   // Quotes table
@@ -152,7 +154,8 @@ const messages = {
   'Export count': '{count} quotes read in this browser.',
 
   // Allocation and give-up
-  'Allocation intro': 'Splitting a quote across accounts, or passing it to a carrying account, is not offered yet. The desk refuses both by name.',
+  'Allocation intro':
+    'Splitting a quote across accounts, or passing it to a carrying account, is not offered yet. The desk refuses both by name.',
   Allocation: 'Allocation',
   'Give-up': 'Give-up',
   'Allocation law': 'Refused until an owner-published rule names the accounts. Code:',
@@ -166,7 +169,8 @@ const messages = {
   'Rule firm': 'Firm until expiry',
   'Rule firm body': 'A quote holds its price until its expiry time. After that it holds nothing.',
   'Rule last look': 'No last look',
-  'Rule last look body': 'The desk can’t re-price after you accept, and you can’t ask for a different price. Accept sends the quoted price back; a mismatch is refused.',
+  'Rule last look body':
+    'The desk can’t re-price after you accept, and you can’t ask for a different price. Accept sends the quoted price back; a mismatch is refused.',
   'Rule settle': 'Settle order',
   'Rule settle body': 'The desk’s side is held first, then yours. Until you settle, your funds stay held.',
   'Rule whole': 'Whole size only',

@@ -33,7 +33,7 @@ export function usePairs(api: RoomApi): Loadable<PairOption[]> {
       const seen = new Set<string>();
       const pairs: PairOption[] = [];
       for (const m of result.data) {
-        if (!m.spot || m.paper || seen.has(m.symbol)) continue;
+        if (!m.spot || m.paper || !m.orderable || seen.has(m.symbol)) continue;
         seen.add(m.symbol);
         pairs.push({ symbol: m.symbol, base: m.base, quote: m.quote, lot: m.precision.amount });
       }

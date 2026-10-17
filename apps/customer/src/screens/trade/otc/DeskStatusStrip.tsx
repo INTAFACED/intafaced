@@ -11,7 +11,12 @@ function Item({ label, on, onWord, offWord, why }: { label: string; on: boolean;
     <div className="flex min-w-0 flex-col gap-0.5">
       <div className="flex items-center gap-2 text-sm text-fg-2">
         {label}
-        <Badge tone={on ? 'lime' : 'warn'} variant="outline" density="dense" icon={on ? <CircleCheck size={12} /> : <CircleSlash size={12} />}>
+        <Badge
+          tone={on ? 'lime' : 'warn'}
+          variant="outline"
+          density="dense"
+          icon={on ? <CircleCheck size={12} /> : <CircleSlash size={12} />}
+        >
           {on ? onWord : offWord}
         </Badge>
       </div>
@@ -35,7 +40,7 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
       </div>
     );
   if (desk.status === 'empty') return <p className="m-0 text-sm text-fg-2">{t('Desk status empty')}</p>;
-  const { published, residual, makerRouting, midFeed } = desk.data;
+  const { published, makerRouting, midFeed } = desk.data;
   return (
     <section aria-label={t('Desk status')} className="flex flex-wrap gap-x-8 gap-y-3 rounded-md border border-line bg-panel p-3">
       <Item
@@ -43,26 +48,21 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
         on={published}
         onWord={t('Open')}
         offWord={t('Closed')}
-        why={published ? desk.data.statusLine : residual?.trim() || t('Desk closed reason')}
+        why={published ? t('Desk open reason') : t('Desk closed reason')}
       />
       <Item
         label={t('Maker routing')}
         on={makerRouting?.published === true}
         onWord={t('Routed')}
         offWord={t('Platform only')}
-        why={makerRouting?.published ? t('Routing on') : makerRouting?.residual?.trim() || t('Routing off')}
+        why={makerRouting?.published ? t('Routing on') : t('Routing off')}
       />
       <Item
         label={t('Mid feed')}
         on={midFeed?.published === true}
         onWord={t('Wired')}
         offWord={t('Not wired')}
-        why={
-          <>
-            {midFeed?.published ? t('Mid feed on') : midFeed?.residual?.trim() || t('Mid feed off')}
-            {midFeed ? <span className="ms-2 font-mono">{midFeed.wiring}</span> : null}
-          </>
-        }
+        why={midFeed?.published ? t('Mid feed on') : t('Mid feed off')}
       />
     </section>
   );

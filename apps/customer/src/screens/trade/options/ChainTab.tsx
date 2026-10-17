@@ -29,7 +29,17 @@ export const isComplete = (m: ListedMarket): boolean => Boolean(m.optionType && 
 export const isOpen = (m: ListedMarket): boolean => m.orderable && m.active && m.sessionOpen;
 const expiryDay = (m: ListedMarket) => (m.expiryDatetime ? m.expiryDatetime.slice(0, 10) : null);
 
-function Filter({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (v: string) => void }) {
+function Filter({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  onChange: (v: string) => void;
+}) {
   return (
     <Select items={Object.fromEntries(options)} value={value} onValueChange={(v) => onChange(v ?? ALL)}>
       <SelectTrigger size={32} aria-label={label}>
@@ -69,7 +79,14 @@ export function ChainTab({
   const expiries = useMemo(() => [...new Set(all.map(expiryDay).filter((d): d is string => d !== null))].sort(), [all]);
 
   const columns: TableColumn<ListedMarket>[] = [
-    { id: 'symbol', header: t('Contract'), value: (m) => m.symbol, sortable: true, pin: 'start', cell: (m) => <span className="font-mono">{m.symbol}</span> },
+    {
+      id: 'symbol',
+      header: t('Contract'),
+      value: (m) => m.symbol,
+      sortable: true,
+      pin: 'start',
+      cell: (m) => <span className="font-mono">{m.symbol}</span>,
+    },
     {
       id: 'right',
       header: t('Call or put'),
@@ -77,7 +94,14 @@ export function ChainTab({
       sortable: true,
       cell: (m) => (m.optionType ? <Badge>{m.optionType === 'call' ? t('Call') : t('Put')}</Badge> : null),
     },
-    { id: 'strike', header: t('Strike'), numeric: true, sortable: true, value: (m) => m.strike ?? null, cell: (m) => (m.strike ? fmtAmount(m.strike, { places: 8 }) : null) },
+    {
+      id: 'strike',
+      header: t('Strike'),
+      numeric: true,
+      sortable: true,
+      value: (m) => m.strike ?? null,
+      cell: (m) => (m.strike ? fmtAmount(m.strike, { places: 8 }) : null),
+    },
     {
       id: 'expiry',
       header: t('Expires'),
@@ -88,12 +112,19 @@ export function ChainTab({
         const left = timeLeft(m.expiryDatetime, now);
         return (
           <span>
-            {formatAsOf(Date.parse(m.expiryDatetime), { now })} <span className="text-fg-2">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
+            {formatAsOf(Date.parse(m.expiryDatetime), { now })}{' '}
+            <span className="text-fg-2">{left ? t('in {time}', { time: left }) : t('Expired')}</span>
           </span>
         );
       },
     },
-    { id: 'size', header: t('Contract size'), numeric: true, value: (m) => m.contractSize ?? null, cell: (m) => (m.contractSize ? fmtAmount(m.contractSize, { places: 8 }) : null) },
+    {
+      id: 'size',
+      header: t('Contract size'),
+      numeric: true,
+      value: (m) => m.contractSize ?? null,
+      cell: (m) => (m.contractSize ? fmtAmount(m.contractSize, { places: 8 }) : null),
+    },
     { id: 'settle', header: t('Settles in'), value: (m) => m.settle ?? null },
     {
       id: 'status',
@@ -101,22 +132,32 @@ export function ChainTab({
       cell: (m) => (
         <span className="inline-flex gap-1">
           <Badge variant="outline">{m.paper ? t('Paper') : t('Live')}</Badge>
-          {!isComplete(m) ? <Badge tone="warn">{t('Terms incomplete')}</Badge> : <Badge tone={isOpen(m) ? 'lime' : 'neutral'}>{isOpen(m) ? t('Open') : t('Closed')}</Badge>}
+          {!isComplete(m) ? (
+            <Badge tone="warn">{t('Terms incomplete')}</Badge>
+          ) : (
+            <Badge tone={isOpen(m) ? 'lime' : 'neutral'}>{isOpen(m) ? t('Open') : t('Closed')}</Badge>
+          )}
         </span>
       ),
     },
-    ...(['Bid', 'Ask', 'IV', 'Delta'] as const).map(
-      (name): TableColumn<ListedMarket> => ({ id: name.toLowerCase(), header: <span title={t('No quote feed hint')}>{t(name)}</span>, headerLabel: t(name), numeric: true, value: () => null }),
-    ),
+    ...(['Bid', 'Ask', 'IV', 'Delta'] as const).map((name): TableColumn<ListedMarket> => ({
+      id: name.toLowerCase(),
+      header: <span title={t('No quote feed hint')}>{t(name)}</span>,
+      headerLabel: t(name),
+      numeric: true,
+      value: () => null,
+    })),
   ];
 
   const rows = all.filter(
-    (m) => (underlying === ALL || m.base === underlying) && (expiry === ALL || expiryDay(m) === expiry) && (right === ALL || m.optionType === right),
+    (m) =>
+      (underlying === ALL || m.base === underlying) &&
+      (expiry === ALL || expiryDay(m) === expiry) &&
+      (right === ALL || m.optionType === right),
   );
   const sorted = sortRows(rows, columns, sort);
 
   const gaps = policy.status === 'ready' ? policyGaps(policy.data) : [];
-  const blockers = policy.status === 'ready' ? policy.data.blockers.join(' · ') : undefined;
   const none =
     markets.status === 'ready' && all.length === 0 ? (
       <EmptyState
@@ -127,7 +168,6 @@ export function ChainTab({
             ? [...gaps.map((g) => (g === 'settlement' ? t('Blocker settlement') : t('Blocker fixing'))), t('Blocker terms')].join(' ')
             : t('Blocker generic')
         }
-        code={blockers || undefined}
       />
     ) : (
       <EmptyState title={t('No contract matches')} reason={t('Clear a filter')} />
@@ -138,8 +178,18 @@ export function ChainTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Filter label={t('Underlying')} value={underlying} options={[[ALL, t('All underlyings')], ...underlyings.map((u): [string, string] => [u, u])]} onChange={setUnderlying} />
-        <Filter label={t('Expiry')} value={expiry} options={[[ALL, t('All expiries')], ...expiries.map((d): [string, string] => [d, d])]} onChange={setExpiry} />
+        <Filter
+          label={t('Underlying')}
+          value={underlying}
+          options={[[ALL, t('All underlyings')], ...underlyings.map((u): [string, string] => [u, u])]}
+          onChange={setUnderlying}
+        />
+        <Filter
+          label={t('Expiry')}
+          value={expiry}
+          options={[[ALL, t('All expiries')], ...expiries.map((d): [string, string] => [d, d])]}
+          onChange={setExpiry}
+        />
         <SegmentedControl
           aria-label={t('Call or put')}
           size={32}
