@@ -118,3 +118,43 @@ describe('what the founder is asked to type and read', () => {
     expect(packetExpired(packet, new Date('2026-10-17T03:10:00.000Z'))).toBe(true);
   });
 });
+
+describe('market and academy requests', () => {
+  const vendorId = '5a3b9c10-1111-4222-8333-444455556666';
+  const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const vet = { kind: 'market.vendor.vet', vendorId, decision: 'approved', reason: 'documents checked against the application' } as const;
+  const freeze = { kind: 'academy.ambassador.freeze', userId, reason: 'conduct complaint under review' } as const;
+  const unfreeze = { kind: 'academy.ambassador.unfreeze', userId } as const;
+
+  it('round-trip as packets', () => {
+    for (const request of [vet, freeze, unfreeze]) {
+      expect(decodePacket(encodePacket({ ...packet, request }))).toEqual({ ok: true, packet: { ...packet, request } });
+    }
+  });
+
+  it('are read strictly: ids must be UUIDs, decisions known, no extra keys, reasons long enough', () => {
+    expect(readDeskRequest({ ...vet, vendorId: 'not-a-uuid' })).toBeNull();
+    expect(readDeskRequest({ ...vet, decision: 'delisted' })).toBeNull();
+    expect(readDeskRequest({ ...vet, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...vet, extra: 1 })).toBeNull();
+    expect(readDeskRequest({ ...freeze, userId: '1234' })).toBeNull();
+    expect(readDeskRequest({ ...unfreeze, reason: 'not part of an unfreeze' })).toBeNull();
+    expect(readDeskRequest(vet)).toEqual(vet);
+  });
+
+  it('phrases name the verb and the first eight characters of the id', () => {
+    expect(confirmPhrase(vet)).toBe('APPROVE VENDOR 5a3b9c10');
+    expect(confirmPhrase({ ...vet, decision: 'rejected' })).toBe('REJECT VENDOR 5a3b9c10');
+    expect(confirmPhrase({ ...vet, decision: 'suspended' })).toBe('SUSPEND VENDOR 5a3b9c10');
+    expect(confirmPhrase(freeze)).toBe('FREEZE AMBASSADOR 9f8e7d6c');
+    expect(confirmPhrase(unfreeze)).toBe('UNFREEZE AMBASSADOR 9f8e7d6c');
+  });
+
+  it('are described with the full id, and an unfreeze has no reason', () => {
+    expect(describeRequest(vet)).toContain(vendorId);
+    expect(describeRequest(freeze)).toContain(userId);
+    expect(requestReason(vet)).toBe(vet.reason);
+    expect(requestReason(freeze)).toBe(freeze.reason);
+    expect(requestReason(unfreeze)).toBeNull();
+  });
+});
