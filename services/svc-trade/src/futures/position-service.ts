@@ -1935,3 +1935,43 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
     percentage: null,
   };
 }
+
+/**
+ * Stored futures entry is the size-weighted average of opening fills.
+ * A reducing fill leaves that price. A caller-supplied price is not stored.
+ */
+export function storedEntryAfterFill(
+  position: { readonly size: Amount; readonly entryPrice: Amount },
+  fill: { readonly effect: 'open' | 'reduce'; readonly qty: Amount; readonly price: Amount },
+): { size: Amount; entryPrice: Amount } {
+  if (fill.qty <= 0n) {
+    throw new FuturesError(`fill qty must be greater than zero, got ${formatAmount(fill.qty)}`, 'trade.size_invalid', 400);
+  }
+  if (fill.effect === 'reduce') {
+    if (fill.qty > position.size) {
+      throw new FuturesError('a reducing fill is larger than the position', 'trade.size_invalid', 400);
+    }
+    return { size: (position.size - fill.qty) as Amount, entryPrice: position.entryPrice };
+  }
+  if (fill.price <= 0n) {
+    throw new FuturesError('an opening fill needs a positive price', 'trade.invalid_price', 400);
+  }
+  const newSize = (position.size + fill.qty) as Amount;
+  if (position.size === 0n) return { size: newSize, entryPrice: fill.price };
+  const entry = ((position.size * position.entryPrice + fill.qty * fill.price) / newSize) as Amount;
+  return { size: newSize, entryPrice: entry };
+}
+
+export function entryFromOpeningFills(
+  fills: readonly { readonly qty: Amount; readonly price: Amount }[],
+  callerPrice?: Amount,
+): { size: Amount; entryPrice: Amount } {
+  if (callerPrice != null && fills.length === 0) {
+    throw new FuturesError('a caller-supplied price is not stored as the entry', 'trade.invalid_price', 400);
+  }
+  let position: { size: Amount; entryPrice: Amount } = { size: 0n as Amount, entryPrice: 0n as Amount };
+  for (const fill of fills) {
+    position = storedEntryAfterFill(position, { effect: 'open', qty: fill.qty, price: fill.price });
+  }
+  return position;
+}
