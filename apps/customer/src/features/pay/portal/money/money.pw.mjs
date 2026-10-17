@@ -1,16 +1,17 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { createPortalMock, USER_ID } from '../portal.mock.mjs';
+import { OWNER_SCOPES, OWNER_SCOPES_WITH_MONEY, accessTokenFor, createPortalMock, USER_ID } from '../portal.mock.mjs';
 
 // The real App, the real sign-in form, and the mocked pay service (portal.mock.mjs). Every figure and name is TEST data.
 const shots = process.env.PORTAL_SHOTS_DIR;
 if (shots) mkdirSync(shots, { recursive: true });
-const session = {
+// The owner session carries the scopes the test names: with money (refund, payout) unless the test passes `scopes`.
+const sessionFor = (scopes = OWNER_SCOPES_WITH_MONEY) => ({
   userId: USER_ID,
-  accessToken: 'portal-test-only',
+  accessToken: accessTokenFor(scopes),
   refreshToken: 'portal-test-refresh',
   expiresAt: '2027-10-08T00:00:00Z',
-};
+});
 const reply = (route, data) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: { data } }) });
 
 async function setup(page, scenario = 'active', options = {}) {
@@ -21,7 +22,7 @@ async function setup(page, scenario = 'active', options = {}) {
       body: JSON.stringify({ error: 'Unavailable', message: 'The service is offline.' }),
     }),
   );
-  await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, session));
+  await page.route('**/api/identity/trpc/auth.login', (route) => reply(route, sessionFor(options.scopes)));
   await page.route('**/api/identity/trpc/webauthn.list?*', (route) => reply(route, []));
   const mock = createPortalMock(scenario, options);
   await mock.install(page);
@@ -211,4 +212,79 @@ test('approvals and payouts name the same payout the same way', async ({ page })
   // the names settle once each payout's day is known
   await expect.poll(async () => (await names()).length).toBeGreaterThan(0);
   await expect.poll(async () => (await names()).every((n) => payoutNames.includes(n))).toBe(true);
+});
+
+// ---- refund and payout controls follow the session --------------------------------------------------------------------------
+
+const REFUND_OFF = 'Refunding needs a confirmed sign-in step that this deployment does not offer.';
+const PAYOUT_OFF = 'Paying out needs a confirmed sign-in step that this deployment does not offer.';
+const PAYMENT = 'aa000001-0000-4000-8000-000000000001';
+
+test('an owner session without refund or payout scopes sees every money-out control off, with the reason', async ({ page }) => {
+  // Identity grants an owner pay:read, pay:write and pay:onboard only.
+  const { mock } = await setup(page, 'active', { scopes: OWNER_SCOPES });
+  await signIn(page, '/pay/merchant');
+  const overview = page.locator('.plo-actions');
+  await expect(overview.getByRole('button', { name: 'Pay out' })).toBeDisabled();
+  await expect(overview.getByRole('button', { name: 'Refund' })).toBeDisabled();
+  await expect(overview.getByText(PAYOUT_OFF)).toBeVisible();
+  await expect(overview.getByText(REFUND_OFF)).toBeVisible();
+  // making a link is an ordinary write and stays on
+  await expect(overview.getByRole('link', { name: 'Create payment link' })).toBeVisible();
+  await snap(page, 'ar6-overview-money-off');
+  for (const [path, button, why] of [
+    ['/pay/money', 'Pay out', PAYOUT_OFF],
+    ['/pay/payouts', 'Pay out', PAYOUT_OFF],
+    ['/pay/settlements', 'Pay out', PAYOUT_OFF],
+    ['/pay/refunds', 'Issue a refund', REFUND_OFF],
+    [`/pay/payments/${PAYMENT}`, 'Refund', REFUND_OFF],
+  ]) {
+    await go(page, path);
+    await expect(page.getByRole('button', { name: button, exact: true }).first(), path).toBeDisabled();
+    await expect(page.getByText(why).first(), path).toBeVisible();
+  }
+  await snap(page, 'ar6-payments-refund-off');
+  await go(page, '/pay/refunds/new');
+  await expect(page.getByText(REFUND_OFF).first()).toBeVisible();
+  const choose = page.getByRole('button', { name: 'Refund this payment' });
+  await expect(choose.first()).toBeDisabled();
+  await snap(page, 'ar6-refund-new-off');
+  await go(page, `/pay/refunds/new?payment=${PAYMENT}`);
+  await expect(page.getByText(REFUND_OFF).first()).toBeVisible();
+  await go(page, '/pay/payouts/new');
+  // the form stands, and nothing is sent: asking for approval carries the payout scope too
+  await expect(page.getByText(PAYOUT_OFF).first()).toBeVisible();
+  expect(
+    mock.calls.filter(
+      (c) => c.method !== 'GET' && /^(settlement\.payout|merchantControl\.approvals\.request|payment\.refund)$/.test(c.procedure),
+    ),
+  ).toHaveLength(0);
+});
+
+test('an owner session that carries the scopes sees the same controls on', async ({ page }) => {
+  await setup(page, 'active', { scopes: OWNER_SCOPES_WITH_MONEY });
+  await signIn(page, '/pay/merchant');
+  const overview = page.locator('.plo-actions');
+  await expect(overview.getByRole('link', { name: 'Pay out' })).toBeVisible();
+  await expect(overview.getByRole('link', { name: 'Refund' })).toBeVisible();
+  await go(page, '/pay/refunds');
+  await expect(page.getByRole('link', { name: 'Issue a refund' }).first()).toBeVisible();
+  await expect(page.getByText(REFUND_OFF)).toHaveCount(0);
+});
+
+test('one fee story, and the Today tiles name their UTC day', async ({ page }) => {
+  await setup(page);
+  await signIn(page, '/pay/merchant');
+  await expect(page.getByText('Starter fee 1.50% (TEST value) — taken when a payment settles')).toBeVisible();
+  const day = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  await expect(page.getByText(`Today (UTC): ${day}`).first()).toBeVisible();
+  await go(page, '/pay/pricing');
+  await expect(page.getByText('Starter fee 1.50% (TEST value) — taken when a payment settles')).toBeVisible();
+  await expect(page.getByText('INTAFACED has not published pricing')).toHaveCount(0);
+  await go(page, '/pay/money');
+  await expect(page.getByText(`Today (UTC): ${day}`).first()).toBeVisible();
+  for (const path of ['/pay/merchant', '/pay/pricing', `/pay/payments/${PAYMENT}`, '/pay/limits']) {
+    await go(page, path);
+    await expect(page.locator('main')).not.toContainText(/\bbps\b|basis points|\byet\b.*(not set|no tier)/i);
+  }
 });

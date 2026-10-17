@@ -22,6 +22,8 @@ const none: MerchantAccessValue = {
   reload: () => undefined,
   can: () => false,
   canOwnerWrite: false,
+  sessionScopes: null,
+  moneyReason: () => 'off',
 };
 const ctx: RoomContext = { portal: {} as PortalApi, authority: null, access: none, starterFeeBps: null };
 const show = (route: PortalRoute) => renderToString(<PortalPage route={route} ctx={ctx} />);

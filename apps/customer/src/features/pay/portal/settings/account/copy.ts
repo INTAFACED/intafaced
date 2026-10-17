@@ -33,7 +33,7 @@ const en = {
   rFeeInvalid: 'That fee isn’t valid. Enter a percentage between 0 and 100.',
 
   // ---- shared bits
-  notSet: 'Not set up yet',
+  notSet: 'Not set up',
   acUnsaved: 'You have changes that are not saved. Leave this page anyway?',
   fReason: 'Reason',
   hReason: 'A few words on why. Recorded with the change. At least 3 characters.',

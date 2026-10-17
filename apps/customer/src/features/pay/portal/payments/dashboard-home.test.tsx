@@ -4,6 +4,7 @@ import { LayoutDashboardView, RecentPaymentsView } from './DashboardHome';
 import { usagePercent } from './TierUsage';
 import { type Snapshot } from '../schemas';
 import type { DashboardData } from './Dashboard';
+import { withMoneyScopes } from '../access/money-test-kit';
 vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
@@ -33,17 +34,20 @@ const data: DashboardData = {
   series: { status: 'ready', data: { merchantId: 'TEST', freshness: snapshot.freshness, points: [] } },
 };
 const noop = () => undefined;
-const view = (patch: Partial<Parameters<typeof LayoutDashboardView>[0]> = {}) =>
+const view = (patch: Partial<Parameters<typeof LayoutDashboardView>[0]> = {}, held = true) =>
   renderToString(
-    <LayoutDashboardView
-      merchant={null}
-      role="owner"
-      data={data}
-      retry={noop}
-      todayDay="2026-10-16"
-      activity={<p>TEST activity</p>}
-      {...patch}
-    />,
+    withMoneyScopes(
+      <LayoutDashboardView
+        merchant={null}
+        role="owner"
+        data={data}
+        retry={noop}
+        todayDay="2026-10-16"
+        activity={<p>TEST activity</p>}
+        {...patch}
+      />,
+      held,
+    ),
   );
 describe('portal overview', () => {
   it('uses ordinary routes for existing reviewed money actions', () => {
@@ -51,6 +55,18 @@ describe('portal overview', () => {
     expect(view()).toContain('href="/pay/refunds/new"');
     expect(view()).not.toContain('<form');
     expect(view()).not.toContain('layout=');
+  });
+  it('switches Pay out and Refund off, with the reason, when the session has no payout or refund scope', () => {
+    const out = view({}, false);
+    expect(out).not.toContain('href="/pay/payouts?view=tools"');
+    expect(out).not.toContain('href="/pay/refunds/new"');
+    expect(out).toContain('Refunding needs a confirmed sign-in step that this deployment does not offer.');
+    expect(out).toContain('Paying out needs a confirmed sign-in step that this deployment does not offer.');
+    // Making a link is an ordinary write and stays on.
+    expect(out).toContain('href="/pay/links/new"');
+  });
+  it('names the UTC day beside the Today tiles', () => {
+    expect(view()).toContain('Today (UTC): Oct 16, 2026');
   });
   it('gives every tile its period and the filter of the list it opens', () => {
     const out = view();

@@ -38,7 +38,7 @@ const en = {
   statusActive: 'Active',
   statusRevoked: 'Revoked',
   anyDate: 'Any date',
-  today: 'Today',
+  today: 'Today (UTC)',
   last7: '7 days',
   last30: '30 days',
   custom: 'Custom',
