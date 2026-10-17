@@ -362,6 +362,13 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           tokenFactoryDeployed: z.boolean(),
           refusalCode: z.string().nullable(),
           reason: z.string().nullable(),
+          /**
+           * Set only for `protocol.chain_id_mismatch`: the chain this service
+           * derives addresses for, and the chain the RPC answered as.
+           * Chain ids are public. The endpoint is not on this object.
+           */
+          expectedChainId: z.number().int().nonnegative().nullable(),
+          actualChainId: z.number().int().nonnegative().nullable(),
           /** True only when a real chain answered AND the smart-account suite is deployed on it. */
           usable: z.boolean(),
           /**

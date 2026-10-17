@@ -321,6 +321,8 @@ function deadChain(overrides: Record<string, unknown> = {}) {
       tokenFactoryDeployed: false,
       refusalCode: 'protocol.chain_unreachable',
       reason: 'The chain connection is not available right now.',
+      expectedChainId: null,
+      actualChainId: null,
     }),
     ...overrides,
   };

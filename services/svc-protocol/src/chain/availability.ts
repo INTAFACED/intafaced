@@ -68,8 +68,20 @@ export class ChainUnavailableError extends Error {
    * Never copy this onto a public response.
    */
   readonly operatorDetail: string;
+  /**
+   * Set only for `protocol.chain_id_mismatch`. Chain ids are public facts.
+   * Null for every other refusal.
+   */
+  readonly expectedChainId: number | null;
+  readonly actualChainId: number | null;
 
-  constructor(code: ChainRefusalCode, message: string, cause?: unknown, operatorDetail?: string) {
+  constructor(
+    code: ChainRefusalCode,
+    message: string,
+    cause?: unknown,
+    operatorDetail?: string,
+    chainIds?: { readonly expectedChainId: number; readonly actualChainId: number },
+  ) {
     // `cause` goes through the standard Error option rather than a redeclared
     // field: `useDefineForClassFields` is on at ES2022, so a parameter property
     // named `cause` would define over the one Error already installs.
@@ -77,6 +89,8 @@ export class ChainUnavailableError extends Error {
     this.name = 'ChainUnavailableError';
     this.code = code;
     this.operatorDetail = operatorDetail ?? message;
+    this.expectedChainId = chainIds?.expectedChainId ?? null;
+    this.actualChainId = chainIds?.actualChainId ?? null;
   }
 }
 
@@ -168,6 +182,42 @@ export function chainRefusal(code: ChainRefusalCode, rpcUrl: string, cause: unkn
     safeDetail,
   );
   console.error(formatChainRefusalLog(code, safeDetail));
+  return err;
+}
+
+/**
+ * Public mismatch text. Both chain ids, no endpoint.
+ * `CHAIN_PUBLIC_TEXT['protocol.chain_id_mismatch']` stays the fallback for a
+ * message that ever grew a URL or a spec id.
+ */
+export function chainIdMismatchText(expectedChainId: number, actualChainId: number): string {
+  return (
+    `The chain connection answered as chain ${actualChainId}, but this service derives addresses for chain ${expectedChainId}. ` +
+    `Refusing: an address predicted for the wrong chain is an address a user could fund and never reach.`
+  );
+}
+
+/** Customer-facing sentence. A message that carries a URL or a spec id is replaced with fixed copy. */
+export function publicRefusalText(err: ChainUnavailableError): string {
+  if (/:\/\/|\bSOCKET\b/.test(err.message)) return CHAIN_PUBLIC_TEXT[err.code];
+  return err.message;
+}
+
+/** Mismatch refusal. The public message names both chain ids; the log line keeps scheme+host only. */
+export function chainIdMismatchRefusal(rpcUrl: string, expectedChainId: number, actualChainId: number): ChainUnavailableError {
+  const endpoint = redactRpcUrl(rpcUrl);
+  const detail =
+    `The endpoint ${endpoint} answered as chain ${actualChainId}, but this service derives addresses for chain ` +
+    `${expectedChainId}. Refusing: an address predicted for the wrong chain is an address a user could fund and never reach.`;
+  const safeDetail = redactSecrets(detail, rpcUrl);
+  const err = new ChainUnavailableError(
+    'protocol.chain_id_mismatch',
+    chainIdMismatchText(expectedChainId, actualChainId),
+    undefined,
+    safeDetail,
+    { expectedChainId, actualChainId },
+  );
+  console.error(formatChainRefusalLog('protocol.chain_id_mismatch', safeDetail));
   return err;
 }
 
