@@ -51,10 +51,22 @@ export const SAME_PERSON_ACTION_TYPES = [
   // trade:withdraw bearer until a bank change reads the approval (one service per PR).
   'bank.step_up.ramps.offramp',
   'bank.step_up.ramps.setWithdrawDestination',
+  // Merchant payout destination. Identity mints it; svc-pay consumes it.
+  // A bank door cannot spend this approval (target service follows the prefix).
+  'pay.step_up.payoutDestination.set',
   'bank.step_up.bills.pay',
   'bank.step_up.bills.recurring',
   'bank.step_up.global.send',
 ] as const;
+
+/**
+ * Same-person rows are consumed only by the service named on the row.
+ * Bank doors stay `svc-bank`. Pay destination step-up is `svc-pay`, because
+ * identity refuses a consume whose caller is not the target service.
+ */
+export function samePersonTargetService(actionType: string): 'svc-bank' | 'svc-pay' {
+  return actionType.startsWith('pay.step_up.') ? 'svc-pay' : 'svc-bank';
+}
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 
 export function isSamePersonActionType(actionType: string): actionType is SamePersonActionType {

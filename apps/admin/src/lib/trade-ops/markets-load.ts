@@ -1,8 +1,17 @@
 import 'server-only';
 import type { TradeCtx } from './edge';
+import { feeCellFor, type EffectiveFees } from './fees-model';
 import { tallyOrders, type MarketRowView } from './markets-model';
 import type { Outcome } from './outcome';
-import { readLifecycle, readMarkets, readOpenOrders, type AdminOrderRow, type LifecycleRow, type MarketRow } from './reads';
+import {
+  readEffectiveFees,
+  readLifecycle,
+  readMarkets,
+  readOpenOrders,
+  type AdminOrderRow,
+  type LifecycleRow,
+  type MarketRow,
+} from './reads';
 
 /**
  * Loads what the Health and Markets rooms share: the market list, the open orders and one lifecycle read per market,
@@ -30,6 +39,8 @@ async function pool<T, R>(items: readonly T[], width: number, work: (item: T) =>
 export interface MarketsBundle {
   readonly markets: Outcome<readonly MarketRow[]>;
   readonly orders: Outcome<readonly AdminOrderRow[]>;
+  /** The fee schedule customers are charged. A refusal (blank schedule) is carried, not guessed around. */
+  readonly fees: Outcome<EffectiveFees>;
   /** One per market; empty when the market list itself was not read. */
   readonly views: readonly MarketRowView[];
   /** True when more markets exist than lifecycles were read. */
@@ -37,8 +48,8 @@ export interface MarketsBundle {
 }
 
 export async function loadMarkets(ctx: TradeCtx): Promise<MarketsBundle> {
-  const [markets, orders] = await Promise.all([readMarkets(ctx), readOpenOrders(ctx, ORDER_READ_LIMIT)]);
-  if (markets.kind !== 'ok') return { markets, orders, views: [], lifecycleCapped: false };
+  const [markets, orders, fees] = await Promise.all([readMarkets(ctx), readOpenOrders(ctx, ORDER_READ_LIMIT), readEffectiveFees(ctx)]);
+  if (markets.kind !== 'ok') return { markets, orders, fees, views: [], lifecycleCapped: false };
   const rows = markets.data;
   const toRead = rows.slice(0, LIFECYCLE_CAP);
   const lifecycles = await pool(toRead, LIFECYCLE_PARALLEL, (m) => readLifecycle(ctx, m.symbol));
@@ -47,6 +58,7 @@ export async function loadMarkets(ctx: TradeCtx): Promise<MarketsBundle> {
     market,
     lifecycle: (lifecycles[i] as Outcome<LifecycleRow> | undefined) ?? null,
     orders: tally ? (tally.get(market.symbol) ?? { open: 0, seeded: 0, held: 0 }) : null,
+    fee: feeCellFor(fees, market.symbol),
   }));
-  return { markets, orders, views, lifecycleCapped: rows.length > LIFECYCLE_CAP };
+  return { markets, orders, fees, views, lifecycleCapped: rows.length > LIFECYCLE_CAP };
 }

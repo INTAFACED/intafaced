@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AT_FETCH_TIME,
+  crmJson,
+  type CrmBrowserError,
   crmOverdueCalendarDays,
   crmWrite,
   readFailureKeepsValue,
@@ -71,5 +73,35 @@ describe('overdue calendar days', () => {
     process.env.TZ = 'America/New_York';
     const now = Date.parse('2026-11-02T17:00:00Z'); // 12:00 EST on 2 Nov
     expect(crmOverdueCalendarDays('2026-11-01T04:30:00Z', now)).toBe(1); // 00:30 EDT on 1 Nov
+  });
+});
+
+describe('CRM refusal wording', () => {
+  const refuse = (status: number, body: unknown) => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(body, { status })));
+    return crmJson('/api/crm/workflows?view=metrics').catch((error: unknown) => error as CrmBrowserError);
+  };
+  it('says CRM is not configured, with no reload action, for the three unconfigured service codes', async () => {
+    for (const upstream of ['ops.crm.configuration_unverified', 'ops.crm.storage_unconfigured', 'ops.crm.authority_unconfigured']) {
+      const error = await refuse(412, { code: 'admin.upstream_refused', upstream });
+      expect(error).toMatchObject({ kind: 'unconfigured', message: 'CRM is not configured on this deployment.' });
+    }
+  });
+  it('keeps "the record changed" for a real version conflict and for a 412 that names no code', async () => {
+    expect(await refuse(412, { code: 'admin.upstream_refused', upstream: 'ops.crm.revision_conflict' })).toMatchObject({
+      kind: 'conflict',
+    });
+    expect(await refuse(412, { code: 'admin.upstream_refused' })).toMatchObject({ kind: 'conflict' });
+  });
+  it('calls a definite refusal refused with nothing changed, not unconfirmed and not a changed record', async () => {
+    for (const status of [409, 412]) {
+      const error = await refuse(status, { code: 'admin.upstream_refused', upstream: 'ops.crm.opportunity_closed' });
+      expect(error).toMatchObject({ kind: 'refused' });
+      expect((error as Error).message).toBe('This action was refused and nothing was changed. Refresh and review before retrying.');
+      expect((error as Error).message).not.toMatch(/changed or|could not confirm/);
+    }
+  });
+  it('keeps "could not confirm" for a failure that may have gone through', async () => {
+    expect(await refuse(502, { code: 'admin.upstream_invalid' })).toMatchObject({ kind: 'other' });
   });
 });

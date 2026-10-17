@@ -3,9 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, merchantProceeds, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
 import { PayService, type PaymentView } from './payment-service.js';
+import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { RailRegistry } from './rails/registry.js';
@@ -63,7 +64,14 @@ describe('payout dispatch marker', { timeout: 30_000 }, () => {
     sql = db.sql;
   }, 120_000);
 
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
+
   beforeEach(async () => {
+    restorePayoutShim = installPayoutDestinationShim(sql);
     await truncatePayForTest(
       sql,
       'pay',

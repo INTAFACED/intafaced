@@ -50,7 +50,7 @@ const order = (symbol: string, over: Partial<AdminOrderRow> = {}): AdminOrderRow
   clientOrderId: null,
   ...over,
 });
-const view = (m: MarketRow): MarketRowView => ({ market: m, lifecycle: null, orders: null });
+const view = (m: MarketRow): MarketRowView => ({ market: m, lifecycle: null, orders: null, fee: { kind: 'unread' } });
 describe('orders per market', () => {
   it('counts open, seeded and held per symbol and ignores non-open', () => {
     const t = tallyOrders([

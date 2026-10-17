@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cellOfRow, formatBps, formatCell, readData, rowCountText, tableCells } from './model';
+import { cellOfRow, displayCell, formatBps, formatCell, readData, rowCountText, tableCells } from './model';
 import type { ReadSpec } from './types';
 
 const base = {
@@ -120,5 +120,16 @@ describe('formatting', () => {
     expect(rowCountText(1, false, 50)).toBe('1 row');
     expect(rowCountText(50, true, 50)).toContain('not a total');
     expect(rowCountText(3, true, undefined)).toBe('3 rows');
+  });
+});
+
+describe('what the screen prints', () => {
+  const cell = (kind: 'text' | 'time', value: string) => ({ key: 'k', label: 'L', kind, detail: false, value });
+  it('prints a service code in words and a time in the shared UTC form, while the CSV keeps the exact value', () => {
+    expect(displayCell(cell('text', 'p2p.moderation_unprobed'))).toMatch(/^Moderators are configured/);
+    expect(displayCell(cell('time', '2026-10-15T10:02:03.000Z'))).toBe('15 Oct 2026, 10:02:03 UTC');
+    expect(displayCell(cell('text', 'USD'))).toBe('USD');
+    expect(formatCell(cell('text', 'p2p.moderation_unprobed'))).toBe('p2p.moderation_unprobed');
+    expect(formatCell(cell('time', '2026-10-15T10:02:03.000Z'))).toBe('2026-10-15T10:02:03.000Z');
   });
 });

@@ -10,7 +10,7 @@ import { MARKET_CONTROL_ACTIONS, MatchingControls } from '@/components/trade-ops
 import { MarketOrders } from '@/components/trade-ops/markets-orders';
 import { MarketRules } from '@/components/trade-ops/markets-rules';
 import { lifecycleLook, oldestAsOf } from '@/lib/trade-ops/markets-model';
-import { readLifecycle, readMarkets, readOpenOrders } from '@/lib/trade-ops/reads';
+import { readEffectiveFees, readLifecycle, readMarkets, readOpenOrders } from '@/lib/trade-ops/reads';
 import { ORDER_READ_LIMIT } from '@/lib/trade-ops/markets-load';
 
 /**
@@ -32,15 +32,16 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ s
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
   const symbol = decodeSymbol((await params).symbol);
-  const [markets, lifecycle, orders] = await Promise.all([
+  const [markets, lifecycle, orders, fees] = await Promise.all([
     readMarkets(ctx),
     readLifecycle(ctx, symbol),
     readOpenOrders(ctx, ORDER_READ_LIMIT),
+    readEffectiveFees(ctx),
   ]);
 
   const market = markets.kind === 'ok' ? (markets.data.find((m) => m.symbol === symbol) ?? null) : null;
   const here = orders.kind === 'ok' ? orders.data.filter((o) => o.symbol === symbol && o.status === 'open') : [];
-  const reads = [markets, lifecycle, orders];
+  const reads = [markets, lifecycle, orders, fees];
   const asOf = oldestAsOf(reads.map((r) => (r.kind === 'ok' ? r.asOf : null)));
   const state = reads.some((r) => r.kind === 'refused') ? 'refused' : reads.some((r) => r.kind === 'unknown') ? 'unknown' : 'live';
 
@@ -67,7 +68,7 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ s
           {markets.kind !== 'ok' ? (
             <ReadProblem outcome={markets} title="Market rules could not be read" />
           ) : market ? (
-            <MarketRules market={market} asOf={markets.asOf} />
+            <MarketRules market={market} asOf={markets.asOf} fees={fees} />
           ) : (
             <EmptyState
               variant="refused"

@@ -75,7 +75,7 @@ export async function seedControl(
       merchantId: e.merchantId,
       change: { kind: 'set_tier', tierId: ISOLATION_TIER.id, archetypeId: null },
     });
-    await destinations.persist({ merchantId: e.merchantId, ...destination });
+    await destinations.seedVerified({ merchantId: e.merchantId, ...destination });
     const approval = await control.approvals.request(makePrincipal(e.userId), {
       merchantId: e.merchantId,
       settlementId: e.settlementId,

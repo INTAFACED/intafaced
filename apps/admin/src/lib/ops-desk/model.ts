@@ -1,4 +1,6 @@
 import type { Cell, CellValue, Column, ReadData, ReadSpec, Row } from './types';
+import { formatWhen } from '@/lib/as-of';
+import { codeWords } from '@/lib/desk/words';
 
 /**
  * Strict reader for one service answer, driven by the read's declared columns, and the pure formatting the desk uses.
@@ -105,6 +107,13 @@ export function formatCell(cell: Cell): string {
   if (cell.kind === 'bps' && typeof v === 'number') return formatBps(v);
   if (cell.kind === 'list') return Array.isArray(v) ? (v.length === 0 ? 'none' : v.join(', ')) : '—';
   return String(v);
+}
+
+/** What the screen prints for a cell: formatCell, with a time in the shared UTC form and a service code in words. The CSV export keeps formatCell's exact values. */
+export function displayCell(cell: Cell): string {
+  if (cell.kind === 'time' && typeof cell.value === 'string') return formatWhen(cell.value);
+  if (cell.kind === 'text' && typeof cell.value === 'string') return codeWords(cell.value);
+  return formatCell(cell);
 }
 
 export function tableCells(row: Row): readonly Cell[] {
