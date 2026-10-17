@@ -78,6 +78,15 @@ else
   echo "warn: no prettier binary found; skipping format:check on push" >&2
 fi
 
+# Local agent-rule drift check. Not a GitHub workflow. Stdin stays with the loop below.
+if ! command -v node >/dev/null 2>&1; then
+  echo "truth-check: node is missing — refuse push." >&2
+  exit 1
+fi
+if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/truth-check.mjs) </dev/null; then
+  exit 1
+fi
+
 protected="main"
 remote_ref_prefix="refs/heads/"
 

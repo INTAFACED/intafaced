@@ -1,0 +1,157 @@
+/**
+ * Temp-dir fixtures for truth-check.mjs. No network.
+ * Run: node --test tooling/scripts/truth-check.test.mjs
+ */
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const script = fileURLToPath(new URL('./truth-check.mjs', import.meta.url));
+
+const CLEAN_AGENTS = `# Agents
+The front end is React. Vue is history.
+Move value only through packages/ledger-client.
+Never bypass them.
+On a 403 or 429 from GitHub, stop.
+Then git worktree remove <path>. Never use --force.
+Never run pnpm wt:rm, pnpm wt:gc:apply or orca worktree rm.
+`;
+
+function git(cwd, args) {
+  const result = spawnSync('git', ['-c', 'user.email=truth-check@example.com', '-c', 'user.name=truth-check', ...args], {
+    cwd,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) throw new Error(result.stderr || result.stdout || 'git failed');
+}
+
+function fixture(mutate) {
+  const root = mkdtempSync(join(tmpdir(), 'truth-check-'));
+  mkdirSync(join(root, 'tooling/agent-protocol'), { recursive: true });
+  mkdirSync(join(root, '.cursor/rules'), { recursive: true });
+  mkdirSync(join(root, 'docs'), { recursive: true });
+  writeFileSync(join(root, 'AGENTS.md'), CLEAN_AGENTS);
+  writeFileSync(join(root, 'CLAUDE.md'), '# claude\n');
+  writeFileSync(join(root, 'CONTRIBUTING.md'), 'Never run `pnpm wt:rm` or `pnpm wt:gc:apply`.\n');
+  writeFileSync(join(root, 'README.md'), '# readme\n');
+  writeFileSync(join(root, 'tooling/agent-protocol/AGENT_PROTOCOL.md'), '# protocol\n');
+  writeFileSync(join(root, '.cursor/rules/inta.mdc'), '# rules\n');
+  writeFileSync(join(root, 'docs/README.md'), '# docs\n- MOVE-ME.md\n');
+  writeFileSync(join(root, 'docs/MOVE-ME.md'), 'kept\n');
+  git(root, ['init', '-b', 'main']);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'base']);
+  git(root, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  mutate?.(root);
+  return root;
+}
+
+function run(root) {
+  return spawnSync(process.execPath, [script, '--root', root], { encoding: 'utf8' });
+}
+
+function withRoot(mutate, check) {
+  const root = fixture(mutate);
+  try {
+    check(run(root), root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('clean fixture passes, including Vue as history and prohibited wt commands', () => {
+  withRoot(null, (result) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+  });
+});
+
+test('planted stale doc: exact stale phrases, an instructed command, and Vue as the current front end', () => {
+  const plants = [
+    ['Merge when done', /stale agent rule in AGENTS.md: Merge when done/],
+    ['agents may merge their own pull requests', /stale agent rule in AGENTS.md: may merge their own/],
+    ['git worktree remove --force', /stale agent rule in AGENTS.md: worktree remove --force/],
+    ['Run pnpm wt:rm', /stale agent rule in AGENTS.md: pnpm wt:rm/],
+    ['Run pnpm wt:gc:apply', /stale agent rule in AGENTS.md: wt:gc:apply/],
+    ['The front end is Vue.', /stale agent rule in AGENTS.md: Vue as the current front end/],
+  ];
+  for (const [line, pattern] of plants) {
+    withRoot(
+      (root) => writeFileSync(join(root, 'AGENTS.md'), `${CLEAN_AGENTS}\n${line}\n`),
+      (result) => {
+        assert.equal(result.status, 1, line);
+        assert.match(result.stderr, pattern, result.stderr);
+      },
+    );
+  }
+});
+
+test('AGENTS.md lost a core rule', () => {
+  withRoot(
+    (root) => writeFileSync(join(root, 'AGENTS.md'), CLEAN_AGENTS.replace('Never bypass', 'Skip the gate')),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /AGENTS.md lost a core rule: Never bypass/);
+    },
+  );
+});
+
+test('added archive file and unlisted markdown fail; a listed file and a move pass', () => {
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      mkdirSync(join(root, 'docs/archive'), { recursive: true });
+      writeFileSync(join(root, 'docs/archive/planted.md'), 'planted stale doc\n');
+      git(root, ['add', 'docs/archive/planted.md']);
+      git(root, ['commit', '-m', 'add archive']);
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /archive only receives moves: docs\/archive\/planted.md was added/);
+    },
+  );
+
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'docs/PLANTED.md'), 'new\n');
+      writeFileSync(join(root, 'ROOT-PLANTED.md'), 'new\n');
+      git(root, ['add', 'docs/PLANTED.md', 'ROOT-PLANTED.md']);
+      git(root, ['commit', '-m', 'add markdown']);
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /new markdown is not listed in docs\/README.md: docs\/PLANTED.md/);
+      assert.match(result.stderr, /new markdown is not listed in docs\/README.md: ROOT-PLANTED.md/);
+    },
+  );
+
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'docs/LISTED.md'), 'new\n');
+      writeFileSync(join(root, 'docs/README.md'), '# docs\n- MOVE-ME.md\n- LISTED.md\n');
+      git(root, ['add', 'docs/LISTED.md', 'docs/README.md']);
+      git(root, ['commit', '-m', 'add listed']);
+    },
+    (result) => {
+      assert.equal(result.status, 0, result.stderr);
+    },
+  );
+
+  withRoot(
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      mkdirSync(join(root, 'docs/archive'), { recursive: true });
+      git(root, ['mv', 'docs/MOVE-ME.md', 'docs/archive/MOVE-ME.md']);
+      git(root, ['commit', '-m', 'move into archive']);
+    },
+    (result) => {
+      assert.equal(result.status, 0, result.stderr);
+    },
+  );
+});
