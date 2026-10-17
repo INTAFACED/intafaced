@@ -159,6 +159,9 @@ describe('ops.sessions and session.mine', () => {
       ],
       spendReason: null,
     });
+    await expect(sql`
+      UPDATE agents.usage_windows SET charged_asset = 'ZZZ' WHERE session_id = ${settled}
+    `).rejects.toThrow(/already settled/);
     expect(first.items[1]).toMatchObject({
       userId: USER_B,
       spend: null,
