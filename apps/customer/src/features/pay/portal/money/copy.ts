@@ -355,6 +355,12 @@ const en = {
   openBalances: 'Open balances',
   conversionControls: 'Conversion availability',
   conversionPauseUnknown: 'Quotes and conversion are coming soon.',
+  payoutNewTitle: 'Request a payout',
+  payoutNewPurpose: 'Choose a settlement, check where it goes, and send it for approval.',
+  payoutNewSoon: 'You’ll be able to request a payout from here. For now, use the payout list.',
+  destinationsTitle: 'Payout destinations',
+  destinationsPurpose: 'Where your payouts are sent, and which one is the default.',
+  destinationsSoon: 'You’ll be able to see and manage your payout destinations here.',
 } as const;
 
 export const moneyCopy = defineCopy('pay.portal.money', en);

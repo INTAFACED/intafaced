@@ -6,10 +6,11 @@ vi.mock('../../../../shared/preferences', async (original) => {
 });
 import { Settings } from './Settings';
 import { parsePortalRoute } from '../routes';
-it('registers profile, team and notification settings routes', () => {
+it('registers profile, security and notification settings routes', () => {
   expect(parsePortalRoute('/pay/settings')).toEqual({ room: 'settings' });
   expect(parsePortalRoute('/pay/settings/profile')).toEqual({ room: 'settings' });
-  expect(parsePortalRoute('/pay/settings/team')).toEqual({ room: 'settings-team' });
+  expect(parsePortalRoute('/pay/settings/security')).toEqual({ room: 'settings-security' });
+  expect(parsePortalRoute('/pay/settings/team')).toBeNull();
   expect(parsePortalRoute('/pay/settings/notifications')).toEqual({ room: 'settings-notifications' });
   expect(parsePortalRoute('/pay/settings/unrecognized')).toBeNull();
 });

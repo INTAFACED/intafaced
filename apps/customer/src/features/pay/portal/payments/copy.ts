@@ -387,6 +387,12 @@ const en = {
   noBalance: 'No balance to show yet',
   noBalanceBody: 'Your available and pending funds appear here after your first payment.',
   tierSoon: 'You’ll be able to see your tier, limit usage and next payout here.',
+  invoiceNewTitle: 'Create an invoice',
+  invoiceNewPurpose: 'Bill a customer for one amount and send them a payment link.',
+  invoiceNewSoon: 'You’ll be able to create and send invoices here.',
+  checkoutSettingsTitle: 'Checkout',
+  checkoutSettingsPurpose: 'How your hosted checkout looks and which payment methods it offers.',
+  checkoutSettingsSoon: 'You’ll be able to see and change your checkout settings here.',
 } as const;
 
 export const paymentsCopy = defineCopy('pay.portal.payments', en);

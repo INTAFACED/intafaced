@@ -1,6 +1,50 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, iso, ok, page, refuse } from './shared.mjs';
 
+const PERMISSIONS = [
+  'team.read',
+  'team.manage',
+  'disputes.read',
+  'disputes.respond',
+  'invoices.read',
+  'invoices.write',
+  'customers.read',
+  'kyb.read',
+  'profile.read',
+  'profile.manage',
+  'exports.create',
+  'exports.read',
+  'notifications.read',
+  'notifications.manage',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
+  'payout.request',
+  'payout.approve',
+];
+const READS = [
+  'team.read',
+  'disputes.read',
+  'invoices.read',
+  'customers.read',
+  'kyb.read',
+  'exports.read',
+  'notifications.read',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
+  'profile.read',
+];
+const HELD = {
+  owner: PERMISSIONS,
+  admin: PERMISSIONS,
+  finance: [...READS, 'disputes.respond', 'invoices.write', 'exports.create', 'notifications.manage', 'payout.request', 'payout.approve'],
+  developer: [...READS, 'exports.create'],
+  viewer: READS,
+};
+/** One flag per permission, as the service sends them. */
+const capabilitiesFor = (role) => Object.fromEntries(PERMISSIONS.map((key) => [key, HELD[role].includes(key)]));
+
 /** The account itself: who is signed in, the headline numbers, the halts, and the in-app notifications. */
 export function createCoreMock(ctx) {
   const { scenario, now, state, activity, halted } = ctx;
@@ -17,7 +61,7 @@ export function createCoreMock(ctx) {
             kybRef: scenario === 'quiet' ? null : 'TEST-dossier-001',
             feeBps: scenario === 'quiet' ? null : 150,
           },
-    role: 'owner',
+    role: ctx.role,
     notifications: [
       {
         notificationId: 'n0000001-0000-4000-8000-000000000001',
@@ -160,7 +204,31 @@ export function createCoreMock(ctx) {
               : [],
           });
         case 'merchant.me':
-          return ok(route, state.merchant);
+          // Only the owner has a record of their own; a team member's read is empty.
+          return ok(route, ctx.role === 'owner' ? state.merchant : null);
+        case 'merchant.myAccess': {
+          if (ctx.myAccess === 'off') return NOT_MINE;
+          if (!state.merchant) return ok(route, { memberships: [] });
+          const role = ctx.myAccess === 'payfac' ? 'owner' : ctx.myAccess === 'owner' ? 'owner' : ctx.myAccess;
+          return ok(route, {
+            memberships: [
+              {
+                merchantId: MERCHANT_ID,
+                role,
+                status: state.merchant.status,
+                kybStatus: state.merchant.kybStatus,
+                verified: state.merchant.kybStatus === 'approved',
+                identityChangePending: false,
+                sessionInteractive: true,
+                mode: ctx.myAccess === 'payfac' ? 'payfac' : state.merchant.mode,
+                displayName: 'TEST Coffee Co',
+                legalName: 'TEST Coffee Company Ltd',
+                capabilities: capabilitiesFor(role),
+                pricingVisibility: role === 'viewer' || role === 'developer' ? 'fee_only' : 'full',
+              },
+            ],
+          });
+        }
         case 'railHealth':
           return ok(route, [
             { id: 'crypto-native', capabilities: ['authorize', 'payout'], mode: 'sandbox', usable: true, healthy: true, latencyMs: 14 },

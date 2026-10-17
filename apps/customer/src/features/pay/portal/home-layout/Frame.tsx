@@ -23,7 +23,7 @@ export function LayoutFrame({
       <LayoutNavigation key={here} here={here} />
       <div className="plo-content pp">
         {dashboard ? (
-          <h1 className="pp-sr">{t('portal')}</h1>
+          <h1 className="pp-sr">{t('overviewHeading')}</h1>
         ) : (
           <header className="plo-heading">
             <div>

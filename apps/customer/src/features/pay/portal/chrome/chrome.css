@@ -11,7 +11,7 @@
 /* Top bar */
 .pfo-top {
   position: sticky;
-  top: 0;
+  top: var(--if-banner-offset, 0px);
   z-index: 30;
   display: flex;
   align-items: center;
@@ -37,29 +37,72 @@
   gap: 16px;
   margin-left: auto;
 }
-.pfo-search {
+.pfo-search-button {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 240px;
   height: 36px;
   padding: 0 12px;
+  border: 0;
   border-radius: var(--if-r-pill);
   background: var(--if-field);
   color: var(--if-fg-2);
-}
-.pfo-search input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--if-fg);
   font: 13px var(--if-font-ui);
+  cursor: pointer;
 }
-.pfo-search:focus-within {
-  outline: 2px solid var(--if-lime);
-  outline-offset: 2px;
+.pfo-search-button span {
+  flex: 1;
+  text-align: left;
+}
+.pfo-search-button kbd {
+  font: 11px var(--if-font-mono);
+  color: var(--if-fg-3);
+}
+.pfo-searchbox form {
+  margin-top: 8px;
+}
+.pfo-searchbox input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  background: var(--if-field);
+  color: var(--if-fg);
+  font: 14px var(--if-font-ui);
+}
+.pfo-results {
+  display: grid;
+  gap: 2px;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow: auto;
+  list-style: none;
+}
+.pfo-results a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--if-r-sm);
+  color: var(--if-fg);
+  text-decoration: none;
+}
+.pfo-results a:hover {
+  background: var(--if-hover);
+}
+.pfo-results a span {
+  color: var(--if-fg-3);
+  font-size: 12px;
+}
+.pfo-results-empty {
+  padding: 8px 12px;
+  color: var(--if-fg-2);
+  font-size: 14px;
 }
 .pfo-personal {
   display: flex;
@@ -257,6 +300,9 @@
   background: var(--if-panel);
   color: var(--if-fg);
 }
+.pfo-soon--page {
+  padding: 40px 24px;
+}
 .pfo-soon h3 {
   margin: 8px 0 0;
   font-size: 16px;
@@ -282,7 +328,7 @@
   .pfo-brand {
     width: 100px;
   }
-  .pfo-search {
+  .pfo-search-button {
     width: 180px;
   }
 }
@@ -295,7 +341,6 @@
     display: block;
   }
   .pfo-brand,
-  .pfo-search,
   .pfo-personal,
   .pfo-top-end > [data-slot='button'] {
     display: none;
@@ -317,5 +362,14 @@
   }
   .pfo-soon {
     padding: 20px;
+  }
+  .pfo-search-button {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .pfo-search-button span,
+  .pfo-search-button kbd {
+    display: none;
   }
 }

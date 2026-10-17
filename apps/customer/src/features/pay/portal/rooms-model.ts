@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { PortalApi } from './api';
-import type { AccountProps } from './access/WithAccount';
+import type { MerchantAccessValue } from './access/MerchantAccess';
 import type { PortalRoom, PortalRoute } from './routes';
 import type { PayBusinessAuthority } from '../pay-api';
 
@@ -8,8 +8,8 @@ import type { PayBusinessAuthority } from '../pay-api';
 export type RoomContext = {
   portal: PortalApi;
   authority: PayBusinessAuthority | null;
-  /** The account resources, spread into `WithAccount`. */
-  acct: AccountProps;
+  /** Who is signed in to which business, and what they may do. */
+  access: MerchantAccessValue;
   starterFeeBps: number | null;
   legacyHome: ReactNode;
 };

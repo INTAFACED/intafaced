@@ -1,7 +1,11 @@
 @layer theme, base, components, utilities;
 @layer components {
   .if-business {
-    /* Merchant portal (W3a). Built from the app's tokens only; the lime accent marks "now" and the current place, nothing else. */
+    /* Merchant portal (W3a). Built from the app's tokens only; lime is only the one primary action, the active tab and the focus ring. Links, ids and statuses are never lime. */
+    .pp .text-link,
+    .plo .text-link {
+      color: var(--if-fg);
+    }
     .pp .pp-sr {
       position: absolute;
       width: 1px;
@@ -80,7 +84,7 @@
     }
     .pp-callout {
       border: 1px solid var(--if-line);
-      border-left: 3px solid var(--if-lime);
+      border-left: 3px solid var(--if-line-strong);
       background: var(--if-panel);
       border-radius: var(--if-r-sm);
       padding: 14px 16px;
@@ -120,7 +124,7 @@
     .pp-check input {
       width: 18px;
       height: 18px;
-      accent-color: var(--if-lime);
+      accent-color: var(--if-fg-2);
     }
     .pp-filter-row {
       display: flex;
@@ -266,7 +270,7 @@
       min-height: 0;
     }
     .pp-bar--today {
-      background: var(--if-lime);
+      background: var(--if-fg);
     }
     .pp-chart-axis {
       display: flex;
@@ -334,7 +338,7 @@
       opacity: 0.55;
     }
     .pp-step[aria-current='step'] .pp-step-button {
-      border-color: var(--if-lime);
+      border-color: var(--if-fg);
     }
     .pp-step-button strong,
     .pp-step-button small,
@@ -362,9 +366,9 @@
       font-size: 13px;
     }
     .pp-step--done .pp-step-num {
-      background: var(--if-lime);
-      color: #000;
-      border-color: var(--if-lime);
+      background: var(--if-up-bg-soft);
+      color: var(--if-up-text);
+      border-color: var(--if-up-text);
     }
 
     /* facts, timeline, cards, feed */
@@ -414,7 +418,7 @@
       background: var(--if-fg-3);
     }
     .pp-timeline li:first-child .pp-timeline-dot {
-      background: var(--if-lime);
+      background: var(--if-fg);
     }
     .pp-timeline p {
       font-size: 14px;
@@ -454,7 +458,7 @@
       background: transparent;
     }
     .pp-feed-item--unread .pp-feed-dot {
-      background: var(--if-lime);
+      background: var(--if-fg);
     }
     .pp-feed-main {
       flex: 1;
@@ -541,8 +545,9 @@
       font-size: 11px;
       letter-spacing: 0.06em;
       font-weight: 600;
-      color: var(--if-bg);
-      background: var(--if-lime);
+      color: var(--if-warn-text);
+      background: transparent;
+      border: 1px solid var(--if-warn);
       border-radius: 4px;
       padding: 1px 6px;
       vertical-align: middle;
@@ -569,7 +574,7 @@
       border: 1px solid var(--if-fg-3);
     }
     .pp-stepitem--current .pp-timeline-dot {
-      background: var(--if-lime);
+      background: var(--if-fg);
     }
     .pp-stepitem--done .pp-timeline-dot {
       background: var(--if-up-text);
@@ -589,7 +594,7 @@
     .pp-usage-fill {
       display: block;
       height: 100%;
-      background: var(--if-lime);
+      background: var(--if-fg-2);
     }
     .pp-usage-fill--full {
       background: var(--if-down-text);

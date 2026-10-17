@@ -1,16 +1,17 @@
 import './payments.css';
 import { Button } from '@intafaced/ui';
-import { OwnerOnly, WithAccount, NoMerchant } from '../access/WithAccount';
-import { Gate } from '../components';
-import { portalCopy, w3cCopy, extensionCopy } from './copy';
+import { Requires } from '../access/MerchantAccess';
+import { NoMerchant, WithAccount } from '../access/WithAccount';
+import { Gate, PortalFailure, PortalLoading } from '../components';
+import { extensionCopy, paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
-import type { MemberRole, MerchantRecord } from '../schemas';
 import { Customers, CustomerDetailPage } from './Customers';
 import { Dashboard } from './Dashboard';
 import { Disputes, DisputeDetailPage } from './Disputes';
 import { Invoices } from './Invoices';
 import { Links } from './Links';
 import { PaymentDetailPage, Payments } from './Payments';
+import { comingSoonRoom } from '../ui/comingSoonRoom';
 import { Subscriptions, subscriptionHeader } from './Subscriptions';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
@@ -24,12 +25,12 @@ const c = w3cCopy.t;
 const subscriptions: RoomDef = {
   header: subscriptionHeader,
   here: '/pay/subscriptions',
-  render: (route, { portal, authority, acct }) => (
-    <WithAccount {...acct}>
-      {({ merchantId, role }) => (
-        <OwnerOnly role={role}>
+  render: (route, { portal, authority }) => (
+    <WithAccount>
+      {({ merchantId }) => (
+        <Requires need="owner">
           <Subscriptions portal={portal} merchantId={merchantId} route={route} authority={authority} />
-        </OwnerOnly>
+        </Requires>
       )}
     </WithAccount>
   ),
@@ -41,7 +42,7 @@ const invoices: RoomDef = {
     action: link('/pay/subscriptions', extensionCopy.t('openSubscriptions')),
   }),
   here: '/pay/invoices',
-  render: (route, { acct }) => <WithAccount {...acct}>{() => <Invoices invoiceId={route.param} />}</WithAccount>,
+  render: (route, {}) => <WithAccount>{() => <Invoices invoiceId={route.param} />}</WithAccount>,
 };
 const links: RoomDef = {
   header: (route) =>
@@ -51,18 +52,16 @@ const links: RoomDef = {
         ? { title: c('linkNew'), purpose: c('linkNewPurpose'), action: link('/pay/links', c('backLinks')) }
         : { title: c('linkDetail'), purpose: c('linkDetailPurpose'), action: link('/pay/links/new', c('linkNew')) },
   here: '/pay/links',
-  render: (route, { portal, authority, acct }) => (
-    <WithAccount {...acct}>
-      {({ merchantId, role }) => (
-        <OwnerOnly role={role}>
+  render: (route, { portal, authority }) => (
+    <WithAccount>
+      {({ merchantId }) => (
+        <Requires need="owner">
           <Links portal={portal} merchantId={merchantId} create={route.room === 'link-new'} linkId={route.param} authority={authority} />
-        </OwnerOnly>
+        </Requires>
       )}
     </WithAccount>
   ),
 };
-
-type Account = { merchantId: string; record: MerchantRecord | null; role: MemberRole | null };
 
 export const paymentsRooms: RoomTable = {
   subscriptions,
@@ -80,19 +79,16 @@ export const paymentsRooms: RoomTable = {
       action: link('/pay/links', t('actCreateLink'), 'primary'),
     }),
     here: '/pay/merchant',
-    render: (_route, { portal, acct, legacyHome }) => (
-      <Gate resource={acct.merchant} retry={acct.reload} rows={5}>
+    render: (_route, { portal, access, legacyHome }) => (
+      <Gate resource={access.merchant} retry={access.reloadMerchant} rows={5}>
         {(record) => {
-          const team = acct.team;
-          const account: Account | null = record
-            ? { merchantId: record.id, record, role: team.status === 'ready' ? team.data.role : null }
-            : team.status === 'ready'
-              ? { merchantId: team.data.merchantId, record: null, role: team.data.role }
-              : null;
-          if (!account) return <NoMerchant />;
+          const a = access.access;
+          if (a.status === 'loading') return <PortalLoading rows={5} />;
+          if (a.status === 'failed') return <PortalFailure result={a.failure} />;
+          if (a.status === 'none') return <NoMerchant />;
           return (
             <div className="stack">
-              <Dashboard portal={portal} merchantId={account.merchantId} merchant={account.record} role={account.role} />
+              <Dashboard portal={portal} merchantId={a.merchantId} merchant={record} role={a.role} />
               {legacyHome}
             </div>
           );
@@ -124,12 +120,12 @@ export const paymentsRooms: RoomTable = {
       purpose: t('purposePayments'),
       action: link('/pay/payments?view=tools', t('actPaymentTools'), 'primary'),
     }),
-    render: (_route, { portal, acct }) => (
-      <WithAccount {...acct}>
-        {({ merchantId, role }) => (
-          <OwnerOnly role={role}>
+    render: (_route, { portal }) => (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="payments.read">
             <Payments portal={portal} merchantId={merchantId} />
-          </OwnerOnly>
+          </Requires>
         )}
       </WithAccount>
     ),
@@ -143,14 +139,30 @@ export const paymentsRooms: RoomTable = {
         : undefined,
     }),
     here: '/pay/payments',
-    render: (route, { portal, acct }) => (
-      <WithAccount {...acct}>
-        {({ role }) => (
-          <OwnerOnly role={role}>
+    render: (route, { portal }) => (
+      <WithAccount>
+        {() => (
+          <Requires need="payments.read">
             <PaymentDetailPage portal={portal} paymentId={route.param!} />
-          </OwnerOnly>
+          </Requires>
         )}
       </WithAccount>
     ),
   },
+  'invoice-new': comingSoonRoom(
+    () => ({
+      title: paymentsCopy.t('invoiceNewTitle'),
+      purpose: paymentsCopy.t('invoiceNewPurpose'),
+      body: paymentsCopy.t('invoiceNewSoon'),
+    }),
+    '/pay/invoices',
+  ),
+  'checkout-settings': comingSoonRoom(
+    () => ({
+      title: paymentsCopy.t('checkoutSettingsTitle'),
+      purpose: paymentsCopy.t('checkoutSettingsPurpose'),
+      body: paymentsCopy.t('checkoutSettingsSoon'),
+    }),
+    '/pay/checkout',
+  ),
 };

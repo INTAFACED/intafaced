@@ -17,6 +17,9 @@ const core: ContractPart = {
     { method: 'snapshot', run: (p) => p.snapshot(merchant, 'today') },
     { method: 'series', run: (p) => p.series(merchant, '2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z') },
     { method: 'teamMe', run: (p) => p.teamMe() },
+    { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'owner' } },
+    { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'finance', role: 'finance' } },
+    { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'payfac' } },
     { method: 'haltStatus', run: (p) => p.haltStatus(merchant) },
     { method: 'notifications', run: (p) => p.notifications(undefined, false, '') },
     { method: 'unreadCount', run: (p) => p.unreadCount() },
@@ -54,8 +57,8 @@ function clientFor(mock: ReturnType<typeof createPortalMock>): PortalApi {
 
 describe('stand-in answers match the shapes the client parses', () => {
   const all: ContractCase[] = Object.values(parts).flatMap((part) => part.cases);
-  it.each(all.map((c) => [c.method, c] as const))('%s', async (_name, c) => {
-    const result = await c.run(clientFor(createPortalMock('active')));
+  it.each(all.map((c, i) => [`${c.method}${c.mock ? ` (${JSON.stringify(c.mock)})` : ''}`, c, i] as const))('%s', async (_name, c) => {
+    const result = await c.run(clientFor(createPortalMock('active', c.mock)));
     expect(result.ok, JSON.stringify(result)).toBe(true);
   });
   it('covers every client method, or says why a method is not covered', () => {

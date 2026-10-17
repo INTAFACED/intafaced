@@ -311,7 +311,7 @@
   .plo-chart-slot span {
     width: 100%;
     max-width: 48px;
-    background: var(--if-lime);
+    background: var(--if-fg-2);
     border-radius: 3px 3px 0 0;
   }
   .plo-chart-axis {

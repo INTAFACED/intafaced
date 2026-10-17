@@ -6,6 +6,11 @@ import type { PortalApi } from './api';
  * sample input. The stand-in answers, and the client parses the answer with the schema it uses in production, so a
  * fixture that drifts from the real shape fails here and not in a screenshot.
  */
-export type ContractCase = { method: keyof PortalApi; run: (portal: PortalApi) => Promise<ApiResult<unknown>> };
+export type ContractCase = {
+  method: keyof PortalApi;
+  run: (portal: PortalApi) => Promise<ApiResult<unknown>>;
+  /** Options for the stand-in, when the call needs it set up (for example `myAccess: 'finance'`). */
+  mock?: { myAccess?: string; role?: string };
+};
 /** A package's part: the calls it covers, and the client methods it knowingly has no fixture for yet (with the reason). */
 export type ContractPart = { cases: ContractCase[]; notMocked: Partial<Record<keyof PortalApi, string>> };

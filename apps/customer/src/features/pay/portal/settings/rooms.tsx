@@ -2,7 +2,8 @@ import './settings.css';
 import { Button } from '@intafaced/ui';
 import { WithAccount } from '../access/WithAccount';
 import { Gate } from '../components';
-import { portalCopy, extensionCopy, w3cCopy } from './copy';
+import { extensionCopy, portalCopy, settingsCopy, w3cCopy } from './copy';
+import { comingSoonRoom } from '../ui/comingSoonRoom';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Compliance } from './Compliance';
 import { Developers, developerHeader } from './Developers';
@@ -21,17 +22,15 @@ const link = (href: string, label: string, variant: 'primary' | 'secondary' = 's
 const t = portalCopy.t;
 const c = w3cCopy.t;
 
-const settingsHeader = (room: 'settings' | 'settings-team' | 'settings-notifications') => ({
-  title: extensionCopy.t(
-    room === 'settings-team' ? 'teamTitle' : room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle',
-  ),
+const settingsHeader = (room: 'settings' | 'settings-notifications') => ({
+  title: extensionCopy.t(room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle'),
   purpose: extensionCopy.t('settingsPurpose'),
   action: link('/pay/settings/notifications', extensionCopy.t('notificationSettings')),
 });
 const developer: RoomDef = {
   header: developerHeader,
-  here: '/pay/developer',
-  render: (route, { authority, acct }) => <WithAccount {...acct}>{() => <Developers route={route} authority={authority} />}</WithAccount>,
+  here: '/pay/developer/keys',
+  render: (route, { authority }) => <WithAccount>{() => <Developers route={route} authority={authority} />}</WithAccount>,
 };
 
 export const settingsRooms: RoomTable = {
@@ -41,27 +40,17 @@ export const settingsRooms: RoomTable = {
       purpose: extensionCopy.t('compliancePurpose'),
       action: link('/pay/onboarding/verification', extensionCopy.t('verificationAction'), 'primary'),
     }),
-    render: (_route, { portal, acct }) => <WithAccount {...acct}>{() => <Compliance portal={portal} />}</WithAccount>,
+    render: (_route, { portal }) => <WithAccount>{() => <Compliance portal={portal} />}</WithAccount>,
   },
   settings: {
     header: () => settingsHeader('settings'),
-    render: (_route, { acct }) => <WithAccount {...acct}>{({ record }) => <Settings merchant={record} />}</WithAccount>,
-  },
-  'settings-team': {
-    header: () => settingsHeader('settings-team'),
-    here: '/pay/settings',
-    render: (_route, { portal }) => (
-      <div className="stack">
-        <SettingsNav />
-        <Team portal={portal} />
-      </div>
-    ),
+    render: (_route, {}) => <WithAccount>{({ record }) => <Settings merchant={record} />}</WithAccount>,
   },
   'settings-notifications': {
     header: () => settingsHeader('settings-notifications'),
-    here: '/pay/settings',
-    render: (_route, { portal, acct }) => (
-      <WithAccount {...acct}>
+    here: '/pay/settings/notifications',
+    render: (_route, { portal }) => (
+      <WithAccount>
         {() => (
           <div className="stack">
             <SettingsNav />
@@ -71,7 +60,6 @@ export const settingsRooms: RoomTable = {
       </WithAccount>
     ),
   },
-  developer,
   'developer-keys': developer,
   'developer-signing': developer,
   'developer-webhooks': developer,
@@ -83,7 +71,7 @@ export const settingsRooms: RoomTable = {
       purpose: c('reportsPurpose'),
       action: link('/pay/reports/exports', c('exportJobs'), 'primary'),
     }),
-    render: (_route, { acct }) => <WithAccount {...acct}>{() => <Reports />}</WithAccount>,
+    render: (_route, {}) => <WithAccount>{() => <Reports />}</WithAccount>,
   },
   'report-exports': {
     header: () => ({ title: c('exportJobs'), purpose: c('exportJobsPurpose'), action: link('#request', c('reportAction'), 'primary') }),
@@ -98,10 +86,16 @@ export const settingsRooms: RoomTable = {
       purpose: t('purposeOnboarding'),
       action: link('/pay/merchant', t('openDashboard'), 'primary'),
     }),
-    render: (route, { portal, acct, starterFeeBps }) => (
-      <Gate resource={acct.merchant} retry={acct.reload} rows={4}>
+    render: (route, { portal, access, starterFeeBps }) => (
+      <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
         {(record) => (
-          <Onboarding step={route.step} portal={portal} merchant={record} reloadMerchant={acct.reload} starterFeeBps={starterFeeBps} />
+          <Onboarding
+            step={route.step}
+            portal={portal}
+            merchant={record}
+            reloadMerchant={access.reloadMerchant}
+            starterFeeBps={starterFeeBps}
+          />
         )}
       </Gate>
     ),
@@ -110,12 +104,60 @@ export const settingsRooms: RoomTable = {
     header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite'), 'primary') }),
     render: (_route, { portal }) => <Team portal={portal} />,
   },
-  exports: {
-    header: () => ({ title: t('pageExports'), purpose: t('purposeExports'), action: link('#request', t('actRequestExport'), 'primary') }),
-    render: (_route, { portal }) => <Exports portal={portal} />,
-  },
   notifications: {
     header: () => ({ title: t('pageNotifications'), purpose: t('purposeNotifications') }),
     render: (_route, { portal }) => <Notifications portal={portal} />,
   },
+  network: comingSoonRoom(() => ({
+    title: settingsCopy.t('networkTitle'),
+    purpose: settingsCopy.t('networkPurpose'),
+    body: settingsCopy.t('networkSoon'),
+  })),
+  'network-child': comingSoonRoom(
+    () => ({
+      title: settingsCopy.t('networkChildTitle'),
+      purpose: settingsCopy.t('networkChildPurpose'),
+      body: settingsCopy.t('networkChildSoon'),
+    }),
+    '/pay/network',
+  ),
+  permissions: comingSoonRoom(() => ({
+    title: settingsCopy.t('permissionsTitle'),
+    purpose: settingsCopy.t('permissionsPurpose'),
+    body: settingsCopy.t('permissionsSoon'),
+  })),
+  'developer-sandbox': comingSoonRoom(
+    () => ({ title: settingsCopy.t('sandboxTitle'), purpose: settingsCopy.t('sandboxPurpose'), body: settingsCopy.t('sandboxSoon') }),
+    '/pay/developer/keys',
+  ),
+  'developer-docs': comingSoonRoom(
+    () => ({ title: settingsCopy.t('docsTitle'), purpose: settingsCopy.t('docsPurpose'), body: settingsCopy.t('docsSoon') }),
+    '/pay/developer/keys',
+  ),
+  analytics: comingSoonRoom(() => ({
+    title: settingsCopy.t('analyticsTitle'),
+    purpose: settingsCopy.t('analyticsPurpose'),
+    body: settingsCopy.t('analyticsSoon'),
+  })),
+  'analytics-fees': comingSoonRoom(
+    () => ({
+      title: settingsCopy.t('analyticsFeesTitle'),
+      purpose: settingsCopy.t('analyticsFeesPurpose'),
+      body: settingsCopy.t('analyticsFeesSoon'),
+    }),
+    '/pay/analytics',
+  ),
+  'settings-security': comingSoonRoom(
+    () => ({
+      title: settingsCopy.t('securityTitle'),
+      purpose: settingsCopy.t('securityPurpose'),
+      body: settingsCopy.t('securitySoon'),
+    }),
+    '/pay/settings/security',
+  ),
+  activity: comingSoonRoom(() => ({
+    title: settingsCopy.t('activityTitle'),
+    purpose: settingsCopy.t('activityPurpose'),
+    body: settingsCopy.t('activitySoon'),
+  })),
 };

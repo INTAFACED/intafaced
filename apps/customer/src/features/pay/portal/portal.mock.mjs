@@ -17,9 +17,9 @@ export { USER_ID };
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
  * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */
-export function createPortalMock(scenario = 'active', { now = Date.now() } = {}) {
+export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'off', role = 'owner' } = {}) {
   const calls = [];
-  const ctx = mockContext(scenario, now);
+  const ctx = mockContext(scenario, now, { myAccess, role });
   const parts = [createCoreMock(ctx), createMoneyMock(ctx), createPaymentsMock(ctx), createSettingsMock(ctx)];
 
   async function handle(route) {

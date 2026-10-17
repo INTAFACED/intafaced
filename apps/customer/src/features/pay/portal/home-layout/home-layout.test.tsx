@@ -1,6 +1,6 @@
 import { renderToString } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
-import { activeGroup, groups, LayoutNavigation } from './Navigation';
+import { activeGroup, currentItem, groups, LayoutNavigation } from './Navigation';
 import { LayoutFrame } from './Frame';
 import { ExactMoneyContext, MoneyDisplay, paymentLabel, portalAmount } from '../presentation';
 import { paymentSchema } from '../schemas';
@@ -9,18 +9,38 @@ vi.mock('../../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 describe('permanent Home-style portal', () => {
-  it('has five groups with unique destinations and renders only the active secondary row', () => {
+  it('has five tabs, at most seven items under each, and no destination twice', () => {
     expect(groups).toHaveLength(5);
+    expect(groups.map((g) => g.label)).toEqual(['overview', 'payments', 'moneyOut', 'billing', 'settings']);
+    for (const group of groups) expect(group.items.length).toBeLessThanOrEqual(7);
     const paths = groups.flatMap((g) => g.items.map((i) => i[0]));
     expect(new Set(paths).size).toBe(paths.length);
+  });
+  it('renders only the active secondary row, and hides platform-only pages outside a platform', () => {
     for (const group of groups)
       for (const [path] of group.items) {
         expect(activeGroup(path)).toBe(group);
         const out = renderToString(<LayoutNavigation here={path} />);
-        for (const [href] of group.items) expect(out).toContain(`href="${href}"`);
+        for (const [href, , options] of group.items) {
+          if (options?.when) expect(out, href).not.toContain(`href="${href}"`);
+          else expect(out, href).toContain(`href="${href}"`);
+        }
         expect(out).not.toContain('layout=');
         expect(out).not.toContain('<details');
       }
+  });
+  it('keeps Developers under Settings, with its pages lit as one item', () => {
+    const settings = groups.find((g) => g.label === 'settings')!;
+    expect(settings.items.map((i) => i[1])).toContain('developers');
+    for (const path of ['/pay/developer/keys', '/pay/developer/webhooks/TEST', '/pay/developer/docs'])
+      expect(currentItem(path)?.item[1], path).toBe('developers');
+    expect(activeGroup('/pay/developer/sandbox')).toBe(settings);
+  });
+  it('lights the longest matching item: Destinations is not Payouts', () => {
+    expect(currentItem('/pay/payouts/destinations')?.item[1]).toBe('destinations');
+    expect(currentItem('/pay/payouts/bb1')?.item[1]).toBe('payouts');
+    expect(currentItem('/pay/settings/security')?.item[1]).toBe('security');
+    expect(currentItem('/pay/analytics/fees')?.item[1]).toBe('fees');
   });
   it.each(['/pay/payments/TEST', '/pay/refunds/new', '/pay/developer/webhooks/TEST', '/pay/settings/notifications', '/pay/money/activity'])(
     'keeps details in their parent group: %s',

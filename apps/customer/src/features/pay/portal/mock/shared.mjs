@@ -22,10 +22,13 @@ export function page(items, input) {
 }
 
 /** What every package's mock shares: the scenario, the clock, and the one `state` object the tests read. */
-export function mockContext(scenario, now) {
+export function mockContext(scenario, now, options = {}) {
   return {
     scenario,
     now,
+    /** 'off' leaves merchant.myAccess unmounted, as on main today. Otherwise it answers for that person. */
+    myAccess: options.myAccess ?? 'off',
+    role: options.role ?? 'owner',
     state: {},
     activity: scenario === 'active' || scenario === 'halted',
     halted: scenario === 'halted',

@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../../shared/preferences')>();
+  return { ...real, usePreferences: () => real.currentPreferences() };
+});
+
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ComingSoonCard } from './ComingSoonCard';
 import { currentHref, isMerchantArea } from './model';
@@ -6,7 +12,10 @@ import { currentHref, isMerchantArea } from './model';
 describe('portal chrome', () => {
   it('tells portal pages from the rest of the app', () => {
     expect(isMerchantArea('/pay/payments/abc')).toBe(true);
-    expect(isMerchantArea('/pay/checkout')).toBe(false);
+    // Without a token this is the merchant's checkout settings; a payer's link carries one (see chrome/model.ts).
+    expect(isMerchantArea('/pay/checkout')).toBe(true);
+    expect(isMerchantArea('/pay/send')).toBe(false);
+    expect(isMerchantArea('/pay/anything-else')).toBe(true);
     expect(isMerchantArea('/home')).toBe(false);
   });
   it('marks exactly one menu item current', () => {
