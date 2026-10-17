@@ -165,6 +165,10 @@ describe('dashboard', () => {
   it('shows a missing fee as not published, never a number', () => {
     expect(render(data(), { ...merchantRecord, feeBps: null })).toContain('Not published');
   });
+  it('labels a local-test starter fee as not INTAFACED pricing', () => {
+    const out = render(data(), { ...merchantRecord, starterFee: { bps: 250, source: 'local_test' } });
+    expect(out).toContain('Test fee — not INTAFACED pricing (250 bps)');
+  });
 });
 
 describe('onboarding', () => {

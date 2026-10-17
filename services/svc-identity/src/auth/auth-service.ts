@@ -340,6 +340,12 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetNow: () => Date = () => new Date();
+  /**
+   * Optional lookup of the published owner pay grant. Unset means sessions
+   * stay on SESSION_SCOPES. A throw omits pay scopes and still issues the
+   * ordinary session.
+   */
+  private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
 
   constructor(
     private readonly sql: Sql,
@@ -385,6 +391,14 @@ export class AuthService {
   /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
   usePasswordResetTtl(seconds: number | undefined): void {
     this.passwordResetTtlSeconds = publishedPasswordResetTtlSeconds(seconds);
+  }
+
+  /**
+   * Install the svc-pay owner-grant lookup. Identity does not decide the law;
+   * it only attaches `pay:read` and `pay:write` when pay returns them.
+   */
+  useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
+    this.ownerPayScopeSource = source;
   }
 
   /** Test clock. Production uses the real clock. */
@@ -640,8 +654,9 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
+    const scopes = await this.scopesForNewAccessToken(userId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa },
+      { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -649,6 +664,13 @@ export class AuthService {
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
+    // Resolve the owner grant before the row lock. A pay round trip must not
+    // sit inside the session transaction.
+    const peek = this.ownerPayScopeSource
+      ? await this.sql<Array<{ user_id: string }>>`SELECT user_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`
+      : [];
+    const peekedUserId = peek[0]?.user_id;
+    const peekedScopes = peekedUserId ? await this.scopesForNewAccessToken(peekedUserId) : null;
     type RefreshRow = {
       id: string;
       user_id: string;
@@ -682,7 +704,7 @@ export class AuthService {
           }
           return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
         }
-        const grace = await this.graceTokens(tx, session);
+        const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
         if (grace) return { kind: 'grace', tokens: grace };
         // A rotation stamps the predecessor. Presenting that token again,
         // outside the grace window, is reuse and burns every live session.
@@ -711,8 +733,9 @@ export class AuthService {
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
+      const scopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes: this.defaultScopes(), tier, mfa: session.mfa },
+        { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
       );
       return {
@@ -764,6 +787,7 @@ export class AuthService {
       successor_refresh: string | null;
       user_id: string;
     },
+    peekedScopes: readonly Scope[] | null,
   ): Promise<SessionTokens | null> {
     if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
@@ -775,8 +799,9 @@ export class AuthService {
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes: this.defaultScopes(), tier, mfa: successor.mfa },
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
       this.tokens,
     );
     return {
@@ -1560,7 +1585,7 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
+    const scopes: Scope[] = [...(await this.scopesForNewAccessToken(input.userId)), ...STEP_UP_SCOPES];
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },
@@ -1695,6 +1720,31 @@ export class AuthService {
 
   private defaultScopes(): Scope[] {
     return [...SESSION_SCOPES];
+  }
+
+  /**
+   * Scopes for a newly issued access token. Ordinary session scopes, plus
+   * `pay:read` and `pay:write` when the published owner grant says so.
+   * Refund, payout, and anything else pay might return are dropped.
+   * A lookup failure leaves the ordinary session in place.
+   */
+  async scopesForNewAccessToken(userId: string): Promise<Scope[]> {
+    const base = this.defaultScopes();
+    if (!this.ownerPayScopeSource) return base;
+    let granted: readonly string[];
+    try {
+      granted = await this.ownerPayScopeSource(userId);
+    } catch (err) {
+      this.log.warn(
+        { err: err instanceof Error ? err.message : 'grant lookup failed' },
+        'owner pay scope grant lookup failed; session keeps ordinary scopes',
+      );
+      return base;
+    }
+    const extra: Scope[] = [];
+    if (granted.includes('pay:read')) extra.push('pay:read');
+    if (granted.includes('pay:write')) extra.push('pay:write');
+    return [...base, ...extra];
   }
 }
 

@@ -26,6 +26,8 @@ import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
+import { readMerchantStarterFee } from './starter-fee.js';
+import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -180,6 +182,8 @@ const rails = new RailRegistry([
  * are one decision rather than two that can drift apart.
  */
 assertConversionBoot(process.env);
+/** Local-test starter fee. Unset stays null. Set outside dev/test refuses boot. */
+const merchantStarterFee = readMerchantStarterFee(process.env);
 const conversionConfig = readConversionConfig(process.env);
 const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
@@ -405,7 +409,9 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql),
+  // One line: isolation composition pin matches this call as a single substring.
+  // prettier-ignore
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -560,6 +566,16 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  * so an unauthenticated caller cannot fan out invoices to every customer on the
  * platform.
  */
+registerOwnerPayScopeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findOwnedMerchant: async (userId) => {
+    const merchant = await pay.getMerchantByUserId(userId);
+    if (!merchant) return null;
+    return { id: merchant.id, userId: merchant.userId, kybStatus: merchant.kybStatus, status: merchant.status };
+  },
+});
+
 registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   subscriptions,

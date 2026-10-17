@@ -301,11 +301,10 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // moving through a merchant we onboarded. Granted by merchant onboarding, not
   // by holding an account.
   //
-  // Grant mechanism (D26-P0-08 → D26-P1-P10): ADR
-  // docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md + refuse-closed
-  // `issueMerchantPayScopes` / `assertMerchantPayScopeGrantAllowed`. DIRECTION
-  // §8 item 4 — never invent the grantor or KYB threshold. Layer B live KYB
-  // money gate is separate (`pay.kyb_required` in svc-pay).
+  // Grant mechanism (D26-P0-08 → P1-P10): `issueMerchantPayScopes`.
+  // Published 2026-10-17: the owner of one KYB-approved merchant receives
+  // pay:read and pay:write for that merchant. These four stay off ordinary
+  // sessions. Layer B (`pay.kyb_required`) is a separate money gate.
   'pay:read': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',

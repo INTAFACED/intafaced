@@ -140,6 +140,13 @@ const schema = serviceEnvSchema
        */
       LEDGER_URL: z.string().url().optional(),
       /**
+       * svc-pay base URL for the owner pay-scope grant lookup at session issue.
+       * Unset → sessions stay on ordinary scopes (the grant is not consulted).
+       * Set → identity asks pay and attaches only pay:read and pay:write when
+       * the published law allows them.
+       */
+      PAY_URL: z.string().url().optional(),
+      /**
        * Owner-published max *live* (non-revoked) sub-accounts per identity
        * (SPEC-SUBACCOUNTS §4 / §8). Blank / unset → unpublished; create refuses
        * (`auth.sub_account_cap_unset`). Never git-default 25 — that looks published.

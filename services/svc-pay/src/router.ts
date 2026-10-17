@@ -20,6 +20,7 @@ import {
   paySettlementListInputSchema,
   payStatementListInputSchema,
   payStatementPageSchema,
+  merchantStarterFeeSchema,
   router,
   scopedProcedure,
   publicProcedure,
@@ -38,6 +39,7 @@ import {
 } from './action-approval-consume.js';
 import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { PayError, type PayService } from './payment-service.js';
+import type { MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -224,6 +226,8 @@ export function createPayRouter(
   disputeCases: DisputeCaseStore = defaultDisputeCaseStore,
   /** Portal profile, onboarding, and analytics. Absent in unit stubs that do not pass a database. */
   portalSql: Sql | null = null,
+  /** Local-test starter fee. Null means the product fee is not set yet. */
+  starterFee: MerchantStarterFee | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -504,6 +508,8 @@ export function createPayRouter(
               kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
               kybRef: z.string().nullable(),
               feeBps: z.number().nullable(),
+              /** Null when the starter fee is not set. `local_test` is not INTAFACED pricing. */
+              starterFee: merchantStarterFeeSchema.nullable(),
             })
             .nullable(),
         )
@@ -521,6 +527,7 @@ export function createPayRouter(
               kybStatus: merchant.kybStatus,
               kybRef: merchant.kybRef,
               feeBps: merchant.pricing.feeBps ?? null,
+              starterFee,
             };
           }),
         ),

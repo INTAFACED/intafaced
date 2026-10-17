@@ -1056,8 +1056,30 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
         .merchant.me();
     };
     expect((await me(undefined))?.feeBps).toBeNull();
+    expect((await me(undefined))?.starterFee).toBeNull();
     expect((await me(0))?.feeBps).toBe(0);
     expect((await me(250))?.feeBps).toBe(250);
+  });
+
+  it('labels a local-test starter fee on merchant.me and leaves the merchant fee alone', async () => {
+    const pay = {
+      getMerchantByUserId: async () => ({
+        id: MERCHANT,
+        userId: USER,
+        mode: 'gateway' as const,
+        status: 'active' as const,
+        kybStatus: 'approved' as const,
+        kybRef: null,
+        pricing: { feeBps: 150 },
+      }),
+    } as unknown as PayService;
+    const row = await createPayRouter(pay, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, undefined, null, {
+      bps: 250,
+      source: 'local_test',
+    })
+      .createCaller(await ctx(['pay:read']))
+      .merchant.me();
+    expect(row).toMatchObject({ feeBps: 150, starterFee: { bps: 250, source: 'local_test' } });
   });
 
   it('merchant.decideKyb is operator admin:compliance, not merchant pay:write', async () => {

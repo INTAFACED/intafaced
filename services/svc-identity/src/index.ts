@@ -7,6 +7,7 @@ import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
+import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -187,6 +188,10 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
 );
+if (env.PAY_URL) {
+  const payUrl = env.PAY_URL;
+  auth.useOwnerPayScopeSource((userId) => fetchOwnerPayScopes({ payUrl, secret: env.INTERNAL_SERVICE_SECRET, userId }));
+}
 // Lifetime can be published without a mail port. With either one missing, every
 // reset request refuses auth.reset_unwired. No mailer is installed in this
 // process: svc-notify is a different module, and this service does not invent one.

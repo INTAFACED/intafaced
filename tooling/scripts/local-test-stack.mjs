@@ -688,6 +688,8 @@ function serviceDefs(secrets) {
         WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
         IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
         IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
+        // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
+        PAY_URL: urlOf('pay'),
         // Edge reads each caller's current account authority with this key; without it
         // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
         IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
@@ -768,6 +770,8 @@ function serviceDefs(secrets) {
         PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
         PAY_LINK_DEFAULT_TTL_DAYS: '30',
         PAY_LINK_MAX_TTL_DAYS: '365',
+        // LOCAL-TEST value, not INTAFACED pricing. 250 bps is a labelled stand-in so the local portal can show a fee. The product stays unset wherever this variable is absent.
+        PAY_MERCHANT_STARTER_FEE_BPS: '250',
       }),
     },
     {

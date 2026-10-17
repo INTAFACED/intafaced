@@ -174,6 +174,10 @@ export const merchantSchema = z.object({
   kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
   kybRef: z.string().nullable(),
   feeBps: z.number().nullable(),
+  starterFee: z
+    .object({ bps: z.number().int().min(0).max(10_000), source: z.literal('local_test') })
+    .nullable()
+    .optional(),
 });
 export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
