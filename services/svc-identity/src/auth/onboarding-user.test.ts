@@ -3,7 +3,7 @@ import { emailVerifiedForOnboarding, onboardingUserFromRow, secondFactorEnrolled
 
 describe('onboarding user mapping', () => {
   it('treats a stored email address as the verification signal', () => {
-    expect(emailVerifiedForOnboarding('a@b.co')).toBe(true);
+    expect(emailVerifiedForOnboarding('a@b.co')).toBe(false);
     expect(emailVerifiedForOnboarding('   ')).toBe(false);
     expect(emailVerifiedForOnboarding('not-an-email')).toBe(false);
     expect(emailVerifiedForOnboarding(null)).toBe(false);
@@ -19,12 +19,12 @@ describe('onboarding user mapping', () => {
   it('maps a row onto the onboarding predicate inputs', () => {
     expect(onboardingUserFromRow({ status: 'active', email: 'owner@example.com', totp_secret: 'BASE32', webauthn_creds: [] })).toEqual({
       accountStatus: 'active',
-      emailVerified: true,
+      emailVerified: false,
       secondFactorEnrolled: true,
     });
     expect(onboardingUserFromRow({ status: 'frozen', email: 'owner@example.com', totp_secret: null, webauthn_creds: [] })).toEqual({
       accountStatus: 'frozen',
-      emailVerified: true,
+      emailVerified: false,
       secondFactorEnrolled: false,
     });
   });

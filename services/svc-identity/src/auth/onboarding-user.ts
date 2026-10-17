@@ -1,16 +1,20 @@
 /**
  * Maps a stored identity row onto the onboarding predicate.
  *
- * `identity.users` has no email-confirmation column. The stored address is
- * the only signal this mapper has. Change `emailVerifiedForOnboarding` when
- * a confirmation column exists; `onboardingEligible` stays the formula.
+ * `identity.users` has no email-confirmation column, so email is never
+ * treated as confirmed yet. Change `emailVerifiedForOnboarding` when a
+ * confirmation column exists; `onboardingEligible` stays the formula.
  */
 
 import type { OnboardingUser } from '@intafaced/auth';
 
-export function emailVerifiedForOnboarding(email: string | null | undefined): boolean {
-  const stored = email?.trim() ?? '';
-  return stored.length > 3 && stored.includes('@');
+/**
+ * Identity has no email-confirmation signal yet, so no address counts as
+ * confirmed and onboarding fails closed (Nitro 10-17: confirmed email + 2FA).
+ * Read the confirmation column here once email confirmation ships.
+ */
+export function emailVerifiedForOnboarding(_email: string | null | undefined): boolean {
+  return false;
 }
 
 export function secondFactorEnrolled(row: { totp_secret: string | null; webauthn_creds: unknown }): boolean {
