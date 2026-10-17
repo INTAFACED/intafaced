@@ -42,7 +42,12 @@ export type CopyErrorCode =
   | 'trade.copy_unavailable'
   | 'trade.copy_disclosure_unpublished'
   | 'trade.copy_disclosure_required'
-  | 'trade.copy_disclosure_version_stale';
+  | 'trade.copy_disclosure_version_stale'
+  | 'trade.copy_trail_window_unset'
+  | 'trade.copy_trail_window_too_wide'
+  | 'trade.copy_trail_limit_unset'
+  | 'trade.copy_trail_cursor_invalid'
+  | 'trade.copy_divergence_basis_unset';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

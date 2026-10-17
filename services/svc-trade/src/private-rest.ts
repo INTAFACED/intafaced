@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -114,6 +115,7 @@ export interface PrivateRestDeps {
   edgeSecret: string;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -882,6 +884,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
