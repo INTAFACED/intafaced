@@ -26,6 +26,11 @@ const schema = serviceEnvSchema
       HTTP_PORT: z.coerce.number().int().positive().default(4017),
       /** svc-identity, for the account-state read port. Never written to. */
       IDENTITY_URL: z.string().url().default('http://localhost:4002'),
+      /**
+       * svc-trade, for the order read port. Unset means the desk reports
+       * unknown rather than calling a guessed address. Never a ledger URL.
+       */
+      TRADE_URL: z.string().url().optional(),
     }),
   );
 

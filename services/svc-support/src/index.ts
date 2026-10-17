@@ -2,6 +2,7 @@ import postgres from 'postgres';
 import { createEdgeContext } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
+import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { SupportService } from './support-service.js';
@@ -54,8 +55,10 @@ await sql`SELECT 1 FROM support.staff LIMIT 1`.catch(() => {
 const store = new PostgresSupportStore(sql);
 // Account state is READ from svc-identity per request, never cached here.
 const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
+// Order status is READ from svc-trade per request. Unset TRADE_URL stays unknown.
+const orders = env.TRADE_URL ? createTicketOrderClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET) : new DarkTicketOrderSource();
 // Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth.
-const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql));
+const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql), orders);
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({
