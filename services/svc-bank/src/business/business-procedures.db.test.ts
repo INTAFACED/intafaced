@@ -154,7 +154,7 @@ describe('business team, history and dual control', () => {
 
   async function openTeam() {
     const admin = caller(bank, ADMIN);
-    const account = await admin.business.create({ name: 'Northwind', assetId: 'USDT', spendThreshold: '100' });
+    const account = await admin.business.create({ accountId: randomUUID(), name: 'Northwind', assetId: 'USDT', spendThreshold: '100' });
     await admin.business.addMember({ accountId: account.id, userId: SECOND, role: 'admin' });
     await admin.business.addMember({ accountId: account.id, userId: MAKER, role: 'maker' });
     await admin.business.addMember({ accountId: account.id, userId: CHECKER, role: 'checker' });
@@ -209,7 +209,12 @@ describe('business team, history and dual control', () => {
       recipients: memoryRecipientState(),
       directory: memoryBusinessDirectory(PEOPLE),
     });
-    const account = await caller(gated, ADMIN).business.create({ name: 'Northwind', assetId: 'USDT', spendThreshold: '100' });
+    const account = await caller(gated, ADMIN).business.create({
+      accountId: randomUUID(),
+      name: 'Northwind',
+      assetId: 'USDT',
+      spendThreshold: '100',
+    });
     await caller(gated, ADMIN).business.addMember({ accountId: account.id, userId: MAKER, role: 'maker' });
     const stepUp = createStepUpGate({ mode: 'required', approvals: identity });
     const admin = caller(gated, ADMIN, stepUp);
@@ -270,7 +275,12 @@ describe('business team, history and dual control', () => {
       directory: memoryBusinessDirectory(PEOPLE),
       directoryLookups: new BusinessLookupLimiter({ max: 2, windowMs: 60_000 }),
     });
-    const account = await caller(limited, ADMIN).business.create({ name: 'Northwind', assetId: 'USDT', spendThreshold: '100' });
+    const account = await caller(limited, ADMIN).business.create({
+      accountId: randomUUID(),
+      name: 'Northwind',
+      assetId: 'USDT',
+      spendThreshold: '100',
+    });
     const admin = caller(limited, ADMIN);
     await admin.business.resolveRecipientSpace({ accountId: account.id, assetId: 'USDT', handle: 'nobody_here' });
     await admin.business.resolveRecipientSpace({ accountId: account.id, assetId: 'USDT', handle: 'nobody_here' });
@@ -287,7 +297,12 @@ describe('business team, history and dual control', () => {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
     });
-    const account = await caller(bare, ADMIN).business.create({ name: 'Northwind', assetId: 'USDT', spendThreshold: '100' });
+    const account = await caller(bare, ADMIN).business.create({
+      accountId: randomUUID(),
+      name: 'Northwind',
+      assetId: 'USDT',
+      spendThreshold: '100',
+    });
     const admin = caller(bare, ADMIN);
     await expect(admin.business.members({ accountId: account.id })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
@@ -327,7 +342,9 @@ describe('business team, history and dual control', () => {
     expect(pending.kind).toBe('pending');
     const waiting = await maker.business.pending({ accountId: account.id, limit: 20 });
     expect(waiting).toHaveLength(1);
-    expect(waiting[0]).toMatchObject({ makerUserId: MAKER, status: 'pending' });
+    expect(waiting[0]).toMatchObject({ makerHandle: 'Max_Maker', receiverOwnerHandle: 'Pat_Payee', status: 'pending' });
+    expect(waiting[0]).not.toHaveProperty('makerUserId');
+    expect(waiting[0]).not.toHaveProperty('checkerUserId');
 
     const history = await caller(bank, CHECKER).business.approvals({ accountId: account.id, limit: 1 });
     expect(history.items).toHaveLength(1);

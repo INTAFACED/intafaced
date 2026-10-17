@@ -98,6 +98,27 @@ export function rampProgrammeFor(setting: RampSetting): RampProgramme {
   }
 }
 
+/** One rail the operator health read reports. `provider: 'unset'` is not a healthy rail. */
+export interface RampRail {
+  readonly id: string;
+  /** The configured rail label, or `unset` when this deployment has no provider. */
+  readonly provider: string;
+}
+
+/**
+ * The rails this programme can name. Fiat is always the socket and has no
+ * provider here. Crypto uses the ledger rail when one is configured.
+ */
+export function rampRails(programme: RampProgramme): readonly RampRail[] {
+  return [
+    {
+      id: programme.cryptoRail ?? 'crypto',
+      provider: programme.cryptoRail === null ? 'unset' : programme.cryptoRail,
+    },
+    { id: 'fiat', provider: 'unset' },
+  ];
+}
+
 /** Refuse when this deployment has not chosen a crypto ledger half. */
 export function assertCryptoRamp(programme: RampProgramme): string {
   if (!programme.cryptoRail) {
