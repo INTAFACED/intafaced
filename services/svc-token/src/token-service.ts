@@ -367,7 +367,12 @@ function throwParamsUnset(config: string): never {
   throw new TokenError(`${config} is unset`, 'token.params_unset', undefined, config);
 }
 
-/** A non-fresh pending buyback claim is released only after this long (DB clock): longer than the ledger client's 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has landed or died. */
+/**
+ * A pending buyback claim is released only this long after the last burn/post
+ * attempt (`last_post_at`, database clock): longer than the ledger client's
+ * 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has
+ * landed or died. The claim's `created_at` is not this clock.
+ */
 const BUYBACK_QUIET_SECONDS = 120;
 
 export class TokenService {
@@ -1511,6 +1516,23 @@ export class TokenService {
       return { runId: claimed.id, burned: claimed.burned, toRewards: claimed.toRewards };
     }
 
+    if (toBurn > 0n) {
+      const stamped = await this.stampBuybackPostAttempt(claimed.id);
+      if (!stamped) {
+        const held = await this.sql<Array<{ status: BuybackRunStatus; tokens_burned: string; tokens_to_rewards: string }>>`
+          SELECT status, tokens_burned, tokens_to_rewards FROM token.buyback_runs WHERE id = ${claimed.id}
+        `;
+        const row = held[0];
+        if (row?.status === 'settled') {
+          return { runId: claimed.id, burned: parseAmount(row.tokens_burned), toRewards: parseAmount(row.tokens_to_rewards) };
+        }
+        throw new TokenError(
+          `Buyback run ${input.runId} is no longer a pending claim — refusing to burn. The quiet-period release won the row, and NOTHING was posted`,
+          'token.buyback_run_conflict',
+        );
+      }
+    }
+
     try {
       if (toBurn > 0n) {
         await this.ledger.post(
@@ -1539,19 +1561,51 @@ export class TokenService {
   }
 
   /**
+   * Mark this pending row as a burn attempt before the ledger post.
+   *
+   * One read-committed transaction, `FOR UPDATE` on the row: a concurrent
+   * quiet-period release queues on the same lock and then reads this
+   * `last_post_at`, so it cannot delete a claim whose burn is about to be
+   * sent. Returns false when the row is already gone or no longer pending —
+   * the caller must not post.
+   */
+  private async stampBuybackPostAttempt(runId: string): Promise<boolean> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const locked = await tx<Array<{ id: string }>>`
+          SELECT id FROM token.buyback_runs
+           WHERE id = ${runId} AND status = 'pending'
+           FOR UPDATE
+        `;
+        if (!locked[0]) return false;
+        await tx`
+          UPDATE token.buyback_runs
+             SET last_post_at = clock_timestamp()
+           WHERE id = ${runId} AND status = 'pending'
+        `;
+        return true;
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /**
    * Pending claim, no market-buy on the book.
    *
    * A fresh insert from this call posted nothing — release so the window is
    * not held hostage. A retry of an older pending row is released only when
-   * `getTxByKey` says the burn key is absent AND the row is older than
-   * BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone is not
-   * "never": the burn from the earlier attempt can still be queued behind the
-   * ledger's chain-tip lock after the client gave up (25 s deadline; the
-   * ledger's own statement timeout is 15 s), and deleting the claim then frees
-   * the revenue window while a late burn lands — a later run could burn the
-   * same window again. `getTxByKey` answers null only for a key the ledger says
-   * it has not booked (the read-only `txByKey` door); when it cannot answer
-   * (ledger down, malformed, inconsistent) it throws — that must stay
+   * `getTxByKey` says the burn key is absent AND `last_post_at` is null or
+   * older than BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone
+   * is not "never": the burn from the earlier attempt can still be queued
+   * behind the ledger's chain-tip lock after the client gave up (25 s deadline;
+   * the ledger's own statement timeout is 15 s). The clock is the last attempt,
+   * not `created_at`: a claim can be hours old when a retry posts. Deleting on
+   * claim age frees the window while that late burn lands. The delete takes
+   * the same row lock as `stampBuybackPostAttempt`, so the two cannot both
+   * pass. `getTxByKey` answers null only for a key the ledger says it has not
+   * booked (the read-only `txByKey` door); when it cannot answer (ledger down,
+   * malformed, inconsistent) it throws — that must stay
    * `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
    */
   private async refuseUnbookedBuyback(claimedId: string, runId: string, tokensBought: Amount, opts: { fresh: boolean }): Promise<never> {
@@ -1565,11 +1619,26 @@ export class TokenService {
       }
     }
     if (release) {
-      await this.sql`
-        DELETE FROM token.buyback_runs
-        WHERE id = ${claimedId} AND status = 'pending'
-          AND (${opts.fresh} OR created_at < now() - make_interval(secs => ${BUYBACK_QUIET_SECONDS}))
-      `;
+      await transaction(
+        this.sql,
+        async (tx) => {
+          const locked = await tx<Array<{ releasable: boolean }>>`
+            SELECT (
+              last_post_at IS NULL
+              OR last_post_at < clock_timestamp() - make_interval(secs => ${BUYBACK_QUIET_SECONDS})
+            ) AS releasable
+              FROM token.buyback_runs
+             WHERE id = ${claimedId} AND status = 'pending'
+             FOR UPDATE
+          `;
+          if (locked[0]?.releasable !== true) return;
+          await tx`
+            DELETE FROM token.buyback_runs
+             WHERE id = ${claimedId} AND status = 'pending'
+          `;
+        },
+        { isolation: 'read committed' },
+      );
     }
     throw new TokenError(
       `Buyback run ${runId} asserted tokensBought=${formatAmount(tokensBought)} ${this.assetId} but that figure did not move on the ledger — no recipe books a market-buy into the rewards engine. Refusing to settle a DB-only buyback. A burn from the engine would spend fee revenue, not purchased tokens`,
