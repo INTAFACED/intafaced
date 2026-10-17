@@ -2,6 +2,8 @@ import type { Sql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { DeskError } from '../desk/errors.js';
+import { nextSliceAtIso } from './present.js';
+import type { AlgoSchedulerView } from './scheduler-heartbeat.js';
 import type { AlgoStatus } from './types.js';
 
 /** Calendar months of parent history a caller may list. Not a commercial cap. */
@@ -30,6 +32,8 @@ export interface AlgoListRow {
   readonly filledQty: string;
   readonly status: AlgoStatus;
   readonly created: string;
+  readonly nextSliceAt: string | null;
+  readonly scheduler: AlgoSchedulerView;
 }
 
 export interface AlgoListPage {
@@ -45,6 +49,7 @@ interface ParentListRow {
   total_qty: string;
   status: AlgoStatus;
   created_at: Date;
+  next_due_at: Date | string | null;
   children: unknown;
 }
 
@@ -107,7 +112,13 @@ export async function sumFillQtyForOrders(sql: Sql, orderIds: readonly string[])
   return parseAmount(rows[0]?.qty ?? '0');
 }
 
-export async function listAlgoParents(sql: Sql, principal: Principal, query: AlgoListQuery, now: Date): Promise<AlgoListPage> {
+export async function listAlgoParents(
+  sql: Sql,
+  principal: Principal,
+  query: AlgoListQuery,
+  now: Date,
+  scheduler: AlgoSchedulerView = { running: null, reason: 'heartbeat_unknown' },
+): Promise<AlgoListPage> {
   requireScope(principal, 'trade:read');
   const limit = publishedAlgoListLimit(query.limit);
   const windowStart = algoListWindowStart(now);
@@ -146,6 +157,8 @@ export async function listAlgoParents(sql: Sql, principal: Principal, query: Alg
     filledQty: filled.get(row.id) ?? '0',
     status: row.status,
     created: row.created_at.toISOString(),
+    nextSliceAt: nextSliceAtIso(row.status, row.next_due_at == null ? null : new Date(row.next_due_at)),
+    scheduler,
   }));
   const last = page[page.length - 1];
   const nextCursor = rows.length > limit && last ? encodeAlgoCursor(last.created, last.id) : null;
@@ -163,7 +176,7 @@ async function selectParents(
 ): Promise<ParentListRow[]> {
   if (status && cursorAt && cursorId) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
         AND created_at >= ${from}
@@ -175,7 +188,7 @@ async function selectParents(
   }
   if (status) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
       WHERE user_id = ${userId} AND created_at >= ${from} AND status = ${status}
       ORDER BY created_at DESC, id DESC
@@ -184,7 +197,7 @@ async function selectParents(
   }
   if (cursorAt && cursorId) {
     return sql<ParentListRow[]>`
-      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, children
+      SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
         AND created_at >= ${from}
@@ -194,7 +207,7 @@ async function selectParents(
     `;
   }
   return sql<ParentListRow[]>`
-    SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, children
+    SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
     FROM algo_parents
     WHERE user_id = ${userId} AND created_at >= ${from}
     ORDER BY created_at DESC, id DESC

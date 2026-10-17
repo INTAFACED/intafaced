@@ -97,6 +97,7 @@ import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
+import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -190,6 +191,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
   convertQuoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
   algoEnabled: env.TRADE_ALGO_ENABLED,
+  algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
+  algoJobsIntervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS,
   seedPlaceEnabled: env.TRADE_MM_SEED_ENABLED,
   feeSchedule,
   subAccounts,
@@ -503,6 +506,7 @@ const mmSeedJobs = startMmSeedJobs({
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
+  recordHeartbeat: () => recordSchedulerHeartbeat(sql, schedulerInstanceId(), new Date()),
   onError: (name, err) => app.log.error({ err, job: name }, 'algo job tick failed'),
 });
 const optionsExerciseJobs = startOptionsExerciseJobs({
