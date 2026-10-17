@@ -33,8 +33,18 @@ import {
   planRestingBuy,
   planReturns,
   planSpaces,
+  MERCHANT_DISPLAY_NAME,
+  MERCHANT_INVOICES,
+  MERCHANT_LEGAL_NAME,
+  MERCHANT_LINKS,
+  MERCHANT_PAYMENTS,
+  isPayScopeRefusal,
+  merchantInvoiceId,
+  merchantPaymentId,
+  planMerchantPopulate,
   populateTransferId,
   populateUuid,
+  publishedStarterFeeBps,
   returnTransferId,
   seedTransferId,
   shiftPrice,
@@ -324,6 +334,81 @@ try {
   assert.ok(VERIFY_READS.every((r) => typeof r.count === 'function' && r.mod && r.proc));
   assert.equal(VERIFY_READS.find((r) => r.proc === 'notify.list').count({ items: [1, 2] }), 2);
   assert.equal(VERIFY_READS.find((r) => r.proc === 'mine').count(null), 0);
+
+  // ── populate: merchant portal, through the product doors, never a minted scope ──
+  const userId = '11111111-1111-4111-8111-111111111111';
+  const inviteeId = '22222222-2222-4222-8222-222222222222';
+  assert.equal(publishedStarterFeeBps({}), null);
+  assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: '' }), null);
+  assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: '150' }), 150);
+  assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: '0' }), 0);
+  assert.equal(publishedStarterFeeBps({ PAY_DEFAULT_FEE_BPS: '150' }), null);
+  assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: 'nope' }), null);
+  assert.equal(isPayScopeRefusal('Scope "pay:read" is required [FORBIDDEN]'), true);
+  assert.equal(isPayScopeRefusal('starter fee is not configured'), false);
+  assert.equal(merchantPaymentId(userId, 1), merchantPaymentId(userId, 1));
+  assert.notEqual(merchantPaymentId(userId, 1), merchantPaymentId(userId, 2));
+  assert.equal(MERCHANT_PAYMENTS.length, 8);
+  assert.equal(MERCHANT_LINKS.length, 2);
+  assert.equal(MERCHANT_INVOICES.length, 2);
+  assert.ok(MERCHANT_PAYMENTS.every((p) => typeof p.amount === 'string'));
+
+  const denied = planMerchantPopulate({ userId, scopeDenied: true, publishedFeeBps: 150 });
+  assert.equal(denied.stop, 'pay-scope-unpublished');
+  assert.deepEqual(denied.actions, []);
+  assert.equal(JSON.stringify(denied).includes('issueAccessToken'), false);
+
+  const noFee = planMerchantPopulate({ userId, merchant: null, publishedFeeBps: null });
+  assert.equal(noFee.stop, 'starter-fee-unconfigured');
+  assert.deepEqual(noFee.actions, []);
+
+  const opened = planMerchantPopulate({ userId, merchant: null, publishedFeeBps: 150, sandboxRail: false, friendUserId: inviteeId });
+  assert.equal(opened.stop, null);
+  const create = opened.actions.find((a) => a.kind === 'create-merchant');
+  assert.equal(create.feeBps, 150);
+  assert.equal(create.legalName, MERCHANT_LEGAL_NAME);
+  assert.equal(create.displayName, MERCHANT_DISPLAY_NAME);
+  assert.equal(opened.actions.filter((a) => a.kind === 'create-payment').length, 8);
+  assert.equal(
+    opened.actions.some((a) => a.kind === 'authorize-payment'),
+    false,
+  );
+  assert.equal(opened.actions.filter((a) => a.kind === 'create-link').length, 2);
+  assert.equal(opened.actions.filter((a) => a.kind === 'create-invoice').length, 2);
+  assert.equal(opened.actions.filter((a) => a.kind === 'ensure-subscription').length, 1);
+  assert.equal(opened.actions.filter((a) => a.kind === 'invite').length, 1);
+  assert.ok(opened.actions.some((a) => a.kind === 'submit-kyb'));
+  assert.ok(opened.actions.some((a) => a.kind === 'decide-kyb'));
+
+  const sandbox = planMerchantPopulate({ userId, merchant: { kybStatus: 'approved' }, sandboxRail: true, friendUserId: null });
+  assert.ok(sandbox.actions.some((a) => a.kind === 'authorize-payment' && a.decline === true));
+  assert.ok(sandbox.actions.some((a) => a.kind === 'capture-payment'));
+  assert.ok(sandbox.actions.some((a) => a.kind === 'refund-payment'));
+  assert.equal(
+    sandbox.actions.some((a) => a.kind === 'create-merchant'),
+    false,
+  );
+  assert.equal(
+    sandbox.actions.some((a) => a.kind === 'submit-kyb'),
+    false,
+  );
+  assert.ok(sandbox.actions.some((a) => a.kind === 'skip-invite'));
+
+  const filled = planMerchantPopulate({
+    userId,
+    merchant: { id: 'm', kybStatus: 'approved' },
+    sandboxRail: false,
+    payments: MERCHANT_PAYMENTS.map((p) => ({ id: merchantPaymentId(userId, p.n), status: 'created' })),
+    linkLabels: MERCHANT_LINKS.map((l) => l.label),
+    invoiceDescriptions: MERCHANT_INVOICES.map((i) => i.description),
+    mandateCustomerIds: ['LOCAL-TEST-customer-cia'],
+    hasSubscription: true,
+    teamUserIds: [inviteeId],
+    friendUserId: inviteeId,
+  });
+  assert.equal(filled.stop, null);
+  assert.deepEqual(filled.actions, []);
+  assert.equal(merchantInvoiceId(userId, 1), merchantInvoiceId(userId, 1));
 
   console.log('local-test-world: all checks passed');
 } finally {

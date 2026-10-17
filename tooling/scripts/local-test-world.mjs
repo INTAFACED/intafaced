@@ -792,6 +792,172 @@ export function planRestingBuy({ last, bpsBelow, notionalTarget, pricePrecision,
   return { price, amount: fromScaled(amount, dp) };
 }
 
+/**
+ * Sandbox merchant the portal should show. Names are labels, not a live business.
+ * Amounts are test-catalogue decimals (the same kind as POPULATE_TRANSFERS), not fees, caps, or TTLs.
+ * The starter fee is never in this list: unconfigured means the account is not opened.
+ */
+export const MERCHANT_LEGAL_NAME = 'Test Data Coffee Co';
+export const MERCHANT_DISPLAY_NAME = 'TEST DATA';
+export const MERCHANT_KYB_REF = 'LOCAL-TEST-kyb-test-data-coffee';
+export const MERCHANT_CUSTOMERS = [
+  { key: 'ada', ref: 'LOCAL-TEST-customer-ada' },
+  { key: 'ben', ref: 'LOCAL-TEST-customer-ben' },
+  { key: 'cia', ref: 'LOCAL-TEST-customer-cia' },
+];
+/** `want` is the status card-sandbox can reach. Without that rail the row stays `created`. */
+export const MERCHANT_PAYMENTS = [
+  { n: 1, amount: '4.50', customer: 'ada', want: 'created' },
+  { n: 2, amount: '6.00', customer: 'ada', want: 'authorized' },
+  { n: 3, amount: '12.00', customer: 'ben', want: 'captured' },
+  { n: 4, amount: '3.00', customer: 'ben', want: 'failed' },
+  { n: 5, amount: '8.00', customer: 'cia', want: 'refunded' },
+  { n: 6, amount: '5.50', customer: 'cia', want: 'created' },
+  { n: 7, amount: '18.00', customer: 'ada', want: 'captured' },
+  { n: 8, amount: '2.50', customer: 'ben', want: 'created' },
+];
+export const MERCHANT_LINKS = [
+  { key: 'counter', label: 'TEST DATA — counter', amount: '4.50' },
+  { key: 'online', label: 'TEST DATA — online', amount: '12.00' },
+];
+export const MERCHANT_INVOICES = [
+  { n: 1, amount: '15.00', customer: 'ada', description: 'TEST DATA invoice — beans' },
+  { n: 2, amount: '7.50', customer: 'ben', description: 'TEST DATA invoice — catering' },
+];
+export const MERCHANT_SUBSCRIPTION = {
+  customer: 'cia',
+  amount: '9.00',
+  cadence: 'monthly',
+  path: 'crypto_invoice',
+  startsAt: '2026-10-17T00:00:00.000Z',
+};
+/** Published sandbox decline instrument (card-sandbox SANDBOX_DECLINE_TOKEN). Not a secret. */
+export const MERCHANT_SANDBOX_DECLINE_TOKEN = 'tok_decline';
+
+export const merchantPaymentId = (userId, n) => populateUuid(`merchant-payment-${userId}-${n}`);
+export const merchantInvoiceId = (userId, n) => populateUuid(`merchant-invoice-${userId}-${n}`);
+export const merchantRefundId = (userId, n) => populateRef(`refund-${String(userId).slice(0, 8)}-${n}`);
+export const merchantSubscriptionKey = (userId) => populateRef(`sub-${String(userId).slice(0, 8)}`);
+
+/**
+ * Starter fee the portal will send to merchant.create. Null when nothing is published.
+ * Reads only PAY_MERCHANT_STARTER_FEE_BPS. Does not fall back to PAY_DEFAULT_FEE_BPS or to 0.
+ */
+export function publishedStarterFeeBps(env = process.env) {
+  const raw = env.PAY_MERCHANT_STARTER_FEE_BPS;
+  if (raw === undefined || String(raw).trim() === '') return null;
+  if (!/^\d+$/.test(String(raw).trim())) return null;
+  const n = Number(String(raw).trim());
+  if (!Number.isSafeInteger(n) || n < 0 || n > 10_000) return null;
+  return n;
+}
+
+/** The service refusal that means this session was not granted merchant pay scopes. */
+export function isPayScopeRefusal(refusal) {
+  return /Scope "pay:(read|write|refund|payout)" is required|merchant_pay_scope_grant_unpublished/i.test(String(refusal ?? ''));
+}
+
+const customerRef = (key) => MERCHANT_CUSTOMERS.find((c) => c.key === key)?.ref ?? null;
+
+/**
+ * What populate should still do, given what the service already has.
+ * `scopeDenied` stops with no actions: this planner never emits a scope mint.
+ * A missing merchant with no published fee stops the same way: no invented bps.
+ * Money rows are included either way; the runner drops them if live KYB stays pending.
+ */
+export function planMerchantPopulate({
+  userId,
+  scopeDenied = false,
+  merchant = null,
+  publishedFeeBps = null,
+  sandboxRail = false,
+  payments = [],
+  linkLabels = [],
+  invoiceDescriptions = [],
+  mandateCustomerIds = [],
+  hasSubscription = false,
+  teamUserIds = [],
+  friendUserId = null,
+}) {
+  if (scopeDenied) return { stop: 'pay-scope-unpublished', actions: [] };
+  if (!merchant && publishedFeeBps == null) return { stop: 'starter-fee-unconfigured', actions: [] };
+  const actions = [];
+  if (!merchant) {
+    actions.push({
+      kind: 'create-merchant',
+      legalName: MERCHANT_LEGAL_NAME,
+      displayName: MERCHANT_DISPLAY_NAME,
+      feeBps: publishedFeeBps,
+    });
+  }
+  const kyb = merchant?.kybStatus ?? 'none';
+  if (kyb === 'none' || kyb === 'rejected') actions.push({ kind: 'submit-kyb', kybRef: MERCHANT_KYB_REF });
+  if (kyb !== 'approved') actions.push({ kind: 'decide-kyb' });
+  const havePay = new Map(payments.map((p) => [p.id, p.status]));
+  for (const spec of MERCHANT_PAYMENTS) {
+    const id = merchantPaymentId(userId, spec.n);
+    const ref = customerRef(spec.customer);
+    const status = havePay.get(id) ?? null;
+    if (!status) {
+      actions.push({
+        kind: 'create-payment',
+        id,
+        amount: spec.amount,
+        customerRef: ref,
+        rail: sandboxRail ? 'card-sandbox' : 'crypto-native',
+        method: sandboxRail ? 'card' : 'crypto',
+        want: spec.want,
+      });
+    }
+    if (!sandboxRail || spec.want === 'created') continue;
+    const at = status ?? 'created';
+    if (at === 'refunded' || at === 'failed') continue;
+    if (spec.want === 'failed') {
+      if (at === 'created') actions.push({ kind: 'authorize-payment', id, decline: true });
+      continue;
+    }
+    if (at === 'created') actions.push({ kind: 'authorize-payment', id, decline: false });
+    if (spec.want === 'authorized') continue;
+    if (at === 'created' || at === 'authorized') actions.push({ kind: 'capture-payment', id });
+    if (spec.want === 'refunded' && at !== 'refunded') {
+      actions.push({ kind: 'refund-payment', id, amount: spec.amount, refundId: merchantRefundId(userId, spec.n) });
+    }
+  }
+  const labels = new Set(linkLabels);
+  for (const spec of MERCHANT_LINKS) {
+    if (!labels.has(spec.label)) actions.push({ kind: 'create-link', label: spec.label, amount: spec.amount });
+  }
+  const described = new Set(invoiceDescriptions);
+  for (const spec of MERCHANT_INVOICES) {
+    if (described.has(spec.description)) continue;
+    actions.push({
+      kind: 'create-invoice',
+      requestId: merchantInvoiceId(userId, spec.n),
+      amount: spec.amount,
+      customerRef: customerRef(spec.customer),
+      description: spec.description,
+    });
+  }
+  const subRef = customerRef(MERCHANT_SUBSCRIPTION.customer);
+  const mandateKnown = mandateCustomerIds.includes(subRef);
+  if (!mandateKnown || !hasSubscription) {
+    actions.push({
+      kind: 'ensure-subscription',
+      customerRef: subRef,
+      amount: MERCHANT_SUBSCRIPTION.amount,
+      cadence: MERCHANT_SUBSCRIPTION.cadence,
+      path: MERCHANT_SUBSCRIPTION.path,
+      startsAt: MERCHANT_SUBSCRIPTION.startsAt,
+      idempotencyKey: merchantSubscriptionKey(userId),
+    });
+  }
+  if (!friendUserId) actions.push({ kind: 'skip-invite', reason: 'test_friend is not registered' });
+  else if (!teamUserIds.includes(friendUserId)) {
+    actions.push({ kind: 'invite', userId: friendUserId, role: 'viewer', label: MERCHANT_DISPLAY_NAME });
+  }
+  return { stop: null, actions };
+}
+
 export const RESULT_STATUSES = ['created', 'exists', 'refused', 'skipped', 'error'];
 
 /** Counts by status and by room, for the end-of-run table and the report. */
@@ -1351,16 +1517,394 @@ async function populateAgentsStep(ctx) {
   );
 }
 
+const MERCHANT_MONEY = new Set([
+  'create-payment',
+  'authorize-payment',
+  'capture-payment',
+  'refund-payment',
+  'create-link',
+  'create-invoice',
+  'ensure-subscription',
+  'invite',
+]);
+
+/**
+ * Merchant portal seed. Legitimate sequence, and where it stops:
+ *
+ * 1. svc-identity AuthService.defaultScopes() issues SESSION_SCOPES only.
+ *    pay:read, pay:write, pay:refund, and pay:payout are WITHHELD_FROM_SESSION
+ *    ("granted by merchant onboarding") in packages/auth/src/scopes.ts.
+ * 2. The only named grant is issueMerchantPayScopes (packages/auth
+ *    merchant-pay-scope-grant.ts), reached from svc-pay
+ *    issueMerchantPayScopesViaGrantPath. Both refuse
+ *    auth.merchant_pay_scope_grant_unpublished until the owner publishes grant
+ *    law (docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md and
+ *    2026-08-15). Approving KYB does not grant scopes. An API key cannot carry
+ *    pay:* the session does not hold (assertDelegatableScopes).
+ * 3. The product door is pay.merchant.create (scopedProcedure pay:write),
+ *    bound to the signed-in user, with a published feeBps plus displayName and
+ *    legalName. The portal sends starterFeeBps and refuses while that prop is
+ *    null. This step reads PAY_MERCHANT_STARTER_FEE_BPS and does the same.
+ * 4. KYB is pay.merchant.submitKyb (pay:write), then pay.merchant.decideKybStub
+ *    while value movement is allow-sandbox. Under live-only the stub returns
+ *    pay.kyb_operator_required and the step uses the local founder pair:
+ *    identity actionApproval.propose / approve, then pay.merchant.decideKyb
+ *    (admin:compliance, MFA, consumed approval pay.merchant_decide_kyb).
+ *    If that pair cannot approve, the step stops at KYB pending.
+ * 5. With the scopes, the same session calls payment.create / authorize /
+ *    capture, payment.refund, merchant.createLink, merchantOps.invoices.create,
+ *    mandate.create + subscription.create (crypto_invoice), and
+ *    merchantOps.team.invite. Customers are the customerRef values on those
+ *    payments (merchantOps.customers has no create).
+ *
+ * This step never calls issueAccessToken and never writes a pay table except
+ * through those procedures. A missing pay scope or a missing starter fee is a
+ * refusal, not a fallback.
+ */
 async function populateMerchantStep(ctx) {
-  const { user, record } = ctx;
+  const { user, record, secrets, log } = ctx;
   const me = await call(user, 'q', 'pay', 'merchant.me');
-  if (me.ok && me.data) return record('merchant', 'merchant account', 'exists', `merchant ${me.data.id}`);
+  if (!me.ok && isPayScopeRefusal(me.refusal)) {
+    record(
+      'merchant',
+      'TEST DATA merchant, payments, links, customers, invoices, refund, subscription, invite',
+      'refused',
+      `${me.refusal}. issueMerchantPayScopes refuses (grant law unpublished); merchant.create needs pay:write. Nothing minted. Starter fee ${publishedStarterFeeBps() == null ? 'not configured' : 'published'}.`,
+    );
+    return;
+  }
+  if (!me.ok) return record('merchant', 'merchant.me', 'refused', me.refusal);
+
+  const userId = user.account.userId;
+  const friend = listUsers(secrets).find((u) => u.handle === FRIEND.handle);
+  const health = await call(user, 'q', 'pay', 'railHealth');
+  if (!health.ok) return record('merchant', 'rail health', 'refused', health.refusal);
+  const sandboxRail = health.data.some((r) => r.id === 'card-sandbox' && r.mode === 'sandbox');
+  const observed = me.data ? await observeMerchant(user, me.data.id) : emptyMerchantObservation();
+  if (!observed.ok) return record('merchant', 'merchant catalogue', 'refused', observed.refusal);
+  const plan = planMerchantPopulate({
+    userId,
+    merchant: me.data,
+    publishedFeeBps: publishedStarterFeeBps(),
+    sandboxRail,
+    payments: observed.payments,
+    linkLabels: observed.linkLabels,
+    invoiceDescriptions: observed.invoiceDescriptions,
+    mandateCustomerIds: observed.mandateCustomerIds,
+    hasSubscription: observed.hasSubscription,
+    teamUserIds: observed.teamUserIds,
+    friendUserId: friend?.id ?? null,
+  });
+  if (plan.stop === 'starter-fee-unconfigured') {
+    record(
+      'merchant',
+      'TEST DATA merchant account',
+      'refused',
+      'starter fee is not configured (MerchantPortal starterFeeBps is null; PAY_MERCHANT_STARTER_FEE_BPS is unset). populate does not invent a fee',
+    );
+    return;
+  }
+
+  let merchantId = me.data?.id ?? null;
+  let moneyOpen = true;
+  for (const action of plan.actions) {
+    if (!merchantId && action.kind !== 'create-merchant') {
+      record('merchant', action.kind, 'skipped', 'merchant was not created');
+      continue;
+    }
+    if (!moneyOpen && MERCHANT_MONEY.has(action.kind)) {
+      record('merchant', action.kind, 'skipped', 'KYB pending; live money stays closed');
+      continue;
+    }
+    const out = await runMerchantAction(ctx, action, () => merchantId);
+    if (out.merchantId) merchantId = out.merchantId;
+    if (out.moneyClosed) moneyOpen = false;
+  }
+  if (merchantId && moneyOpen) await recordMerchantCounts(user, record, merchantId);
+}
+
+function emptyMerchantObservation() {
+  return {
+    ok: true,
+    sandboxRail: false,
+    payments: [],
+    linkLabels: [],
+    invoiceDescriptions: [],
+    mandateCustomerIds: [],
+    hasSubscription: false,
+    teamUserIds: [],
+  };
+}
+
+async function observeMerchant(user, merchantId) {
+  const payments = [];
+  for (const spec of MERCHANT_PAYMENTS) {
+    const id = merchantPaymentId(user.account.userId, spec.n);
+    const got = await call(user, 'q', 'pay', 'payment.get', { paymentId: id });
+    if (got.ok) payments.push({ id, status: got.data.status });
+    else if (!/NOT_FOUND|not found/i.test(got.refusal)) return { ok: false, refusal: got.refusal };
+  }
+  const links = await call(user, 'q', 'pay', 'merchant.listLinks', { merchantId, limit: 50 });
+  if (!links.ok) return { ok: false, refusal: links.refusal };
+  const invoices = await call(user, 'q', 'pay', 'merchantOps.invoices.list', { limit: 50 });
+  if (!invoices.ok) return { ok: false, refusal: invoices.refusal };
+  const mandates = await call(user, 'q', 'pay', 'mandate.list', { merchantId, limit: 50 });
+  if (!mandates.ok) return { ok: false, refusal: mandates.refusal };
+  const subs = await call(user, 'q', 'pay', 'subscription.list', { merchantId, limit: 50 });
+  if (!subs.ok) return { ok: false, refusal: subs.refusal };
+  const team = await call(user, 'q', 'pay', 'merchantOps.team.list', { limit: 50 });
+  if (!team.ok) return { ok: false, refusal: team.refusal };
+  const subRef = MERCHANT_CUSTOMERS.find((c) => c.key === MERCHANT_SUBSCRIPTION.customer).ref;
+  const mandate = (mandates.data.items ?? []).find((m) => m.customerId === subRef);
+  const hasSubscription = Boolean(mandate && (subs.data.items ?? []).some((s) => s.mandateId === mandate.id));
+  return {
+    ok: true,
+    payments,
+    linkLabels: (links.data.items ?? []).map((l) => l.label),
+    invoiceDescriptions: (invoices.data.items ?? []).map((i) => i.description),
+    mandateCustomerIds: (mandates.data.items ?? []).map((m) => m.customerId),
+    hasSubscription,
+    teamUserIds: (team.data.items ?? []).map((m) => m.userId),
+  };
+}
+
+async function recordMerchantCounts(user, record, merchantId) {
+  const pays = await call(user, 'q', 'pay', 'payment.list', { merchantId, limit: 50 });
+  const links = await call(user, 'q', 'pay', 'merchant.listLinks', { merchantId, limit: 50 });
+  const customers = await call(user, 'q', 'pay', 'merchantOps.customers.list', { limit: 50, search: 'LOCAL-TEST-customer-' });
+  const invoices = await call(user, 'q', 'pay', 'merchantOps.invoices.list', { limit: 50 });
+  const subs = await call(user, 'q', 'pay', 'subscription.list', { merchantId, limit: 50 });
+  const team = await call(user, 'q', 'pay', 'merchantOps.team.list', { limit: 50, status: 'invited' });
+  const n = (res, pick) => (res.ok ? pick(res.data) : `unreadable (${res.refusal})`);
   record(
     'merchant',
-    'sandbox merchant account, payments, link, customer, invoice',
-    'refused',
-    `${me.ok ? 'no merchant' : me.refusal}. pay:* merchant scopes are never issued to an ordinary session (packages/auth merchant-pay-scope-grant.ts: owner-only, refuse-closed); populate does not mint them`,
+    'portal counts',
+    'exists',
+    `payments ${n(pays, (d) => d.items.length)}, links ${n(links, (d) => d.items.length)}, customers ${n(customers, (d) => d.items.length)}, invoices ${n(invoices, (d) => d.items.length)}, subscriptions ${n(subs, (d) => d.items.length)}, invites ${n(team, (d) => d.items.length)}`,
   );
+}
+
+/** Live-only KYB: the local operator pair proposes and approves, then decideKyb. Failure leaves KYB pending. */
+async function decideKybByFounderPair(log, merchantId) {
+  const gctx = await makeGatesContext({ log: (m) => log(`merchant kyb: ${m}`) });
+  const sessions = await gatesLocal.operatorSessions(gctx);
+  const payloadHash = gatesLocal.matchingPayloadHash('pay.merchant_decide_kyb', { merchantId, decision: 'approved' });
+  const proposal = {
+    actionType: 'pay.merchant_decide_kyb',
+    targetService: 'svc-pay',
+    targetId: 'pay.merchant_decide_kyb',
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: gatesLocal.MARKERS.policyVersion,
+  };
+  const proposed = await gctx.edge.mutate('identity', 'actionApproval.propose', proposal, sessions.a.token);
+  const row = proposed.json?.result?.data;
+  if (!row?.approvalId) return { ok: false, refusal: gatesLocal.refusalText(proposed) };
+  const approved = await gctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId: row.approvalId, expectedPayloadHash: payloadHash },
+    sessions.b.token,
+  );
+  if (approved.json?.result?.data?.status !== 'APPROVED') return { ok: false, refusal: gatesLocal.refusalText(approved) };
+  const token = await sessions.a.complianceToken();
+  const decided = await gctx.edge.mutate(
+    'pay',
+    'merchant.decideKyb',
+    { merchantId, decision: 'approved', approvalId: row.approvalId, operationId: row.operationId },
+    token,
+  );
+  const data = decided.json?.result?.data;
+  if (!data?.kybStatus) return { ok: false, refusal: gatesLocal.refusalText(decided) };
+  return { ok: true, kybStatus: data.kybStatus };
+}
+
+async function runMerchantAction(ctx, action, merchantId) {
+  const { user, record, log } = ctx;
+  const id = () => {
+    const merchant = merchantId();
+    if (!merchant) throw new Error('merchant id missing after create');
+    return merchant;
+  };
+  if (action.kind === 'create-merchant') {
+    const out = await call(user, 'm', 'pay', 'merchant.create', {
+      mode: 'gateway',
+      pricing: { feeBps: action.feeBps },
+      displayName: action.displayName,
+      legalName: action.legalName,
+      settlementPrefs: { businessDetails: { label: MERCHANT_DISPLAY_NAME } },
+    });
+    record(
+      'merchant',
+      `merchant "${action.legalName}"`,
+      out.ok ? 'created' : 'refused',
+      out.ok ? `${out.data.id} fee ${out.data.feeBps} bps (published)` : out.refusal,
+    );
+    return out.ok ? { merchantId: out.data.id } : {};
+  }
+  if (action.kind === 'submit-kyb') {
+    const out = await call(user, 'm', 'pay', 'merchant.submitKyb', { merchantId: id(), kybRef: action.kybRef });
+    record('merchant', 'KYB submit', out.ok ? 'created' : 'refused', out.ok ? out.data.kybStatus : out.refusal);
+    return {};
+  }
+  if (action.kind === 'decide-kyb') {
+    const merchant = id();
+    const stub = await call(user, 'm', 'pay', 'merchant.decideKybStub', { merchantId: merchant, decision: 'approved' });
+    if (stub.ok) {
+      record('merchant', 'KYB decision', 'created', `sandbox stub ${stub.data.kybStatus}`);
+      return {};
+    }
+    if (!/kyb_operator_required/.test(stub.refusal)) {
+      record('merchant', 'KYB decision', 'refused', stub.refusal);
+      return {};
+    }
+    const founders = await decideKybByFounderPair(log, merchant);
+    if (!founders.ok) {
+      record('merchant', 'KYB pending', 'refused', `decideKybStub is live-only; founder pair refused: ${founders.refusal}`);
+      return { moneyClosed: true };
+    }
+    record('merchant', 'KYB decision', 'created', `founder pair ${founders.kybStatus}`);
+    return {};
+  }
+  if (action.kind === 'create-payment') {
+    const out = await call(user, 'm', 'pay', 'payment.create', {
+      requestId: action.id,
+      merchantId: id(),
+      amount: action.amount,
+      assetId: 'USDT',
+      method: action.method,
+      railAdapter: action.rail,
+      customerRef: action.customerRef,
+      metadata: { label: MERCHANT_DISPLAY_NAME },
+      ...(action.rail === 'card-sandbox' && action.want === 'failed'
+        ? { instrument: { kind: 'card', token: MERCHANT_SANDBOX_DECLINE_TOKEN } }
+        : action.rail === 'card-sandbox'
+          ? { instrument: { kind: 'card', token: 'tok_ok' } }
+          : {}),
+    });
+    record(
+      'merchant',
+      `payment ${action.amount} USDT`,
+      out.ok ? 'created' : 'refused',
+      out.ok
+        ? `${out.data.status} ${action.rail}${action.rail === 'crypto-native' ? ' (sandbox rail is off, left created)' : ''}`
+        : out.refusal,
+    );
+    return {};
+  }
+  if (action.kind === 'authorize-payment') {
+    const out = await call(user, 'm', 'pay', 'payment.authorize', { paymentId: action.id });
+    const declined = action.decline && /declin/i.test(out.refusal ?? '');
+    record(
+      'merchant',
+      `authorize ${action.id.slice(0, 8)}`,
+      out.ok || declined ? 'created' : 'refused',
+      out.ok ? out.data.status : declined ? 'sandbox decline (payment failed)' : out.refusal,
+    );
+    return {};
+  }
+  if (action.kind === 'capture-payment') {
+    const out = await call(user, 'm', 'pay', 'payment.capture', { paymentId: action.id });
+    record('merchant', `capture ${action.id.slice(0, 8)}`, out.ok ? 'created' : 'refused', out.ok ? out.data.status : out.refusal);
+    return {};
+  }
+  if (action.kind === 'refund-payment') {
+    const out = await call(user, 'm', 'pay', 'payment.refund', {
+      paymentId: action.id,
+      amount: action.amount,
+      refundId: action.refundId,
+    });
+    record('merchant', `refund ${action.amount} USDT`, out.ok ? 'created' : 'refused', out.ok ? out.data.status : out.refusal);
+    return {};
+  }
+  if (action.kind === 'create-link') {
+    const out = await call(user, 'm', 'pay', 'merchant.createLink', {
+      merchantId: id(),
+      label: action.label,
+      amount: action.amount,
+      currency: 'USDT',
+    });
+    record('merchant', `link "${action.label}"`, out.ok ? 'created' : 'refused', out.ok ? out.data.id : out.refusal);
+    return {};
+  }
+  if (action.kind === 'create-invoice') {
+    const out = await call(user, 'm', 'pay', 'merchantOps.invoices.create', {
+      requestId: action.requestId,
+      assetId: 'USDT',
+      amount: action.amount,
+      customerRef: action.customerRef,
+      description: action.description,
+    });
+    record(
+      'merchant',
+      `invoice ${action.amount} USDT`,
+      out.ok ? 'created' : 'refused',
+      out.ok ? (out.data.status ?? out.data.id) : out.refusal,
+    );
+    return {};
+  }
+  if (action.kind === 'ensure-subscription') {
+    const merchant = id();
+    const listed = await call(user, 'q', 'pay', 'mandate.list', { merchantId: merchant, limit: 50 });
+    if (!listed.ok) {
+      record('merchant', 'subscription mandate', 'refused', listed.refusal);
+      return {};
+    }
+    let mandate = (listed.data.items ?? []).find((m) => m.customerId === action.customerRef);
+    if (!mandate) {
+      const made = await call(user, 'm', 'pay', 'mandate.create', {
+        merchantId: merchant,
+        customerId: action.customerRef,
+        assetId: 'USDT',
+        amount: action.amount,
+        cadence: action.cadence,
+        startsAt: action.startsAt,
+      });
+      if (!made.ok) {
+        record('merchant', 'subscription mandate', 'refused', made.refusal);
+        return {};
+      }
+      mandate = made.data;
+      record('merchant', 'subscription mandate', 'created', mandate.id);
+    } else record('merchant', 'subscription mandate', 'exists', mandate.id);
+    const subs = await call(user, 'q', 'pay', 'subscription.list', { merchantId: merchant, limit: 50 });
+    if (!subs.ok) {
+      record('merchant', 'subscription', 'refused', subs.refusal);
+      return {};
+    }
+    const have = (subs.data.items ?? []).find((s) => s.mandateId === mandate.id);
+    if (have) {
+      record('merchant', 'subscription', 'exists', `${have.id} ${have.status}`);
+      return {};
+    }
+    const out = await call(user, 'm', 'pay', 'subscription.create', {
+      mandateId: mandate.id,
+      path: action.path,
+      idempotencyKey: action.idempotencyKey,
+    });
+    record('merchant', 'subscription', out.ok ? 'created' : 'refused', out.ok ? `${out.data.id} ${action.path}` : out.refusal);
+    return {};
+  }
+  if (action.kind === 'invite') {
+    const out = await call(user, 'm', 'pay', 'merchantOps.team.invite', {
+      userId: action.userId,
+      role: action.role,
+      label: action.label,
+    });
+    record(
+      'merchant',
+      'team invite',
+      out.ok ? 'created' : 'refused',
+      out.ok ? `${out.data.role ?? action.role} ${action.userId}` : out.refusal,
+    );
+    return {};
+  }
+  if (action.kind === 'skip-invite') {
+    record('merchant', 'team invite', 'skipped', action.reason);
+    return {};
+  }
+  record('merchant', action.kind, 'error', 'unknown merchant action');
+  return {};
 }
 
 const STEP_FNS = {
