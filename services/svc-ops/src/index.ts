@@ -15,6 +15,7 @@ import { createEdgeContext } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { createOpsRouter, type OpsRouter } from './router.js';
+import { createOpsApprovalClient } from './operator-desks.js';
 import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
@@ -80,14 +81,23 @@ const notificationPort = createOutreachNotificationClient({ notifyUrl: env.NOTIF
 
 const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort, archivePublisher);
 const notificationWorker = crmSql ? new OutreachNotificationWorker(crmSql, notificationPort) : null;
-const appRouter = createOpsRouter(ops, {
-  crm,
-  authority: createFounderAuthority({
-    identityUrl: env.IDENTITY_URL,
-    serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
-    principalSecret: env.EDGE_PRINCIPAL_SECRET,
-  }),
-});
+const appRouter = createOpsRouter(
+  ops,
+  {
+    crm,
+    authority: createFounderAuthority({
+      identityUrl: env.IDENTITY_URL,
+      serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
+      principalSecret: env.EDGE_PRINCIPAL_SECRET,
+    }),
+  },
+  {
+    restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
+    alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
+    approvals:
+      env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  },
+);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 
 const resolveClientIp = createClientIpResolver(process.env.OPS_TRUSTED_PROXY_CIDRS);

@@ -1,11 +1,22 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import { AuthError, requireMfa } from '@intafaced/auth';
+import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
 import { OMS_WRITE_CALLER, requireOmsWriteService } from './oms-write-hmac.js';
 import { SealedHouseTenantRegistry, type TenantDescribe, type TenantRefusal } from '@intafaced/execution-house-tenant';
 import type { CaptureLake } from '@intafaced/venue-adapter';
 import { cancelOmsOrder, type OmsCancelFn } from './oms-cancel.js';
 import { killInFlightExecution } from './oms-kill.js';
+import {
+  consumeExecutionHalt,
+  haltScope,
+  inFlightChildren,
+  assertIdempotencyKey,
+  OperatorDeskError,
+  EXECUTION_EMS_STORE_UNWIRED,
+  EXECUTION_IDEMPOTENCY_CONFLICT,
+} from './operator-desk.js';
 import { drainInFlightAlgo } from './oms-drain.js';
 import { cancelRemainingParentChildren } from './oms-cancel-remaining.js';
 import { attributeChildFillsToParent } from './oms-attribute.js';
@@ -367,9 +378,94 @@ export function createExecutionRouter(
   matchingVenueHalt: MatchingVenueHaltPort = undefined,
   matchingUrl: string | null | undefined = undefined,
   fetchImpl: typeof fetch | undefined = undefined,
+  operatorApprovals?: { consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> },
 ) {
+  const haltIdem = new Map<string, { fingerprint: string; value: unknown }>();
+  const deskFail = (err: unknown): never => {
+    if (err instanceof OperatorDeskError) {
+      throw new TRPCError({
+        code: err.code === EXECUTION_IDEMPOTENCY_CONFLICT ? 'CONFLICT' : 'PRECONDITION_FAILED',
+        message: `${err.code} — ${err.message}`,
+        cause: err,
+      });
+    }
+    throw err;
+  };
   return router({
     execution: router({
+      ops: router({
+        inFlight: scopedProcedure('admin:read', { module: 'execution' }).query(() => {
+          if (!emsStore) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `${EXECUTION_EMS_STORE_UNWIRED} — the EMS journal is not wired, so in-flight children are not listed`,
+            });
+          }
+          return { asOf: new Date().toISOString(), children: inFlightChildren(emsStore.list()) };
+        }),
+        halt: scopedProcedure('admin:write', { module: 'execution' })
+          .input(
+            z.object({
+              account: z.string().optional(),
+              session: z.string().optional(),
+              approvalId: z.string(),
+              operationId: z.string(),
+              idempotencyKey: z.string(),
+            }),
+          )
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+            } catch (err) {
+              if (err instanceof AuthError && err.code === 'mfa.required') {
+                throw new TRPCError({ code: 'UNAUTHORIZED', message: `${err.code} — ${err.message}`, cause: err });
+              }
+              throw err;
+            }
+            try {
+              if (!emsStore) {
+                throw new OperatorDeskError('EMS evidence store is required for operator halt', EXECUTION_EMS_STORE_UNWIRED);
+              }
+              const key = assertIdempotencyKey(input.idempotencyKey);
+              const scope = haltScope(input);
+              const fingerprint = JSON.stringify({
+                ...scope,
+                approvalId: input.approvalId,
+                operationId: input.operationId,
+              });
+              const prior = haltIdem.get(key);
+              if (prior && prior.fingerprint !== fingerprint) {
+                throw new OperatorDeskError('This idempotency key was already used for a different halt', EXECUTION_IDEMPOTENCY_CONFLICT);
+              }
+              if (prior) return prior.value;
+              const consumed = await consumeExecutionHalt(operatorApprovals, {
+                approvalId: input.approvalId,
+                operationId: input.operationId,
+                targetId: scope.targetId,
+                requesterId: ctx.principal.userId,
+              });
+              const result = await killInFlightExecution({
+                account: scope.account,
+                session: scope.session,
+                cancelByVenue,
+                emsStore,
+              });
+              if (!result.ok) {
+                throw new OperatorDeskError(result.detail, `execution.${result.reason}`);
+              }
+              const value = {
+                ok: true as const,
+                scope: result.scope,
+                children: result.children,
+                approverId: consumed.approverId ?? null,
+              };
+              haltIdem.set(key, { fingerprint, value });
+              return value;
+            } catch (err) {
+              deskFail(err);
+            }
+          }),
+      }),
       tenant: router({
         describe: scopedProcedure('admin:read', { module: 'execution' })
           .input(tenantIdInput)

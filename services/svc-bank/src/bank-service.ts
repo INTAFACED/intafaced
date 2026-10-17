@@ -8,6 +8,7 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
+import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
@@ -48,6 +49,7 @@ export interface BankServices {
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
+  readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
 }
@@ -87,6 +89,11 @@ export interface BankServiceOptions {
    * before any row or ledger post.
    */
   ramps?: RampServiceOptions;
+  /**
+   * Custody port for deposit addresses. Unset refuses `bank.deposit_custody_unset`.
+   * This service does not derive an address.
+   */
+  deposits?: DepositServiceOptions;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -157,6 +164,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
+  const deposits = new DepositService(sql, options.deposits ?? {});
   const business = new BusinessService(
     sql,
     ledger,
@@ -179,6 +187,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     loans,
     cards,
     ramps,
+    deposits,
     autoInvest,
     business,
   };
@@ -195,6 +204,7 @@ export {
   LoanService,
   CardService,
   RampService,
+  DepositService,
   AutoInvestService,
   BusinessService,
 };
