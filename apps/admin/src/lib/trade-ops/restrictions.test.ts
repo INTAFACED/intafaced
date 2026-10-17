@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  describeResult,
-  historyRows,
-  parseHistory,
-  parseState,
-  validateChange,
-  validateLimit,
-  validateUserId,
-  wordsForRefusal,
-} from './restrictions';
+import { describeResult, historyRows, validateChange, validateLimit, validateUserId, wordsForRefusal } from './restrictions';
+import { parseHistory, parseState } from './restrictions-parse';
 
 const U = '3f2b8c1e-5d4a-4b7e-9c3a-1a2b3c4d5e6f';
 const A = '00000000-0000-4000-8000-000000000001';

@@ -1,3 +1,5 @@
+'use client';
+
 import { KeyValue } from '@intafaced/ui';
 
 /** Halt and delist side by side, in plain words, so nobody ends a market when they meant to pause it. */

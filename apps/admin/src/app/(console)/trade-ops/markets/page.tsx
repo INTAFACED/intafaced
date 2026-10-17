@@ -1,4 +1,4 @@
-import { PageSection } from '@intafaced/ui';
+import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { DeskPage } from '@/components/trade-ops/desk-page';
 import { ReadProblem } from '@/components/trade-ops/blocker-panel';

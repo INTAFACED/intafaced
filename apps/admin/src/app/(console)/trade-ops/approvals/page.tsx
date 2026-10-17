@@ -1,4 +1,4 @@
-import { PageSection } from '@intafaced/ui';
+import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { readRestrictionHistory, readRestrictionState } from '@/lib/trade-ops/approvals-calls';
 import { validateUserId } from '@/lib/trade-ops/restrictions';

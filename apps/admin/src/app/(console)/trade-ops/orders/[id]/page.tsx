@@ -1,4 +1,5 @@
-import { KeyValue, Badge, EmptyState, type KeyValueItem } from '@intafaced/ui';
+import { KeyValue, Badge, EmptyState } from '@/components/trade-ops/kit';
+import type { KeyValueItem } from '@intafaced/ui';
 import { requireFounderPage } from '@/lib/founder-page';
 import { readOpenOrders } from '@/lib/trade-ops/reads';
 import { BLOCKERS } from '@/lib/trade-ops/blockers';

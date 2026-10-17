@@ -1,3 +1,5 @@
+'use client';
+
 import { EmptyState } from '@intafaced/ui';
 import type { Blocker, Outcome } from '@/lib/trade-ops/outcome';
 
@@ -6,9 +8,7 @@ import type { Blocker, Outcome } from '@/lib/trade-ops/outcome';
  * Never "coming soon": the operator can read exactly what is missing.
  */
 export function BlockerPanel({ blocker, title, size = 'panel' }: { blocker: Blocker; title: string; size?: 'inline' | 'panel' | 'page' }) {
-  return (
-    <EmptyState variant="refused" size={size} title={title} reason={blocker.text} code={`${blocker.owner} · ${blocker.need}`} />
-  );
+  return <EmptyState variant="refused" size={size} title={title} reason={blocker.text} code={`${blocker.owner} · ${blocker.need}`} />;
 }
 
 /** Panel for a read that did not come back: refused (service's words) or unknown (could not reach it). */

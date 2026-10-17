@@ -1,3 +1,5 @@
+'use client';
+
 import { Badge } from '@intafaced/ui';
 import { FREEZE_KINDS } from '@/lib/trade-ops/restrictions';
 

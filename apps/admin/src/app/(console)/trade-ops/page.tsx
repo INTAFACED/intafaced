@@ -1,4 +1,4 @@
-import { PageSection } from '@intafaced/ui';
+import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { HealthRooms } from '@/components/trade-ops/health-rooms';

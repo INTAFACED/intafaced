@@ -1,4 +1,4 @@
-import { Badge, KeyValue, PageSection } from '@intafaced/ui';
+import { Badge, KeyValue, PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { KillSwitchAudit } from '@/components/trade-ops/kill-switch-audit';
 import { KillSwitchExplainer } from '@/components/trade-ops/kill-switch-explainer';

@@ -1,3 +1,5 @@
+'use client';
+
 import { Badge, KeyValue } from '@intafaced/ui';
 import type { AccountControlState } from '@intafaced/contracts';
 import type { Outcome } from '@/lib/trade-ops/outcome';

@@ -3,7 +3,6 @@ import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import type { AccountControlResult, AccountControlState, ActionApproval } from '@intafaced/contracts';
 import { edgeCall, trpcSpec, type TradeCtx } from './edge';
 import {
-  parseApproval,
   restrictionTargetId,
   serviceCode,
   RESTRICTION_ACTION_TYPE,
@@ -12,7 +11,8 @@ import {
   type ActOnApproval,
   type ProposeInput,
 } from './approvals';
-import { parseHistory, parseResult, parseState } from './restrictions';
+import { parseApproval } from './approvals-parse';
+import { parseHistory, parseResult, parseState } from './restrictions-parse';
 import type { RestrictionChange } from './restrictions';
 import { refused, type Outcome } from './outcome';
 

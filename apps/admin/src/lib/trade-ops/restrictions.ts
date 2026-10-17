@@ -6,12 +6,7 @@
  * Three different freezes exist (see FREEZE_KINDS): this file is only about the first, the per-account TRADING
  * restriction that svc-identity keeps and svc-trade enforces on new orders.
  */
-import {
-  accountControlResultSchema,
-  accountControlStateSchema,
-  type AccountControlResult,
-  type AccountControlState,
-} from '@intafaced/contracts';
+import type { AccountControlResult, AccountControlState } from '@intafaced/contracts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
@@ -92,31 +87,6 @@ export function validateChange(body: Record<string, unknown>): Validated<Restric
       'Expected version must be the number shown in the account state (digits only). Look the account up first.',
     );
   return { ok: true, value: { userId: user.value, action: body.action, reason, expectedVersion: body.expectedVersion } };
-}
-
-// ── What the service answers ────────────────────────────────────────────────
-
-/** Account state, or null when the service has no such trading account. Anything else odd is a parse failure (undefined). */
-export function parseState(raw: unknown): AccountControlState | null | undefined {
-  if (raw === null) return null;
-  const r = accountControlStateSchema.safeParse(raw);
-  return r.success ? r.data : undefined;
-}
-
-export function parseHistory(raw: unknown): AccountControlResult[] | null {
-  if (!Array.isArray(raw)) return null;
-  const rows: AccountControlResult[] = [];
-  for (const item of raw) {
-    const r = accountControlResultSchema.safeParse(item);
-    if (!r.success) return null;
-    rows.push(r.data);
-  }
-  return rows;
-}
-
-export function parseResult(raw: unknown): AccountControlResult | null {
-  const r = accountControlResultSchema.safeParse(raw);
-  return r.success ? r.data : null;
 }
 
 // ── In words ────────────────────────────────────────────────────────────────

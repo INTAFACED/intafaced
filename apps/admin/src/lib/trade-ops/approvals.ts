@@ -9,7 +9,7 @@
  * Identity has no list or read-back for approvals, so the desk can only act on an approval BY ID, and keeps a
  * log of what this browser tab did (sessionStorage, this session only) so the operator can see their own actions.
  */
-import { actionApprovalSchema, type ActionApproval } from '@intafaced/contracts';
+import type { ActionApproval } from '@intafaced/contracts';
 import { isUuid, isVersion, type Validated } from './restrictions';
 
 export const RESTRICTION_ACTION_TYPE = 'account.trading_restriction';
@@ -22,11 +22,6 @@ const HASH = /^sha256:[a-f0-9]{64}$/;
 export const isPayloadHash = (v: unknown): v is string => typeof v === 'string' && HASH.test(v);
 /** Approval ids are opaque strings (1..128). */
 export const isApprovalId = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && v.trim().length <= 128;
-
-export function parseApproval(raw: unknown): ActionApproval | null {
-  const r = actionApprovalSchema.safeParse(raw);
-  return r.success ? r.data : null;
-}
 
 // ── Plain words for the service's own refusal codes ─────────────────────────
 

@@ -1,4 +1,4 @@
-import { PageSection } from '@intafaced/ui';
+import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { BLOCKERS } from '@/lib/trade-ops/blockers';
 import { BlockerPanel } from '@/components/trade-ops/blocker-panel';

@@ -1,3 +1,5 @@
+'use client';
+
 import { KeyValue } from '@intafaced/ui';
 import { lifecycleLook } from '@/lib/trade-ops/markets-model';
 import type { Outcome } from '@/lib/trade-ops/outcome';

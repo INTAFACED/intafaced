@@ -1,3 +1,5 @@
+'use client';
+
 import { KeyValue, type KeyValueItem } from '@intafaced/ui';
 import type { MarketRow } from '@/lib/trade-ops/reads';
 import { RecordStatusBadge } from './markets-lifecycle-badge';

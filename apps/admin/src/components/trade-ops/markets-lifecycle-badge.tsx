@@ -1,3 +1,5 @@
+'use client';
+
 import { Badge } from '@intafaced/ui';
 import { lifecycleLook, recordStatusLook } from '@/lib/trade-ops/markets-model';
 import type { Outcome } from '@/lib/trade-ops/outcome';

@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { Badge, Page, PageBody, PageHeader, StatusChip } from '@intafaced/ui';
 import { DeskNav } from './desk-nav';
@@ -25,7 +27,13 @@ export function DeskPage(props: {
           actions={
             <div className="flex items-center gap-3">
               {props.state ? (
-                <StatusChip kind={props.state} asOf={props.asOf ?? undefined} showAsOf={props.state === 'live'} reason={props.stateReason} density="dense" />
+                <StatusChip
+                  kind={props.state}
+                  asOf={props.asOf ?? undefined}
+                  showAsOf={props.state === 'live'}
+                  reason={props.stateReason}
+                  density="dense"
+                />
               ) : null}
               <Badge tone="warn" variant="outline" density="dense">
                 Operator
