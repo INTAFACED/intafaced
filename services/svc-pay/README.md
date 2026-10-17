@@ -68,7 +68,7 @@ When the client exposes `balanceAsOf`, `runningBalances` is `from_opening`, line
 
 Same-timestamp lines from different ledger transactions follow `seq` or `sequence` when every line at that instant has one, otherwise the hash chain (`previousHash`). When neither a sequence nor a distinct chain position orders those transactions, the line is `order_ambiguous` in either mode.
 
-One `merchant.statement.list` runs per merchant at a time. A second call while the first is still in progress is `pay.statement_busy`. That slot is a concurrency bound. It is not a quota and it is not a fee.
+One `merchant.statement.list` runs per merchant at a time. The slot is a row in `pay.merchant_statement_leases`, kept for at most 60 seconds and deleted when the scan finishes. This process also runs at most two scans at once. A second call for that merchant, or a third scan on that process, is `pay.statement_busy`. Those bounds are a concurrency limit. They are not a quota and not a fee. The scan does not hold a pooled connection across the ledger reads.
 
 TODO: svc-ledger should grow a cursor that pages entries by account. This procedure should read that cursor instead of guessing ledger keys from pay rows.
 

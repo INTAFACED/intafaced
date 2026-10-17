@@ -299,7 +299,7 @@ export type PayErrorCode =
   | 'pay.statement_range_too_wide'
   /** More than 2000 candidate ledger keys in one statement request. */
   | 'pay.statement_too_large'
-  /** Another `merchant.statement.list` for this merchant is still running. */
+  /** A statement scan for this merchant is still leased, or this process is already running two. */
   | 'pay.statement_busy'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'

@@ -18,3 +18,13 @@ ALTER TABLE "pay"."merchant_payout_destinations"
 
 CREATE UNIQUE INDEX IF NOT EXISTS "merchant_payout_destinations_id_idx"
   ON "pay"."merchant_payout_destinations" ("id");
+
+-- One statement scan per merchant. The row is a concurrency slot, not a
+-- balance and not a fee. expires_at is the bound after which a crashed scan
+-- can be replaced. The scan deletes its own lease_id when it finishes.
+
+CREATE TABLE IF NOT EXISTS "pay"."merchant_statement_leases" (
+  "merchant_id" uuid PRIMARY KEY REFERENCES "pay"."merchants"("id") ON DELETE CASCADE,
+  "lease_id"    uuid NOT NULL,
+  "expires_at"  timestamptz NOT NULL
+);

@@ -928,9 +928,23 @@ export const merchantInvoiceActions = pay.table(
   (t) => [primaryKey({ name: 'merchant_invoice_actions_pkey', columns: [t.merchantId, t.requestId] })],
 );
 
+/**
+ * One in-flight merchant statement scan. Not a balance. The scan deletes its
+ * row when it finishes. `expires_at` is only the bound after which a crashed
+ * scan can be replaced.
+ */
+export const merchantStatementLeases = pay.table('merchant_statement_leases', {
+  merchantId: uuid('merchant_id')
+    .primaryKey()
+    .references(() => merchants.id, { onDelete: 'cascade' }),
+  leaseId: uuid('lease_id').notNull(),
+  expiresAt: tstz('expires_at').notNull(),
+});
+
 export const schema = {
   merchants,
   merchantPayoutDestinations,
+  merchantStatementLeases,
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,

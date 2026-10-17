@@ -29,22 +29,28 @@ function lineIds(): { debit: string; credit: string } {
 
 const LINES = lineIds();
 
-function scriptSql(): Sql {
-  return (async (strings: TemplateStringsArray) => {
-    const text = strings.join(' ');
-    if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
-    if (text.includes("e.event = 'captured'")) {
-      return [
-        { id: PAY_DEBIT, currency: 'USDT' },
-        { id: PAY_CREDIT, currency: 'USDT' },
-      ];
-    }
-    if (text.includes('FROM pay.settlements')) return [];
-    if (text.includes("e.event = 'refund.posted'")) return [];
-    if (text.includes('chargeback.opening_planned')) return [];
-    if (text.includes('pay.payout_admissions')) return [];
-    throw new Error(text);
-  }) as unknown as Sql;
+function answerStatementSql(text: string, values: unknown[], captures: Array<{ id: string; currency: string }>): unknown {
+  if (text.includes('merchant_statement_leases')) {
+    if (text.includes('DELETE')) return [];
+    return [{ lease_id: values[1] }];
+  }
+  if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
+  if (text.includes("e.event = 'captured'")) return captures;
+  if (text.includes('FROM pay.settlements')) return [];
+  if (text.includes("e.event = 'refund.posted'")) return [];
+  if (text.includes('chargeback.opening_planned')) return [];
+  if (text.includes('pay.payout_admissions')) return [];
+  throw new Error(text);
+}
+
+function scriptSql(
+  captures: Array<{ id: string; currency: string }> = [
+    { id: PAY_DEBIT, currency: 'USDT' },
+    { id: PAY_CREDIT, currency: 'USDT' },
+  ],
+): Sql {
+  return (async (strings: TemplateStringsArray, ...values: unknown[]) =>
+    answerStatementSql(strings.join(' '), values, captures)) as unknown as Sql;
 }
 
 function accountId(ref: AccountRef): string {
@@ -210,16 +216,7 @@ describe('statement same-millisecond order', () => {
         amount: '4',
       }),
     ];
-    const sql = (async (strings: TemplateStringsArray) => {
-      const text = strings.join(' ');
-      if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
-      if (text.includes("e.event = 'captured'")) return [{ id: PAY_CREDIT, currency: 'USDT' }];
-      if (text.includes('FROM pay.settlements')) return [];
-      if (text.includes("e.event = 'refund.posted'")) return [];
-      if (text.includes('chargeback.opening_planned')) return [];
-      if (text.includes('pay.payout_admissions')) return [];
-      throw new Error(text);
-    }) as unknown as Sql;
+    const sql = scriptSql([{ id: PAY_CREDIT, currency: 'USDT' }]);
     const page = await listMerchantStatement(sql, reader(txs), RANGE, fail);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toMatchObject({
@@ -286,16 +283,7 @@ describe('statement same-millisecond order', () => {
         amount: ref.ownerId.startsWith('pay:clearing:') ? parseAmount('5') : 0n,
       };
     });
-    const sql = (async (strings: TemplateStringsArray) => {
-      const text = strings.join(' ');
-      if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
-      if (text.includes("e.event = 'captured'")) return [{ id: PAY_DEBIT, currency: 'USDT' }];
-      if (text.includes('FROM pay.settlements')) return [];
-      if (text.includes("e.event = 'refund.posted'")) return [];
-      if (text.includes('chargeback.opening_planned')) return [];
-      if (text.includes('pay.payout_admissions')) return [];
-      throw new Error(text);
-    }) as unknown as Sql;
+    const sql = scriptSql([{ id: PAY_DEBIT, currency: 'USDT' }]);
     const page = await listMerchantStatement(sql, ledger, RANGE, fail);
     expect(page.runningBalances).toBe('from_opening');
     expect(page.opening).toEqual([{ assetId: 'USDT', clearing: '5', proceeds: '0' }]);
@@ -322,16 +310,7 @@ describe('statement same-millisecond order', () => {
       }),
     ];
     const ledger = reader(txs, async (ref) => ({ account: ref, accountId: accountId(ref), amount: 0n }));
-    const sql = (async (strings: TemplateStringsArray) => {
-      const text = strings.join(' ');
-      if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
-      if (text.includes("e.event = 'captured'")) return [{ id: PAY_CREDIT, currency: 'USDT' }];
-      if (text.includes('FROM pay.settlements')) return [];
-      if (text.includes("e.event = 'refund.posted'")) return [];
-      if (text.includes('chargeback.opening_planned')) return [];
-      if (text.includes('pay.payout_admissions')) return [];
-      throw new Error(text);
-    }) as unknown as Sql;
+    const sql = scriptSql([{ id: PAY_CREDIT, currency: 'USDT' }]);
     const page = await listMerchantStatement(sql, ledger, RANGE, fail);
     expect(page.runningBalances).toBe('from_opening');
     expect(page.items[0]).toMatchObject({

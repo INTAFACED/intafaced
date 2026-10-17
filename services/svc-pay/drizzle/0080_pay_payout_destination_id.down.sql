@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS "pay"."merchant_statement_leases";
+
 DROP INDEX IF EXISTS "pay"."merchant_payout_destinations_id_idx";
 
 ALTER TABLE "pay"."merchant_payout_destinations"

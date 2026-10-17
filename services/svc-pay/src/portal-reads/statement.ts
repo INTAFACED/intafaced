@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
   formatAmount,
@@ -24,6 +25,10 @@ type Reader = Pick<LedgerClient, 'balance' | 'getTxByKey'>;
  */
 export const STATEMENT_MAX_SPAN_MS = 92 * 24 * 60 * 60 * 1000;
 export const STATEMENT_MAX_CANDIDATE_KEYS = 2000;
+/** After this, a crashed scan's row can be replaced. Not a fee or a quota. */
+export const STATEMENT_LEASE_SECONDS = 60;
+/** Statement scans this process runs at once. Not a fee or a quota. */
+export const STATEMENT_INSTANCE_CAP = 2;
 
 export interface StatementLine {
   id: string;
@@ -307,32 +312,53 @@ function tiedStamps(drafts: readonly Draft[]): Set<string> {
   return tied;
 }
 
-type HeldSql = Sql & { release: () => void };
+let statementScansInFlight = 0;
 
 /**
- * One statement scan per merchant. The lock is session-scoped on a reserved
- * connection so it covers the whole read, and `pg_try_advisory_lock` refuses
- * instead of queueing. A sql double without `reserve` (unit tests) skips the
- * slot; Postgres always has it.
+ * One statement scan per merchant, and at most `STATEMENT_INSTANCE_CAP` scans
+ * on this process. Neither bound holds a pooled connection across the ledger
+ * walk.
+ *
+ * The merchant slot is one row in `pay.merchant_statement_leases`. The insert
+ * wins, or replaces a row whose `expires_at` is already past. The scan then
+ * uses the pool only for its own queries. `finally` deletes the row when
+ * `lease_id` is still ours, so a later takeover is left in place. Sixty
+ * seconds is the bound after which a crashed scan can be replaced. A scan
+ * that is still running then can overlap the next one for that merchant.
  */
 async function withStatementInFlight<T>(sql: Sql, merchantId: string, fail: PayFail, run: () => Promise<T>): Promise<T> {
-  const reserve = (sql as Sql & { reserve?: () => Promise<HeldSql> }).reserve;
-  if (typeof reserve !== 'function') return run();
-  const hold = await reserve.call(sql);
-  const key = `pay.statement:${merchantId.toLowerCase()}`;
-  let locked = false;
+  if (statementScansInFlight >= STATEMENT_INSTANCE_CAP) {
+    fail(`This process is already running ${STATEMENT_INSTANCE_CAP} statement scans.`, 'pay.statement_busy');
+  }
+  statementScansInFlight += 1;
+  const leaseId = randomUUID();
+  let held = false;
   try {
-    const [row] = await hold<Array<{ locked: boolean }>>`SELECT pg_try_advisory_lock(hashtext(${key})) AS locked`;
-    if (row?.locked !== true) {
+    const [row] = await sql<Array<{ lease_id: string }>>`
+      INSERT INTO pay.merchant_statement_leases AS lease (merchant_id, lease_id, expires_at)
+      VALUES (${merchantId}, ${leaseId}, now() + (${STATEMENT_LEASE_SECONDS} * interval '1 second'))
+      ON CONFLICT (merchant_id) DO UPDATE
+        SET lease_id = EXCLUDED.lease_id,
+            expires_at = EXCLUDED.expires_at
+        WHERE lease.expires_at < now()
+      RETURNING lease_id::text AS lease_id
+    `;
+    if (typeof row?.lease_id !== 'string' || row.lease_id.toLowerCase() !== leaseId.toLowerCase()) {
       fail('A statement for this merchant is already in progress.', 'pay.statement_busy');
     }
-    locked = true;
+    held = true;
     return await run();
   } finally {
     try {
-      if (locked) await hold`SELECT pg_advisory_unlock(hashtext(${key}))`;
+      if (held) {
+        await sql`
+          DELETE FROM pay.merchant_statement_leases
+           WHERE merchant_id = ${merchantId}
+             AND lease_id = ${leaseId}
+        `;
+      }
     } finally {
-      hold.release();
+      statementScansInFlight -= 1;
     }
   }
 }
@@ -375,8 +401,9 @@ function ambiguousLine(draft: Draft): Lined {
  * (`runningOrder: order_ambiguous`, `runningReason: order_ambiguous`) and
  * does not fail the page.
  *
- * One list runs per merchant. A second call while the first holds the
- * statement slot is `pay.statement_busy`. The slot is a concurrency bound.
+ * One list runs per merchant. The slot is a lease row, deleted when the scan
+ * finishes, and this process runs at most two scans at once. A further call
+ * is `pay.statement_busy`. Both bounds are concurrency limits.
  */
 export async function listMerchantStatement(
   sql: Sql,

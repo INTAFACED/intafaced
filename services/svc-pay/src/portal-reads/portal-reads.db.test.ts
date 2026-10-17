@@ -11,7 +11,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { maskDestination } from '../control/mask-destination.js';
 import { teamReadFromSql } from '../merchant-team-read.js';
 import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
-import { PayService } from '../payment-service.js';
+import { PayError, PayService, type PayErrorCode } from '../payment-service.js';
+import type { PayFail } from './common.js';
+import { listMerchantStatement } from './statement.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
@@ -66,6 +68,10 @@ function coveringRange(): { from: string; to: string } {
     to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };
 }
+
+const statementFail: PayFail = (message, code) => {
+  throw new PayError(message, code);
+};
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -632,15 +638,17 @@ describe('merchant portal reads', () => {
     });
   });
 
-  it('refuses a second statement list while one is in flight for that merchant', async () => {
+  it('refuses a second statement list while this merchant holds a live lease', async () => {
     const mine = await merchant(OWNER);
     const other = await merchant(OTHER);
     const owner = router.createCaller(await ctx(OWNER));
     const otherCaller = router.createCaller(await ctx(OTHER));
-    const holder = await sql.reserve();
-    const key = `pay.statement:${mine.id}`;
+    const held = randomUUID();
+    await sql`
+      INSERT INTO pay.merchant_statement_leases (merchant_id, lease_id, expires_at)
+      VALUES (${mine.id}, ${held}, now() + interval '60 seconds')
+    `;
     try {
-      await holder`SELECT pg_advisory_lock(hashtext(${key}))`;
       expect(await refused(owner.merchant.statement.list({ merchantId: mine.id, limit: 20, ...coveringRange() }))).toMatchObject({
         trpc: 'TOO_MANY_REQUESTS',
         pay: 'pay.statement_busy',
@@ -648,12 +656,132 @@ describe('merchant portal reads', () => {
       const free = await otherCaller.merchant.statement.list({ merchantId: other.id, limit: 20, ...coveringRange() });
       expect(free.runningBalances).toBe('within_range');
       expect(free.items).toEqual([]);
+      const [row] = await sql<Array<{ lease_id: string }>>`
+        SELECT lease_id::text AS lease_id
+          FROM pay.merchant_statement_leases
+         WHERE merchant_id = ${mine.id}
+      `;
+      expect(row?.lease_id).toBe(held);
     } finally {
-      await holder`SELECT pg_advisory_unlock_all()`.catch(() => undefined);
-      holder.release();
+      await sql`DELETE FROM pay.merchant_statement_leases WHERE merchant_id = ${mine.id}`;
     }
     const again = await owner.merchant.statement.list({ merchantId: mine.id, limit: 20, ...coveringRange() });
     expect(again.items).toEqual([]);
     expect(again.runningBalances).toBe('within_range');
+  });
+
+  it('takes over an expired statement lease and releases it when the scan finishes', async () => {
+    const mine = await merchant(OWNER);
+    await captured(mine.id);
+    const stale = randomUUID();
+    await sql`
+      INSERT INTO pay.merchant_statement_leases (merchant_id, lease_id, expires_at)
+      VALUES (${mine.id}, ${stale}, now() - interval '1 second')
+    `;
+    let seen: string | null = null;
+    const page = await listMerchantStatement(
+      sql,
+      {
+        balance: ledger.balance.bind(ledger),
+        getTxByKey: async (key) => {
+          const [row] = await sql<Array<{ lease_id: string }>>`
+            SELECT lease_id::text AS lease_id
+              FROM pay.merchant_statement_leases
+             WHERE merchant_id = ${mine.id}
+          `;
+          seen = row?.lease_id ?? null;
+          return ledger.getTxByKey(key);
+        },
+      },
+      { merchantId: mine.id, limit: 20, ...coveringRange() },
+      statementFail,
+    );
+    expect(page.runningBalances).toBe('within_range');
+    expect(seen).toBeTruthy();
+    expect(seen).not.toBe(stale);
+    expect(await sql`SELECT 1 FROM pay.merchant_statement_leases WHERE merchant_id = ${mine.id}`).toHaveLength(0);
+  });
+
+  it('releases the statement lease when the scan throws', async () => {
+    const mine = await merchant(OWNER);
+    await captured(mine.id);
+    let seen: string | null = null;
+    await expect(
+      listMerchantStatement(
+        sql,
+        {
+          balance: ledger.balance.bind(ledger),
+          getTxByKey: async () => {
+            const [row] = await sql<Array<{ lease_id: string }>>`
+              SELECT lease_id::text AS lease_id
+                FROM pay.merchant_statement_leases
+               WHERE merchant_id = ${mine.id}
+            `;
+            seen = row?.lease_id ?? null;
+            throw new Error('scan failed');
+          },
+        },
+        { merchantId: mine.id, limit: 20, ...coveringRange() },
+        statementFail,
+      ),
+    ).rejects.toThrow('scan failed');
+    expect(seen).toBeTruthy();
+    expect(await sql`SELECT 1 FROM pay.merchant_statement_leases WHERE merchant_id = ${mine.id}`).toHaveLength(0);
+    const again = await pay.listStatement({ merchantId: mine.id, limit: 20, ...coveringRange() });
+    expect(again.runningBalances).toBe('within_range');
+  });
+
+  it('refuses a third merchant while two statement scans are in flight on this process', async () => {
+    const firstMerchant = await merchant(OWNER);
+    const secondMerchant = await merchant(OTHER);
+    const thirdMerchant = await merchant('44444444-4444-4444-8444-444444444444');
+    await captured(firstMerchant.id);
+    await captured(secondMerchant.id);
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opened = (): void => undefined;
+    const bothIn = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    let entered = 0;
+    const blocking = {
+      balance: ledger.balance.bind(ledger),
+      getTxByKey: async () => {
+        entered += 1;
+        if (entered === 2) opened();
+        await gate;
+        return null;
+      },
+    };
+    const range = coveringRange();
+    const input = (merchantId: string) => ({ merchantId, limit: 20, ...range });
+    const first = listMerchantStatement(sql, blocking, input(firstMerchant.id), statementFail);
+    const second = listMerchantStatement(sql, blocking, input(secondMerchant.id), statementFail);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        bothIn,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('statement scans did not reach the ledger read')), 5_000);
+        }),
+      ]);
+      await expect(listMerchantStatement(sql, blocking, input(thirdMerchant.id), statementFail)).rejects.toMatchObject({
+        code: 'pay.statement_busy' satisfies PayErrorCode,
+      });
+      const held = await sql<Array<{ merchant_id: string }>>`
+        SELECT merchant_id::text AS merchant_id FROM pay.merchant_statement_leases
+      `;
+      expect(new Set(held.map((row) => row.merchant_id))).toEqual(new Set([firstMerchant.id, secondMerchant.id]));
+    } finally {
+      if (timer) clearTimeout(timer);
+      release();
+      await Promise.allSettled([first, second]);
+    }
+    expect(await sql`SELECT 1 FROM pay.merchant_statement_leases`).toHaveLength(0);
+    const after = await pay.listStatement(input(thirdMerchant.id));
+    expect(after.items).toEqual([]);
+    expect(after.runningBalances).toBe('within_range');
   });
 });
