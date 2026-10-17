@@ -3,6 +3,9 @@ import { ChevronRight, ArrowDownUp } from 'lucide-react';
 import './buy.css';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
+import { recheckCancel } from './cancel-recheck';
+import { CostBlock } from './CostBlock';
+import { costRows } from './cost';
 import { buyCopy, coinName } from './copy';
 import {
   AmountInput,
@@ -21,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  StatusChip,
   StateBlock,
   useMarkets,
   usePortfolio,
@@ -31,6 +35,7 @@ import {
   type TradeApi,
   useHideBalances,
   HIDDEN_MASK,
+  useRefreshPrivate,
 } from './deps';
 import {
   buildDraft,
@@ -74,6 +79,9 @@ export interface BuyCardProps {
   /** Called when the customer flips between Buy and Sell, so the page's headline can follow. */
   onSideChange?: (side: 'buy' | 'sell') => void;
 }
+
+/** A price older than this reads Stale (spec section 1). */
+const PRICE_STALE_AFTER_MS = 30_000;
 
 /** Where a finished order is listed. */
 export const ACTIVITY_HREF = '/money/activity?tab=trades';
@@ -279,6 +287,12 @@ function BuyForm({
   const available = useAvailable(spendAsset);
   const hideBalances = useHideBalances();
   const note = usePendingNote(userId);
+  const refreshPrivate = useRefreshPrivate();
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 5_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const price = useMemo(() => {
     if (ticker.status !== 'ready') return null;
@@ -422,6 +436,7 @@ function BuyForm({
         setReview(null);
         // Balances are read again now, not in half a minute, so the new balance is what the customer sees next.
         if (userId) defaultPoller().refresh(`balance:${userId}`);
+        refreshPrivate();
         onReceipt(receiptFrom(outcome.order, fills));
         return;
       }
@@ -450,6 +465,22 @@ function BuyForm({
         : reason === 'pending'
           ? t('Earlier order body')
           : t('No safe storage');
+
+  async function onCheckCancel() {
+    if (note.state !== 'pending' || busy) return;
+    setBusy('check');
+    setChecked(null);
+    // A read of the order, never a second cancel.
+    const outcome = await recheckCancel(tradeApi, userId, note.pending);
+    if (!mounted.current) return;
+    setBusy(null);
+    if (outcome.kind === 'unknown') setChecked(t('Cancel not confirmed'));
+    else if (outcome.kind === 'checking') setChecked(t('Still being checked'));
+    else {
+      refreshPrivate();
+      setChecked(outcome.kind === 'open' ? t('Still open') : t('Order cancelled'));
+    }
+  }
 
   async function onCheck() {
     if (note.state !== 'pending' || busy) return;
@@ -480,8 +511,10 @@ function BuyForm({
 
   const signedOut = !session;
   const waitingForPrice = plan.ok === false && plan.problem.kind === 'noPrice';
+  const priceStale = ticker.status === 'ready' && clock - ticker.asOf > PRICE_STALE_AFTER_MS;
   const ready =
     plan.ok &&
+    !priceStale &&
     !insufficient &&
     !signedOut &&
     note.state === 'none' &&
@@ -498,12 +531,6 @@ function BuyForm({
       ? t('About {value}', { value: `${fmtAmount(plan.base, { places: lotPlaces })} ${market.base}` })
       : plan.notional !== null
         ? t('About {value}', { value: fmtUsd(plan.notional) })
-        : '—';
-  const feeLine =
-    estimate.state === 'ready' && estimate.preview.estimatedFee !== null
-      ? `${fmtAmount(estimate.preview.estimatedFee, { places: 8 })} ${estimate.preview.feeAsset ?? ''}`.trim()
-      : estimate.state === 'loading'
-        ? null
         : '—';
   const priceLine = price === null ? '—' : `$${fmtPrice(price, market.tickSize)}`;
 
@@ -629,16 +656,39 @@ function BuyForm({
       </div>
 
       {plan.ok ? (
-        <dl className="buy-form__summary">
-          <div>
-            <dt>{t('Estimated price')}</dt>
-            <dd data-testid="price">{priceLine}</dd>
-          </div>
-          <div>
-            <dt>{t('Fee')}</dt>
-            <dd data-testid="fee">{feeLine === null ? <Skeleton width={72} height={16} className="buy-skel" /> : feeLine}</dd>
-          </div>
-        </dl>
+        <>
+          <dl className="buy-form__summary">
+            <div>
+              <dt>{t('Estimated price')}</dt>
+              <dd data-testid="price">
+                <span>{priceLine}</span>
+                <StatusChip
+                  density="dense"
+                  data-testid="price-freshness"
+                  asOf={ticker.status === 'ready' ? ticker.asOf : null}
+                  staleAfterMs={PRICE_STALE_AFTER_MS}
+                  refused={ticker.status === 'refused'}
+                  reason={
+                    ticker.status === 'refused' ? t('Price refused') : ticker.status === 'ready' ? undefined : t('Price not available')
+                  }
+                />
+              </dd>
+            </div>
+          </dl>
+          <CostBlock
+            rows={costRows({
+              side,
+              base: plan.base,
+              price,
+              baseAsset: market.base,
+              quoteAsset: quote,
+              preview: estimate.state === 'ready' ? estimate.preview : null,
+            })}
+            side={side}
+            baseAsset={market.base}
+            places={lotPlaces}
+          />
+        </>
       ) : null}
 
       {estimate.state === 'refused' ? (
@@ -666,6 +716,11 @@ function BuyForm({
           </p>
           {checked ? <p className="buy-pending__body">{checked}</p> : null}
           <div className="buy-pending__actions">
+            {note.pending.kind === 'cancel' ? (
+              <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheckCancel}>
+                {busy === 'check' ? t('Checking order') : t('Check again')}
+              </Button>
+            ) : null}
             {note.pending.kind === 'place' ? (
               <Button variant="secondary" size={40} loading={busy === 'check'} onClick={onCheck}>
                 {busy === 'check' ? t('Checking order') : t('Check order')}
@@ -707,6 +762,11 @@ function BuyForm({
                   : t('Review sell')}
         </Button>
       )}
+      {priceStale && !signedOut ? (
+        <p className="buy-pending__body" data-testid="stale-hint">
+          {t('Price stale hint')}
+        </p>
+      ) : null}
 
       <BuyReview
         review={review}
