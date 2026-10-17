@@ -348,8 +348,8 @@ test('P2P keeps release behind seller-confirmed external payment and runs the or
   expect(seen.list).toBeGreaterThan(0);
   await expect(page.getByText('New messages (1)')).toBeVisible();
   await expect(page.getByTestId('chat-seller-warning')).toBeVisible();
-  await page.getByRole('button', { name: 'Payment received' }).click();
-  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Payment received');
+  await page.getByRole('button', { name: 'Please send the payment proof in chat' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Please send the payment proof in chat');
   await page.getByRole('textbox', { name: 'Message' }).fill('');
   const send = page.getByRole('button', { name: 'Send message' });
   await expect(send).toBeDisabled();
