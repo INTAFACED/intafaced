@@ -1091,7 +1091,20 @@ describe('svc-p2p payment instruments', () => {
           price: '1',
           minAmount: '10',
           maxAmount: '100',
+          idempotencyKey: 'leak-sweep-create',
         },
+        'offers.update': { offerId: offer.id, idempotencyKey: 'leak-sweep-update', terms: 'probe' },
+        'trades.quote': { offerId: offer.id, amount: '10', method: METHOD },
+        'trades.export': { from: '2020-01-01T00:00:00.000Z', to: '2030-01-01T00:00:00.000Z' },
+        'chat.messages.list': { tradeId: trade.id, limit: 50 },
+        'chat.messages.send': { tradeId: trade.id, text: 'probe', clientId: 'leak-sweep-chat' },
+        'chat.unread': { tradeId: trade.id },
+        'disputes.mine': { limit: 50 },
+        'contacts.list': undefined,
+        'contacts.follow': { peerId: SELLER, idempotencyKey: 'leak-sweep-follow' },
+        'contacts.unfollow': { peerId: SELLER, idempotencyKey: 'leak-sweep-unfollow' },
+        'contacts.block': { peerId: SELLER, idempotencyKey: 'leak-sweep-block' },
+        'contacts.unblock': { peerId: SELLER, idempotencyKey: 'leak-sweep-unblock' },
         'offers.close': { offerId: offer.id },
         'offers.pause': { offerId: offer.id },
         'offers.resume': { offerId: offer.id },
@@ -1266,7 +1279,7 @@ describe('svc-p2p payment instruments', () => {
       // safe to publish.
       const board = await callerFor(STRANGER).offers.list({ limit: 50 });
       expect(JSON.stringify(board)).not.toContain(CANARY);
-      expect(board.find((o) => o.id === offer.id)?.methods).toEqual([METHOD]);
+      expect(board.offers.find((o) => o.id === offer.id)?.methods).toEqual([METHOD]);
       expect(trade.id).toBeTruthy();
     });
   });

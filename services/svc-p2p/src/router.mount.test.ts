@@ -133,6 +133,9 @@ function forged(p: Principal = principal()) {
 function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     listOffers: async () => [],
+    listOfferBoard: async () => ({ offers: [], nextCursor: null }),
+    releasedTradeCounts: async () => new Map<string, number>(),
+    tradesInWindow: async () => 0,
     ...overrides,
   } as unknown as P2pService;
 }
@@ -215,14 +218,14 @@ describe('svc-p2p mount — authorisation', () => {
   it('accepts a principal the edge signed', async () => {
     // Without this the UNAUTHORIZED assertions above would also pass on a
     // router that refuses everyone.
-    await expect(routerFor(stubP2p()).createCaller(signed()).offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(routerFor(stubP2p()).createCaller(signed()).offers.list({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
   });
 
   it('offers.list omit is PRECONDITION_FAILED — never invents a 50-row page', async () => {
     const p2p = stubP2p({
-      listOffers: async (filter: { limit?: number } = {}) => {
+      listOfferBoard: async (filter: { limit?: number } = {}) => {
         assertOfferListLimit(filter.limit);
-        return [];
+        return { offers: [], nextCursor: null };
       },
     });
     const caller = routerFor(p2p).createCaller(signed());
@@ -234,7 +237,7 @@ describe('svc-p2p mount — authorisation', () => {
       code: 'PRECONDITION_FAILED',
       message: 'p2p.offer_list_limit_unset',
     });
-    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
   });
 
   it('trades.list omit is PRECONDITION_FAILED — never invents a 50-row page', async () => {
@@ -761,7 +764,7 @@ describe('svc-p2p mount — merchant API access', () => {
     const ctx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read'] }));
     const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('approved') as never).createCaller(ctx);
 
-    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
   });
 
   it('removes API access immediately when merchant standing is suspended', async () => {
@@ -779,7 +782,7 @@ describe('svc-p2p mount — merchant API access', () => {
     const ctx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read'] }));
     const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchants as never).createCaller(ctx);
 
-    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
     status = 'suspended';
     await expect(caller.offers.list({ limit: 50 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
@@ -788,7 +791,7 @@ describe('svc-p2p mount — merchant API access', () => {
     const ctx = signed(principal({ scopes: ['p2p:read'] }));
     const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub(null) as never).createCaller(ctx);
 
-    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.offers.list({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
   });
 
   it('reports API eligibility from the same current standing that enforces it', async () => {
@@ -1485,6 +1488,7 @@ describe('svc-p2p mount — offer methods shape', () => {
           minAmount: '10',
           maxAmount: '100',
           methods: ['sepa'],
+          idempotencyKey: 'kms-refuse-key',
         }),
     ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
