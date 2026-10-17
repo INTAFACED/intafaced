@@ -16,20 +16,24 @@ const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</
 describe('/findPwd', () => {
   const page = html(<PasswordRecovery />);
 
-  it('shows all three steps, in order, with the reason the journey is off', () => {
+  it('shows the three steps in order and opens on the request step', () => {
     const first = page.indexOf('Ask for a reset code');
-    const second = page.indexOf('Enter the code');
-    const third = page.indexOf('Choose a new password');
+    const second = page.indexOf('Enter the code and a new password');
+    const third = page.indexOf('Sign in</h2>');
     expect(first).toBeGreaterThan(-1);
     expect(second).toBeGreaterThan(first);
     expect(third).toBeGreaterThan(second);
-    expect(page).toContain('Password reset is not switched on yet');
+    expect(page).not.toContain('not switched on');
+    expect(page).not.toContain('Nothing you see on this page is sent anywhere');
   });
 
-  it('switches every field and button off', () => {
+  it('has one live email field and a send button, with nothing switched off', () => {
     const controls = page.match(/<(input|button)\b[^>]*>/g) ?? [];
-    expect(controls.length).toBeGreaterThanOrEqual(6);
-    for (const control of controls) expect(control).toContain('disabled');
+    expect(controls.length).toBe(2);
+    for (const control of controls) expect(control).not.toContain('disabled');
+    expect(page).toContain('type="email"');
+    expect(page).toMatch(/autocomplete="email"/i);
+    expect(page).not.toContain('type="password"');
   });
 
   it('gives a signed-out visitor a way to reach a person that is not the sign-in-only support desk', () => {

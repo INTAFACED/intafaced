@@ -107,9 +107,6 @@ const messages = {
   'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
   'Create an account ↗': 'Create an account ↗',
-  'Password recovery is not connected': 'Password recovery is not connected',
-  'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.',
   'Contact support': 'Contact support',
   'No public announcements service is connected': 'No public announcements service is connected',
   'Account notifications belong to your private inbox. They are not public announcements.':
@@ -242,9 +239,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
     'Create an account ↗': 'Crear una cuenta ↗',
-    'Password recovery is not connected': 'La recuperación de contraseña no está conectada',
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-      'El servicio de identidad ofrece inicio de sesión, renovación y seguridad, pero no un contrato para restablecer contraseñas de clientes. Aún no se puede solicitar aquí un correo de restablecimiento.',
     'Contact support': 'Contactar con soporte',
     'No public announcements service is connected': 'No hay un servicio de anuncios públicos conectado',
     'Account notifications belong to your private inbox. They are not public announcements.':
@@ -375,9 +369,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
     'Create an account ↗': 'Créer un compte ↗',
-    'Password recovery is not connected': 'La récupération du mot de passe n’est pas connectée',
-    'The identity service has sign-in, refresh and security procedures, but no customer password-reset contract. No reset email can be requested here yet.':
-      'Le service d’identité propose la connexion, le renouvellement et la sécurité, mais aucun contrat de réinitialisation de mot de passe client. Aucun e-mail de réinitialisation ne peut encore être demandé ici.',
     'Contact support': 'Contacter l’assistance',
     'No public announcements service is connected': 'Aucun service d’annonces publiques n’est connecté',
     'Account notifications belong to your private inbox. They are not public announcements.':

@@ -29,6 +29,10 @@
   grid-column: 1;
   grid-row: 2;
 }
+.security__password {
+  grid-column: 1;
+  grid-row: 3;
+}
 .security__card h2 {
   font-size: 20px;
   line-height: 28px;
