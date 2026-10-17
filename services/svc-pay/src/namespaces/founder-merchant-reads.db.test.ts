@@ -209,7 +209,38 @@ describe('founder merchant reads', () => {
     const profile = await caller.founderAdmin.merchants.section({ merchantId: merchantA, section: 'profile', limit: 10 });
     expect(profile).toMatchObject({
       section: 'profile',
-      current: { kybStatus: 'approved', status: 'active', displayName: 'Alpha' },
+      current: { kybStatus: 'approved', status: 'active', displayName: 'Alpha', feeBps: 0, starterFee: null },
+    });
+  });
+
+  it('returns feeBps and starterFee for a starter-fee merchant and null for one without', async () => {
+    const published = { bps: 250, source: 'local_test' as const };
+    const [withFee] = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchants (user_id, mode, status, kyb_status, pricing)
+      VALUES (${randomUUID()}, 'gateway', 'active', 'approved', ${sql.json({ feeBps: 250 })})
+      RETURNING id::text AS id`;
+    const [without] = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchants (user_id, mode, status, kyb_status, pricing)
+      VALUES (${randomUUID()}, 'gateway', 'active', 'none', ${sql.json({})})
+      RETURNING id::text AS id`;
+    const priced = createPayNamespaces({
+      founderAuthority: authority as never,
+      sql,
+      starterFee: published,
+    }).createCaller(ctx(FOUNDER));
+    const starter = await priced.founderAdmin.merchants.section({ merchantId: withFee!.id, section: 'profile', limit: 10 });
+    expect(starter).toMatchObject({ section: 'profile', current: { feeBps: 250, starterFee: published } });
+    const storedUnset = await priced.founderAdmin.merchants.section({ merchantId: without!.id, section: 'profile', limit: 10 });
+    expect(storedUnset).toMatchObject({ section: 'profile', current: { feeBps: null, starterFee: published } });
+    const bare = createPayNamespaces({ founderAuthority: authority as never, sql }).createCaller(ctx(FOUNDER));
+    const neither = await bare.founderAdmin.merchants.section({ merchantId: without!.id, section: 'profile', limit: 10 });
+    expect(neither).toMatchObject({ section: 'profile', current: { feeBps: null, starterFee: null } });
+    const [bad] = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.merchants (user_id, pricing)
+      VALUES (${randomUUID()}, ${sql.json({ feeBps: 1.5 })})
+      RETURNING id::text AS id`;
+    await expect(priced.founderAdmin.merchants.section({ merchantId: bad!.id, section: 'profile', limit: 10 })).rejects.toMatchObject({
+      message: 'pay.merchant_pricing_invalid',
     });
   });
 });

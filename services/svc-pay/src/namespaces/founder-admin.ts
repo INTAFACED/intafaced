@@ -66,6 +66,7 @@ import { createFounderMerchantReads } from './founder-merchant-reads.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { PayError } from '../payment-service.js';
 import type { PayService } from '../payment-service.js';
+import type { MerchantStarterFee } from '../starter-fee.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 
 /**
@@ -104,6 +105,8 @@ export interface FounderAdminMounts {
   pay?: PayService;
   /** Same dispute store the merchant pages use. Without it the in-memory store is empty. */
   disputes?: DisputeCaseStore;
+  /** Published local-test starter fee. Omitted or null means it is not set. */
+  starterFee?: MerchantStarterFee | null;
 }
 
 const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links', 'destinations']);
@@ -140,7 +143,9 @@ async function readWrap<T>(fn: () => Promise<T>): Promise<T> {
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
   const { metrics, registries, treasury, control, halts, conversion } = mounts;
-  const reads = mounts.sql ? createFounderMerchantReads({ sql: mounts.sql, pay: mounts.pay, disputes: mounts.disputes }) : null;
+  const reads = mounts.sql
+    ? createFounderMerchantReads({ sql: mounts.sql, pay: mounts.pay, disputes: mounts.disputes, starterFee: mounts.starterFee })
+    : null;
   const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
