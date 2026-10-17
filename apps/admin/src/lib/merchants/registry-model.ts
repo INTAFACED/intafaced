@@ -1,3 +1,4 @@
+import { CONTROL_COPY } from './control-copy';
 import { compareDecimal, isDecimalString } from './money';
 
 /**
@@ -622,8 +623,23 @@ const COPY: Record<string, PlainRefusal> = {
   },
   'action_approval.payload_mismatch': {
     title: 'The approval is for a different change',
-    body: 'You changed something after the second founder approved. An approval only covers the exact change it was given for.',
-    next: 'Review the change again and ask for a fresh approval.',
+    body: 'The request on file is not the same change as the one you are looking at. An approval only covers the exact change it was given for.',
+    next: 'Review the change again and ask for a fresh request.',
+  },
+  'action_approval.founder_only': {
+    title: 'Only the two founders can do this',
+    body: 'This kind of change needs two different founders, and one of them is not an enabled founder right now.',
+    next: 'Ask the other founder, or have a founder check the access list.',
+  },
+  'action_approval.founders_unavailable': {
+    title: 'The founder list could not be checked right now',
+    body: 'Nothing was approved or changed. This is a temporary problem on our side, not a refusal.',
+    next: 'Wait a minute and try again. If it keeps happening, tell engineering.',
+  },
+  'action_approval.not_founders': {
+    title: 'Only the two founders can approve this',
+    body: 'The approval was not made by two different, enabled founders.',
+    next: 'Start a new request and have the other founder approve it.',
   },
   'action_approval.target_mismatch': {
     title: 'The approval is for something else',
@@ -686,6 +702,7 @@ const BY_STATUS: Record<number, PlainRefusal> = {
 
 export function explainRefusal(code: string | null, message: string, status: number): PlainRefusal {
   if (code !== null && COPY[code]) return COPY[code]!;
+  if (code !== null && CONTROL_COPY[code]) return CONTROL_COPY[code]!;
   const embedded = /\b(registries\.[a-z_]+|action_approval\.[a-z_]+)\b/.exec(message)?.[1];
   if (embedded && COPY[embedded]) return COPY[embedded]!;
   if (/secret_like_value/.test(message)) return COPY['registries.secret_like_value']!;

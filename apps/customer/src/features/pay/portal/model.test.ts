@@ -256,7 +256,32 @@ describe('portal routes', () => {
     expect(parsePortalRoute('/pay/notifications')).toEqual({ room: 'notifications' });
   });
   it('leaves every other room, and the older disputed-payments list, to Business Pay', () => {
-    for (const path of ['/pay/payments', '/pay/links', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
+    for (const path of ['/pay/links?view=tools', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
+      expect(parsePortalRoute(path), path).toBeNull();
+  });
+  it('maps the W3b pages and keeps their older tools reachable', () => {
+    expect(parsePortalRoute('/pay/payments?status=failed')).toEqual({ room: 'payments' });
+    expect(parsePortalRoute('/pay/payments/aa000001-0000-4000-8000-000000000001')).toEqual({
+      room: 'payment',
+      param: 'aa000001-0000-4000-8000-000000000001',
+    });
+    expect(parsePortalRoute('/pay/settlements')).toEqual({ room: 'settlements' });
+    expect(parsePortalRoute('/pay/settlements/bb1')).toEqual({ room: 'settlement', param: 'bb1' });
+    expect(parsePortalRoute('/pay/payouts')).toEqual({ room: 'payouts' });
+    expect(parsePortalRoute('/pay/payouts/bb1')).toEqual({ room: 'payout', param: 'bb1' });
+    expect(parsePortalRoute('/pay/approvals')).toEqual({ room: 'approvals' });
+    expect(parsePortalRoute('/pay/pricing')).toEqual({ room: 'pricing' });
+    expect(parsePortalRoute('/pay/limits')).toEqual({ room: 'limits' });
+    for (const path of [
+      '/pay/payments?view=tools',
+      '/pay/payments?view=tools&payment=x',
+      '/pay/settlements?view=tools',
+      '/pay/payouts?view=tools',
+      '/pay/payouts/new',
+      '/pay/payouts/destinations',
+      '/pay/pricing/x',
+      '/pay/payments/a/b',
+    ])
       expect(parsePortalRoute(path), path).toBeNull();
   });
 });

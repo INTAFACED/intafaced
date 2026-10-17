@@ -15,7 +15,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Context } from '@intafaced/contracts';
 import { ControlService } from '../../src/control/service.js';
-import { ownerAccessPorts } from '../../src/control/access.js';
+import { teamAccessPorts } from '../../src/control/access.js';
 import { createPayNamespaces } from '../../src/namespaces/index.js';
 import {
   callRest,
@@ -47,6 +47,20 @@ import {
 } from './procedures.js';
 
 const FENCE_CODES = new Set(['pay.merchant_forbidden', 'pay.merchant_not_found', 'pay.payment_not_found', 'pay.settlement_not_found']);
+
+/** Same refusal, with the per-request correlation id removed. Both bodies must carry one. */
+function refusalBody(json: unknown): unknown {
+  if (!json || typeof json !== 'object') return json;
+  const body = { ...(json as Record<string, unknown>) };
+  const error = body.error;
+  if (!error || typeof error !== 'object') return body;
+  const err = { ...(error as Record<string, unknown>) };
+  expect(typeof err.requestId).toBe('string');
+  expect(String(err.requestId).length).toBeGreaterThan(0);
+  delete err.requestId;
+  body.error = err;
+  return body;
+}
 
 /** The owner got past the isolation fence (data, or a business answer about their own row). */
 function passedFence(o: Outcome): boolean {
@@ -101,8 +115,8 @@ describe('M: merchant isolation', () => {
     it('a merchant with rows in every table sees ONLY them: B’s own list is B’s, and is disjoint from A’s', async () => {
       const a = await callTrpc(w, ctxFor('session', 'A'), 'payment.list', { merchantId: w.e.A.merchantId, limit: 200 });
       const b = await callTrpc(w, ctxFor('session', 'B'), 'payment.list', { merchantId: w.e.B.merchantId, limit: 200 });
-      const aIds = (a as { value: Array<{ id: string }> }).value.map((r) => r.id);
-      const bIds = (b as { value: Array<{ id: string }> }).value.map((r) => r.id);
+      const aIds = (a as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
+      const bIds = (b as { value: { items: Array<{ id: string }> } }).value.items.map((r) => r.id);
       expect(aIds.length).toBeGreaterThan(0);
       expect(bIds.length).toBeGreaterThan(0);
       expect(aIds.filter((x) => bIds.includes(x))).toEqual([]);
@@ -370,7 +384,7 @@ describe('M: merchant isolation', () => {
         const none = await callRest(w, p, route.req({ ...ghostIds(), merchantId: w.e.A.merchantId }));
         expect(shapeOf(foreign)).toEqual(shapeOf(none));
         expect(foreign.status).toBe(none.status);
-        expect(foreign.json).toEqual(none.json);
+        expect(refusalBody(foreign.json)).toEqual(refusalBody(none.json));
       },
     );
 
@@ -387,15 +401,12 @@ describe('M: merchant isolation', () => {
   // ────────────────────────────────────────────────────────────────────────
   describe('M4: maker-checker', () => {
     const FINANCE = randomUUID();
-    /** The router the way index.ts builds it, except that FINANCE may see and approve for ONE merchant (what W15 team roles will grant). */
-    const withFinance = (financeFor: string) => {
-      const owner = ownerAccessPorts(w.sql);
-      const control = new ControlService(w.sql, {
-        canViewMerchant: async (p, m) => (p.userId === FINANCE ? m === financeFor : owner.canViewMerchant(p, m)),
-        canApprovePayout: async (p, m) => (p.userId === FINANCE ? m === financeFor : owner.canApprovePayout(p, m)),
-      });
-      return createPayNamespaces({ founderAuthority: w.founderAuthority, control });
-    };
+    /** The router the way index.ts builds it: the real team table decides who may see and approve (teamAccessPorts). */
+    const withTeam = () =>
+      createPayNamespaces({ founderAuthority: w.founderAuthority, control: new ControlService(w.sql, teamAccessPorts(w.sql)) });
+    const joinAs = (merchantId: string, userId: string, role: string) =>
+      w.sql`INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+            VALUES (${merchantId}, ${userId}, ${role}, 'active', ${userId}, now())`;
     const decideInput = (approvalId: string, hash: string) =>
       ({ approvalId, decision: 'approve', expectedPayloadHash: hash, reason: 'checked' }) as const;
     const rowOf = async (approvalId: string) =>
@@ -434,7 +445,7 @@ describe('M: merchant isolation', () => {
 
     it('... even when the access rules would let the maker approve (the database also refuses a checker equal to the maker)', async () => {
       const C2 = w.e.C2;
-      const router = withFinance(C2.merchantId); // the owner keeps owner rights, so only the self-approval rule stands in the way
+      const router = withTeam(); // the owner holds payout.approve, so only the self-approval rule stands in the way
       const caller = router.createCaller(ctxOf(sessionOf(C2.userId)));
       const e = await fail(caller.merchantControl.approvals.decide(decideInput(C2.approvalId, await hashOf(C2.approvalId))));
       expect(e).toMatchObject({ code: 'FORBIDDEN', cause: 'pay.approval_self_approval' });
@@ -490,9 +501,30 @@ describe('M: merchant isolation', () => {
       expect(shapeOf(foreign)).toEqual(shapeOf(real));
     });
 
+    it('a REAL finance member of B (active row in the team table) reaches nothing of A through any merchantControl.* procedure', async () => {
+      const asFinanceB = ctxOf(sessionOf(w.bFinanceUserId));
+      const A = w.e.A;
+      const beforeA = await rowOf(A.approvalId);
+      const procs = MERCHANT_PROCS.filter((pr) => pr.path.startsWith('merchantControl.'));
+      expect(procs.length).toBeGreaterThanOrEqual(7);
+      for (const pr of procs) {
+        const foreign = await callTrpc(w, asFinanceB, pr.path, pr.input(ids('A')));
+        const none = await callTrpc(w, asFinanceB, pr.path, pr.input(ghostIds()));
+        expect(foreign.kind, pr.path).toBe('error');
+        expect(shapeOf(foreign), pr.path).toEqual(shapeOf(none));
+      }
+      expect(await rowOf(A.approvalId)).toEqual(beforeA);
+      // POSITIVE: the same person does see and may use B's own control room, so the refusals are not a broken member row.
+      const own = await callTrpc(w, asFinanceB, 'merchantControl.get', { merchantId: w.e.B.merchantId });
+      expect(own.kind).toBe('ok');
+      const list = await callTrpc(w, asFinanceB, 'merchantControl.approvals.list', { merchantId: w.e.B.merchantId, limit: 10 });
+      expect(list.kind).toBe('ok');
+    });
+
     it('POSITIVE CONTROL: a different person with the approver right for THAT merchant can approve, so the refusals above are not a broken fixture', async () => {
       const C2 = w.e.C2;
-      const router = withFinance(C2.merchantId);
+      await joinAs(C2.merchantId, FINANCE, 'finance');
+      const router = withTeam();
       const asFinance = router.createCaller(ctxOf(sessionOf(FINANCE)));
       // The same person has no standing on another merchant: that approval looks missing.
       const other = await fail(asFinance.merchantControl.approvals.decide(decideInput(w.e.G1.approvalId, await hashOf(w.e.G1.approvalId))));
@@ -507,17 +539,18 @@ describe('M: merchant isolation', () => {
   // ────────────────────────────────────────────────────────────────────────
   describe('M6: A’s webhooks and exports contain only A’s data', () => {
     const endpointsOf = async (merchantId: string) =>
-      (await w.sql`SELECT id, url, signing_secret FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as unknown as Array<{
+      (await w.sql`SELECT id, url, signing_secret, status FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantId}`) as unknown as Array<{
         id: string;
         url: string;
         signing_secret: string;
+        status: string;
       }>;
 
     it('an event for A is queued for A’s endpoints only, and delivered only to A’s URLs, signed with A’s secret', async () => {
       const A = w.e.A;
       const B = w.e.B;
-      const aEndpoints = await endpointsOf(A.merchantId);
-      const bEndpoints = await endpointsOf(B.merchantId);
+      const aEndpoints = (await endpointsOf(A.merchantId)).filter((e) => e.status === 'active');
+      const bEndpoints = (await endpointsOf(B.merchantId)).filter((e) => e.status === 'active');
       const payment = await w.pay.getPayment(A.paymentId2);
       await w.webhooks.enqueue({ type: 'payment.failed', payment });
       const queued =

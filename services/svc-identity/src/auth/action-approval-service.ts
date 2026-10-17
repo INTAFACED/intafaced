@@ -2,6 +2,7 @@
  * Issue and consume action-bound approval. A typed-in second name is not
  * authority. TTL is owner-published; blank refuses propose.
  */
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { ActionApproval, ActionApprovalConsumeInput, ActionApprovalProposeInput } from '@intafaced/contracts';
 import {
   SAME_PERSON_APPROVAL_TTL_SECONDS,
@@ -9,6 +10,7 @@ import {
   isSamePersonActionType,
   namesAreNotActionApproval,
 } from '@intafaced/contracts';
+import { type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
 import { type ActionApprovalStore, type StoredApproval, newApprovalIds, toActionApproval } from './action-approval-store.js';
 
 export const ACTION_APPROVAL_TTL_UNSET = 'action_approval.ttl_unset' as const;
@@ -27,6 +29,8 @@ export type ActionApprovalErrorCode =
   | 'action_approval.service_mismatch'
   | 'action_approval.type_not_four_eyes'
   | 'action_approval.operator_only'
+  | 'action_approval.founder_only'
+  | 'action_approval.founders_unavailable'
   | 'action_approval.type_not_same_person'
   | 'action_approval.already_terminal';
 
@@ -42,7 +46,19 @@ export class ActionApprovalError extends Error {
 
 export type ActionApprovalPolicy = {
   readonly ttlSeconds: number | undefined;
+  /**
+   * Who is a founder right now. Founder-only action types are refused at approve and at consume without it
+   * (fail closed): an unwired directory never lets a founder-only approval through.
+   */
+  readonly founders?: FounderDirectory | undefined;
 };
+
+/** Constant-time equality of two hash strings of any length (both are digested first, so length does not leak). */
+export function payloadHashesEqual(a: string, b: string): boolean {
+  const da = createHash('sha256').update(a).digest();
+  const db = createHash('sha256').update(b).digest();
+  return timingSafeEqual(da, db);
+}
 
 export class ActionApprovalService {
   constructor(
@@ -126,13 +142,21 @@ export class ActionApprovalService {
     return toActionApproval(await this.store.insert(row));
   }
 
-  async approve(approverId: string, approvalId: string): Promise<ActionApproval> {
+  async approve(approverId: string, approvalId: string, expectedPayloadHash: string): Promise<ActionApproval> {
     const row = await this.loadLive(approvalId);
     if (row.status !== 'PENDING') {
       throw this.terminal(row, 'action_approval.not_pending');
     }
     if (row.requesterId === approverId) {
       throw new ActionApprovalError('the requester cannot approve their own action', 'action_approval.same_person');
+    }
+    // The approver signs off on the payload they reviewed, not on an id. Constant-time, on the stored hash.
+    if (!payloadHashesEqual(row.payloadHash, expectedPayloadHash)) {
+      throw new ActionApprovalError('the approval is for a different payload than the one reviewed', 'action_approval.payload_mismatch');
+    }
+    if (audienceOfApproval(row) === 'founder') {
+      // Both parties: an approval a non-founder proposed is not one a founder pair can complete.
+      await this.requireFounders(row, { approverId });
     }
     const next = await this.store.casApprove(approvalId, approverId, this.clock());
     if (!next) throw this.terminal(await this.loadLive(approvalId), 'action_approval.not_pending');
@@ -170,7 +194,7 @@ export class ActionApprovalService {
     if (callerService !== input.targetService || callerService !== row.targetService) {
       throw new ActionApprovalError('consume is only for the target service', 'action_approval.service_mismatch');
     }
-    if (row.payloadHash !== input.payloadHash) {
+    if (!payloadHashesEqual(row.payloadHash, input.payloadHash)) {
       throw new ActionApprovalError('payload hash does not match the approved action', 'action_approval.payload_mismatch');
     }
     if (row.targetId !== input.targetId || row.expectedVersion !== input.expectedVersion || row.operationId !== input.operationId) {
@@ -194,6 +218,11 @@ export class ActionApprovalService {
     if (!isConsumableApproval(toActionApproval(row))) {
       throw this.terminal(row, 'action_approval.not_approved');
     }
+    // Founder-only types: the proposer and the approver must both still be live founders NOW. This is evaluated on
+    // every consume, so a row approved before this check existed (by an operator who is not a founder) is refused
+    // here, not grandfathered. The result is attested to the target service on the returned row.
+    const founderAttestation =
+      audienceOfApproval(row) === 'founder' ? await this.requireFounders(row, { approverId: row.approverId }) : null;
     const next = await this.store.casConsume({ ...input, now: this.clock() });
     if (!next) {
       const again = await this.loadLive(input.approvalId);
@@ -202,12 +231,53 @@ export class ActionApprovalService {
       }
       throw this.terminal(again, 'action_approval.not_approved');
     }
-    return toActionApproval(next);
+    return { ...toActionApproval(next), ...(founderAttestation ?? {}) };
   }
 
-  /** The action type of a stored approval, or null. Lets a door classify it before acting on it. */
-  async actionTypeOf(approvalId: string): Promise<string | null> {
-    return (await this.store.get(approvalId))?.actionType ?? null;
+  /**
+   * The audience-relevant fields of a stored approval, or null. Lets a door classify it before acting on it.
+   * Only the request's own type, target service, target id and kind: nothing else is disclosed.
+   */
+  async subjectOf(approvalId: string): Promise<ApprovalSubject | null> {
+    const row = await this.store.get(approvalId);
+    return row ? { actionType: row.actionType, targetService: row.targetService, targetId: row.targetId, kind: row.kind } : null;
+  }
+
+  /**
+   * Is this user a founder right now, according to the wired directory. False when no directory is wired or the
+   * directory says no. A directory that cannot answer (it throws) is `founders_unavailable`: still refused, but
+   * told apart from "not a founder" so an outage is not read as a policy refusal.
+   */
+  async isFounder(userId: string): Promise<boolean> {
+    try {
+      return (await this.policy.founders?.isFounder(userId)) === true;
+    } catch {
+      throw new ActionApprovalError('the founder list could not be read; nothing was changed', 'action_approval.founders_unavailable');
+    }
+  }
+
+  /**
+   * Both parties of a founder-only approval must be live founders and distinct. Refuses with `founder_only`, or
+   * `founders_unavailable` when the founder list cannot be read (nothing is consumed either way).
+   * `approverId` is null when nobody approved (a consume of an unapproved row never reaches here).
+   */
+  private async requireFounders(
+    row: StoredApproval,
+    parties: { readonly approverId: string | null },
+  ): Promise<{ approverIsFounder: true; requesterIsFounder: true }> {
+    const approverId = parties.approverId;
+    const ok =
+      approverId !== null &&
+      approverId.toLowerCase() !== row.requesterId.toLowerCase() &&
+      (await this.isFounder(approverId)) &&
+      (await this.isFounder(row.requesterId));
+    if (!ok) {
+      throw new ActionApprovalError(
+        'this action type needs a distinct proposer and approver who are both founders',
+        'action_approval.founder_only',
+      );
+    }
+    return { approverIsFounder: true, requesterIsFounder: true };
   }
 
   /** Two strings in one body never become an approval. */

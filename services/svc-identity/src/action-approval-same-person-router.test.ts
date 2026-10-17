@@ -178,6 +178,6 @@ describe('actionApproval.createSamePerson', () => {
         payloadHash: HASH,
         policyVersion: 'v1',
       }),
-    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' }); // judged by type and target at the door, never skipped as "self"; the service still refuses it as BAD_REQUEST for a founder
   });
 });

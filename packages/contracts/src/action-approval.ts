@@ -68,6 +68,13 @@ export const actionApprovalSchema = z.object({
   operationId: z.string().min(1).max(128),
   /** Absent means `four_eyes`. Present only for `same_person` rows, so four-eyes output is unchanged. */
   kind: actionApprovalKindSchema.optional(),
+  /**
+   * Founder-audience consume result only. Identity re-checks, at the moment of consume and against the live founder
+   * entitlement, that the approver and the proposer are both current founders. A target service reads these and
+   * refuses when they are absent or not both true. Operator-audience protective verbs do not carry them.
+   */
+  approverIsFounder: z.boolean().optional(),
+  requesterIsFounder: z.boolean().optional(),
 });
 export type ActionApproval = z.infer<typeof actionApprovalSchema>;
 
@@ -82,9 +89,23 @@ export const actionApprovalProposeInputSchema = z.object({
 });
 export type ActionApprovalProposeInput = z.infer<typeof actionApprovalProposeInputSchema>;
 
+/** Reject and revoke name the approval only. Approve is a different shape: it also binds the payload (below). */
+export const actionApprovalIdInputSchema = z
+  .object({
+    approvalId: z.string().min(1).max(128),
+  })
+  .strict();
+export type ActionApprovalIdInput = z.infer<typeof actionApprovalIdInputSchema>;
+
+/**
+ * Approve binds the approver to the exact payload they reviewed. `expectedPayloadHash` is the hash the approver
+ * computed or was shown for the change under review; identity refuses (`action_approval.payload_mismatch`) unless it
+ * equals the stored request's hash. An id alone is never enough to approve.
+ */
 export const actionApprovalApproveInputSchema = z
   .object({
     approvalId: z.string().min(1).max(128),
+    expectedPayloadHash: z.string().min(1).max(128),
   })
   .strict();
 export type ActionApprovalApproveInput = z.infer<typeof actionApprovalApproveInputSchema>;
@@ -130,4 +151,87 @@ export function isConsumableApproval(row: ActionApproval): boolean {
 
 export function approvalCannotExecute(row: ActionApproval): boolean {
   return !isConsumableApproval(row);
+}
+
+/**
+ * Operator-audience protective verbs. A brake must not wait for both founders.
+ * The exception holds only when the type, the target service, and the target verb all agree.
+ * svc-identity decides audience from this same list. Every other consume needs identity's founder attestation.
+ */
+export const PROTECTIVE_OPERATOR_APPROVALS: readonly {
+  readonly actionType: string;
+  readonly targetService: string;
+  readonly targetVerb: string;
+}[] = [
+  { actionType: 'matching.halt', targetService: 'svc-matching', targetVerb: 'halt' },
+  { actionType: 'matching.halt_all', targetService: 'svc-matching', targetVerb: 'halt_all' },
+  { actionType: 'matching.reduce_only', targetService: 'svc-matching', targetVerb: 'reduce_only' },
+  { actionType: 'matching.post_only', targetService: 'svc-matching', targetVerb: 'post_only' },
+  { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetVerb: 'posting_freeze' },
+];
+
+export type FounderApprovalSubject = {
+  readonly actionType: string;
+  readonly targetService: string;
+  readonly targetId: string;
+};
+
+const normApproval = (value: string): string => value.trim().toLowerCase();
+
+/** `halt:market-1` → `halt`; `posting_freeze` → `posting_freeze`. */
+const verbOfTarget = (targetId: string): string => {
+  const normalized = normApproval(targetId);
+  const colon = normalized.indexOf(':');
+  return colon === -1 ? normalized : normalized.slice(0, colon);
+};
+
+/** True only when type, service, and target verb all name one protective brake. */
+export function isProtectiveOperatorApproval(subject: FounderApprovalSubject): boolean {
+  const type = normApproval(subject.actionType);
+  const service = normApproval(subject.targetService);
+  const verb = verbOfTarget(subject.targetId);
+  return PROTECTIVE_OPERATOR_APPROVALS.some((row) => row.actionType === type && row.targetService === service && row.targetVerb === verb);
+}
+
+export type FounderAttestationVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: 'missing' | 'forged' };
+
+function sameBinding(left: string, right: string): boolean {
+  return left.trim() === right.trim();
+}
+
+/** Identity stores the action type. A row that only repeats the target id names a different action. */
+function namesThisAction(row: ActionApproval, subject: FounderApprovalSubject): boolean {
+  return normApproval(row.actionType) === normApproval(subject.actionType);
+}
+
+function distinctParties(row: ActionApproval): boolean {
+  const approver = row.approverId?.trim() ?? '';
+  const requester = row.requesterId.trim();
+  return approver.length > 0 && approver.toLowerCase() !== requester.toLowerCase();
+}
+
+/**
+ * What a consuming service does with identity's founder attestation.
+ * A protective verb is accepted without it. Every other subject needs a consumed row for this target,
+ * naming this action, whose proposer and approver are distinct and both attested founders.
+ * Absent flags are `missing`. A false flag, the same person twice, or a row for a different action is `forged`.
+ */
+export function founderAttestationVerdict(row: ActionApproval, subject: FounderApprovalSubject): FounderAttestationVerdict {
+  if (isProtectiveOperatorApproval(subject)) return { ok: true };
+  if (
+    row.status !== 'CONSUMED' ||
+    !sameBinding(row.targetService, subject.targetService) ||
+    !sameBinding(row.targetId, subject.targetId) ||
+    !namesThisAction(row, subject) ||
+    !distinctParties(row)
+  ) {
+    return { ok: false, reason: 'forged' };
+  }
+  if (row.approverIsFounder === undefined && row.requesterIsFounder === undefined) {
+    return { ok: false, reason: 'missing' };
+  }
+  if (row.approverIsFounder !== true || row.requesterIsFounder !== true) {
+    return { ok: false, reason: 'forged' };
+  }
+  return { ok: true };
 }

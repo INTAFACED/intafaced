@@ -356,6 +356,9 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
+      # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
+      API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
@@ -840,6 +843,10 @@ services:
       PAY_CHECKOUT_SESSION_TTL_SECONDS: ${PAY_CHECKOUT_SESSION_TTL_SECONDS:?missing — copy .env.example to .env}
       PAY_PUBLIC_BASE_PATH: ${PAY_PUBLIC_BASE_PATH:-/api/pay}
       PAY_ALLOW_SANDBOX_RAILS: ${PAY_ALLOW_SANDBOX_RAILS:-false}
+      # Authorized-capture reconciler. Default off: the job refuses and moves
+      # nothing. `required` finishes payments whose ledger capture key already
+      # exists, and does not post again. env.ts default is the same `off`.
+      PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
@@ -1604,7 +1611,14 @@ services:
       SERVICE_NAME: svc-mining-pool
       HTTP_PORT: '4023'
       LEDGER_URL: http://svc-ledger:4001
+      # Role svc_mining_pool and schema mining_pool come from postgres-init.
+      # The drizzle files are applied by migrate-all. Without this URL the
+      # fleet never creates windows/shares (workspace-sync).
+      DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # ── Protocol Plane (§17.4) ─────────────────────────────────────
 

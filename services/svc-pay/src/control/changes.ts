@@ -1,12 +1,13 @@
-import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import type { MerchantControlChange, PayCap } from '@intafaced/contracts';
+import type { FounderPendingChange, FounderPendingChangeListInput, MerchantControlChange, PayCap } from '@intafaced/contracts';
+import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';
+import { closePendingForCapChange, closePendingForTierChange } from './limit-requests.js';
 import { assertValidRule, PricingConfigError, type PricingBand, type PricingRule } from './pricing.js';
 import { pricingRuleBodySchema, tierDefinitionSchema, type PricingRuleBody, type TierDefinitionInput } from './schemas.js';
 import { toRule } from './store.js';
@@ -70,7 +71,8 @@ const stable = (value: unknown): string =>
       ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
       : v,
   );
-const sha = (value: unknown): string => `sha256:${createHash('sha256').update(stable(value)).digest('hex')}`;
+/** The canonical hash is shared with the admin BFF through `@intafaced/contracts/founder-change-hash`: one definition. */
+const sha = (value: { target: ChangeTarget; expectedVersion: string }): string => founderChangeHash(value.target, value.expectedVersion);
 
 const capKey = (cap: PayCap): string => (cap.kind === 'beneficiaries_per_day' ? cap.kind : `${cap.kind}:${cap.assetCode}`);
 
@@ -205,6 +207,9 @@ export class ChangeService {
       };
     }
     if (change.kind === 'set_caps') {
+      // A merchant's caps sit on top of its tier's caps. With no tier nothing would take effect (and payments refuse), so a change that
+      // "succeeds" would be a lie: say so instead, at submit and again at confirm.
+      if (!cur?.tier_id) throw new ControlError('pay.tier_unassigned', 'assign a tier first: caps override a tier’s caps');
       const caps = assertCaps(change.caps);
       const before = cur?.caps_override ?? null;
       return {
@@ -523,7 +528,7 @@ export class ChangeService {
   /** Second founder: confirm (applies) or reject. The same founder, or a typed-in name, cannot. */
   async confirm(
     founderUserId: string,
-    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string },
+    input: { requestId: string; decision: 'confirm' | 'reject'; reason: string; expectedChangeHash: string },
   ): Promise<ChangeOutcome> {
     const at = this.now();
     return transaction(
@@ -541,13 +546,16 @@ export class ChangeService {
             checker_id: string | null;
             status: string;
             reason: string;
+            change_hash: string;
           }>
         >`
-          SELECT request_id, scope, scope_id, merchant_id, change, expected_version, maker_id, checker_id, status, reason
+          SELECT request_id, scope, scope_id, merchant_id, change, expected_version, maker_id, checker_id, status, reason, change_hash
             FROM pay.control_changes WHERE request_id = ${input.requestId} FOR UPDATE
         `;
         const row = rows[0];
         if (!row) throw new ControlError('pay.change_not_found');
+        // Before ANYTHING else (a repeat, a decline, an apply): the confirmer must have been shown exactly the change on file.
+        if (!changeHashesEqual(row.change_hash, input.expectedChangeHash)) throw new ControlError('pay.change_hash_mismatch');
         if (row.status === 'applied' && row.checker_id === founderUserId && input.decision === 'confirm') {
           return this.result(row, 'changed', founderUserId, BigInt(row.expected_version) + 1n, at);
         }
@@ -604,6 +612,12 @@ export class ChangeService {
           return this.result(row, 'conflict', founderUserId, plan?.version ?? expected, at);
         }
         await plan.apply(tx);
+        if (target.scope === 'merchant' && target.change.kind === 'set_caps') {
+          await closePendingForCapChange(tx, target.merchantId, founderUserId, row.request_id);
+        }
+        if (target.scope === 'merchant' && target.change.kind === 'set_tier') {
+          await closePendingForTierChange(tx, target.merchantId, founderUserId, row.request_id);
+        }
         await tx`UPDATE pay.control_changes SET status = 'applied', checker_id = ${founderUserId}, checker_reason = ${input.reason}, decided_at = now() WHERE request_id = ${row.request_id}`;
         await writeAudit(tx, {
           scope: row.scope,
@@ -622,6 +636,57 @@ export class ChangeService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /**
+   * Control changes still waiting for a second founder, oldest first.
+   * `changeHash` is what that founder sends as `expectedChangeHash`.
+   */
+  async listPending(input: FounderPendingChangeListInput): Promise<{ changes: FounderPendingChange[]; nextCursor: string | null }> {
+    const cursor = input.cursor ?? null;
+    const merchantId = input.merchantId ?? null;
+    const scope = input.scope ?? null;
+    const rows = await this.sql<
+      Array<{
+        request_id: string;
+        seq: string | number | bigint;
+        scope: FounderPendingChange['scope'];
+        scope_id: string;
+        merchant_id: string | null;
+        change_body: unknown;
+        change_hash: string;
+        reason: string;
+        expected_version: string | number | bigint;
+        maker_id: string;
+        created_at: Date | string;
+      }>
+    >`
+      SELECT request_id, seq, scope, scope_id, merchant_id, change AS change_body, change_hash, reason, expected_version, maker_id, created_at
+        FROM pay.control_changes
+       WHERE status = 'pending'
+         AND (${cursor}::bigint IS NULL OR seq > ${cursor}::bigint)
+         AND (${merchantId}::uuid IS NULL OR merchant_id = ${merchantId}::uuid)
+         AND (${scope}::text IS NULL OR scope = ${scope})
+       ORDER BY seq ASC
+       LIMIT ${input.limit + 1}
+    `;
+    const page = rows.slice(0, input.limit);
+    return {
+      changes: page.map((row) => ({
+        requestId: row.request_id,
+        seq: String(row.seq),
+        scope: row.scope,
+        scopeId: row.scope_id,
+        merchantId: row.merchant_id,
+        change: row.change_body,
+        changeHash: row.change_hash,
+        reason: row.reason,
+        expectedVersion: String(row.expected_version),
+        makerUserId: row.maker_id,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
+      })),
+      nextCursor: rows.length > input.limit ? String(page[page.length - 1]!.seq) : null,
+    };
   }
 
   private lockKey(target: ChangeTarget): string {

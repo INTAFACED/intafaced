@@ -5,18 +5,37 @@ import { EmptyState, Page } from '../../../shared/ui';
 import { payCopy } from '../copy';
 import { businessRooms } from '../BusinessPay';
 import { createPortalApi, type PortalApi } from './api';
-import { Gate } from './components';
+import { Gate, PortalLoading } from './components';
 import { portalCopy } from './copy';
 import { Customers, CustomerDetailPage } from './Customers';
 import { Dashboard } from './Dashboard';
 import { Disputes, DisputeDetailPage } from './Disputes';
 import { Exports } from './Exports';
+import { Approvals } from './Approvals';
+import { Limits } from './Limits';
 import { Notifications } from './Notifications';
 import { Onboarding } from './Onboarding';
+import { PaymentDetailPage, Payments } from './Payments';
+import { PayoutDetailPage, Payouts } from './Payouts';
+import { Pricing } from './Pricing';
+import { SettlementDetailPage, Settlements } from './Settlements';
 import { parsePortalRoute, portalLinks, type PortalRoute } from './routes';
 import { Team } from './Team';
 import type { MemberRole, MerchantRecord } from './schemas';
 import './portal.css';
+import { Refunds } from './Refunds';
+import { Links } from './Links';
+import { MerchantMoney, BalanceActivity } from './Money';
+import { Conversion, conversionHeader } from './Conversion';
+import { Subscriptions, subscriptionHeader } from './Subscriptions';
+import { Compliance } from './Compliance';
+import { Settings, SettingsNav } from './Settings';
+import { Developers, developerHeader } from './Developers';
+import { Invoices } from './Invoices';
+import { extensionCopy } from './extension-copy';
+import { Reports } from './Reports';
+import { w3cCopy } from './w3c-copy';
+import type { PayBusinessAuthority } from '../pay-api';
 
 type Account = { merchantId: string; record: MerchantRecord | null; role: MemberRole | null };
 
@@ -28,10 +47,12 @@ type Account = { merchantId: string; record: MerchantRecord | null; role: Member
  */
 export function MerchantPortal({
   path,
+  authority = null,
   starterFeeBps = null,
   legacyHome = null,
 }: {
   path: string;
+  authority?: PayBusinessAuthority | null;
   starterFeeBps?: number | null;
   legacyHome?: ReactNode;
 }) {
@@ -45,6 +66,7 @@ export function MerchantPortal({
     <PortalFrame route={route}>
       <PortalRoom
         route={route}
+        authority={authority}
         portal={portal}
         merchant={merchant.resource}
         reloadMerchant={merchant.reload}
@@ -81,18 +103,189 @@ export function PortalFrame({ route, children }: { route: PortalRoute; children:
   );
 }
 
-const hrefFor = (route: PortalRoute) =>
-  route.room === 'dashboard'
-    ? '/pay/merchant'
-    : route.room === 'dispute'
-      ? '/pay/disputes'
-      : route.room === 'customer'
-        ? '/pay/customers'
-        : `/pay/${route.room}`;
+const hrefFor = (route: PortalRoute) => {
+  if (route.room.startsWith('developer')) return '/pay/developer';
+  if (route.room === 'invoice') return '/pay/invoices';
+  if (route.room === 'subscription' || route.room === 'subscription-new') return '/pay/subscriptions';
+  if (route.room.startsWith('settings')) return '/pay/settings';
+  if (route.room.startsWith('conversion')) return '/pay/conversion';
+  return route.room === 'money-activity'
+    ? '/pay/money'
+    : route.room === 'report-exports'
+      ? '/pay/reports'
+      : route.room === 'link' || route.room === 'link-new'
+        ? '/pay/links'
+        : route.room === 'refund' || route.room === 'refund-new'
+          ? '/pay/refunds'
+          : route.room === 'dashboard'
+            ? '/pay/merchant'
+            : route.room === 'dispute'
+              ? '/pay/disputes'
+              : route.room === 'customer'
+                ? '/pay/customers'
+                : route.room === 'payment'
+                  ? '/pay/payments'
+                  : route.room === 'settlement'
+                    ? '/pay/settlements'
+                    : route.room === 'payout'
+                      ? '/pay/payouts'
+                      : `/pay/${route.room}`;
+};
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
 function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; action?: ReactNode } {
+  const c = w3cCopy.t;
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return conversionHeader(route);
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return subscriptionHeader(route);
+    case 'compliance':
+      return {
+        title: extensionCopy.t('complianceTitle'),
+        purpose: extensionCopy.t('compliancePurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/onboarding/verification">
+            {extensionCopy.t('verificationAction')}
+          </a>
+        ),
+      };
+    case 'settings':
+    case 'settings-team':
+    case 'settings-notifications':
+      return {
+        title: extensionCopy.t(
+          route.room === 'settings-team' ? 'teamTitle' : route.room === 'settings-notifications' ? 'notificationSettings' : 'settingsTitle',
+        ),
+        purpose: extensionCopy.t('settingsPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/settings/notifications">
+            {extensionCopy.t('notificationSettings')}
+          </a>
+        ),
+      };
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return developerHeader(route);
+    case 'invoices':
+    case 'invoice':
+      return {
+        title: extensionCopy.t(route.room === 'invoice' ? 'invoiceTitle' : 'invoicesTitle'),
+        purpose: extensionCopy.t('invoicesPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/subscriptions">
+            {extensionCopy.t('openSubscriptions')}
+          </a>
+        ),
+      };
+    case 'money':
+      return {
+        title: c('moneyTitle'),
+        purpose: c('moneyPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/money/activity">
+            {c('openStatement')}
+          </a>
+        ),
+      };
+    case 'money-activity':
+      return {
+        title: c('statementTitle'),
+        purpose: c('statementPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/exports">
+            {c('exportJobs')}
+          </a>
+        ),
+      };
+    case 'reports':
+      return {
+        title: c('reportsTitle'),
+        purpose: c('reportsPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/reports/exports">
+            {c('exportJobs')}
+          </a>
+        ),
+      };
+    case 'report-exports':
+      return {
+        title: c('exportJobs'),
+        purpose: c('exportJobsPurpose'),
+        action: (
+          <a className="button button--primary" href="#request">
+            {c('reportAction')}
+          </a>
+        ),
+      };
+    case 'links':
+      return {
+        title: c('linksTitle'),
+        purpose: c('linksPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/links/new">
+            {c('linkNew')}
+          </a>
+        ),
+      };
+    case 'link-new':
+      return {
+        title: c('linkNew'),
+        purpose: c('linkNewPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/links">
+            {c('backLinks')}
+          </a>
+        ),
+      };
+    case 'link':
+      return {
+        title: c('linkDetail'),
+        purpose: c('linkDetailPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/links/new">
+            {c('linkNew')}
+          </a>
+        ),
+      };
+    case 'refunds':
+      return {
+        title: c('refundsTitle'),
+        purpose: c('refundsPurpose'),
+        action: (
+          <a className="button button--primary" href="/pay/refunds/new">
+            {c('issueRefund')}
+          </a>
+        ),
+      };
+    case 'refund-new':
+      return {
+        title: c('issueRefund'),
+        purpose: c('issuePurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/payments">
+            {c('openPayments')}
+          </a>
+        ),
+      };
+    case 'refund':
+      return {
+        title: c('refundTitle'),
+        purpose: c('refundPurpose'),
+        action: (
+          <a className="button button--secondary" href="/pay/refunds">
+            {c('backRefunds')}
+          </a>
+        ),
+      };
     case 'dashboard':
       return {
         title: t('pageDashboard'),
@@ -104,7 +297,17 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
         ),
       };
     case 'onboarding':
-      return { title: t('pageOnboarding'), purpose: t('purposeOnboarding') };
+      return {
+        title: route.step
+          ? t(route.step === 'business' ? 'step1Title' : route.step === 'verification' ? 'step2Title' : 'step3Title')
+          : t('pageOnboarding'),
+        purpose: t('purposeOnboarding'),
+        action: (
+          <a className="button button--primary" href="/pay/merchant">
+            {t('openDashboard')}
+          </a>
+        ),
+      };
     case 'team':
       return {
         title: t('pageTeam'),
@@ -135,11 +338,62 @@ function roomCopy(route: PortalRoute, t: T): { title: string; purpose: string; a
       };
     case 'notifications':
       return { title: t('pageNotifications'), purpose: t('purposeNotifications') };
+    case 'payments':
+      return {
+        title: t('pagePayments'),
+        purpose: t('purposePayments'),
+        action: (
+          <a className="button button--primary" href="/pay/payments?view=tools">
+            {t('actPaymentTools')}
+          </a>
+        ),
+      };
+    case 'payment':
+      return {
+        title: t('pagePayment'),
+        purpose: t('purposePayment'),
+        action: route.param ? (
+          <a className="button button--primary" href={`/pay/payments?view=tools&payment=${encodeURIComponent(route.param)}`}>
+            {t('refundOrCapture')}
+          </a>
+        ) : undefined,
+      };
+    case 'settlements':
+      return {
+        title: t('pageSettlements'),
+        purpose: t('purposeSettlements'),
+        action: (
+          <a className="button button--primary" href="/pay/settlements?view=tools">
+            {t('actSettlementTools')}
+          </a>
+        ),
+      };
+    case 'settlement':
+      return { title: t('pageSettlement'), purpose: t('purposeSettlement') };
+    case 'payouts':
+      return {
+        title: t('pagePayouts'),
+        purpose: t('purposePayouts'),
+        action: (
+          <a className="button button--primary" href="/pay/payouts?view=tools">
+            {t('actRequestPayout')}
+          </a>
+        ),
+      };
+    case 'payout':
+      return { title: t('pagePayout'), purpose: t('purposePayout') };
+    case 'approvals':
+      return { title: t('pageApprovals'), purpose: t('purposeApprovals') };
+    case 'pricing':
+      return { title: t('pagePricing'), purpose: t('purposePricing') };
+    case 'limits':
+      return { title: t('pageLimits'), purpose: t('purposeLimits') };
   }
 }
 
 function PortalRoom({
   route,
+  authority,
   portal,
   merchant,
   reloadMerchant,
@@ -148,6 +402,7 @@ function PortalRoom({
   legacyHome,
 }: {
   route: PortalRoute;
+  authority: PayBusinessAuthority | null;
   portal: PortalApi;
   merchant: Resource<MerchantRecord | null>;
   reloadMerchant: () => void;
@@ -156,7 +411,104 @@ function PortalRoom({
   legacyHome: ReactNode;
 }) {
   const { t } = portalCopy.useCopy();
+  const acct = { merchant, reload: reloadMerchant, team };
   switch (route.room) {
+    case 'conversion':
+    case 'conversion-new':
+    case 'conversion-order':
+      return (
+        <WithAccount {...acct}>{({ merchantId }) => <Conversion portal={portal} merchantId={merchantId} route={route} />}</WithAccount>
+      );
+    case 'subscriptions':
+    case 'subscription':
+    case 'subscription-new':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Subscriptions portal={portal} merchantId={merchantId} route={route} authority={authority} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'compliance':
+      return <WithAccount {...acct}>{() => <Compliance portal={portal} />}</WithAccount>;
+    case 'settings':
+      return <WithAccount {...acct}>{({ record }) => <Settings merchant={record} />}</WithAccount>;
+    case 'settings-team':
+      return (
+        <div className="stack">
+          <SettingsNav />
+          <Team portal={portal} />
+        </div>
+      );
+    case 'settings-notifications':
+      return (
+        <WithAccount {...acct}>
+          {() => (
+            <div className="stack">
+              <SettingsNav />
+              <Notifications portal={portal} preferencesOnly />
+            </div>
+          )}
+        </WithAccount>
+      );
+    case 'developer':
+    case 'developer-keys':
+    case 'developer-signing':
+    case 'developer-webhooks':
+    case 'developer-endpoint':
+    case 'developer-deliveries':
+      return <WithAccount {...acct}>{() => <Developers route={route} authority={authority} />}</WithAccount>;
+    case 'invoices':
+    case 'invoice':
+      return <WithAccount {...acct}>{() => <Invoices invoiceId={route.param} />}</WithAccount>;
+    case 'money':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <MerchantMoney portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'money-activity':
+      return <WithAccount {...acct}>{() => <BalanceActivity />}</WithAccount>;
+    case 'reports':
+      return <WithAccount {...acct}>{() => <Reports />}</WithAccount>;
+    case 'report-exports':
+      return <Exports portal={portal} />;
+    case 'links':
+    case 'link-new':
+    case 'link':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Links
+                portal={portal}
+                merchantId={merchantId}
+                create={route.room === 'link-new'}
+                linkId={route.param}
+                authority={authority}
+              />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'refunds':
+    case 'refund-new':
+    case 'refund':
+      return (
+        <WithAccount {...acct}>
+          {({ role }) => (
+            <OwnerOnly role={role}>
+              <Refunds portal={portal} refundId={route.param} create={route.room === 'refund-new'} authority={authority} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
     case 'dashboard':
       return (
         <Gate resource={merchant} retry={reloadMerchant} rows={5}>
@@ -191,7 +543,9 @@ function PortalRoom({
     case 'onboarding':
       return (
         <Gate resource={merchant} retry={reloadMerchant} rows={4}>
-          {(record) => <Onboarding portal={portal} merchant={record} reloadMerchant={reloadMerchant} starterFeeBps={starterFeeBps} />}
+          {(record) => (
+            <Onboarding step={route.step} portal={portal} merchant={record} reloadMerchant={reloadMerchant} starterFeeBps={starterFeeBps} />
+          )}
         </Gate>
       );
     case 'team':
@@ -208,5 +562,127 @@ function PortalRoom({
       return <Exports portal={portal} />;
     case 'notifications':
       return <Notifications portal={portal} />;
+    case 'payments':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payments portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payment':
+      return (
+        <WithAccount {...acct}>
+          {({ role }) => (
+            <OwnerOnly role={role}>
+              <PaymentDetailPage portal={portal} paymentId={route.param!} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'settlements':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Settlements portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'settlement':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <SettlementDetailPage portal={portal} merchantId={merchantId} settlementId={route.param!} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payouts':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role }) => (
+            <OwnerOnly role={role}>
+              <Payouts portal={portal} merchantId={merchantId} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'payout':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, role, record }) => (
+            <OwnerOnly role={role}>
+              <PayoutDetailPage portal={portal} merchantId={merchantId} payoutId={route.param!} role={role} merchant={record} />
+            </OwnerOnly>
+          )}
+        </WithAccount>
+      );
+    case 'approvals':
+      return (
+        <WithAccount {...acct}>{({ merchantId, role }) => <Approvals portal={portal} merchantId={merchantId} role={role} />}</WithAccount>
+      );
+    case 'pricing':
+      return <WithAccount {...acct}>{({ merchantId }) => <Pricing portal={portal} merchantId={merchantId} />}</WithAccount>;
+    case 'limits':
+      return (
+        <WithAccount {...acct}>
+          {({ merchantId, record }) => <Limits portal={portal} merchantId={merchantId} merchant={record} />}
+        </WithAccount>
+      );
   }
+}
+
+/**
+ * The payment and settlement reads answer only the account owner for now, so every other role would meet a refusal.
+ * They are told so up front. A role we could not read is let through: the service decides.
+ */
+export function OwnerOnly({ role, children }: { role: MemberRole | null; children: ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  if (role === null || role === 'owner') return <>{children}</>;
+  return <EmptyState title={t('ownerOnlyTitle')}>{t('ownerOnlyBody')}</EmptyState>;
+}
+
+type AccountProps = {
+  merchant: Resource<MerchantRecord | null>;
+  reload: () => void;
+  team: Resource<{ merchantId: string; userId: string; role: MemberRole }>;
+};
+/**
+ * Which account a page reads. The owner's record names it; a team member has no record of their own, so their team
+ * membership does. Neither is a merchant id the browser chose: both come from the signed session on the server.
+ * A person with no account at all is sent to set one up, not shown an error.
+ */
+export function WithAccount({
+  merchant,
+  reload,
+  team,
+  children,
+}: AccountProps & { children: (account: { merchantId: string; role: MemberRole | null; record: MerchantRecord | null }) => ReactNode }) {
+  const { t } = portalCopy.useCopy();
+  return (
+    <Gate resource={merchant} retry={reload} rows={4}>
+      {(record) => {
+        if (record) return <>{children({ merchantId: record.id, role: team.status === 'ready' ? team.data.role : null, record })}</>;
+        if (team.status === 'loading') return <PortalLoading rows={4} />;
+        if (team.status === 'ready') return <>{children({ merchantId: team.data.merchantId, role: team.data.role, record: null })}</>;
+        return (
+          <EmptyState
+            title={t('noMerchantTitle')}
+            action={
+              <a className="button button--primary" href="/pay/onboarding">
+                {t('startSetup')}
+              </a>
+            }
+          >
+            {t('noMerchantBody')}
+          </EmptyState>
+        );
+      }}
+    </Gate>
+  );
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, merchantClearing, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
 import { UserMoneyService } from '../user-money-service.js';
@@ -19,9 +19,10 @@ import { MemoryChain } from '../rails/chain-port.js';
 import { railFailure } from '../rails/rail-adapter.js';
 import { FRESH, composeGuards, type GuardReplay } from '../seams/guards.js';
 import { createW5HaltsGuards } from '../seams/slots/w5-halts.js';
+import { autoTripAccountErrorCount, resetAutoTripAccountErrors } from './autotrip-log.js';
 import { loadHaltAutoTripConfig } from './config.js';
 import { createHaltGuards } from './guards.js';
-import { PayHaltStore } from './store.js';
+import { PayHaltStore, railHaltKey, userHaltKey } from './store.js';
 
 /**
  * W5 halts against a real Postgres. Two SEPARATE pools stand in for two replicas:
@@ -41,6 +42,8 @@ const migrations = [
   '0058_pay_halts.sql',
   '0059_pay_treasury_exposure_indexes.sql',
   '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
+  '0079_pay_halt_autotrip_window.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-halts-test-secret-at-least-32-characters';
@@ -50,6 +53,9 @@ const FOUNDER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const DEST = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' };
 const BANK = { kind: 'bank', ref: 'DE89370400440532013000' };
 const GLOBAL = { level: 'global' } as const;
+const MERCHANT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const MERCHANT_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const merchantTarget = (merchantId: string) => ({ level: 'merchant' as const, merchantId });
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -95,7 +101,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     await truncatePayForTest(
       poolA,
       'pay',
-      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.halts, pay.halt_events, pay.halt_clear_requests, pay.halt_failure_streaks, pay.halt_autotrip_window, pay.halt_autotrip_counted, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants, pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     chain = new MemoryChain();
@@ -119,14 +125,35 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
     await adminStop();
   }, 30_000);
 
-  const storeOn = (sql: postgres.Sql, env: Record<string, string> = {}) => new PayHaltStore(sql, loadHaltAutoTripConfig(env));
+  const storeOn = (sql: postgres.Sql, env: Record<string, string> = {}, knownRails: { has(railId: string): boolean } = rails) =>
+    new PayHaltStore(sql, loadHaltAutoTripConfig(env), knownRails);
+  function openSpy() {
+    const queries: string[] = [];
+    const sql = postgres(db.url, {
+      max: 2,
+      connection: { search_path: 'pay,public' },
+      onnotice: () => undefined,
+      debug: (_connection, query, parameters) => {
+        queries.push(`${String(query)} ${JSON.stringify(parameters ?? [])}`);
+      },
+    });
+    return { sql, queries, end: () => sql.end({ timeout: 5 }) };
+  }
+  async function holdAutoTripLock(): Promise<() => Promise<void>> {
+    const holder = postgres(db.url, { max: 1, onnotice: () => undefined });
+    await holder`SELECT pg_advisory_lock(hashtext('pay.halt:autotrip'))`;
+    return async () => {
+      await holder`SELECT pg_advisory_unlock_all()`.catch(() => undefined);
+      await holder.end({ timeout: 5 });
+    };
+  }
   /** A replica: its own pool, its own store and guards. */
   const replica = (sql: postgres.Sql, env: Record<string, string> = {}) => ({
     store: storeOn(sql, env),
-    guards: composeGuards(createHaltGuards({ sql, store: storeOn(sql, env) })),
+    guards: composeGuards(createHaltGuards({ sql, ledger })),
   });
-  const payService = (guards: ReturnType<typeof composeGuards>, sql: postgres.Sql = poolA) =>
-    new PayService(sql, ledger, rails, { payoutDestinations: memoryPayoutDestinations(), guards });
+  const payService = (guards: ReturnType<typeof composeGuards>, sql: postgres.Sql = poolA, haltStore?: PayHaltStore) =>
+    new PayService(sql, ledger, rails, { payoutDestinations: memoryPayoutDestinations(), guards, haltStore });
 
   async function capturedCryptoPayment(pay: PayService, merchantId: string, amount: string) {
     const created = await pay.createPayment({
@@ -240,6 +267,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       const merchant = randomUUID();
       const conversion = {
         sql: poolA as never,
+        tx: poolA as never,
         merchantId: merchant,
         settlementId: randomUUID(),
         fromAsset: 'USD',
@@ -284,6 +312,102 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       ).rejects.toMatchObject({
         code: 'pay.halt_target_not_found',
       });
+    });
+
+    it('refuses a user or rail halt unless the scope is payout, and refuses an unknown rail', async () => {
+      const store = storeOn(poolA);
+      const user = { level: 'user' as const, userId: USER };
+      const rail = { level: 'rail' as const, railId: 'crypto-native' };
+      for (const scope of ['intake', 'settlement', 'conversion'] as const) {
+        await expect(store.set(FOUNDER_A, setInput({ scope, target: user }))).rejects.toMatchObject({
+          code: 'pay.halt_target_unsupported',
+        });
+        await expect(store.set(FOUNDER_A, setInput({ scope, target: rail }))).rejects.toMatchObject({
+          code: 'pay.halt_target_unsupported',
+        });
+      }
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'rail', railId: 'missing-rail' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unknown_rail' });
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'intake', target: { level: 'rail', railId: 'missing-rail' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unsupported' });
+      // svc-pay has no user table. A non-uuid is refused; a uuid with no merchant row is not looked up.
+      await expect(
+        store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'user', userId: 'not-a-uuid' } as never })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unsupported' });
+      expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+    });
+
+    it('accepts a payout halt for a registered rail and for a uuid, and enforces both', async () => {
+      const g = replica(poolA);
+      const rail = { level: 'rail' as const, railId: 'crypto-native' };
+      const setRail = await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: rail, reason: 'rail outage' }));
+      expect(setRail.outcome).toBe('changed');
+      expect(setRail.state).toMatchObject({ halted: true, source: 'operator', target: rail });
+      const exec = (railId: string) => ({
+        sql: poolA as never,
+        settlementId: randomUUID(),
+        merchantId: randomUUID(),
+        assetId: 'USDT',
+        amount: 1n,
+        railId,
+        destination: DEST,
+        attempt: 0,
+        replay: FRESH,
+      });
+      await expect(g.guards.beforePayoutExecute(exec('crypto-native'))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforePayoutExecute(exec('card-sandbox'))).resolves.toBeUndefined();
+      await expect(g.guards.beforePaymentAdmit(paymentCtx(poolA, randomUUID()))).resolves.toBeUndefined();
+      const clear = setInput({ scope: 'payout', target: rail, halted: false, expectedVersion: '1', reason: 'rail repaired' });
+      expect((await g.store.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
+
+      const stranger = randomUUID();
+      const setUser = await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'user', userId: stranger } }));
+      expect(setUser.outcome).toBe('changed');
+      const withdraw = (userId: string) => ({
+        tx: poolA as never,
+        userId,
+        assetId: 'USDT',
+        amount: 1n,
+        rail: 'card-sandbox',
+        destination: DEST,
+        clientRef: 'c',
+        replay: FRESH,
+      });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdraw(stranger))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdraw(USER))).resolves.toBeUndefined();
+    });
+
+    it('auto-trip still writes a rail halt when a founder set of that rail is refused', async () => {
+      const blind = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '1', PAY_HALT_AUTOTRIP_RAIL_FAILURES: '1' }, { has: () => false });
+      await expect(
+        blind.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'rail', railId: 'crypto-native' } })),
+      ).rejects.toMatchObject({ code: 'pay.halt_target_unknown_rail' });
+      expect(await blind.recordFailure('payout', { level: 'user', userId: USER }, 'rail:crypto-native')).toMatchObject({
+        tripped: true,
+        consecutiveFailures: 1,
+      });
+      const rows = await poolA<{ target: string; source: string }[]>`SELECT target, source FROM pay.halts WHERE halted`;
+      expect(rows.map((row) => `${row.target} ${row.source}`).sort()).toEqual(
+        [`${railHaltKey('crypto-native')} auto_trip`, `${userHaltKey(USER)} auto_trip`].sort(),
+      );
+    });
+
+    it('clears a halted rail through both founders when this process no longer registers it', async () => {
+      const rail = { level: 'rail' as const, railId: 'x' };
+      const knowing = storeOn(poolA, {}, { has: (railId) => railId === 'x' });
+      expect((await knowing.set(FOUNDER_A, setInput({ scope: 'payout', target: rail, reason: 'rail outage' }))).outcome).toBe('changed');
+
+      const blind = storeOn(poolA, {}, { has: () => false });
+      const clear = setInput({ scope: 'payout', target: rail, halted: false, expectedVersion: '1', reason: 'rail removed' });
+      expect((await blind.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
+      const confirmed = await blind.set(FOUNDER_B, clear);
+      expect(confirmed.outcome).toBe('changed');
+      expect(confirmed.state).toMatchObject({ halted: false, target: rail });
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE target = ${'rail:x'} AND halted`).toHaveLength(0);
+      const row = await poolA<{ target: string; halted: boolean }[]>`SELECT target, halted FROM pay.halts WHERE target = ${'rail:x'}`;
+      expect(row).toEqual([{ target: 'rail:x', halted: false }]);
     });
   });
 
@@ -418,32 +542,35 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       replay,
     });
 
-    it('a merchant-level payout halt refuses its owner, not another user; the global switch refuses everyone', async () => {
+    it('a global payout halt refuses every personal withdrawal; a merchant halt does not, until that merchant has a legacy settlement', async () => {
       const g = replica(poolA);
       const pay = payService(composeGuards());
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
-      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
-        code: 'pay.guard_halted',
-        kind: 'unavailable',
-      });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
-      // An intake halt on that merchant is not a payout halt.
+      await capturedCryptoPayment(pay, m.id, '10');
+      await settle(pay, m.id, 'proceeds-only');
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
+      // An intake halt is not a payout halt.
       await poolA`TRUNCATE pay.halts, pay.halt_events RESTART IDENTITY CASCADE`;
       await g.store.set(FOUNDER_A, setInput({ scope: 'intake', target: { level: 'merchant', merchantId: m.id } }));
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).resolves.toBeUndefined();
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout' }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
+        code: 'pay.guard_halted',
+        kind: 'unavailable',
+      });
       await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
     });
 
-    it('a read error refuses with the store-unavailable code', async () => {
+    it('a dead halt store refuses a personal withdrawal', async () => {
       const dead = postgres(db.url, { max: 1, onnotice: () => undefined });
       await dead.end();
       await expect(replica(dead).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER, FRESH, dead))).rejects.toMatchObject({
         code: 'pay.guard_halt_store_unavailable',
         kind: 'unavailable',
       });
-      // The merchants read failing (not the halts table) refuses too.
       await poolA`ALTER TABLE pay.merchants RENAME TO merchants_offline`;
       try {
         await expect(replica(poolA).guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({
@@ -465,7 +592,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('end to end: a merchant owner cannot withdraw settled money while their merchant is payout-halted, and can after the clear', async () => {
+    it('end to end: a merchant owner can withdraw a personal deposit while their merchant is payout-halted', async () => {
       const g = replica(poolA);
       const pay = payService(composeGuards());
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
@@ -480,23 +607,57 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       });
       await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
       const request = { userId: USER, assetId: 'USDT', amount: amt('20'), rail: 'card-sandbox', destination: BANK, clientRef: 'w-halted' };
-      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
-      expect(await poolA`SELECT 1 FROM pay.withdrawals`).toHaveLength(0);
-      expect(chain.outboundTransfers()).toHaveLength(0);
-      expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('50'));
-
-      const clear = setInput({
-        scope: 'payout',
-        target: { level: 'merchant', merchantId: m.id },
-        halted: false,
-        expectedVersion: '1',
-        reason: 'all clear',
-      });
-      await g.store.set(FOUNDER_A, clear);
-      await g.store.set(FOUNDER_B, clear);
       const sent = await money.withdraw(request);
       expect(sent.status).toBe('sent');
       expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('30'));
+    });
+
+    it('a merchant payout halt refuses the owner while a legacy settlement still debits their personal balance', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const window = 'legacy-halt';
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      const posted = await settle(pay, m.id, window);
+      expect(posted.status).toBe('posted');
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
+    });
+
+    it('a merchant payout halt refuses the owner while a pending row still has a pre-cutover post', async () => {
+      const g = replica(poolA);
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const window = 'legacy-pending-halt';
+      await ledger.post({
+        idempotencyKey: `settlement:${m.id}:${window}:USDT`,
+        module: 'pay',
+        reason: 'pay.settled',
+        meta: { merchantId: m.id, window, assetId: 'USDT' },
+        entries: [
+          { account: merchantClearing(m.id, 'USDT'), direction: 'credit', amount: amt('10') },
+          { account: userAvailable(USER, 'USDT'), direction: 'debit', amount: amt('10') },
+        ],
+      });
+      await poolA`
+        INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net, status)
+        VALUES (${m.id}, ${window}, 'USDT', 10, 0, 10, 'pending')
+      `;
+      await g.store.set(FOUNDER_A, setInput({ scope: 'payout', target: { level: 'merchant', merchantId: m.id } }));
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(USER))).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      await expect(g.guards.beforeUserMoneyWithdrawal(withdrawalCtx(OTHER))).resolves.toBeUndefined();
     });
   });
 
@@ -594,7 +755,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('held with no rail outcome, halted: refused and still held with no rail call; it completes after the two-founder clear', async () => {
+    it('held with no rail outcome: a global payout halt refuses the retry that would call the rail', async () => {
       const realPayout = card.payout.bind(card);
       let died = false;
       card.payout = async (instruction) => {
@@ -612,48 +773,131 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
 
       const g = replica(poolA);
       await haltPayout(g);
-      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      // No rail receipt yet, so the retry would send. A global payout halt refuses that.
       await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.guard_halted' });
       expect(railCalls).toBe(1);
       expect(await rowStatus()).toEqual(['held']);
-      expect(await attemptOutcome()).toEqual(['requested']);
-      expect(await available()).toBe(amt('30'));
-
-      const clear = setInput({ scope: 'payout', halted: false, expectedVersion: '1', reason: 'all clear' });
-      await g.store.set(FOUNDER_A, clear);
-      await g.store.set(FOUNDER_B, clear);
-      const done = await money.withdraw(request);
-      expect(done.status).toBe('sent');
-      expect(railCalls).toBe(2);
       expect(await available()).toBe(amt('30'));
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 
   describe('auto-trip', () => {
-    it('is OFF with no count configured: nothing trips and status says so', async () => {
+    const venue = merchantTarget(MERCHANT);
+
+    it('is OFF with no count configured: nothing trips, nothing is armed, and status says so', async () => {
       const store = storeOn(poolA);
       expect(store.autoTripPosture()).toEqual({ enabled: false, consecutiveFailures: null });
-      for (let i = 0; i < 25; i++) expect(await store.recordFailure('conversion', GLOBAL, 'venue:x')).toMatchObject({ tripped: false });
+      for (let i = 0; i < 25; i++) expect(await store.recordFailure('conversion', venue, 'venue:x')).toMatchObject({ tripped: false });
       expect((await store.operatorStatus()).autoTrip).toEqual({ enabled: false, consecutiveFailures: null });
       expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window`).toHaveLength(0);
       for (const bad of ['', '0', '-3', 'three', '2.5'])
         expect(loadHaltAutoTripConfig({ PAY_HALT_AUTOTRIP_FAILURES: bad }).failures).toBeNull();
     });
 
-    it('consecutive failures trip the scope at N, a success in between resets, and replicas share the count', async () => {
+    it('a global target does not count and does not arm, even when a count is configured', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      expect(await store.recordFailure('payout', GLOBAL, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 0 });
+      expect(await store.recordFailure('payout', GLOBAL, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 0 });
+      expect(await poolA`SELECT 1 FROM pay.halts`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window`).toHaveLength(0);
+    });
+
+    it('counts per merchant and per rail, and only the merchant that reached N is halted', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      const a = merchantTarget(MERCHANT);
+      const b = merchantTarget(MERCHANT_B);
+      expect(await store.recordFailure('payout', a, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', b, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', a, 'rail:card-sandbox')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await store.recordFailure('payout', a, 'rail:crypto-native')).toMatchObject({ tripped: true, consecutiveFailures: 2 });
+      const op = await store.operatorStatus();
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === MERCHANT),
+      ).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+      });
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === MERCHANT_B),
+      ).toBeUndefined();
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
+      const streaks = await poolA<{ source_key: string; consecutive_failures: string }[]>`
+        SELECT source_key, consecutive_failures::text FROM pay.halt_failure_streaks WHERE target = ${MERCHANT} ORDER BY source_key
+      `;
+      expect(streaks).toEqual([
+        { source_key: 'rail:card-sandbox', consecutive_failures: '1' },
+        { source_key: 'rail:crypto-native', consecutive_failures: '2' },
+      ]);
+    });
+
+    it('counts from the stored config time: a new process with the same count keeps it, and older failures do not add', async () => {
+      const first = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      await poolA`UPDATE pay.halt_autotrip_window SET effective_at = now() - interval '2 days'`;
+      await poolA`
+        UPDATE pay.halt_failure_streaks
+           SET consecutive_failures = 9, last_failure_at = now() - interval '3 days'
+         WHERE target = ${MERCHANT} AND source_key = 'rail:crypto-native'
+      `;
+      const beforeRows = await poolA<{ epoch: string }[]>`
+        SELECT extract(epoch FROM effective_at)::text AS epoch FROM pay.halt_autotrip_window
+      `;
+      const before = beforeRows[0]?.epoch;
+      const restarted = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      expect(await restarted.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+      const afterRows = await poolA<{ epoch: string }[]>`
+        SELECT extract(epoch FROM effective_at)::text AS epoch FROM pay.halt_autotrip_window
+      `;
+      expect(afterRows[0]?.epoch).toBe(before);
+      expect(before).toBeTruthy();
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('a different configured count starts a new window and does not keep the old streak', async () => {
+      const first = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      const next = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '5' });
+      expect(await next.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+      const [window] = await poolA<{ failures: string }[]>`SELECT failures::text FROM pay.halt_autotrip_window`;
+      expect(window?.failures).toBe('5');
+    });
+
+    it('consecutive failures trip that merchant at N, a success in between resets, and replicas share the count', async () => {
       const a = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
       const b = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
-      await b.recordSuccess('conversion', GLOBAL, 'venue:binance');
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ consecutiveFailures: 1 });
-      expect(await b.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 2 });
-      expect(await a.recordFailure('conversion', GLOBAL, 'venue:binance')).toMatchObject({ tripped: true, consecutiveFailures: 3 });
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      await b.recordSuccess('conversion', venue, 'venue:binance');
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ consecutiveFailures: 1 });
+      expect(await b.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: false, consecutiveFailures: 2 });
+      expect(await a.recordFailure('conversion', venue, 'venue:binance')).toMatchObject({ tripped: true, consecutiveFailures: 3 });
       const op = await b.operatorStatus();
-      expect(op.states.find((s) => s.scope === 'conversion')).toMatchObject({ halted: true, source: 'auto_trip', actorUserId: null });
+      expect(op.states.find((s) => s.scope === 'conversion' && s.target.level === 'merchant')).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+        actorUserId: null,
+        target: { level: 'merchant', merchantId: MERCHANT },
+      });
+      expect(op.states.find((s) => s.scope === 'conversion' && s.target.level === 'global')).toMatchObject({ halted: false });
       expect(op.autoTrip).toEqual({ enabled: true, consecutiveFailures: 3 });
       const history = await a.history({ limit: 10 });
-      expect(history[0]).toMatchObject({ scope: 'conversion', halted: true, source: 'auto_trip', actorUserId: null });
+      expect(history[0]).toMatchObject({
+        scope: 'conversion',
+        halted: true,
+        source: 'auto_trip',
+        actorUserId: null,
+        target: { level: 'merchant', merchantId: MERCHANT },
+      });
     });
 
     it('a failure storm trips within N and the loop stops (no runaway), then a dual-controlled clear starts the count again', async () => {
@@ -661,7 +905,7 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       const env = { PAY_HALT_AUTOTRIP_FAILURES: String(N), PAY_TREASURY_EXPOSURE_LIMITS: JSON.stringify({ USDT: '1000000' }) };
       const guards = createW5HaltsGuards({ sql: poolA, env });
       const store = storeOn(poolA, env);
-      const pay = payService(composeGuards(guards));
+      const pay = payService(composeGuards(guards), poolA, store);
       const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
       await capturedCryptoPayment(pay, m.id, '10');
       const settlement = await settle(pay, m.id, 'w-storm');
@@ -696,17 +940,23 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       expect(iterations).toBe(N + 1);
       expect(stoppedBy).toMatchObject({ code: 'pay.guard_halted' });
       const op = await store.operatorStatus();
-      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({
-        halted: true,
-        source: 'auto_trip',
-        actorUserId: null,
-      });
+      const halted = op.states.find(
+        (s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === m.id.toLowerCase(),
+      );
+      expect(halted).toMatchObject({ halted: true, source: 'auto_trip', actorUserId: null });
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
       expect(ledger.reconcile()).toEqual({ ok: true });
 
       // One founder cannot clear it; two can. Old failures do not re-trip it.
-      const version = op.states.find((s) => s.scope === 'payout')!.version;
       const clearId = randomUUID();
-      const clear = setInput({ requestId: clearId, scope: 'payout', halted: false, expectedVersion: version, reason: 'rail repaired' });
+      const clear = setInput({
+        requestId: clearId,
+        scope: 'payout',
+        target: { level: 'merchant', merchantId: m.id },
+        halted: false,
+        expectedVersion: halted!.version,
+        reason: 'rail repaired',
+      });
       expect((await store.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
       expect((await store.set(FOUNDER_B, clear)).outcome).toBe('changed');
       await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject(
@@ -716,9 +966,501 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       );
       expect(railCalls).toBe(N + 1);
     });
+
+    it('a refused payout feeds that merchant and rail, and a later acceptance resets the streak', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '5' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const other = await pay.createMerchant({ userId: '22222222-2222-4222-8222-222222222222', pricing: { feeBps: 0 } });
+      const wrapped = crypto.payout.bind(crypto);
+      crypto.payout = async (request) =>
+        railFailure({
+          railRef: '',
+          amount: request.amount,
+          assetId: request.assetId,
+          failureCode: 'rail.down',
+          failureReason: 'rail down',
+        });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const failed = await settle(pay, m.id, 'w-fail');
+      await expect(pay.payoutSettlement({ settlementId: failed.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+      });
+      const streak = (merchantId: string) =>
+        poolA<{ consecutive_failures: string }[]>`
+          SELECT consecutive_failures::text FROM pay.halt_failure_streaks
+           WHERE target = ${merchantId.toLowerCase()} AND source_key = 'rail:crypto-native'
+        `;
+      expect(await streak(m.id)).toEqual([{ consecutive_failures: '1' }]);
+      expect(await streak(other.id)).toEqual([]);
+
+      crypto.payout = wrapped;
+      await capturedCryptoPayment(pay, m.id, '10');
+      const paid = await settle(pay, m.id, 'w-ok');
+      expect((await pay.payoutSettlement({ settlementId: paid.id, railId: 'crypto-native', destination: DEST })).status).toBe('paid_out');
+      expect(await streak(m.id)).toEqual([{ consecutive_failures: '0' }]);
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('an adapter throw counts as rail health and the thrown error is unchanged', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '1' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      crypto.payout = async () => {
+        throw new Error('process died');
+      };
+      await capturedCryptoPayment(pay, m.id, '10');
+      const settlement = await settle(pay, m.id, 'w-died');
+      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toThrow(
+        'process died',
+      );
+      expect(await pay.getSettlement(settlement.id)).toMatchObject({ status: 'posted' });
+      const streaks = await poolA<{ target: string; consecutive_failures: string }[]>`
+        SELECT target, consecutive_failures::text FROM pay.halt_failure_streaks
+      `;
+      expect(streaks).toEqual([{ target: m.id.toLowerCase(), consecutive_failures: '1' }]);
+      expect(await poolA`SELECT 1 FROM pay.halt_autotrip_window WHERE failures IS NOT NULL`).toHaveLength(1);
+      const op = await store.operatorStatus();
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === m.id.toLowerCase()),
+      ).toMatchObject({ halted: true, source: 'auto_trip' });
+    });
+
+    it('booting with the count unset disarms the window, so the same count later starts again', async () => {
+      const armed = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      const venue = merchantTarget(MERCHANT);
+      expect(await armed.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 1 });
+      expect(await armed.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({ tripped: false, consecutiveFailures: 2 });
+      const off = storeOn(poolB, {});
+      await off.adoptConfig();
+      const [disarmed] = await poolA<{ failures: string | null; disarmed_at: Date | null }[]>`
+        SELECT failures::text, disarmed_at FROM pay.halt_autotrip_window
+      `;
+      expect(disarmed?.failures ?? null).toBeNull();
+      expect(disarmed?.disarmed_at).toBeTruthy();
+      const again = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      expect(await again.recordFailure('payout', venue, 'rail:crypto-native')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('the same durable outcome does not count twice', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      const venue = merchantTarget(MERCHANT);
+      expect(await store.recordFailure('payout', venue, 'rail:crypto-native', undefined, 'payout:once')).toMatchObject({
+        consecutiveFailures: 1,
+      });
+      expect(await store.recordFailure('payout', venue, 'rail:crypto-native', undefined, 'payout:once')).toMatchObject({
+        tripped: false,
+        consecutiveFailures: 1,
+      });
+    });
+
+    it('a clear and a count change both finish (advisory lock, then the window row)', async () => {
+      const pay = payService(composeGuards());
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const venue = merchantTarget(m.id);
+      const first = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      await first.recordFailure('payout', venue, 'rail:crypto-native');
+      await first.set(FOUNDER_A, setInput({ scope: 'payout', target: venue, reason: 'incident' }));
+      const clear = setInput({ scope: 'payout', target: venue, halted: false, expectedVersion: '1', reason: 'repaired' });
+      expect((await first.set(FOUNDER_A, clear)).outcome).toBe('pending_confirmation');
+      const next = storeOn(poolB, { PAY_HALT_AUTOTRIP_FAILURES: '8' });
+      const [cleared, counted] = await Promise.all([
+        first.set(FOUNDER_B, clear),
+        next.recordFailure('payout', venue, 'rail:crypto-native'),
+      ]);
+      expect(cleared.outcome).toBe('changed');
+      expect(counted.consecutiveFailures).toBeGreaterThanOrEqual(1);
+    }, 20_000);
+
+    it('a user withdrawal rail-health refusal counts once for that user, and the halt stops the next send', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      const guards = composeGuards(createHaltGuards({ sql: poolA }));
+      const pay = payService(guards);
+      const owned = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const otherUser = '22222222-2222-4222-8222-222222222222';
+      await pay.createMerchant({ userId: otherUser, pricing: { feeBps: 0 } });
+      const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      const realPayout = card.payout.bind(card);
+      let calls = 0;
+      let fail = true;
+      card.payout = async (instruction) => {
+        calls++;
+        if (fail) {
+          return railFailure({
+            railRef: 'refused',
+            amount: instruction.amount,
+            assetId: instruction.assetId,
+            failureCode: 'rail.unavailable',
+            failureReason: 'down',
+          });
+        }
+        return realPayout(instruction);
+      };
+      const money = new UserMoneyService(poolA, ledger, new RailRegistry([card]), {
+        operatorCreditRails: ['card-sandbox'],
+        guards,
+        haltStore: store,
+      });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('50'),
+        rail: 'card-sandbox',
+        railRef: 'seed_trip',
+        creditedBy: FOUNDER_A,
+      });
+      const withdraw = (clientRef: string) =>
+        money.withdraw({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('10'),
+          rail: 'card-sandbox',
+          destination: BANK,
+          clientRef,
+        });
+      await expect(withdraw('w1')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      fail = false;
+      expect((await withdraw('w2')).status).toBe('sent');
+      fail = true;
+      await expect(withdraw('w3')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      await expect(withdraw('w4')).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(calls).toBe(4);
+      await expect(withdraw('w5')).rejects.toMatchObject({ code: 'pay.guard_halted' });
+      expect(calls).toBe(4);
+      const streaks = await poolA<{ target: string; consecutive_failures: string }[]>`
+        SELECT target, consecutive_failures::text FROM pay.halt_failure_streaks ORDER BY target
+      `;
+      expect(streaks).toEqual([{ target: userHaltKey(USER), consecutive_failures: '2' }]);
+      const op = await store.operatorStatus();
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'user' && s.target.userId === USER)).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+      });
+      expect(
+        op.states.find((s) => s.scope === 'payout' && s.target.level === 'merchant' && s.target.merchantId === owned.id.toLowerCase()),
+      ).toBeUndefined();
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a declined card does not count toward a user or merchant halt', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '1' });
+      const guards = composeGuards(createHaltGuards({ sql: poolA }));
+      const pay = payService(guards, poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      crypto.payout = async (request) =>
+        railFailure({
+          railRef: '',
+          amount: request.amount,
+          assetId: request.assetId,
+          failureCode: 'card.declined',
+          failureReason: 'declined',
+        });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const settlement = await settle(pay, m.id, 'w-decline');
+      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject(
+        {
+          code: 'pay.rail_failed',
+        },
+      );
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      expect(await poolA`SELECT 1 FROM pay.halts WHERE halted`).toHaveLength(0);
+    });
+
+    it('a streak-store throw does not change a paid_out result or a rail refusal', async () => {
+      resetAutoTripAccountErrors();
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '2' });
+      store.recordFailure = async () => {
+        throw new Error('streak store down');
+      };
+      store.recordSuccess = async () => {
+        throw new Error('streak store down');
+      };
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const wrapped = crypto.payout.bind(crypto);
+      crypto.payout = async (request) =>
+        railFailure({
+          railRef: '',
+          amount: request.amount,
+          assetId: request.assetId,
+          failureCode: 'rail.unavailable',
+          failureReason: 'down',
+        });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const failed = await settle(pay, m.id, 'w-account-fail');
+      await expect(pay.payoutSettlement({ settlementId: failed.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+      });
+      expect(autoTripAccountErrorCount()).toBe(1);
+      crypto.payout = wrapped;
+      await capturedCryptoPayment(pay, m.id, '10');
+      const paid = await settle(pay, m.id, 'w-account-ok');
+      expect((await pay.payoutSettlement({ settlementId: paid.id, railId: 'crypto-native', destination: DEST })).status).toBe('paid_out');
+      expect(autoTripAccountErrorCount()).toBe(2);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a refund rail-health failure counts, a customer decline does not, and a throw counts without replacing the error', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '5' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      const streak = () =>
+        poolA<{ consecutive_failures: string }[]>`
+          SELECT consecutive_failures::text FROM pay.halt_failure_streaks
+           WHERE target = ${m.id.toLowerCase()} AND source_key = 'rail:crypto-native'
+        `;
+      crypto.refund = async (_ref, amount) =>
+        railFailure({ railRef: '', amount, assetId: 'USDT', failureCode: 'card.declined', failureReason: 'declined' });
+      const declined = await capturedCryptoPayment(pay, m.id, '10');
+      await expect(pay.refund(declined.id, amt('10'))).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await streak()).toEqual([]);
+
+      crypto.refund = async (_ref, amount) =>
+        railFailure({ railRef: '', amount, assetId: 'USDT', failureCode: 'rail.timeout', failureReason: 'timed out' });
+      const timedOut = await capturedCryptoPayment(pay, m.id, '10');
+      await expect(pay.refund(timedOut.id, amt('10'))).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(await streak()).toEqual([{ consecutive_failures: '1' }]);
+
+      crypto.refund = async () => {
+        throw new Error('refund adapter down');
+      };
+      const thrown = await capturedCryptoPayment(pay, m.id, '10');
+      await expect(pay.refund(thrown.id, amt('10'))).rejects.toThrow('refund adapter down');
+      expect(await streak()).toEqual([{ consecutive_failures: '2' }]);
+    });
+
+    it('a per-rail count trips that rail for every merchant and leaves other rails running', async () => {
+      const env = { PAY_HALT_AUTOTRIP_FAILURES: '10', PAY_HALT_AUTOTRIP_RAIL_FAILURES: '2' };
+      const store = storeOn(poolA, env);
+      const guards = composeGuards(createHaltGuards({ sql: poolA }));
+      const pay = payService(guards, poolA, store);
+      const users = [USER, '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
+      const merchants = [];
+      for (const userId of users) merchants.push(await pay.createMerchant({ userId, pricing: { feeBps: 0 } }));
+      let calls = 0;
+      crypto.payout = async (request) => {
+        calls++;
+        return railFailure({
+          railRef: '',
+          amount: request.amount,
+          assetId: request.assetId,
+          failureCode: 'rail.unavailable',
+          failureReason: 'down',
+        });
+      };
+      for (const [index, merchant] of merchants.slice(0, 2).entries()) {
+        await capturedCryptoPayment(pay, merchant.id, '10');
+        const settlement = await settle(pay, merchant.id, `w-rail-${index}`);
+        await expect(
+          pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST }),
+        ).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      }
+      expect(calls).toBe(2);
+      await capturedCryptoPayment(pay, merchants[2]!.id, '10');
+      const third = await settle(pay, merchants[2]!.id, 'w-rail-2');
+      await expect(pay.payoutSettlement({ settlementId: third.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject({
+        code: 'pay.guard_halted',
+      });
+      expect(calls).toBe(2);
+      const op = await store.operatorStatus();
+      expect(op.states.find((s) => s.target.level === 'rail' && s.target.railId === 'crypto-native')).toMatchObject({
+        halted: true,
+        source: 'auto_trip',
+      });
+      expect(op.states.find((s) => s.scope === 'payout' && s.target.level === 'global')).toMatchObject({ halted: false });
+      expect(op.states.filter((s) => s.target.level === 'merchant' && s.halted)).toEqual([]);
+      const cardExec = {
+        sql: poolA as never,
+        settlementId: randomUUID(),
+        merchantId: merchants[2]!.id,
+        assetId: 'USDT',
+        amount: 1n,
+        railId: 'card-sandbox',
+        destination: BANK,
+        attempt: 0,
+        replay: FRESH,
+      };
+      await expect(guards.beforePayoutExecute(cardExec)).resolves.toBeUndefined();
+    });
+
+    it('a refusal recovered after a crash counts once when it is rail health', async () => {
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '4' });
+      const guards = composeGuards(createHaltGuards({ sql: poolA }));
+      const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      card.payout = async (instruction) =>
+        railFailure({
+          railRef: 'refused',
+          amount: instruction.amount,
+          assetId: instruction.assetId,
+          failureCode: 'rail.timeout',
+          failureReason: 'timed out',
+        });
+      const money = new UserMoneyService(poolA, ledger, new RailRegistry([card]), {
+        operatorCreditRails: ['card-sandbox'],
+        guards,
+        haltStore: store,
+      });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('40'),
+        rail: 'card-sandbox',
+        railRef: 'seed_recover_count',
+        creditedBy: FOUNDER_A,
+      });
+      const realPost = ledger.post.bind(ledger);
+      let lost = false;
+      ledger.post = async (req) => {
+        if (req.reason === 'withdraw.reversed' && !lost) {
+          lost = true;
+          throw new Error('process died before the reverse');
+        }
+        return realPost(req);
+      };
+      const request = {
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('10'),
+        rail: 'card-sandbox',
+        destination: BANK,
+        clientRef: 'w-recover-count',
+      };
+      await expect(money.withdraw(request)).rejects.toThrow('process died before the reverse');
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+      ledger.post = realPost;
+      await expect(money.withdraw(request)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      const streaks = await poolA<{ target: string; consecutive_failures: string }[]>`
+        SELECT target, consecutive_failures::text FROM pay.halt_failure_streaks
+      `;
+      expect(streaks).toEqual([{ target: userHaltKey(USER), consecutive_failures: '1' }]);
+      expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(amt('40'));
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('with both counts unset, recordSuccess and recordFailure issue no auto-trip lock or window query', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({}));
+        const venue = merchantTarget(MERCHANT);
+        const reserved = await spy.sql.reserve();
+        try {
+          await store.recordSuccess('payout', venue, 'rail:crypto-native');
+          await store.recordFailure('payout', venue, 'rail:crypto-native', undefined, 'payout:none');
+          await store.recordSuccess('payout', venue, 'rail:crypto-native', reserved);
+          await store.recordFailure('payout', { level: 'user', userId: USER }, 'rail:crypto-native', reserved);
+        } finally {
+          reserved.release();
+        }
+        expect(spy.queries.join('\n')).not.toMatch(/pg_advisory|halt_autotrip|lock_timeout/);
+      } finally {
+        await spy.end();
+      }
+    });
+
+    it('a held auto-trip lock does not delay a payout when both counts are unset', async () => {
+      const store = storeOn(poolA);
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const baselineSettlement = await settle(pay, m.id, 'w-base');
+      const baselineStarted = Date.now();
+      expect((await pay.payoutSettlement({ settlementId: baselineSettlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+        'paid_out',
+      );
+      const baseline = Date.now() - baselineStarted;
+
+      await capturedCryptoPayment(pay, m.id, '10');
+      const heldSettlement = await settle(pay, m.id, 'w-held');
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await pay.payoutSettlement({ settlementId: heldSettlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+          'paid_out',
+        );
+        expect(Date.now() - started - baseline).toBeLessThan(1000);
+      } finally {
+        await release();
+      }
+    });
+
+    it('a held auto-trip lock stops accounting within about a second, and the payout still completes', async () => {
+      resetAutoTripAccountErrors();
+      const store = storeOn(poolA, { PAY_HALT_AUTOTRIP_FAILURES: '3' });
+      const pay = payService(composeGuards(createHaltGuards({ sql: poolA })), poolA, store);
+      const m = await pay.createMerchant({ userId: USER, pricing: { feeBps: 0 } });
+      await capturedCryptoPayment(pay, m.id, '10');
+      const settlement = await settle(pay, m.id, 'w-lock-timeout');
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).status).toBe(
+          'paid_out',
+        );
+        const elapsed = Date.now() - started;
+        expect(elapsed).toBeGreaterThanOrEqual(900);
+        expect(elapsed).toBeLessThan(4000);
+      } finally {
+        await release();
+      }
+      expect(autoTripAccountErrorCount()).toBe(1);
+      expect(await poolA`SELECT 1 FROM pay.halt_failure_streaks`).toHaveLength(0);
+    }, 15_000);
+
+    it('an armed count sets a one second lock timeout before the auto-trip lock', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({ PAY_HALT_AUTOTRIP_FAILURES: '4' }));
+        await store.recordFailure('payout', merchantTarget(MERCHANT), 'rail:crypto-native');
+        const text = spy.queries.join('\n');
+        const timeoutAt = text.indexOf('lock_timeout');
+        const lockAt = text.indexOf('pay.halt:autotrip');
+        expect(timeoutAt).toBeGreaterThanOrEqual(0);
+        expect(lockAt).toBeGreaterThan(timeoutAt);
+      } finally {
+        await spy.end();
+      }
+    });
   });
 
   describe('operator set and dual-controlled clear', () => {
+    it('an emergency halt does not take the auto-trip lock, and a clear takes it first', async () => {
+      const spy = openSpy();
+      try {
+        const store = new PayHaltStore(spy.sql, loadHaltAutoTripConfig({}));
+        await store.set(FOUNDER_A, setInput({ reason: 'stop now' }));
+        expect(spy.queries.join('\n')).not.toContain('pay.halt:autotrip');
+
+        spy.queries.length = 0;
+        expect((await store.set(FOUNDER_A, setInput({ halted: false, expectedVersion: '1', reason: 'lift' }))).outcome).toBe(
+          'pending_confirmation',
+        );
+        const text = spy.queries.join('\n');
+        const auto = text.indexOf('pay.halt:autotrip');
+        const target = text.indexOf('pay.halt:intake:global');
+        expect(auto).toBeGreaterThanOrEqual(0);
+        expect(target).toBeGreaterThan(auto);
+      } finally {
+        await spy.end();
+      }
+    });
+
+    it('an emergency halt does not wait while accounting holds the auto-trip lock', async () => {
+      const store = storeOn(poolA);
+      const release = await holdAutoTripLock();
+      try {
+        const started = Date.now();
+        expect((await store.set(FOUNDER_A, setInput({ reason: 'stop now' }))).outcome).toBe('changed');
+        expect(Date.now() - started).toBeLessThan(1000);
+      } finally {
+        await release();
+      }
+    });
+
     it('setting needs one founder and is immediate; a retry of the same request is a noop', async () => {
       const store = storeOn(poolA);
       const input = setInput({ scope: 'payout' });
@@ -777,6 +1519,38 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       await expect(poolA`UPDATE pay.halt_events SET reason = 'edited'`).rejects.toThrow();
       await expect(poolA`DELETE FROM pay.halt_events`).rejects.toThrow();
       await expect(poolA`DELETE FROM pay.halts`).rejects.toThrow();
+      await poolA`INSERT INTO pay.halt_autotrip_window (singleton, failures, effective_at) VALUES ('autotrip', 3, now())`;
+      await expect(poolA`DELETE FROM pay.halt_autotrip_window`).rejects.toThrow();
+    });
+
+    it('downgrade writes a cleared-by-migration event for each user and rail halt it deletes', async () => {
+      const down = readFileSync(join(here, '..', '..', 'drizzle', '0079_pay_halt_autotrip_window.down.sql'), 'utf8');
+      const up = readFileSync(join(here, '..', '..', 'drizzle', '0079_pay_halt_autotrip_window.sql'), 'utf8');
+      await poolA`
+        INSERT INTO pay.halts (scope, target, halted, reason, source, actor_user_id, version) VALUES
+          ('payout', ${`user:${USER}`}, true, 'user stop', 'auto_trip', NULL, 1),
+          ('payout', 'rail:crypto-native', true, 'rail stop', 'auto_trip', NULL, 3),
+          ('intake', 'global', true, 'keep', 'operator', ${FOUNDER_A}, 1),
+          ('settlement', ${MERCHANT}, true, 'merchant stop', 'operator', ${FOUNDER_A}, 2)
+      `;
+      let dropped = false;
+      try {
+        await poolA.unsafe(down);
+        dropped = true;
+        const left = await poolA<{ target: string }[]>`SELECT target FROM pay.halts ORDER BY target`;
+        expect(left.map((row) => row.target).sort()).toEqual([MERCHANT, 'global'].sort());
+        const events = await poolA<{ target: string; halted: boolean; reason: string; source: string; version: string }[]>`
+          SELECT target, halted, reason, source, version::text AS version FROM pay.halt_events
+           WHERE reason = 'cleared by migration'
+           ORDER BY target
+        `;
+        expect(events).toEqual([
+          { target: 'rail:crypto-native', halted: false, reason: 'cleared by migration', source: 'auto_trip', version: '4' },
+          { target: `user:${USER}`, halted: false, reason: 'cleared by migration', source: 'auto_trip', version: '2' },
+        ]);
+      } finally {
+        if (dropped) await poolA.unsafe(up);
+      }
     });
   });
 });

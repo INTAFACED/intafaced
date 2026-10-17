@@ -13,7 +13,11 @@ import {
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { noteAutoTripAccountError } from './halts/autotrip-log.js';
+import { isRailHealthFailureCode } from './halts/rail-health.js';
+import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
+import type { RailResult } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
@@ -142,12 +146,20 @@ export interface UserMoneyOptions {
    * here. Omitted = no-ops, i.e. behaviour before the seams.
    */
   readonly guards?: PayGuards;
+
+  /**
+   * Auto-trip streak writer. A confirmed withdrawal rail acceptance or refusal
+   * is recorded against every merchant this user owns, on that rail. Omitted,
+   * or constructed with no failure count, records nothing.
+   */
+  readonly haltStore?: PayHaltStore;
 }
 
 export class UserMoneyService {
   private readonly creditableRails: ReadonlySet<string>;
   private readonly valueMovement: ValueMovementPolicy;
   private readonly guards: PayGuards;
+  private readonly haltStore: PayHaltStore | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -158,6 +170,7 @@ export class UserMoneyService {
     this.creditableRails = new Set(options.operatorCreditRails);
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
     this.guards = options.guards ?? NOOP_GUARDS;
+    this.haltStore = options.haltStore;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -376,6 +389,9 @@ export class UserMoneyService {
           if (refusal?.outcome === 'refused') {
             const code = claimed.failureCode ?? 'rail.failed';
             await this.finalizeRailRefusal(claimed, code, connection);
+            // The reverse is durable. Count the refusal that the crashed attempt
+            // never got to record. A repeat of this recovery does not count twice.
+            await this.noteUserWithdrawal(connection, claimed, 'refused', code, `withdraw:${claimed.id}:${claimed.attempts}`);
             throw new PayError('Rail refused the withdrawal', 'pay.rail_failed', {
               withdrawalId: claimed.id,
               failureCode: code,
@@ -444,18 +460,26 @@ export class UserMoneyService {
         VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
       `;
         const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
-        const result = accepted
-          ? { ok: true, railRef: accepted }
-          : await withRailSpan(adapter.id, 'payout', async () =>
-              adapter.payout({
-                settlementId: ledgerInput.withdrawalId,
-                merchantId: claimed.userId,
-                amount: claimed.amount,
-                assetId: claimed.assetId,
-                window: 'user-withdrawal',
-                destination: claimed.destination,
-              }),
-            );
+        let result: RailResult | { ok: true; railRef: string };
+        try {
+          result = accepted
+            ? { ok: true, railRef: accepted }
+            : await withRailSpan(adapter.id, 'payout', async () =>
+                adapter.payout({
+                  settlementId: ledgerInput.withdrawalId,
+                  merchantId: claimed.userId,
+                  amount: claimed.amount,
+                  assetId: claimed.assetId,
+                  window: 'user-withdrawal',
+                  destination: claimed.destination,
+                }),
+              );
+        } catch (error) {
+          // Unknown rail outcome: the hold stays. Counting may halt the next
+          // withdrawal. It does not reverse this one or replace the throw.
+          await this.noteUserWithdrawal(connection, claimed, 'throw');
+          throw error;
+        }
         if (!accepted && (!('amount' in result) || result.amount !== claimed.amount || result.assetId !== claimed.assetId))
           throw new PayError('Rail result does not identify the original withdrawal', 'pay.rail_outcome_unknown');
         if (result.ok && !accepted) {
@@ -487,6 +511,10 @@ export class UserMoneyService {
              WHERE id = ${claimed.id} AND status = 'held'
           `;
           await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code, connection);
+          // The reverse is already committed. Counting uses this connection so a
+          // one-slot pool is not asked for a second one while the lock is held.
+          // The same event key as crash recovery, so the two cannot both add.
+          await this.noteUserWithdrawal(connection, claimed, 'refused', code, `withdraw:${claimed.id}:${attempt}`);
           throw new PayError(
             ('failureReason' in result ? result.failureReason : undefined) ?? 'Rail refused the withdrawal',
             'pay.rail_failed',
@@ -520,6 +548,9 @@ export class UserMoneyService {
              SET status = 'sent', rail_ref = ${result.railRef}, failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id}
         `;
+        // A replay of a stored acceptance (`accepted` was already set) did not
+        // call the rail again, so it must not reset a streak earned since.
+        if (!accepted) await this.noteUserWithdrawal(connection, claimed, 'accepted');
 
         span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
         return { ...claimed, status: 'sent' as const, railRef: result.railRef };
@@ -600,6 +631,41 @@ export class UserMoneyService {
 
       return existing;
     });
+  }
+
+  /**
+   * A user's withdrawal is one exit, so it counts against one key: `user:<id>`,
+   * on this rail only. It does not add a failure for every merchant they own.
+   * Only a rail-health refusal counts. A destination or customer refusal does
+   * not. An adapter throw counts. A throw from the writer is logged and does
+   * not change sent or pay.rail_failed.
+   */
+  private async noteUserWithdrawal(
+    connection: Sql,
+    claimed: { userId: string; rail: string },
+    outcome: 'accepted' | 'refused' | 'throw',
+    failureCode?: string | null,
+    eventKey?: string,
+  ): Promise<void> {
+    if (!this.haltStore) return;
+    const target = { level: 'user' as const, userId: claimed.userId };
+    const source = payoutRailSourceKey(claimed.rail);
+    try {
+      if (outcome === 'accepted') {
+        await this.haltStore.recordSuccess('payout', target, source, connection);
+        return;
+      }
+      if (outcome === 'refused' && !isRailHealthFailureCode(failureCode)) return;
+      await this.haltStore.recordFailure('payout', target, source, connection, eventKey);
+    } catch (error) {
+      noteAutoTripAccountError({
+        op: outcome === 'accepted' ? 'recordSuccess' : 'recordFailure',
+        scope: 'payout',
+        target: userHaltKey(claimed.userId),
+        sourceKey: source,
+        name: error instanceof Error ? error.name : 'unknown',
+      });
+    }
   }
 
   /**

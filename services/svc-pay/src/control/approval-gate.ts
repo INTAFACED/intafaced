@@ -38,9 +38,10 @@ export function payoutPayloadHash(p: PayoutPayload): string {
  *
  * Passes (and consumes the approval for this attempt) only when an approval is
  * fully decided, unexpired and bound to exactly this payload. Otherwise it
- * refuses `pay.approval_required`. On the way out it VOIDS any live approval for
- * this settlement whose payload differs, through the pool rather than the
- * transaction, so the void survives the rollback that the refusal causes.
+ * refuses `pay.approval_required`. The refusal carries a follow-up that VOIDS any
+ * live approval for this settlement whose payload differs, on the pool and AFTER
+ * the transaction has rolled back, so the void survives the rollback without ever
+ * waiting for a connection while locks are held.
  */
 export async function requirePayoutApproval(tx: Sql, pool: Sql, payload: PayoutPayload, attempt: number, now: Date): Promise<void> {
   const hash = payoutPayloadHash(payload);
@@ -66,20 +67,33 @@ export async function requirePayoutApproval(tx: Sql, pool: Sql, payload: PayoutP
     `;
     return;
   }
-  // Best effort and bounded. This runs on a second connection while the caller's
-  // transaction still holds the merchant and settlement locks; a concurrent
-  // `request` holding a stale row and waiting on that settlement would otherwise
-  // be a wait Postgres cannot see as a deadlock. A stale approval cannot match
-  // this payload anyway, so a failed void never changes the refusal.
+  // The void is NOT done here. It needs a second pool connection, and this code runs
+  // inside the admission transaction that still holds the merchant row, the settlement
+  // row and the treasury advisory lock: waiting for a pool connection while holding them
+  // is a wait Postgres cannot see as a deadlock when the pool is busy with callers in
+  // the same position. The refusal carries the void as a follow-up (`afterRollback`);
+  // the caller that owns the transaction runs it once the rollback has released every
+  // lock (seams/guards.ts `settleGuardRefusal`). A stale approval cannot match this
+  // payload anyway, so a void that never runs never changes the refusal.
+  const refusal = new ControlRefusal('pay.approval_required');
+  refusal.afterRollback = () => voidStaleApprovalsBounded(pool, payload, hash);
+  throw refusal;
+}
+
+/**
+ * The follow-up: void stale approvals on the pool, with no caller lock held. Bounded
+ * (a concurrent `request` or `decide` may hold a stale row) and best effort: the next
+ * decision or request voids it too.
+ */
+export async function voidStaleApprovalsBounded(pool: Sql, payload: PayoutPayload, currentHash: string): Promise<void> {
   try {
     await pool.begin(async (t) => {
       await t`SET LOCAL lock_timeout = '2s'`;
-      await voidStaleApprovals(t as unknown as Sql, payload, hash);
+      await voidStaleApprovals(t as unknown as Sql, payload, currentHash);
     });
   } catch {
-    // Refuse below regardless; the next decision or request voids it.
+    // Refused already; nothing to undo.
   }
-  throw new ControlRefusal('pay.approval_required');
 }
 
 /** Void live approvals for the settlement that are bound to a different payload. Idempotent. */

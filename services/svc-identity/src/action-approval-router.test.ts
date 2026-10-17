@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { TRPCError, type Context } from '@intafaced/contracts';
 import { createActionApprovalRouter } from './action-approval-router.js';
+import { staticFounderDirectory } from './auth/action-approval-audience.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
 import { MemoryActionApprovalStore } from './auth/action-approval-store.js';
 
@@ -44,7 +45,10 @@ function serviceCtx(service: string | null): Context {
 }
 
 function router() {
-  return createActionApprovalRouter(new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60 }));
+  // A and B are the founder pair here (and also admin operators).
+  return createActionApprovalRouter(
+    new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60, founders: staticFounderDirectory([A, B]) }),
+  );
 }
 
 describe('actionApproval router', () => {
@@ -53,7 +57,7 @@ describe('actionApproval router', () => {
     const maker = r.createCaller(await sessionCtx(A, true));
     const checker = r.createCaller(await sessionCtx(B, true));
     const pending = await maker.actionApproval.propose(propose);
-    const approved = await checker.actionApproval.approve({ approvalId: pending.approvalId });
+    const approved = await checker.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash });
     const consumeInput = {
       approvalId: approved.approvalId,
       operationId: approved.operationId,
@@ -82,7 +86,9 @@ describe('actionApproval router', () => {
     const maker = r.createCaller(await sessionCtx(A, true));
     const pending = await maker.actionApproval.propose(propose);
     const noMfa = r.createCaller(await sessionCtx(B, false));
-    await expect(noMfa.actionApproval.approve({ approvalId: pending.approvalId })).rejects.toMatchObject({
+    await expect(
+      noMfa.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash }),
+    ).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
   });
@@ -97,7 +103,7 @@ describe('actionApproval router', () => {
       targetService: 'svc-edge',
       targetId: 'kill:trade',
     });
-    const approved = await checker.actionApproval.approve({ approvalId: pending.approvalId });
+    const approved = await checker.actionApproval.approve({ approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash });
     const consumeInput = {
       approvalId: approved.approvalId,
       operationId: approved.operationId,
@@ -145,7 +151,9 @@ describe('actionApproval router', () => {
   });
 
   it('ttl unset is named, not a default window', async () => {
-    const r = createActionApprovalRouter(new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: undefined }));
+    const r = createActionApprovalRouter(
+      new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: undefined, founders: staticFounderDirectory([A, B]) }),
+    );
     const maker = r.createCaller(await sessionCtx(A, true));
     await expect(maker.actionApproval.propose(propose)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
   });

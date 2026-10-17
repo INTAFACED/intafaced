@@ -21,6 +21,8 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
   let sql!: TestDatabase['sql'];
   let changes!: ChangeService;
   let merchantId = '';
+  let ownerUserId = '';
+  let ledger!: MemoryLedger;
   const saved: Record<string, string | undefined> = {};
   const ENV = ['PAY_MERCHANT_CONTROLS', 'PAY_TREASURY_LIMITS', 'PAY_TREASURY_EXPOSURE_LIMITS'] as const;
 
@@ -38,8 +40,13 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     process.env.PAY_TREASURY_LIMITS = 'required';
     process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"1000"}';
     await resetControl(sql);
-    const pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
-    merchantId = (await pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } })).id;
+    ledger = new MemoryLedger();
+    const pay = new PayService(sql, ledger, new RailRegistry([]), {});
+    ownerUserId = randomUUID();
+    merchantId = (await pay.createMerchant({ userId: ownerUserId, pricing: { feeBps: 0 } })).id;
+    // A pending row with no settlement post. A reader reports it absent, so it
+    // does not put the owner's personal withdrawal under the payout cap.
+    await sql`INSERT INTO pay.settlements (merchant_id, "window", asset_id, gross, fees, net) VALUES (${merchantId}, 'lock-order', 'USDT', 10, 0, 10)`;
     await applyChange(changes, sql, { scope: 'tier', change: { kind: 'upsert_tier', tier: TEST_TIER } });
     await applyChange(changes, sql, {
       scope: 'pricing',
@@ -66,7 +73,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
 
   /** Run one payout admission in a transaction whose every statement is recorded in order. */
   async function admit(amount: string, seen: string[] = []): Promise<string[]> {
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     await sql.begin(async (tx) => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
@@ -129,7 +136,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       merchantId: other,
       change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
     });
-    const guards = buildPayGuards({ sql });
+    const guards = buildPayGuards({ sql, ledger });
     const run = (m: string, ref: string) =>
       sql.begin((tx) =>
         guards.beforePayoutAdmit({
@@ -150,5 +157,97 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
     const results = await Promise.allSettled(jobs);
     expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
     expect(Number(await used())).toBe(50);
+  });
+  /** One user-money withdrawal admission by the merchant's owner, every statement recorded in order. */
+  async function withdraw(amount: string, seen: string[] = []): Promise<string[]> {
+    const guards = buildPayGuards({ sql, ledger });
+    await sql.begin(async (tx) => {
+      const spy = new Proxy(tx, {
+        apply: (target, thisArg, args: unknown[]) => {
+          if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
+          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+        },
+        get: (target, prop, receiver) => {
+          const value = Reflect.get(target, prop, receiver) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      await guards.beforeUserMoneyWithdrawal({
+        tx: spy as never,
+        userId: ownerUserId,
+        assetId: 'USDT',
+        amount: amt(amount),
+        rail: 'card-sandbox',
+        destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+        clientRef: randomUUID(),
+        replay: FRESH,
+      });
+    });
+    return seen;
+  }
+
+  it('an owner withdrawal takes the treasury lock and does not count a merchant payout cap', async () => {
+    const statements = await withdraw('10');
+    expect(statements.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
+    expect(statements.some((s) => s.includes('pay.control_cap_usage'))).toBe(false);
+    expect(await used()).toBeUndefined();
+  });
+
+  it('a withdrawal the treasury refuses never reaches the W1 counters', async () => {
+    process.env.PAY_TREASURY_EXPOSURE_LIMITS = '{"USDT":"5"}';
+    const seen: string[] = [];
+    await expect(withdraw('10', seen)).rejects.toMatchObject({ code: 'pay.guard_treasury_exposure_exceeded' });
+    expect(seen.some((s) => s.includes('pay.control_cap_usage'))).toBe(false);
+    expect(await used()).toBeUndefined();
+  });
+
+  it('payout admissions and owner withdrawals racing on one merchant all finish and add up: no deadlock', async () => {
+    const guards = buildPayGuards({ sql, ledger });
+    const payout = (i: number) =>
+      sql.begin((tx) =>
+        guards.beforePayoutAdmit({
+          tx: tx as never,
+          settlementId: randomUUID(),
+          merchantId,
+          assetId: 'USDT',
+          amount: amt('10'),
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: `0x00000000000000000000000000000000000000${i % 2 === 0 ? '0a' : '0b'}` },
+          attempt: 0,
+          replay: FRESH,
+        }),
+      );
+    const jobs = Array.from({ length: 10 }, (_, i) => (i % 2 === 0 ? payout(i) : withdraw('10').then(() => undefined)));
+    const results = await Promise.allSettled(jobs);
+    expect(results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason)).toEqual([]);
+    // Five payout admissions of 10. The interleaved withdrawals are personal and do not count.
+    expect(Number(await used())).toBe(50);
+  });
+  it('a capture takes its counters last, after a bounded lock timeout is set, and no advisory lock; daily intake before monthly', async () => {
+    const guards = buildPayGuards({ sql, ledger });
+    const seen: string[] = [];
+    const paymentId = randomUUID();
+    await sql.begin(async (tx) => {
+      const spy = new Proxy(tx, {
+        apply: (target, thisArg, args: unknown[]) => {
+          if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
+          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+        },
+        get: (target, prop, receiver) => {
+          const value = Reflect.get(target, prop, receiver) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      await guards.afterPaymentCaptureBooked({ tx: spy as never, paymentId, merchantId, assetId: 'USDT', amount: amt('10') });
+    });
+    const timeout = seen.findIndex((st) => st.includes("set_config('lock_timeout'"));
+    const firstCounter = seen.findIndex((st) => st.includes('pay.control_cap_usage'));
+    expect(timeout).toBeGreaterThanOrEqual(0);
+    expect(firstCounter).toBeGreaterThan(timeout);
+    expect(seen.some((st) => st.includes('pg_advisory_xact_lock'))).toBe(false);
+    const rows = await sql<
+      Array<{ cap_kind: string }>
+    >`SELECT cap_kind FROM pay.control_cap_events WHERE event_key = ${`payment.capture:${paymentId}`} ORDER BY created_at, cap_kind`;
+    expect(rows.map((r) => r.cap_kind).sort()).toEqual(['daily_intake', 'monthly_intake']);
   });
 });

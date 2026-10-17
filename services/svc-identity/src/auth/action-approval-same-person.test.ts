@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SAME_PERSON_ACTION_TYPES } from '@intafaced/contracts';
+import { staticFounderDirectory } from './action-approval-audience.js';
 import { ActionApprovalService } from './action-approval-service.js';
 import { MemoryActionApprovalStore } from './action-approval-store.js';
 
@@ -27,7 +28,11 @@ const TYPE = 'bank.step_up.transfers.toUser';
 
 function svc(now = new Date('2026-10-14T12:00:00.000Z')) {
   let clock = now;
-  const service = new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60 }, () => clock);
+  const service = new ActionApprovalService(
+    new MemoryActionApprovalStore(),
+    { ttlSeconds: 60, founders: staticFounderDirectory([A, B]) },
+    () => clock,
+  );
   return {
     service,
     advance(ms: number) {
@@ -140,8 +145,10 @@ describe('same-person step-up approval', () => {
     };
     const pending = await service.propose(A, propose);
     expect(pending.kind).toBeUndefined();
-    await expect(service.approve(A, pending.approvalId)).rejects.toMatchObject({ code: 'action_approval.same_person' });
-    const approved = await service.approve(B, pending.approvalId);
+    await expect(service.approve(A, pending.approvalId, pending.payloadHash)).rejects.toMatchObject({
+      code: 'action_approval.same_person',
+    });
+    const approved = await service.approve(B, pending.approvalId, pending.payloadHash);
     const base = {
       approvalId: approved.approvalId,
       operationId: approved.operationId,
@@ -159,7 +166,7 @@ describe('same-person step-up approval', () => {
   it('a same-person approval cannot be approved or rejected by anyone (it is never PENDING)', async () => {
     const { service } = svc();
     const a = await service.createSamePerson({ userId: A, sessionId: S1 }, { actionType: TYPE, payloadHash: HASH });
-    await expect(service.approve(B, a.approvalId)).rejects.toMatchObject({ code: 'action_approval.not_pending' });
+    await expect(service.approve(B, a.approvalId, a.payloadHash)).rejects.toMatchObject({ code: 'action_approval.not_pending' });
     await expect(service.reject(B, a.approvalId)).rejects.toMatchObject({ code: 'action_approval.not_pending' });
   });
 });

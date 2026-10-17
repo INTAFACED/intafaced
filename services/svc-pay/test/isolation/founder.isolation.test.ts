@@ -22,7 +22,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import type { Context } from '@intafaced/contracts';
 import { findUnguardedFounderProcedures } from '../../src/namespaces/index.js';
 import { ADMIN_SCOPES, callRest, callTrpc, createWorld, ctxOf, keyOf, principal, sessionOf, type Outcome, type World } from './fixture.js';
-import { FOUNDER_EXTRA, FOUNDER_INPUTS, FOUNDER_PREFIXES } from './procedures.js';
+import { FOUNDER_EXTRA, FOUNDER_FLAG_OFF, FOUNDER_INPUTS, FOUNDER_PREFIXES } from './procedures.js';
 
 type Verdict = 'allowed' | 'refused' | 'unavailable' | `other:${string}`;
 
@@ -93,6 +93,7 @@ describe('G: founder-only procedures', () => {
         'founderAdmin.changes.submit',
         'founderAdmin.changes.confirm',
         'founderAdmin.approvals.list',
+        'founderAdmin.approvals.destination',
         'founderAdmin.control.tiers.list',
         'founderAdmin.control.pricing.rules',
         'founderAdmin.control.merchant.get',
@@ -103,19 +104,28 @@ describe('G: founder-only procedures', () => {
         'payHalts.set',
         'payHalts.history',
         'payHalts.operatorStatus',
+        'b2bRamp.founderStatus',
       ]),
     );
   });
 
   it('W1: every founder procedure of the control room has an explicit input in procedures.ts (a bare `{}` would only prove refusal)', () => {
     const w1 = inventoried.filter((p) => p.startsWith('founderAdmin.control.') || /^founderAdmin\.(changes|approvals)\./.test(p));
-    expect(w1).toHaveLength(10);
+    expect(w1).toHaveLength(15);
     for (const p of w1) expect(FOUNDER_INPUTS[p], `${p} has no entry in FOUNDER_INPUTS`).toBeDefined();
   });
 
   it('POSITIVE CONTROL: an entitled founder with MFA gets past every guard (the refusals below are not a broken fixture)', async () => {
     const founder = sessionOf(w.founderUserId, { scopes: ADMIN_SCOPES });
-    expect(await sweep(ctxOf(founder))).toEqual(everyone('allowed'));
+    const ctx = ctxOf(founder);
+    for (const path of Object.keys(FOUNDER_FLAG_OFF)) expect(paths, path).toContain(path);
+    const got: Record<string, string> = {};
+    for (const p of paths) {
+      const o = await call(ctx, p);
+      const flagOff = FOUNDER_FLAG_OFF[p];
+      got[p] = flagOff ? (o.kind === 'error' && o.causeCode === flagOff ? flagOff : verdict(o)) : verdict(o);
+    }
+    expect(got).toEqual(Object.fromEntries(paths.map((p) => [p, FOUNDER_FLAG_OFF[p] ?? 'allowed'])));
     expect(w.identity.calls.length).toBe(paths.length);
   });
 
@@ -219,7 +229,7 @@ describe('G: founder-only procedures', () => {
     }
     it('NO CACHED ALLOW: allow, then identity goes away => 503, then back => allow, asking identity every time', async () => {
       const ctx = ctxOf(sessionOf(w.founderUserId, { scopes: ADMIN_SCOPES }));
-      const p = inventoried[0]!;
+      const p = inventoried.find((path) => FOUNDER_FLAG_OFF[path] === undefined)!;
       expect(verdict(await call(ctx, p))).toBe('allowed');
       w.identity.mode = 'unreachable';
       expect(verdict(await call(ctx, p))).toBe('unavailable');
@@ -393,13 +403,15 @@ describe('G: founder-only procedures', () => {
       for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }
-      // W5: the halt store the guards read (so payHalts.* answer for real instead of refusing closed) and the
-      // treasury exposure read behind founderAdmin.treasury.exposure.
+      // W5: one halt store, built from the database, the configured count, and the rail registry,
+      // so payHalts.* answer for real instead of refusing closed. The same object is what rail-send paths record into.
+      expect(src, 'halt store is no longer the live PayHaltStore').toContain(
+        'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);',
+      );
       for (const piece of [
-        'payHalts: { store: new PayHaltStore(sql,',
-        'merchants: pay',
+        'payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }',
         'treasury: { sql,',
-        'control: new ControlService(sql, ownerAccessPorts(sql))',
+        'control: new ControlService(sql, teamAccessPorts(sql))',
       ]) {
         expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
       }

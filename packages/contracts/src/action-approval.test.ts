@@ -5,10 +5,13 @@ import {
   isSamePersonActionType,
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
+  actionApprovalIdInputSchema,
   actionApprovalProposeInputSchema,
   actionApprovalSchema,
   approvalCannotExecute,
+  founderAttestationVerdict,
   isConsumableApproval,
+  isProtectiveOperatorApproval,
   namesAreNotActionApproval,
   type ActionApproval,
 } from './action-approval.js';
@@ -78,9 +81,20 @@ describe('action-bound approval contract', () => {
     expect(parsed).not.toHaveProperty('confirmOperatorId');
   });
 
-  it('approve input is the approval id only — identity of approver comes from the session', () => {
-    expect(actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1' })).toEqual({ approvalId: 'appr-1' });
-    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1', confirmOperatorId: 'someone' })).toThrow();
+  it('approve input names the approval and the payload hash the approver reviewed — identity of approver comes from the session', () => {
+    const input = { approvalId: 'appr-1', expectedPayloadHash: 'sha256:abc' };
+    expect(actionApprovalApproveInputSchema.parse(input)).toEqual(input);
+    expect(() => actionApprovalApproveInputSchema.parse({ ...input, confirmOperatorId: 'someone' })).toThrow();
+  });
+
+  it('approve input refuses an id with no payload hash (an id alone never approves)', () => {
+    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1' })).toThrow();
+    expect(() => actionApprovalApproveInputSchema.parse({ approvalId: 'appr-1', expectedPayloadHash: '' })).toThrow();
+  });
+
+  it('reject and revoke input is the approval id only', () => {
+    expect(actionApprovalIdInputSchema.parse({ approvalId: 'appr-1' })).toEqual({ approvalId: 'appr-1' });
+    expect(() => actionApprovalIdInputSchema.parse({ approvalId: 'appr-1', expectedPayloadHash: 'sha256:abc' })).toThrow();
   });
 
   it('consume requires the same payload hash the approver saw', () => {
@@ -120,5 +134,92 @@ describe('same-person approvals', () => {
     expect(isSamePersonActionType('bank.step_up.transfers.toUser')).toBe(true);
     expect(isSamePersonActionType('matching.open')).toBe(false);
     expect(SAME_PERSON_ACTION_TYPES.every((t) => t.startsWith('bank.step_up.'))).toBe(true);
+  });
+});
+
+const consumed: ActionApproval = { ...approved, status: 'CONSUMED' };
+
+describe('founder attestation at the consumer', () => {
+  const founders = { approverIsFounder: true, requesterIsFounder: true } as const;
+
+  it('treats a brake as operator only when type, service, and verb all agree', () => {
+    expect(isProtectiveOperatorApproval({ actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:BTC-USDT' })).toBe(
+      true,
+    );
+    expect(isProtectiveOperatorApproval({ actionType: ' Matching.Halt ', targetService: ' SVC-MATCHING ', targetId: 'HALT:btc' })).toBe(
+      true,
+    );
+    expect(isProtectiveOperatorApproval({ actionType: 'matching.halt_all', targetService: 'svc-matching', targetId: 'halt_all' })).toBe(
+      true,
+    );
+    expect(
+      isProtectiveOperatorApproval({ actionType: 'matching.reduce_only', targetService: 'svc-matching', targetId: 'reduce_only:BTC-USDT' }),
+    ).toBe(true);
+    expect(
+      isProtectiveOperatorApproval({ actionType: 'matching.post_only', targetService: 'svc-matching', targetId: 'post_only:BTC-USDT' }),
+    ).toBe(true);
+    expect(isProtectiveOperatorApproval({ actionType: 'ledger.freeze', targetService: 'svc-ledger', targetId: 'posting_freeze' })).toBe(
+      true,
+    );
+    expect(isProtectiveOperatorApproval({ actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'open:BTC-USDT' })).toBe(
+      false,
+    );
+    expect(isProtectiveOperatorApproval({ actionType: 'matching.halt', targetService: 'svc-pay', targetId: 'halt:BTC-USDT' })).toBe(false);
+    expect(isProtectiveOperatorApproval({ actionType: 'ledger.freeze', targetService: 'svc-ledger', targetId: 'posting_unfreeze' })).toBe(
+      false,
+    );
+    expect(isProtectiveOperatorApproval({ actionType: 'matching.open', targetService: 'svc-matching', targetId: 'open:BTC-USDT' })).toBe(
+      false,
+    );
+  });
+
+  it('accepts a protective verb with no founder attestation', () => {
+    const halt = { ...consumed, actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:BTC-USDT' };
+    expect(
+      founderAttestationVerdict(halt, { actionType: 'matching.halt', targetService: 'svc-matching', targetId: 'halt:BTC-USDT' }),
+    ).toEqual({
+      ok: true,
+    });
+    const freeze = {
+      ...consumed,
+      actionType: 'ledger.freeze',
+      targetService: 'svc-ledger',
+      targetId: 'posting_freeze',
+      approverIsFounder: false,
+    };
+    expect(
+      founderAttestationVerdict(freeze, { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetId: 'posting_freeze' }),
+    ).toEqual({
+      ok: true,
+    });
+  });
+
+  it('calls a founder row with no flags missing, and a false or swapped row forged', () => {
+    const open = {
+      ...consumed,
+      actionType: 'matching.open',
+      targetService: 'svc-matching',
+      targetId: 'open:BTC-USDT',
+    };
+    const subject = { actionType: 'matching.open', targetService: 'svc-matching', targetId: 'open:BTC-USDT' };
+    expect(founderAttestationVerdict(open, subject)).toEqual({ ok: false, reason: 'missing' });
+    expect(founderAttestationVerdict({ ...open, ...founders, approverIsFounder: false }, subject)).toEqual({ ok: false, reason: 'forged' });
+    expect(founderAttestationVerdict({ ...open, ...founders, approverId: ' User-A ', requesterId: 'user-a' }, subject)).toEqual({
+      ok: false,
+      reason: 'forged',
+    });
+    expect(founderAttestationVerdict({ ...open, ...founders, targetId: 'halt:BTC-USDT' }, subject)).toEqual({
+      ok: false,
+      reason: 'forged',
+    });
+    expect(founderAttestationVerdict({ ...open, ...founders, actionType: 'matching.halt' }, subject)).toEqual({
+      ok: false,
+      reason: 'forged',
+    });
+    expect(founderAttestationVerdict({ ...open, ...founders }, subject)).toEqual({ ok: true });
+    expect(founderAttestationVerdict({ ...open, ...founders, actionType: 'open:BTC-USDT' }, subject)).toEqual({
+      ok: false,
+      reason: 'forged',
+    });
   });
 });
