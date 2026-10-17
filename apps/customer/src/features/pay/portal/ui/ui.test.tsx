@@ -17,6 +17,7 @@ import { EntityList } from './EntityList';
 import { countText, dateRange } from './FilterRow';
 import { ageSeconds } from './Freshness';
 import { KpiStrip, KPI_MAX } from './Kpi';
+import { ExactMoneyScope } from './ExactMoneyScope';
 import { MoneyText } from './MoneyText';
 import { pageOrArray, pagedResult } from './page';
 import { RelatedLinks } from './RelatedLinks';
@@ -44,13 +45,16 @@ describe('StatusChip', () => {
 });
 
 describe('DateTime', () => {
-  const now = new Date('2026-10-17T00:00:00Z');
-  it('is short in this year and carries the year in another', () => {
-    expect(formatDateTime('2026-10-15T14:40:00Z', 'en', now, 'UTC')?.short).toBe('Oct 15, 2:40 PM');
-    expect(formatDateTime('2025-10-15T14:40:00Z', 'en', now, 'UTC')?.short).toBe('Oct 15, 2025, 2:40 PM');
+  it('is one format, with the year and the zone named', () => {
+    expect(formatDateTime('2026-10-15T14:40:00Z', 'en', 'UTC')?.short).toBe('Oct 15, 2026, 2:40 PM UTC');
+    expect(formatDateTime('2025-10-15T14:40:00Z', 'en', 'UTC')?.short).toBe('Oct 15, 2025, 2:40 PM UTC');
+    expect(formatDateTime('2026-10-15T14:40:00Z', 'en', 'Asia/Makassar')?.short).toMatch(/Oct 15, 2026, 10:40 PM (GMT\+8|WITA)/);
   });
   it('keeps the full date, time and zone in the tooltip', () => {
-    expect(formatDateTime('2026-10-15T14:40:00Z', 'en', now, 'UTC')?.full).toMatch(/Thursday, October 15, 2026.*UTC/);
+    expect(formatDateTime('2026-10-15T14:40:00Z', 'en', 'UTC')?.full).toMatch(/Thursday, October 15, 2026.*UTC/);
+  });
+  it('shows a day bucket as a date, never as a time of day', () => {
+    expect(renderToString(<DateTime value="2026-10-15T00:00:00.000Z" timeZone="UTC" dayOnly />)).toMatch(/>Oct 15, 2026</);
   });
   it('shows something that is not a timestamp as it came, and never throws', () => {
     expect(formatDateTime('soon', 'en')).toBeNull();
@@ -60,11 +64,23 @@ describe('DateTime', () => {
 });
 
 describe('MoneyText', () => {
-  it('is exact, with its asset, on one line', () => {
+  it('shows fiat at two places with its asset, on one line, and keeps the exact figure in the tooltip', () => {
     const out = renderToString(<MoneyText value="12.345678" asset="USDT" />);
-    expect(out).toContain('12.345678');
-    expect(out).toContain('USDT');
+    expect(out).toContain('12.35');
+    expect(out).toContain('title="12.345678 USDT"');
     expect(out).toContain('pp-nowrap');
+  });
+  it('is exact inside a review', () => {
+    const out = renderToString(
+      <ExactMoneyScope>
+        <MoneyText value="12.345678" asset="USDT" />
+      </ExactMoneyScope>,
+    );
+    expect(out).toContain('12.345678');
+  });
+  it('signs a fee as taken', () => {
+    expect(renderToString(<MoneyText value="1.2" asset="USD" sign="minus" />)).toContain('−1.20');
+    expect(renderToString(<MoneyText value="0" asset="USD" sign="minus" />)).not.toContain('−');
   });
   it('drops a zero line when asked, and tags test money', () => {
     expect(renderToString(<MoneyText value="0" asset="USD" hideZero />)).toBe('');

@@ -9,6 +9,7 @@ import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { activeHalts } from '../model';
 import { DateTime } from '../ui/DateTime';
+import { formatMoney } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { PortalReview } from '../ui/PortalReview';
 import { uiCopy } from '../ui/copy';
@@ -16,13 +17,27 @@ import { SelectField } from '../components';
 import { LinkButton, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
-import { approvalsBySettlement, payoutBlock, payoutHeadroom, type PayoutBlock } from './model';
+import { approvalsBySettlement, payoutBlock, payoutHeadroom, splitPayable, type PayoutBlock } from './model';
 import { settlementName } from './Settlements';
 import type { DestinationItem } from './schemas';
 import type { Settlement } from '../schemas';
 
 /** What a payout submit answers: a request for approval, or money sent straight away. */
 export type PayoutOutcome = { route: 'approval'; id: string } | { route: 'sent'; id: string };
+
+/** Nothing can be started: say whether that is because requests are waiting for a second person, and link to them. */
+export function NoPayable({ waitingN }: { waitingN: number }) {
+  const { t } = mc.useCopy();
+  return waitingN > 0 ? (
+    <EmptyState title={t('pnWaitingTitle')} action={<LinkButton href="/pay/approvals?status=pending">{t('pnWaitingAction')}</LinkButton>}>
+      {t(waitingN === 1 ? 'pnWaitingBodyOne' : 'pnWaitingBodyMany', { n: waitingN })}
+    </EmptyState>
+  ) : (
+    <EmptyState title={t('pnNoneTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
+      {t('pnNoneBody')}
+    </EmptyState>
+  );
+}
 
 /**
  * `/pay/payouts/new`: choose a settlement and where it goes, check the limit, review, then ask. Below your approval
@@ -36,7 +51,17 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const { access, can } = useMerchantAccess();
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
-  const ready = useResource((s) => portal.settlementPage(merchantId, { status: 'posted' }, undefined, s), `money:payable:${merchantId}`);
+  // A payout can be started from a finalised settlement ("posted") or retried from one that did not complete ("failed").
+  const ready = useResource(async (s) => {
+    const [posted, failed] = await Promise.all([
+      portal.settlementPage(merchantId, { status: 'posted' }, undefined, s),
+      portal.settlementPage(merchantId, { status: 'failed' }, undefined, s),
+    ]);
+    if (!posted.ok) return posted;
+    // A failed read only hides the retry rows; the ready ones still show.
+    const retry = failed.ok ? failed.data.items : [];
+    return { ok: true as const, data: { ...posted.data, items: [...posted.data.items, ...retry] } };
+  }, `money:payable:${merchantId}`);
   const destinations = useResource((s) => portal.destinationPage(merchantId, undefined, s), `money:destinations:${merchantId}`);
   const usage = useResource((s) => portal.usage(merchantId, s), `money:usage:${merchantId}`);
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
@@ -77,7 +102,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
             pending.resource.status === 'ready'
               ? approvalsBySettlement('items' in pending.resource.data ? pending.resource.data.items : pending.resource.data)
               : null;
-          const payable = page.items.filter((s) => !(waiting?.get(s.id)?.status === 'pending'));
+          const { payable, waitingN } = splitPayable(page.items, waiting);
           const settlement: Settlement | null = payable.find((s) => s.id === picked) ?? null;
           const dests: DestinationItem[] | null = destinations.resource.status === 'ready' ? destinations.resource.data.items : null;
           const dest = dests?.find((d) => d.id === destPicked) ?? (dests && dests.length === 1 ? dests[0]! : null);
@@ -109,9 +134,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           return (
             <>
               {payable.length === 0 ? (
-                <EmptyState title={t('pnNoneTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
-                  {t('pnNoneBody')}
-                </EmptyState>
+                <NoPayable waitingN={waitingN} />
               ) : (
                 <form className="form-stack pp-form" onSubmit={(e) => e.preventDefault()} noValidate>
                   <PaySection title={t('pnStep1')} description={t('pnStep1Body')}>
@@ -121,7 +144,13 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       onChange={setPicked}
                       options={[
                         ['', t('pnChoose')],
-                        ...payable.map((s) => [s.id, `${settlementName(t, locale, s)} · ${s.net} ${s.assetId}`] as const),
+                        ...payable.map(
+                          (s) =>
+                            [
+                              s.id,
+                              `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}${s.status === 'failed' ? ` · ${t('pnRetryTag')}` : ''}`,
+                            ] as const,
+                        ),
                       ]}
                     />
                   </PaySection>
@@ -217,7 +246,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                             <div>
                               <dt>{t('pnAsOf')}</dt>
                               <dd>
-                                <DateTime value={new Date(now).toISOString()} />
+                                <DateTime value={new Date(now).toISOString()} timeZone="UTC" />
                               </dd>
                             </div>
                           </dl>

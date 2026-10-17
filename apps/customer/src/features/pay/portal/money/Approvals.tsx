@@ -19,7 +19,18 @@ import { useServerList } from '../ui/useServerList';
 import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
 import { describeDestination } from './destination';
-import { ageOf, decisionBlock, decisionLanded, expiresToday, isCheckedPending, minReasonOk, waitingFrom, type RoleLike } from './model';
+import { formatMoney } from '../ui/format';
+import {
+  ageOf,
+  decisionBlock,
+  decisionLanded,
+  expiresToday,
+  isCheckedPending,
+  minReasonOk,
+  overRemaining,
+  waitingFrom,
+  type RoleLike,
+} from './model';
 
 export const payoutHref = (settlementId: string) => `/pay/payouts/${encodeURIComponent(settlementId)}`;
 const noNames: ReadonlyMap<string, string> = new Map();
@@ -215,6 +226,7 @@ export function ApprovalDecision({
   role,
   now,
   names = noNames,
+  remaining = null,
   onDone,
 }: {
   portal: PortalApi;
@@ -223,6 +235,8 @@ export function ApprovalDecision({
   role: RoleLike;
   now: number;
   names?: ReadonlyMap<string, string>;
+  /** What is left of today's payout limit for this asset, when known. More than this warns before approving. */
+  remaining?: string | null;
   onDone: () => void;
 }) {
   const { t } = mc.useCopy();
@@ -232,6 +246,10 @@ export function ApprovalDecision({
   const reasonOk = minReasonOk(reason);
   const why = block ? t(`block_${block}` as 'block_own') : reasonOk ? null : t('reasonNeeded');
   const disabled = block !== null || !reasonOk;
+  const overLimit = remaining !== null && overRemaining(approval.amount, remaining);
+  const overWarning = overLimit
+    ? t('apvOverLimit', { left: `${formatMoney(remaining!, approval.assetCode)} ${approval.assetCode}` })
+    : null;
   // A decision the service answered but that did not take effect (voided or ended meanwhile) is shown as a refusal.
   const decide = (decision: 'approve' | 'reject') => async () => {
     const result = await portal.decideApproval({
@@ -263,6 +281,12 @@ export function ApprovalDecision({
         <dt>{t('requestedBy')}</dt>
         <dd>{whoIs(approval.makerUserId, me, names, t('mnMe'))}</dd>
       </div>
+      {overWarning && verb === t('approve') && (
+        <div>
+          <dt>{t('apvOverLimitLabel')}</dt>
+          <dd>{overWarning}</dd>
+        </div>
+      )}
       <div>
         <dt>{t('fingerprint')}</dt>
         <dd className="pp-mono">{approval.payloadHash}</dd>
@@ -278,6 +302,11 @@ export function ApprovalDecision({
       {isCheckedPending(approval) && (
         <p className="pp-callout" role="note">
           {t('checkedBanner', { who: whoIs(approval.checkerUserId!, me, names, t('mnMe')) })}
+        </p>
+      )}
+      {overWarning && (
+        <p className="pp-callout pp-callout--warn" role="note">
+          {overWarning}
         </p>
       )}
       <label className="field">

@@ -256,6 +256,19 @@ export function approvalsBySettlement(approvals: readonly Approval[]): Map<strin
   return by;
 }
 
+/**
+ * Settlements a payout can be started from: finalised ("posted") or one that did not complete ("failed", to try again),
+ * less those that already have a request waiting for approval. `waitingN` counts the ones left out for that reason.
+ */
+export function splitPayable<S extends { id: string; status: string }>(
+  items: readonly S[],
+  waiting: ReadonlyMap<string, Pick<Approval, 'status'>> | null,
+): { payable: S[]; waitingN: number } {
+  const startable = items.filter((s) => s.status === 'posted' || s.status === 'failed');
+  const payable = startable.filter((s) => waiting?.get(s.id)?.status !== 'pending');
+  return { payable, waitingN: startable.length - payable.length };
+}
+
 export function payoutRowState(item: PayoutLike, approvals: ReadonlyMap<string, Approval> | null): PayoutState {
   return payoutState({ status: item.status }, approvals?.get(item.id) ?? null, approvals !== null);
 }
@@ -292,11 +305,18 @@ export function runningView(
 
 /**
  * +1 when a line adds to the account it names, -1 when it takes away. In this ledger a debit raises these balances and
- * a credit lowers them (the service applies them the same way when it builds the running balance). Other accounts
- * have no sign shown.
+ * a credit lowers them (the service applies them the same way when it builds the running balance). A fee line on the
+ * fees account is money taken from the merchant, so it is -1 whichever way the ledger books it. Other accounts have no
+ * sign shown.
  */
-export const lineSign = (l: Pick<StatementLine, 'direction' | 'account'>): 1 | -1 | 0 =>
-  l.account !== 'clearing' && l.account !== 'proceeds' ? 0 : l.direction === 'debit' ? 1 : -1;
+export const lineSign = (l: Pick<StatementLine, 'direction' | 'account'> & { kind?: string }): 1 | -1 | 0 =>
+  l.account === 'houseFees' && l.kind === 'fee'
+    ? -1
+    : l.account !== 'clearing' && l.account !== 'proceeds'
+      ? 0
+      : l.direction === 'debit'
+        ? 1
+        : -1;
 
 export type TieView = 'matches' | 'differs' | 'unknown';
 /** Does the statement agree with the balances? Any account that differs wins; any unknown makes the answer unknown. */
@@ -358,6 +378,11 @@ export function payoutBlock(input: {
   if (input.destinationCount === 0) return 'noDestination';
   if (input.remaining !== null && parseAmount(input.settlement.net) > parseAmount(input.remaining)) return 'overCap';
   return null;
+}
+
+/** True when a payout of `amount` is more than `remaining` of today's payout limit (exact decimals, no rounding). */
+export function overRemaining(amount: string, remaining: string): boolean {
+  return parseAmount(amount) > parseAmount(remaining);
 }
 
 /** What is left today of the daily payout limit for one asset, or null when none is set or no usage was read. */

@@ -5,7 +5,7 @@ import { SelectField } from '../components';
 import type { PortalApi } from '../api';
 import { useNow } from '../hooks';
 import { buildCsv, downloadText } from '../csv';
-import { DateTime } from '../ui/DateTime';
+import { DateTime, UTC } from '../ui/DateTime';
 import { Freshness } from '../ui/Freshness';
 import { dateRange, useListFilters, type DatePreset } from '../ui/FilterRow';
 import { KpiStrip } from '../ui/Kpi';
@@ -27,7 +27,13 @@ const runningOf = (l: StatementLine) =>
   l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null;
 
 /** The signed amount of one line, in words a merchant reads: "+ 12.50 USDT" in, "− 3.00 USDT" out. */
-export function SignedAmount({ line, test }: { line: Pick<StatementLine, 'amount' | 'assetId' | 'direction' | 'account'>; test: boolean }) {
+export function SignedAmount({
+  line,
+  test,
+}: {
+  line: Pick<StatementLine, 'amount' | 'assetId' | 'direction' | 'account' | 'kind'>;
+  test: boolean;
+}) {
   const sign = lineSign(line);
   return (
     <span className="pp-nowrap">
@@ -39,7 +45,7 @@ export function SignedAmount({ line, test }: { line: Pick<StatementLine, 'amount
 
 export function statementColumns(t: Words, test: boolean, showRunning: boolean) {
   return [
-    { header: t('mnColWhen'), cell: (l: StatementLine) => <DateTime value={l.at} /> },
+    { header: t('mnColWhen'), cell: (l: StatementLine) => <DateTime value={l.at} timeZone={UTC} /> },
     {
       header: t('mnColWhat'),
       cell: (l: StatementLine) => (
@@ -79,7 +85,7 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
 }
 export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
   title: kindWords(t, l.kind),
-  time: <DateTime value={l.at} />,
+  time: <DateTime value={l.at} timeZone={UTC} />,
   amount: <SignedAmount line={l} test={test} />,
   status: <span className="muted">{accountWords(t, l.account)}</span>,
 });
@@ -235,7 +241,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
       </div>
       {meta && (
         <p className="muted pp-note">
-          {t('stmAsOfEnd')} <DateTime value={meta.at} />
+          {t('stmAsOfEnd')} <DateTime value={meta.at} timeZone={UTC} />
         </p>
       )}
     </div>

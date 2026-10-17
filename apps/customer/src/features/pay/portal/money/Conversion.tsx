@@ -16,6 +16,7 @@ import { DateTime } from '../ui/DateTime';
 import { DetailHeader } from '../ui/DetailHeader';
 import { Freshness } from '../ui/Freshness';
 import { KpiStrip } from '../ui/Kpi';
+import { formatMoney } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { PortalReview } from '../ui/PortalReview';
 import { RelatedLinks } from '../ui/RelatedLinks';
@@ -221,7 +222,9 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                       }}
                       options={[
                         ['', t('pnChoose')],
-                        ...usd.map((s) => [s.id, `${settlementName(t, locale, s)} · ${s.net} ${s.assetId}`] as const),
+                        ...usd.map(
+                          (s) => [s.id, `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}`] as const,
+                        ),
                       ]}
                     />
                     <Field
@@ -277,8 +280,8 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 items={[
                   [t('cvYouConvert'), <MoneyText value={quote.q.fromAmount} asset={quote.q.fromAsset} test />],
                   [t('cvRate'), <span className="numeric">{quote.q.rate}</span>],
-                  [t('cvFee'), <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test />],
-                  [t('cvSpread'), <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test />],
+                  [t('cvFee'), <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test sign="minus" />],
+                  [t('cvSpread'), <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test sign="minus" />],
                   [t('cvExpected'), <MoneyText value={quote.q.expectedOutput} asset={quote.q.toAsset} test />],
                   [t('cvMinimum'), <MoneyText value={quote.q.minimumOutput} asset={quote.q.toAsset} test />],
                   [t('cvQuoteExpires'), <DateTime value={quote.q.expiresAt} />],
@@ -313,13 +316,13 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                     <div>
                       <dt>{t('cvFee')}</dt>
                       <dd>
-                        <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test />
+                        <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test sign="minus" />
                       </dd>
                     </div>
                     <div>
                       <dt>{t('cvSpread')}</dt>
                       <dd>
-                        <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test />
+                        <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test sign="minus" />
                       </dd>
                     </div>
                   </dl>
