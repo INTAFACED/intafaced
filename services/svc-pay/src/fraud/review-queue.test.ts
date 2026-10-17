@@ -109,6 +109,28 @@ describe('D26-P1-P5 fraud review queue', () => {
     expect(q.get('rev-foreign')).toEqual(owned);
   });
 
+  it('refuses an id reserved for system holds and stores nothing', () => {
+    const q = new MemoryFraudReviewQueue();
+    const decision = evaluateFraud({
+      merchantId: 'm1',
+      amount: '100',
+      assetId: 'USDT',
+      recentPaymentCount: 9,
+      thresholds: { maxPaymentsInWindow: 2 },
+    });
+    expect(decision.outcome).toBe('review');
+    let refused: unknown;
+    try {
+      q.enqueue({ id: 'held:x', merchantId: 'm1', amount: '100', assetId: 'USDT', decision });
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(FraudReviewError);
+    expect((refused as FraudReviewError).code).toBe('pay.fraud_review_not_review');
+    expect((refused as FraudReviewError).message).toContain('reserved for system holds');
+    expect(q.get('held:x')).toBeNull();
+  });
+
   it('claim is idempotent for the same operator and refuses a second operator', () => {
     const q = new MemoryFraudReviewQueue();
     const decision = evaluateFraud({

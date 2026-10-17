@@ -302,6 +302,9 @@ export class PostgresFraudReviewQueue {
     createdBy?: string | null;
     now?: Date;
   }): Promise<DurableReviewCase> {
+    if (input.id.trim().toLowerCase().startsWith('held:')) {
+      throw new FraudReviewError('Case ids starting with held: are reserved for system holds', 'pay.fraud_review_not_review');
+    }
     if (input.decision.outcome !== 'review' || input.decision.reasons.length === 0) {
       throw new FraudReviewError('Only evaluate outcomes of review may enter the fraud review queue', 'pay.fraud_review_not_review');
     }

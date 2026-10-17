@@ -105,6 +105,9 @@ export class MemoryFraudReviewQueue implements FraudReviewQueue {
   private readonly sources = new Map<string, 'fraud.review'>();
 
   enqueue(input: EnqueueFraudReviewInput): FraudReviewCase {
+    if (input.id.trim().toLowerCase().startsWith('held:')) {
+      throw new FraudReviewError('Case ids starting with held: are reserved for system holds', 'pay.fraud_review_not_review');
+    }
     if (input.decision.outcome !== 'review') {
       throw new FraudReviewError('Only evaluate outcomes of review may enter the fraud review queue', 'pay.fraud_review_not_review');
     }

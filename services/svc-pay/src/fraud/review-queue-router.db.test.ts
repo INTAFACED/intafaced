@@ -215,8 +215,9 @@ describe('fraud.enqueueReview cannot read or adopt another case', () => {
     expect(held.id).toBe(`held:${paymentRef}`);
     const heldBefore = await storedCase(held.id);
     const system = await writerB.fraud.enqueueReview(reviewInput(merchantB.id, held.id)).catch((error: unknown) => error);
-    expect(system).toMatchObject({ code: 'NOT_FOUND' });
-    expect((system as { message: string }).message).toContain('pay.fraud_review_not_found');
+    expect(system).toMatchObject({ code: 'BAD_REQUEST' });
+    expect((system as { message: string }).message).toContain('pay.fraud_review_not_review');
+    expect((system as { message: string }).message).toContain('reserved for system holds');
     expect(JSON.stringify(system)).not.toContain('daily_intake');
     expect(JSON.stringify(system)).not.toContain(merchantA.id);
     expect(JSON.stringify(system)).not.toContain('captured payment exceeded');
@@ -245,6 +246,53 @@ describe('fraud.enqueueReview cannot read or adopt another case', () => {
     const rows = await sql<Array<{ id: string; source: string }>>`
       SELECT id, source FROM pay.fraud_review_cases WHERE payment_ref = ${owned.id} ORDER BY source`;
     expect(rows.map((row) => row.source)).toEqual(['control.captured_over_cap', 'fraud.review']);
+    const enqueued = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.fraud_review_decisions
+       WHERE case_id = ${system.id} AND effect = 'enqueue'`;
+    expect(enqueued[0]?.n).toBe(1);
+  });
+
+  it('refuses a merchant enqueueReview of a system hold id and writes no row', async () => {
+    const merchantA = await merchant(USER_A);
+    const owned = await payment(merchantA.id);
+    const writerA = await caller(['pay:write'], USER_A);
+    const heldPayment = `held:${owned.id}`;
+    const heldSource = `held:control.captured_over_cap:${owned.id}`;
+
+    const withPayment = await writerA.fraud
+      .enqueueReview(reviewInput(merchantA.id, heldPayment, owned.id))
+      .catch((error: unknown) => error);
+    const withoutPayment = await writerA.fraud.enqueueReview(reviewInput(merchantA.id, heldPayment)).catch((error: unknown) => error);
+    const sourceQualified = await writerA.fraud.enqueueReview(reviewInput(merchantA.id, heldSource)).catch((error: unknown) => error);
+
+    for (const refused of [withPayment, withoutPayment, sourceQualified]) {
+      expect(refused).toMatchObject({ code: 'BAD_REQUEST' });
+      expect((refused as { message: string }).message).toContain('pay.fraud_review_not_review');
+      expect((refused as { message: string }).message).toContain('reserved for system holds');
+    }
+    expect(await storedCase(heldPayment)).toBeNull();
+    expect(await storedCase(heldSource)).toBeNull();
+  });
+
+  it('opens the over-cap system case after a merchant was refused the held ids', async () => {
+    const merchantA = await merchant(USER_A);
+    const owned = await payment(merchantA.id);
+    const writerA = await caller(['pay:write'], USER_A);
+    await writerA.fraud.enqueueReview(reviewInput(merchantA.id, `held:${owned.id}`, owned.id)).catch(() => undefined);
+    await writerA.fraud.enqueueReview(reviewInput(merchantA.id, `held:${owned.id}`)).catch(() => undefined);
+    await writerA.fraud.enqueueReview(reviewInput(merchantA.id, `held:control.captured_over_cap:${owned.id}`)).catch(() => undefined);
+
+    const system = await enqueueHeldPayment(sql, {
+      paymentRef: owned.id,
+      merchantId: merchantA.id,
+      amount: '4',
+      assetId: 'USDT',
+      reason: 'captured payment exceeded: daily_intake',
+      reasons: [{ ruleId: 'captured_over_cap', detail: 'daily_intake' }],
+      createdBy: 'system:capture_guard',
+      source: 'control.captured_over_cap',
+    });
+    expect(system.source).toBe('control.captured_over_cap');
     const enqueued = await sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM pay.fraud_review_decisions
        WHERE case_id = ${system.id} AND effect = 'enqueue'`;

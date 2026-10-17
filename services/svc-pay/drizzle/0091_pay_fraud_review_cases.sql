@@ -1,6 +1,10 @@
 -- Fraud review cases and their decisions.
 -- Reversal: 0091_pay_fraud_review_cases.down.sql
 --
+-- intafaced:destructive — BEFORE TRUNCATE is the trigger event, and DROP TRIGGER
+-- IF EXISTS only makes the trigger create re-runnable. This migration does not
+-- TRUNCATE, UPDATE, or DELETE stored rows.
+--
 -- A held or flagged payment keeps a case across process restart. The case row
 -- is the current status. pay.fraud_review_decisions is the append-only record
 -- of enqueue, claim, allow, and decline. One source and payment_ref has one case.
