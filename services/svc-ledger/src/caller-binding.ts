@@ -1,10 +1,5 @@
 import { LedgerError, type RecipeName } from '@intafaced/ledger-client';
-import {
-  SERVICE_HEADER,
-  headerValue,
-  verifyServiceHeaders,
-  type ServiceVerifyOptions,
-} from '@intafaced/contracts';
+import { SERVICE_HEADER, headerValue, verifyServiceHeaders, type ServiceVerifyOptions } from '@intafaced/contracts';
 import { grantFor, modulesFor, LEDGER_CALLER_SERVICES, callerSecretEnvName } from './caller-allowlist.js';
 import { identifyRecipePost } from './recipe-gate.js';
 
@@ -33,8 +28,7 @@ export const LEDGER_CALLER_KEY_HEADER = SERVICE_HEADER;
 const MIN_SECRET_LENGTH = 32;
 
 export type PostCaller =
-  | { readonly kind: 'bound'; readonly service: string }
-  | { readonly kind: 'legacy'; readonly claimed: string | null };
+  { readonly kind: 'bound'; readonly service: string } | { readonly kind: 'legacy'; readonly claimed: string | null };
 
 export interface BindingViolation {
   readonly code: typeof CALLER_UNBOUND | typeof CALLER_FORBIDDEN;

@@ -134,12 +134,7 @@ export interface PortfolioIndexerCompose {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-export async function handleS2sPost(
-  ledger: LedgerService,
-  body: unknown,
-  caller?: PostCaller,
-  binding?: CallerBindingOptions,
-) {
+export async function handleS2sPost(ledger: LedgerService, body: unknown, caller?: PostCaller, binding?: CallerBindingOptions) {
   const input = postRequestSchema.parse(body);
   // Direct unit calls omit the caller and stay on the recipe gate. Both doors
   // that accept a network post pass the verified caller in.

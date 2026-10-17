@@ -64,12 +64,7 @@ function stub(posted: { value: boolean }) {
   } as unknown as LedgerService;
 }
 
-async function mount(options: {
-  mode: 'report' | 'enforce';
-  posted: { value: boolean };
-  lines?: string[];
-  onViolation?: () => void;
-}) {
+async function mount(options: { mode: 'report' | 'enforce'; posted: { value: boolean }; lines?: string[]; onViolation?: () => void }) {
   const stream = new Writable({
     write(chunk, _encoding, callback) {
       options.lines?.push(String(chunk));
@@ -221,12 +216,7 @@ describe('POST /trpc/post caller binding', () => {
 });
 
 describe('tRPC post applies the same allowlist', () => {
-  function caller(
-    service: string | null,
-    mode: 'report' | 'enforce',
-    posted: { value: boolean },
-    serviceAuth?: 'dedicated' | 'shared',
-  ) {
+  function caller(service: string | null, mode: 'report' | 'enforce', posted: { value: boolean }, serviceAuth?: 'dedicated' | 'shared') {
     const serviceStub = stub(posted);
     return createLedgerRouter(serviceStub, undefined, undefined, { mode }).createCaller({
       principal: null,
