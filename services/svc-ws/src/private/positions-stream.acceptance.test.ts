@@ -8,8 +8,8 @@ import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
-import { PrivateOrderHub, type PrivatePositionUpdate } from './hub.js';
-import type { PrivateBookPort } from './book.js';
+import { PrivateOrderHub } from './hub.js';
+import { HttpPrivateBookPort, type PrivateBookPort } from './book.js';
 import { createPrivateWebSocketGateway, PRIVATE_STREAM_PATH, type PrivateWebSocketGateway } from './gateway.js';
 import { TEST_AUTHORITY } from '../test-support/authority.js';
 import {
@@ -33,6 +33,58 @@ const tokens: TokenConfig = {
   audience: 'intafaced.api',
   accessTtlSeconds: 900,
 };
+
+/** svc-trade `presentOpenPositions` row: no fundingPaid, marketId, or userId. */
+function restOpenPosition(id: string, contracts: unknown, entryPrice = '64000.50'): Record<string, unknown> {
+  return {
+    id,
+    symbol: 'BTC/USDT:USDT',
+    timestamp: Date.parse('2026-10-17T03:00:00.000Z'),
+    datetime: '2026-10-17T03:00:00.000Z',
+    side: 'long',
+    status: 'open',
+    closingReason: null,
+    contracts,
+    contractSize: null,
+    entryPrice,
+    markPrice: '64100.5',
+    notional: '64100.50',
+    leverage: '5',
+    collateral: '12820.10',
+    initialMargin: '12820.10',
+    maintenanceMargin: null,
+    unrealizedPnl: '1.25',
+    realizedPnl: '0',
+    liquidationPrice: '51200',
+    marginMode: 'isolated',
+    percentage: null,
+    markSource: null,
+  };
+}
+
+function positionsChannel(frames: readonly unknown[]): Array<Record<string, unknown>> {
+  return frames.filter((frame): frame is Record<string, unknown> => {
+    return frame !== null && typeof frame === 'object' && (frame as { channel?: unknown }).channel === 'positions';
+  });
+}
+
+async function waitUntil(ready: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_500;
+  while (!ready()) {
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function ordersOrPositionsFetch(load: () => Response | Promise<Response>): typeof fetch {
+  return async (input) => {
+    const url = String(input);
+    if (url.endsWith('/api/v1/orders/open')) {
+      return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return load();
+  };
+}
 
 function row(userId: string, positionId: string, contracts: unknown, entryPrice = '64000.50'): Record<string, unknown> {
   return {
@@ -72,11 +124,15 @@ describe('positions stream', () => {
     await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => [row(ALICE, aliceId, '1.250000000000000001')],
       send: (frame) => alice.push(frame),
     });
     await stream.subscribe({
       session: { userId: BOB, scopes: ['trade:read'] },
       asOf: AS_OF,
+      accessToken: 'bob-token',
+      seed: async () => [row(BOB, bobId, '2')],
       send: (frame) => bob.push(frame),
     });
 
@@ -127,6 +183,15 @@ describe('positions stream', () => {
     ]);
     expect(JSON.stringify(foreign)).not.toContain('22222222');
 
+    const bobId = '22222222-2222-4222-8222-222222222222';
+    const bobSeeded: PositionsFrame[] = [];
+    await stream.subscribe({
+      session: { userId: BOB, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'bob-token',
+      seed: async () => [restOpenPosition(bobId, '2')],
+      send: (frame) => bobSeeded.push(frame),
+    });
     const allowed: PositionsFrame[] = [];
     await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read', POSITIONS_OPERATOR_SCOPE] },
@@ -134,7 +199,10 @@ describe('positions stream', () => {
       asOf: AS_OF,
       send: (frame) => allowed.push(frame),
     });
-    expect(allowed[0]).toMatchObject({ type: 'snapshot', positions: [expect.objectContaining({ userId: BOB })] });
+    expect(allowed[0]).toMatchObject({
+      type: 'snapshot',
+      positions: [expect.objectContaining({ userId: BOB, positionId: bobId, contracts: '2', fundingPaid: null })],
+    });
   });
 
   it('refuses the stream shape when positionUpdated is not attached', async () => {
@@ -164,6 +232,8 @@ describe('positions stream', () => {
       lastSequence: 1,
       streamId: 'retain-gap',
       asOf: '2026-10-17T04:00:05.000Z',
+      accessToken: 'alice-token',
+      seed: async () => [row(ALICE, id, '3')],
       send: (frame) => gapped.push(frame),
     });
     expect(gapped).toHaveLength(1);
@@ -330,6 +400,8 @@ describe('positions stream', () => {
       lastSequence: 2,
       streamId: streamA.streamId,
       asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => [row(ALICE, id, '5')],
       send: (frame) => sent.push(frame),
     });
     expect(sent).toHaveLength(1);
@@ -349,6 +421,8 @@ describe('positions stream', () => {
       session: { userId: ALICE, scopes: ['trade:read'] },
       lastSequence: 1,
       asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => [row(ALICE, id, '3')],
       send: (frame) => sent.push(frame),
     });
     expect(sent).toHaveLength(1);
@@ -365,6 +439,8 @@ describe('positions stream', () => {
     await stream.subscribe({
       session: { userId: ALICE, scopes: ['trade:read'] },
       asOf: AS_OF,
+      accessToken: 'alice-token',
+      seed: async () => [row(ALICE, id, '1')],
       send: (frame) => sent.push(frame),
     });
     stream.heartbeat('2026-10-17T04:00:02.000Z');
@@ -376,6 +452,83 @@ describe('positions stream', () => {
       asOf: '2026-10-17T04:00:02.000Z',
       dataAsOf: AS_OF,
     });
+  });
+
+  it('refuses an operator snapshot when the other account book was never seeded', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const bobId = '22222222-2222-4222-8222-222222222222';
+    expect(stream.ingest(row(BOB, bobId, '2'))).toBe(true);
+    let calls = 0;
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read', POSITIONS_OPERATOR_SCOPE] },
+      requestedUserId: BOB,
+      asOf: AS_OF,
+      accessToken: 'operator-token',
+      seed: async () => {
+        calls += 1;
+        return [restOpenPosition(bobId, '2')];
+      },
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(0);
+    expect(sent).toEqual([expect.objectContaining({ type: 'error', code: 'ws.positions_snapshot_unavailable' })]);
+    expect(sent.some((frame) => frame.type === 'snapshot')).toBe(false);
+    expect(JSON.stringify(sent)).not.toContain(bobId);
+  });
+
+  it('sends the owner-seeded book when an operator subscribes for that account', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const bobId = '22222222-2222-4222-8222-222222222222';
+    const owner: PositionsFrame[] = [];
+    const seeded = await stream.subscribe({
+      session: { userId: BOB, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      accessToken: 'bob-token',
+      seed: async () => [restOpenPosition(bobId, '2')],
+      send: (frame) => owner.push(frame),
+    });
+    expect(seeded.ok).toBe(true);
+    let operatorReads = 0;
+    const allowed: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read', POSITIONS_OPERATOR_SCOPE] },
+      requestedUserId: BOB,
+      asOf: AS_OF,
+      accessToken: 'operator-token',
+      seed: async () => {
+        operatorReads += 1;
+        return [restOpenPosition(bobId, '9')];
+      },
+      send: (frame) => allowed.push(frame),
+    });
+    expect(result.ok).toBe(true);
+    expect(operatorReads).toBe(0);
+    expect(allowed).toHaveLength(1);
+    expect(allowed[0]).toMatchObject({
+      type: 'snapshot',
+      positions: [expect.objectContaining({ userId: BOB, positionId: bobId, contracts: '2', fundingPaid: null })],
+    });
+  });
+
+  it('refuses an own-account snapshot when events arrived and no seed is wired', async () => {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const aliceId = '11111111-1111-4111-8111-111111111111';
+    expect(stream.ingest(row(ALICE, aliceId, '1'))).toBe(true);
+    const sent: PositionsFrame[] = [];
+    const result = await stream.subscribe({
+      session: { userId: ALICE, scopes: ['trade:read'] },
+      asOf: AS_OF,
+      send: (frame) => sent.push(frame),
+    });
+    expect(result.ok).toBe(false);
+    expect(sent).toEqual([expect.objectContaining({ type: 'error', code: 'ws.positions_snapshot_unavailable' })]);
+    expect(sent.some((frame) => frame.type === 'snapshot')).toBe(false);
+    expect(JSON.stringify(sent)).not.toContain(aliceId);
   });
 
   it('sends an empty snapshot when the open-positions read succeeds with zero rows', async () => {
@@ -450,7 +603,20 @@ describe('positions subscribe on the private socket', () => {
     const bobId = '22222222-2222-4222-8222-222222222222';
     stream.ingest(row(ALICE, aliceId, '1.5'));
     stream.ingest(row(BOB, bobId, '9'));
-    const base = await boot(stream);
+    const book: PrivateBookPort = {
+      async listOpenOrders() {
+        return [];
+      },
+      async listOpenPositions() {
+        return [];
+      },
+      async readOpenPositions({ userId }) {
+        if (userId === ALICE) return [row(ALICE, aliceId, '1.5')];
+        if (userId === BOB) return [row(BOB, bobId, '9')];
+        return [];
+      },
+    };
+    const base = await boot(stream, book);
     const aliceToken = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
     const bobToken = (await issueAccessToken({ userId: BOB, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
     const alice = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${aliceToken}&channel=positions`);
@@ -473,44 +639,198 @@ describe('positions subscribe on the private socket', () => {
     expect(JSON.stringify(bobPositions)).not.toContain(ALICE);
   });
 
+  async function shutdown(): Promise<void> {
+    for (const socket of sockets) socket.close();
+    sockets.length = 0;
+    await gateway?.close('test');
+    gateway = null;
+    if (server) {
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = null;
+    }
+  }
+
+  async function subscribePositions(fetchImpl: typeof fetch): Promise<Record<string, unknown>[]> {
+    const stream = new PositionsStream();
+    stream.markSourceAttached(true);
+    const token = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
+    const book = new HttpPrivateBookPort({ baseUrl: 'http://svc-trade.test', fetch: fetchImpl });
+    const base = await boot(stream, book);
+    const client = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=orders`);
+    client.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    await waitUntil(() => positionsChannel(client.frames).length > 0);
+    return positionsChannel(client.frames);
+  }
+
+  function expectRefusal(frames: Record<string, unknown>[]): void {
+    expect(frames).toEqual([
+      expect.objectContaining({
+        channel: 'positions',
+        type: 'error',
+        code: 'ws.positions_snapshot_unavailable',
+      }),
+    ]);
+    expect(frames.some((frame) => frame.type === 'snapshot')).toBe(false);
+  }
+
+  it('refuses a positions subscribe when the trade read returns HTTP 503', async () => {
+    const frames = await subscribePositions(ordersOrPositionsFetch(() => new Response('unavailable', { status: 503 })));
+    expectRefusal(frames);
+  });
+
+  it('refuses a positions subscribe when the trade read rejects or the body is not JSON', async () => {
+    const rejected = await subscribePositions(
+      ordersOrPositionsFetch(() => {
+        throw new TypeError('network down');
+      }),
+    );
+    expectRefusal(rejected);
+    await shutdown();
+    const invalid = await subscribePositions(
+      ordersOrPositionsFetch(() => new Response('not-json', { status: 200, headers: { 'content-type': 'application/json' } })),
+    );
+    expectRefusal(invalid);
+  });
+
+  it('reads positions again after a failed seed instead of replaying an empty book', async () => {
+    const stream = new PositionsStream({ streamId: 'seed-retry' });
+    stream.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    let mode: 'down' | 'row' = 'down';
+    const token = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
+    const book = new HttpPrivateBookPort({
+      baseUrl: 'http://svc-trade.test',
+      fetch: ordersOrPositionsFetch(() => {
+        if (mode === 'down') return new Response('unavailable', { status: 503 });
+        return new Response(JSON.stringify([restOpenPosition(id, '1.250000000000000001')]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    });
+    const base = await boot(stream, book);
+    const client = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=orders`);
+    client.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    await waitUntil(() => positionsChannel(client.frames).length > 0);
+    expectRefusal(positionsChannel(client.frames));
+    mode = 'row';
+    client.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    await waitUntil(() => positionsChannel(client.frames).some((frame) => frame.type === 'snapshot'));
+    const frames = positionsChannel(client.frames);
+    expect(frames.at(-1)).toMatchObject({
+      channel: 'positions',
+      type: 'snapshot',
+      resume: 'fresh',
+      streamId: 'seed-retry',
+      positions: [
+        expect.objectContaining({
+          userId: ALICE,
+          positionId: id,
+          contracts: '1.250000000000000001',
+          entryPrice: '64000.50',
+          fundingPaid: null,
+        }),
+      ],
+    });
+    expect(typeof (frames.at(-1) as { positions?: Array<{ contracts?: unknown }> }).positions?.[0]?.contracts).toBe('string');
+  });
+
+  it('seeds a snapshot from the trade REST position row with fundingPaid null', async () => {
+    const stream = new PositionsStream({ streamId: 'rest-seed' });
+    stream.markSourceAttached(true);
+    const id = '11111111-1111-4111-8111-111111111111';
+    const token = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
+    const book = new HttpPrivateBookPort({
+      baseUrl: 'http://svc-trade.test',
+      fetch: ordersOrPositionsFetch(
+        () =>
+          new Response(JSON.stringify([restOpenPosition(id, '1.250000000000000001')]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    });
+    const base = await boot(stream, book);
+    const client = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${token}&channel=orders`);
+    client.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
+    await waitUntil(() => positionsChannel(client.frames).length > 0);
+    const frames = positionsChannel(client.frames);
+    expect(frames[0]).toMatchObject({
+      channel: 'positions',
+      type: 'snapshot',
+      resume: 'fresh',
+      streamId: 'rest-seed',
+      positions: [
+        expect.objectContaining({
+          userId: ALICE,
+          positionId: id,
+          contracts: '1.250000000000000001',
+          entryPrice: '64000.50',
+          fundingPaid: null,
+        }),
+      ],
+    });
+    expect(frames.some((frame) => frame.type === 'error')).toBe(false);
+  });
+
+  it('refuses a positions snapshot when a REST money field is a JSON number', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const frames = await subscribePositions(
+      ordersOrPositionsFetch(
+        () =>
+          new Response(JSON.stringify([restOpenPosition(id, 1.25)]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    );
+    expectRefusal(frames);
+    expect(JSON.stringify(frames)).not.toContain(id);
+  });
+
   it('seeds two gateway sockets from the book and keeps each account on its own rows', async () => {
     const stream = new PositionsStream({ streamId: 'gateway-seed' });
     stream.markSourceAttached(true);
     const aliceId = '11111111-1111-4111-8111-111111111111';
     const bobId = '22222222-2222-4222-8222-222222222222';
-    const book: PrivateBookPort = {
-      async listOpenOrders() {
-        return [];
-      },
-      async listOpenPositions({ userId }) {
-        if (userId === ALICE) return [row(ALICE, aliceId, '1.5') as unknown as PrivatePositionUpdate];
-        if (userId === BOB) return [row(BOB, bobId, '9') as unknown as PrivatePositionUpdate];
-        return [];
-      },
-    };
-    const base = await boot(stream, book);
     const aliceToken = (await issueAccessToken({ userId: ALICE, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
     const bobToken = (await issueAccessToken({ userId: BOB, sessionId: SESSION, scopes: ['trade:read'] }, tokens)).token;
-    const alice = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${aliceToken}&channel=positions`);
-    const bob = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${bobToken}&channel=positions`);
+    const book = new HttpPrivateBookPort({
+      baseUrl: 'http://svc-trade.test',
+      fetch: async (input, init) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/orders/open')) {
+          return new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        const auth = new Headers(init?.headers).get('authorization') ?? '';
+        const id = auth === `Bearer ${bobToken}` ? bobId : aliceId;
+        const contracts = auth === `Bearer ${bobToken}` ? '9' : '1.5';
+        return new Response(JSON.stringify([restOpenPosition(id, contracts)]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+    const base = await boot(stream, book);
+    const alice = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${aliceToken}&channel=orders`);
+    const bob = await open(`${base}${PRIVATE_STREAM_PATH}?access_token=${bobToken}&channel=orders`);
     alice.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
     bob.socket.send(JSON.stringify({ op: 'subscribe', channel: 'positions' }));
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const sequenced = (frames: unknown[]) => frames.filter((frame) => typeof (frame as { sequence?: unknown }).sequence === 'number');
-    const alicePositions = sequenced(alice.frames);
-    const bobPositions = sequenced(bob.frames);
+    await waitUntil(() => positionsChannel(alice.frames).length > 0 && positionsChannel(bob.frames).length > 0);
+    const alicePositions = positionsChannel(alice.frames);
+    const bobPositions = positionsChannel(bob.frames);
     expect(alicePositions[0]).toMatchObject({
       type: 'snapshot',
       resume: 'fresh',
       streamId: 'gateway-seed',
-      positions: [expect.objectContaining({ userId: ALICE, contracts: '1.5' })],
+      positions: [expect.objectContaining({ userId: ALICE, contracts: '1.5', entryPrice: '64000.50', fundingPaid: null })],
     });
     expect(JSON.stringify(alicePositions)).not.toContain(BOB);
     expect(JSON.stringify(alicePositions)).not.toContain(bobId);
     expect(bobPositions[0]).toMatchObject({
       type: 'snapshot',
       resume: 'fresh',
-      positions: [expect.objectContaining({ userId: BOB, contracts: '9' })],
+      positions: [expect.objectContaining({ userId: BOB, contracts: '9', fundingPaid: null })],
     });
     expect(JSON.stringify(bobPositions)).not.toContain(ALICE);
     expect(JSON.stringify(bobPositions)).not.toContain(aliceId);

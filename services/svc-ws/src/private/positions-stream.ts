@@ -14,8 +14,9 @@
  *
  * Money stays decimal strings. A JSON number is refused and does not advance
  * the sequence. Another account's rows are not readable without `admin:read`.
- * svc-trade's open-positions read is the caller's own account; a cold operator
- * subscribe is `ws.positions_snapshot_unavailable` rather than an invented book.
+ * svc-trade's open-positions read is the caller's own account. An unseeded book
+ * never snapshots: a failed read is not stored, and an operator may see another
+ * account only after that account's own subscribe has seeded it.
  */
 import { randomUUID } from 'node:crypto';
 export const POSITIONS_CHANNEL = 'positions' as const;
@@ -47,7 +48,8 @@ export interface PositionRow {
   readonly realizedPnl: string | null;
   readonly liquidationPrice: string | null;
   readonly marginMode: 'cross' | 'isolated' | null;
-  readonly fundingPaid: string;
+  /** Signed decimal from a bus event. Null when the open-positions read did not publish it. Never a filled `"0"`. */
+  readonly fundingPaid: string | null;
   readonly ts: string;
 }
 
@@ -194,6 +196,93 @@ export function positionRowFromUnknown(raw: unknown): PositionRow | null {
     ts === undefined
   ) {
     return null;
+  }
+  return {
+    positionId,
+    userId,
+    marketId,
+    symbol,
+    status,
+    side,
+    contracts,
+    entryPrice,
+    markPrice,
+    notional,
+    leverage,
+    collateral,
+    unrealizedPnl,
+    realizedPnl,
+    liquidationPrice,
+    marginMode,
+    fundingPaid,
+    ts,
+  };
+}
+
+function bookText(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  return value;
+}
+
+function refuseBookNumber(value: unknown, field: string): void {
+  if (typeof value === 'number') throw new Error(`${field} is a JSON number`);
+}
+
+function bookUnsigned(value: unknown, field: string): string {
+  refuseBookNumber(value, field);
+  if (typeof value !== 'string' || !UNSIGNED.test(value)) throw new Error(`${field} is not an unsigned decimal string`);
+  return value;
+}
+
+function bookUnsignedOrNull(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  return bookUnsigned(value, field);
+}
+
+function bookSignedOrNull(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  refuseBookNumber(value, field);
+  if (typeof value !== 'string' || !SIGNED.test(value)) throw new Error(`${field} is not a decimal string`);
+  return value;
+}
+
+/**
+ * Map one open-positions REST row onto a snapshot row.
+ * `userId` is the verified socket principal. A missing `fundingPaid` stays null.
+ * A JSON number throws so the whole read is refused. Bus events keep using
+ * {@link positionRowFromUnknown}, which still requires a signed `fundingPaid`.
+ */
+export function positionRowFromBook(raw: unknown, userId: string): PositionRow {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('positions seed row is not an object');
+  }
+  if (userId.length === 0) throw new Error('positions seed row is not this account');
+  const row = raw as Record<string, unknown>;
+  const positionId = bookText(row.positionId) ?? bookText(row.id);
+  const symbol = bookText(row.symbol);
+  const marketId = bookText(row.marketId) ?? symbol;
+  const status = row.status;
+  const side = row.side;
+  const contracts = bookUnsigned(row.contracts, 'contracts');
+  const entryPrice = bookUnsigned(row.entryPrice, 'entryPrice');
+  const markPrice = bookUnsignedOrNull(row.markPrice, 'markPrice');
+  const notional = bookUnsigned(row.notional, 'notional');
+  const leverage = bookUnsignedOrNull(row.leverage, 'leverage');
+  const collateral = bookUnsignedOrNull(row.collateral, 'collateral');
+  const unrealizedPnl = bookSignedOrNull(row.unrealizedPnl, 'unrealizedPnl');
+  const realizedPnl = bookSignedOrNull(row.realizedPnl, 'realizedPnl');
+  const liquidationPrice = bookUnsignedOrNull(row.liquidationPrice, 'liquidationPrice');
+  const fundingPaid = row.fundingPaid === undefined || row.fundingPaid === null ? null : bookSignedOrNull(row.fundingPaid, 'fundingPaid');
+  const ts = bookText(row.ts) ?? bookText(row.datetime) ?? new Date(0).toISOString();
+  const marginMode = row.marginMode === 'isolated' || row.marginMode === 'cross' ? row.marginMode : null;
+  if (
+    positionId === undefined ||
+    symbol === undefined ||
+    marketId === undefined ||
+    (status !== 'open' && status !== 'closing' && status !== 'closed' && status !== 'liquidated') ||
+    (side !== 'long' && side !== 'short')
+  ) {
+    throw new Error('positions seed row is not this account');
   }
   return {
     positionId,
@@ -376,11 +465,11 @@ export class PositionsStream {
   }
 
   /**
-   * Own-account books are seeded from `seed` before the first snapshot.
-   * A journal that already folded events can snapshot without a port: those
-   * rows were read off the bus. A cold book cannot. Another account has no
-   * svc-trade read on the caller's token, so a cold operator book is refused
-   * and `seed` is not called (it would stamp the caller's rows onto them).
+   * A snapshot needs a successful open-positions read for this book.
+   * Events already folded do not count: the retained tail is not the account's
+   * book. Another account has no svc-trade read on the caller's token, so an
+   * unseeded operator subscribe is refused and `seed` is not called.
+   * A thrown read leaves `seeded` false, so the next subscribe reads again.
    */
   async #ensureSeeded(
     book: Book,
@@ -391,19 +480,13 @@ export class PositionsStream {
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly frame: PositionsErrorFrame }> {
     if (book.seeded) return { ok: true };
     if (targetUserId !== sessionUserId) {
-      if (book.sequence === 0) {
-        return {
-          ok: false,
-          frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, "another account's open positions cannot be read on this stream"),
-        };
-      }
-      return { ok: true };
+      return {
+        ok: false,
+        frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, "another account's open positions cannot be read on this stream"),
+      };
     }
     if (seed === undefined || accessToken === undefined || accessToken.length === 0) {
-      if (book.sequence === 0) {
-        return { ok: false, frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, 'open positions snapshot is not wired') };
-      }
-      return { ok: true };
+      return { ok: false, frame: errorFrame(POSITIONS_SNAPSHOT_UNAVAILABLE, 'open positions snapshot is not wired') };
     }
     try {
       await this.#seedBook(book, targetUserId, accessToken, seed);
@@ -435,11 +518,7 @@ export class PositionsStream {
     const raw = await seed(userId, accessToken);
     const parsed: PositionRow[] = [];
     for (const item of raw) {
-      const row = positionRowFromUnknown(item);
-      if (row === null || row.userId !== userId) {
-        throw new Error('positions seed row is not this account');
-      }
-      parsed.push(row);
+      parsed.push(positionRowFromBook(item, userId));
     }
     book.rows.clear();
     for (const row of parsed) {

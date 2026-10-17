@@ -369,9 +369,12 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     positions = null,
   } = options;
   const book = configuredBook ?? EMPTY_PRIVATE_BOOK;
-  const positionsSeed: PositionsSeed | undefined = configuredBook
-    ? (userId, accessToken) => configuredBook.listOpenPositions({ accessToken, userId })
-    : undefined;
+  // The positions channel seeds only through the strict read. `listOpenPositions`
+  // still feeds the connect-time hydrate and still turns a miss into [].
+  const positionsSeed: PositionsSeed | undefined =
+    configuredBook?.readOpenPositions !== undefined
+      ? (userId, accessToken) => configuredBook.readOpenPositions!({ accessToken, userId })
+      : undefined;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
   let draining = false;
