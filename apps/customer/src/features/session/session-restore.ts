@@ -40,6 +40,12 @@ export type RefreshOutcome =
   | { kind: 'session'; session: Session }
   /** The server said the cookie is not a live session (401 `auth.session_invalid`/`session_reused`, or 403). */
   | { kind: 'signed_out'; code?: string }
+  /**
+   * A definite answer that is not about the cookie (400, 404, 501 …), e.g. an identity service older than the cookie
+   * refresh. Retrying will not turn it into a session. At boot it means signed out; mid-session it is treated like an
+   * outage (keep the session, back off), because a rolling deploy can answer this way for a moment.
+   */
+  | { kind: 'refused' }
   /** No answer we can trust (offline, 5xx, unreadable reply). The cookie is untouched; this is not a sign-out. */
   | { kind: 'unavailable' };
 
@@ -50,7 +56,17 @@ export function mapRefreshResult(result: ApiResult<Session>): RefreshOutcome {
     return Number.isFinite(Date.parse(result.data.expiresAt)) ? { kind: 'session', session: result.data } : { kind: 'unavailable' };
   if (result.reason === 'unauthorized' || result.reason === 'forbidden')
     return { kind: 'signed_out', ...(result.code ? { code: result.code } : {}) };
+  if (definiteRefusal(result)) return { kind: 'refused' };
   return { kind: 'unavailable' };
+}
+
+/** 4xx answers that mean "try again later" by HTTP meaning, so they stay an outage. */
+const RETRYABLE_4XX = new Set([408, 409, 423, 425, 429]);
+
+function definiteRefusal(result: Extract<ApiResult<Session>, { ok: false }>): boolean {
+  if (result.reason === 'not_mounted' || result.reason === 'not_supported') return true;
+  const status = result.status;
+  return result.reason === 'error' && status !== undefined && status >= 400 && status < 500 && !RETRYABLE_4XX.has(status);
 }
 
 function browserLocks(): LockManagerLike | undefined {
@@ -226,6 +242,7 @@ export function createSessionController(
       tell({ type: 'session', session: outcome.session });
     } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     else {
+      // 'unavailable' and 'refused' alike: keep the session; a mid-session 400/404 is likelier a deploy than a sign-out.
       // The refresher already retried once inside the server's grace window. From here the pauses grow.
       arm(Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** failures));
       failures += 1;
@@ -266,6 +283,8 @@ export function createSessionController(
     if (epoch !== started || state.session) return;
     if (outcome.kind === 'session') commit(outcome.session);
     else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
+    // A definite refusal at boot: retrying cannot help, so the visitor goes to sign-in rather than an endless Retry.
+    else if (outcome.kind === 'refused') signOut(null);
     else set({ session: null, restoring: false, restoreFailed: true, notice: null });
   }
   async function serverLogout(): Promise<ApiResult<{ ok: true }>> {
