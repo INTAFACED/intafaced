@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { AuthError } from '@intafaced/auth';
+import { JurisdictionError, router, publicProcedure, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
-import { TradeError, type FillRecord, type Market, type OrderRecord } from './spot/types.js';
+import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -186,6 +187,15 @@ const orderOutput = z.object({
   recoveryReason: z.enum(['SUBMIT_UNKNOWN', 'CANCEL_UNKNOWN', 'AMEND_UNKNOWN', 'RECONCILIATION_REQUIRED']).nullable(),
   reconciliationKey: z.string().nullable(),
   timestamp: z.number().int(),
+});
+
+const placeAttemptOutput = z.object({
+  userId: z.string().min(1),
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  clientOrderId: z.string().min(1).max(64),
+  outcome: z.enum(['refused', 'unknown', 'accepted']),
+  reason: z.string().nullable(),
+  orderId: z.string().uuid().nullable(),
 });
 
 const fillOutput = z.object({
@@ -390,6 +400,10 @@ function toTrpcError(err: unknown): TRPCError {
     }
   }
 
+  if (err instanceof JurisdictionError) {
+    return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+  }
+
   if (err instanceof AuthError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
   }
@@ -409,6 +423,225 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+type PlaceAttemptOutcome = 'refused' | 'unknown' | 'accepted';
+
+interface StoredPlaceAttempt {
+  readonly userId: string;
+  readonly tier: Principal['tier'];
+  readonly clientOrderId: string;
+  outcome: PlaceAttemptOutcome;
+  reason: string | null;
+  orderId: string | null;
+  order: OrderRecord | null;
+  refusal: unknown;
+}
+
+/**
+ * First custodial place for a user and clientOrderId. A refusal is kept so an
+ * officer can read it. An in-flight row stays `unknown` until the place returns
+ * an order or a definite refusal. A timeout does not become a fill.
+ */
+class PlaceAttemptBook {
+  private readonly byKey = new Map<string, StoredPlaceAttempt>();
+  private readonly byClientOrderId = new Map<string, string[]>();
+
+  private key(userId: string, clientOrderId: string): string {
+    return `${userId}\0${clientOrderId}`;
+  }
+
+  get(userId: string, clientOrderId: string): StoredPlaceAttempt | undefined {
+    return this.byKey.get(this.key(userId, clientOrderId));
+  }
+
+  /** First write wins. A later call for the same pair sees the stored row. */
+  insertOnce(row: StoredPlaceAttempt): StoredPlaceAttempt {
+    const key = this.key(row.userId, row.clientOrderId);
+    const existing = this.byKey.get(key);
+    if (existing) return existing;
+    this.byKey.set(key, row);
+    const keys = this.byClientOrderId.get(row.clientOrderId) ?? [];
+    keys.push(key);
+    this.byClientOrderId.set(row.clientOrderId, keys);
+    return row;
+  }
+
+  save(row: StoredPlaceAttempt): void {
+    const key = this.key(row.userId, row.clientOrderId);
+    if (!this.byKey.has(key)) {
+      const keys = this.byClientOrderId.get(row.clientOrderId) ?? [];
+      keys.push(key);
+      this.byClientOrderId.set(row.clientOrderId, keys);
+    }
+    this.byKey.set(key, row);
+  }
+
+  lookup(clientOrderId: string): StoredPlaceAttempt {
+    const keys = this.byClientOrderId.get(clientOrderId) ?? [];
+    if (keys.length === 0) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'place attempt not found' });
+    }
+    if (keys.length > 1) {
+      throw new TRPCError({ code: 'CONFLICT', message: 'clientOrderId matches more than one account' });
+    }
+    const row = this.byKey.get(keys[0]!);
+    if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'place attempt not found' });
+    return row;
+  }
+}
+
+function presentPlaceAttempt(row: StoredPlaceAttempt) {
+  return {
+    userId: row.userId,
+    tier: row.tier,
+    clientOrderId: row.clientOrderId,
+    outcome: row.outcome,
+    reason: row.reason,
+    orderId: row.orderId,
+  };
+}
+
+function replayPlaceAttempt(prior: StoredPlaceAttempt) {
+  if (prior.outcome === 'accepted' && prior.order) return presentOrder(prior.order);
+  if (prior.outcome === 'unknown' || !(prior.refusal instanceof Error)) {
+    throw new TradeError('place outcome is unknown', 'trade.hold_unknown');
+  }
+  throw prior.refusal;
+}
+
+function isPlaceTimeout(err: unknown): boolean {
+  if (err instanceof TradeError && err.code === 'trade.hold_unknown') return true;
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : '';
+  if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ABORT_ERR') return true;
+  return /\btimeout\b/i.test(err.message);
+}
+
+function refusalReason(err: unknown): string {
+  if (err instanceof TradeError || err instanceof AuthError || err instanceof JurisdictionError) return err.code;
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') return err.code;
+  return 'refused';
+}
+
+interface CustodialPlaceInput {
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly type: 'market' | 'limit';
+  readonly qty: string;
+  readonly price?: string;
+  readonly timeInForce?: TimeInForce;
+  readonly clientOrderId: string;
+  readonly subAccountId?: string;
+}
+
+function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal }): void {
+  const decision = checkAccess({
+    module: 'trade',
+    plane: 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) throw new JurisdictionError(decision);
+}
+
+/**
+ * Record the place, then hold. Tier `none` is `tier.insufficient` and never
+ * calls `placeOrder`. A second call with the same clientOrderId replays the
+ * first row. A timeout leaves `unknown` and returns no order.
+ */
+async function placeAttributedOrder(
+  ctx: Context & { principal: Principal },
+  input: CustodialPlaceInput,
+  trade: TradeService,
+  book: PlaceAttemptBook,
+) {
+  const principal = ctx.principal;
+  const prior = book.get(principal.userId, input.clientOrderId);
+  if (prior) return replayPlaceAttempt(prior);
+
+  const blank = {
+    userId: principal.userId,
+    tier: principal.tier,
+    clientOrderId: input.clientOrderId,
+    orderId: null,
+    order: null,
+  };
+
+  if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
+    let refusal: AuthError | undefined;
+    try {
+      requireTier(principal, 'basic');
+    } catch (err) {
+      if (err instanceof AuthError && err.code === 'tier.insufficient') refusal = err;
+      else throw err;
+    }
+    const row = book.insertOnce({
+      ...blank,
+      outcome: 'refused',
+      reason: 'tier.insufficient',
+      refusal: refusal ?? new AuthError('Verification tier "basic" is required', 'tier.insufficient'),
+    });
+    return replayPlaceAttempt(row);
+  }
+
+  try {
+    refuseCustodialTradeJurisdiction(ctx);
+  } catch (err) {
+    const row = book.insertOnce({
+      ...blank,
+      outcome: 'refused',
+      reason: refusalReason(err),
+      refusal: err,
+    });
+    if (row.refusal !== err) return replayPlaceAttempt(row);
+    throw err;
+  }
+
+  const pending: StoredPlaceAttempt = {
+    ...blank,
+    outcome: 'unknown',
+    reason: null,
+    refusal: null,
+  };
+  const claimed = book.insertOnce(pending);
+  if (claimed !== pending) return replayPlaceAttempt(claimed);
+
+  try {
+    const order = await trade.placeOrder(principal, {
+      symbol: input.symbol,
+      side: input.side,
+      type: input.type,
+      qty: parseAmount(input.qty),
+      price: input.price === undefined ? null : parseAmount(input.price),
+      tif: input.timeInForce,
+      clientOrderId: input.clientOrderId,
+      subAccountId: input.subAccountId,
+    });
+    book.save({
+      ...pending,
+      outcome: 'accepted',
+      reason: null,
+      orderId: order.id,
+      order,
+      refusal: null,
+    });
+    return presentOrder(order);
+  } catch (err) {
+    if (isPlaceTimeout(err)) {
+      throw new TradeError('place outcome is unknown', 'trade.hold_unknown');
+    }
+    book.save({
+      ...pending,
+      outcome: 'refused',
+      reason: refusalReason(err),
+      refusal: err,
+      orderId: null,
+      order: null,
+    });
+    throw err;
+  }
+}
+
 export function createTradeRouter(
   trade: TradeService,
   otc?: OtcDeskService,
@@ -416,6 +649,7 @@ export function createTradeRouter(
   controls?: TradingControls,
   admin?: TradeOpsAdmin,
 ) {
+  const placeAttempts = new PlaceAttemptBook();
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: tradeOpsAdminRouter(admin),
@@ -442,10 +676,12 @@ export function createTradeRouter(
 
     orders: router({
       /**
-       * THE MONEY PATH. `trade:write`, tier and jurisdiction, then the flow in
-       * `TradeService.placeOrder`: risk → hold → engine → fill/release.
+       * THE MONEY PATH. `trade:write`, then `placeAttributedOrder`: tier and
+       * jurisdiction are recorded against clientOrderId before any hold.
+       * The middleware does not take `{ module: 'trade' }` — that gate throws
+       * before the attempt row exists, so a tier refusal would be invisible.
        */
-      create: scopedProcedure('trade:write', { module: 'trade' })
+      create: scopedProcedure('trade:write')
         .input(
           z
             .object({
@@ -476,22 +712,13 @@ export function createTradeRouter(
             }),
         )
         .output(orderOutput)
-        .mutation(({ ctx, input }) =>
-          guard(async () =>
-            presentOrder(
-              await trade.placeOrder(ctx.principal, {
-                symbol: input.symbol,
-                side: input.side,
-                type: input.type,
-                qty: parseAmount(input.qty),
-                price: input.price === undefined ? null : parseAmount(input.price),
-                tif: input.timeInForce,
-                clientOrderId: input.clientOrderId,
-                subAccountId: input.subAccountId,
-              }),
-            ),
-          ),
-        ),
+        .mutation(({ ctx, input }) => guard(() => placeAttributedOrder(ctx, input, trade, placeAttempts))),
+
+      /** Risk officer read of the first place attempt for a clientOrderId. No hold. */
+      placeAttempt: scopedProcedure('admin:read')
+        .input(z.object({ clientOrderId: z.string().min(1).max(64) }).strict())
+        .output(placeAttemptOutput)
+        .query(({ input }) => presentPlaceAttempt(placeAttempts.lookup(input.clientOrderId))),
 
       /**
        * Cancelling is `trade:write` but is NOT gated on the market being
