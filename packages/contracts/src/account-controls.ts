@@ -29,15 +29,23 @@ export const accountControlInputSchema = z
     action: z.enum(['restrict', 'restore']),
     reason,
     expectedVersion: version,
-    /**
-     * Reference to a stored `trading.restrict` approval. Not authority by itself:
-     * identity checks it is approved, unexpired, unconsumed, and bound to this account
-     * and payload before it consumes the row. Absent on every other control.
-     */
-    approvalId: z.string().trim().min(1).max(128).optional(),
   })
   .strict();
 export type AccountControlInput = z.infer<typeof accountControlInputSchema>;
+
+/**
+ * svc-identity only. `approvalId` names a stored `trading.restrict` approval.
+ * It is a reference, not authority: identity checks the row is approved, unexpired,
+ * unconsumed, and bound to this account and payload before consuming it.
+ * The shared schema refuses this field so another service cannot apply the
+ * restriction and leave the approval unused.
+ */
+export const identityAccountControlInputSchema = accountControlInputSchema
+  .extend({
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+export type IdentityAccountControlInput = z.infer<typeof identityAccountControlInputSchema>;
 
 export const accountControlStateSchema = z.object({ target: accountControlTargetSchema, version, restricted: z.boolean() }).strict();
 export type AccountControlState = z.infer<typeof accountControlStateSchema>;

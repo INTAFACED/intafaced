@@ -11,7 +11,7 @@ import {
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
 import {
-  accountControlInputSchema,
+  identityAccountControlInputSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlResultSchema,
@@ -19,7 +19,7 @@ import {
   currentAuthorityResultSchema,
   accountOperatorEntitlementSchema,
   type AccountOperatorEntitlement,
-  type AccountControlInput,
+  type IdentityAccountControlInput,
   type AccountControlResult,
   type AccountControlState,
   type Context,
@@ -146,6 +146,8 @@ export type EntitlementChangeResult = {
   code?: 'operator.denied' | 'mfa.required' | 'restriction.version_conflict' | 'request.conflict' | 'restore.not_permitted';
 };
 
+function fingerprint(actorId: string | null, input: IdentityAccountControlInput): string;
+function fingerprint(actorId: string | null, input: unknown): string;
 function fingerprint(actorId: string | null, input: unknown): string {
   return createHash('sha256').update(JSON.stringify({ actorId, input })).digest('hex');
 }
@@ -288,8 +290,8 @@ export class FounderControls {
     return row ? { conflict: row.fingerprint !== hash, result: row.result } : null;
   }
 
-  async change(context: Context, raw: AccountControlInput): Promise<AccountControlResult> {
-    const input = accountControlInputSchema.parse(raw);
+  async change(context: Context, raw: IdentityAccountControlInput): Promise<AccountControlResult> {
+    const input = identityAccountControlInputSchema.parse(raw);
     input.requestId = input.requestId.toLowerCase();
     if (input.target.area !== 'merchant') input.target.userId = input.target.userId.toLowerCase();
     if (input.target.area === 'trading') {
@@ -390,7 +392,7 @@ export class FounderControls {
    * (identity does not alter trading) and is handled in `change` before this method.
    * On: a trade-ops operator applies the change only with a bound, unconsumed approval, in this transaction.
    */
-  private async changeTrading(context: Context, input: AccountControlInput): Promise<AccountControlResult> {
+  private async changeTrading(context: Context, input: IdentityAccountControlInput): Promise<AccountControlResult> {
     if (input.target.area !== 'trading') throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
     const principal = context.principal;
     const actorId = principal?.userId.toLowerCase() ?? null;
