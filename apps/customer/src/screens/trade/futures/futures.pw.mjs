@@ -258,8 +258,14 @@ if (mode === 'test') {
       await shot('close-dialog');
       await dialog().getByRole('button', { name: 'Close position' }).last().click();
       await page.waitForTimeout(1500);
-      const del = exchange.requests.filter((q) => q.method === 'DELETE');
-      if (del.length !== 1) throw new Error('deletes ' + del.length);
+      const closes = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions/pos-short-2/close');
+      if (closes.length !== 1) throw new Error('closes ' + closes.length);
+      if (closes[0].body.quantity !== '0.05' || typeof closes[0].body.clientCloseId !== 'string') {
+        throw new Error('close body ' + JSON.stringify(closes[0].body));
+      }
+      if (exchange.requests.some((q) => q.method === 'DELETE' && q.path.startsWith('positions/'))) {
+        throw new Error('DELETE must not close');
+      }
       await shot('close-done');
     });
     await tryStep('close all lists positions and closes each with its own result', async () => {
@@ -430,7 +436,9 @@ if (mode === 'test') {
       await page.waitForTimeout(1000);
       const t = await page.locator('body').innerText();
       if (/Refused|is not open/i.test(t)) throw new Error('close misreported');
-      if (exchange.requests.filter((q) => q.method === 'DELETE').length !== 1) throw new Error('a second DELETE was sent');
+      const closes = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions/pos-long-1/close');
+      if (closes.length !== 1) throw new Error('a second close was sent: ' + closes.length);
+      if (closes[0].body.quantity !== '0.1') throw new Error('quantity ' + JSON.stringify(closes[0].body));
       await shot('close-lost-answer-checked');
     });
     await goDesk({ planeOff: true, seed: 'one' });
