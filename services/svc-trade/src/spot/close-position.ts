@@ -1,12 +1,12 @@
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { env } from '../env.js';
-import { classifyHoldPostError, orderHoldIdempotencyKey } from './hold-outcome.js';
+import { classifyHoldPostError } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -60,6 +60,31 @@ type CloseHost = {
 
 function asHost(svc: object): CloseHost {
   return svc as unknown as CloseHost;
+}
+
+/** Sum of ceil(price × qty) across buy fills. Not the first price times the total qty. */
+export function sumBuyFillNotional(fills: readonly { readonly price: string; readonly qty: string }[]): Amount {
+  return fills.reduce((n, fill) => n + mul(parseAmount(fill.price), parseAmount(fill.qty), 'ceil'), 0n) as Amount;
+}
+
+/**
+ * Unit tests in close-position.flatten-hold and slice-futures-amounts still
+ * call this. The close catch does not: it uses classifyHoldPostError, and a
+ * close never writes hold_unknown.
+ */
+const DEFINITE_HOLD_REFUSAL_CODES = new Set([
+  'ledger.insufficient_funds',
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.frozen',
+  'ledger.unauthenticated',
+  'ledger.freeze_attributed',
+]);
+
+export function closeHoldFailureAction(err: unknown): 'keep_recovery' | 'delete_intent' {
+  if (err instanceof LedgerError && DEFINITE_HOLD_REFUSAL_CODES.has(err.code)) return 'delete_intent';
+  return 'keep_recovery';
 }
 
 function flattenFromResult(result: EngineSubmitResult): { side: OrderSide; qty: Amount; price: Amount } {
@@ -117,7 +142,7 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
 
   const flatten = flattenFromResult(result);
   // A BUY flatten can sweep several levels: hold the exact executed notional, not first price x qty (#4591).
-  const buyNotional = result.fills.reduce((n, f) => n + mul(parseAmount(f.price), parseAmount(f.qty), 'ceil'), 0n) as Amount;
+  const buyNotional = sumBuyFillNotional(result.fills);
   const hold =
     flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
   const perks = await host.perks.perksOf(userId);
@@ -158,25 +183,14 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
         await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
         throw err;
       }
-      await host.sql`
-        UPDATE trade.orders SET status = 'hold_unknown', updated_at = now()
-         WHERE id = ${orderId} AND status = 'pending'
-      `;
-      let booked = false;
-      try {
-        booked = (await host.ledger.getTxByKey(orderHoldIdempotencyKey(orderId))) != null;
-      } catch {
-        booked = false;
-      }
-      if (!booked) {
-        throw new TradeError(`order ${orderId} hold outcome is unknown; the close is kept for recovery`, 'trade.hold_unknown');
-      }
+      await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+      throw err;
     }
   }
 
   await host.sql`
     UPDATE trade.orders SET status = 'open', updated_at = now()
-     WHERE id = ${orderId} AND status IN ('pending', 'hold_unknown')
+     WHERE id = ${orderId} AND status = 'pending'
   `;
 
   try {

@@ -89,6 +89,10 @@ export interface Entity {
   readonly settlementId: string;
   readonly linkId: string;
   readonly endpointId: string;
+  /** A second endpoint the isolation sweep may disable without silencing the primary. */
+  readonly spareEndpointId: string;
+  /** A failed delivery on `endpointId`, so a retry positive control has a row to requeue. */
+  readonly deliveryId: string;
   /** W15: a dispute case (process-wide store; the id is unique per entity) on `paymentId`. */
   readonly disputeId: string;
   /** W15: the opaque customer reference the merchant put on `paymentId`. */
@@ -103,6 +107,8 @@ export interface Entity {
   readonly inviteId: string;
   /** W1: the pending payout approval this merchant's owner (the maker) requested on `settlementId`. */
   readonly approvalId: string;
+  /** Portal refund list: the `refund.posted` event id. No ledger movement. */
+  readonly refundEventId: string;
   /** Draft standalone invoice for `paymentId`'s amount and asset. */
   readonly invoiceId: string;
   /** Evidence bytes stored for `disputeId`. */
@@ -249,16 +255,20 @@ function composeRouter(parts: {
       parts.destinations,
       actionApprovals,
       teamReadFromSql(parts.sql),
+      undefined,
+      parts.sql,
     ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
     createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
-    createSubMerchantRouter(parts.subMerchants, parts.pay),
+    createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
       founderAuthority: parts.founderAuthority,
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      webhooksAllowLocalHttp: true,
+      webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
       invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
@@ -376,7 +386,16 @@ export async function createWorld(): Promise<World> {
     const settlement = await pay.settleWindow({ merchantId, window: `w14-${tag}`, assetId: 'USDT', ...settleAt });
     const link = await pay.createPaymentLink({ merchantId, label: `link-${tag}` });
     const endpoint = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}`);
+    const spare = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}-spare`);
     await webhooks.enqueue({ type: 'payment.captured', payment: captured });
+    const deliveryRows = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.merchant_webhook_deliveries
+       WHERE merchant_id = ${merchantId} AND endpoint_id = ${endpoint.id}
+       ORDER BY created_at DESC LIMIT 1`;
+    await sql`
+      UPDATE pay.merchant_webhook_deliveries SET status = 'failed', attempts = 1
+       WHERE id = ${deliveryRows[0]!.id}`;
+    await sql`DELETE FROM pay.merchant_webhook_deliveries WHERE endpoint_id = ${spare.id}`;
 
     // W15 merchant operations rows. Direct inserts for the ones the product creates asynchronously
     // (export, invitations), so seeding starts no background work.
@@ -407,6 +426,14 @@ export async function createWorld(): Promise<World> {
     const inviteRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
       VALUES (${merchantId}, ${userId}, 'viewer', 'invited', ${userId}) RETURNING id`;
+    const refundRows = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (
+        ${first.id},
+        'refund.posted',
+        ${sql.json({ refundId: `iso-${tag}`, amount: '1', source: 'clearing' })}
+      )
+      RETURNING id`;
     entities[tag] = {
       tag,
       userId,
@@ -416,6 +443,8 @@ export async function createWorld(): Promise<World> {
       settlementId: settlement.id,
       linkId: link.id,
       endpointId: endpoint.id,
+      spareEndpointId: spare.id,
+      deliveryId: deliveryRows[0]!.id,
       disputeId,
       customerRef,
       exportJobId: exportRows[0]!.id,
@@ -423,6 +452,7 @@ export async function createWorld(): Promise<World> {
       memberId: memberRows[0]!.id,
       inviteId: inviteRows[0]!.id,
       approvalId: '', // set by seedControl below, once every merchant has a tier
+      refundEventId: refundRows[0]!.id,
       invoiceId: invoiceRows[0]!.id,
       evidenceId,
     };
@@ -517,12 +547,15 @@ export async function createWorld(): Promise<World> {
         x.settlementId,
         x.linkId,
         x.endpointId,
+        x.spareEndpointId,
+        x.deliveryId,
         x.disputeId,
         x.exportJobId,
         x.notificationId,
         x.memberId,
         x.inviteId,
         x.approvalId,
+        x.refundEventId,
         x.invoiceId,
         x.evidenceId,
       ];

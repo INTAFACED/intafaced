@@ -31,6 +31,8 @@ export const MERCHANT_PERMISSIONS = [
   'invoices.write',
   'customers.read',
   'kyb.read',
+  'profile.read',
+  'profile.manage',
   'exports.create',
   'exports.read',
   'notifications.read',
@@ -40,6 +42,10 @@ export const MERCHANT_PERMISSIONS = [
   'halts.read',
   'payout.request',
   'payout.approve',
+  'activity.read',
+  'payouts.read',
+  'webhooks.read',
+  'webhooks.manage',
 ] as const;
 export type MerchantPermission = (typeof MERCHANT_PERMISSIONS)[number];
 
@@ -49,11 +55,14 @@ const READS: readonly MerchantPermission[] = [
   'invoices.read',
   'customers.read',
   'kyb.read',
+  'profile.read',
   'exports.read',
   'notifications.read',
   'payments.read',
   'settlements.read',
   'halts.read',
+  'activity.read',
+  'payouts.read',
 ];
 
 const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = {
@@ -68,12 +77,46 @@ const ROLE_PERMISSIONS: Record<MerchantRole, ReadonlySet<MerchantPermission>> = 
     'payout.request',
     'payout.approve',
   ]),
-  developer: new Set<MerchantPermission>([...READS, 'exports.create']),
+  developer: new Set<MerchantPermission>([...READS, 'exports.create', 'webhooks.read', 'webhooks.manage']),
   viewer: new Set<MerchantPermission>(READS),
 };
 
 export function roleHasPermission(role: MerchantRole, permission: MerchantPermission): boolean {
   return ROLE_PERMISSIONS[role].has(permission);
+}
+
+/** Owner, admin, and finance see a stored pricing row. Viewer and developer see the fee amount only. */
+const FULL_PRICING = new Set<MerchantRole>(['owner', 'admin', 'finance']);
+
+export function seesFullPricing(role: MerchantRole): boolean {
+  return FULL_PRICING.has(role);
+}
+
+export function pricingVisibilityFor(role: MerchantRole): 'full' | 'fee_only' {
+  return seesFullPricing(role) ? 'full' : 'fee_only';
+}
+
+/** Every permission flag for a role, taken from the role table and not from the request. */
+export function capabilityFlags(role: MerchantRole): { [K in MerchantPermission]: boolean } {
+  return Object.fromEntries(MERCHANT_PERMISSIONS.map((permission) => [permission, roleHasPermission(role, permission)])) as {
+    [K in MerchantPermission]: boolean;
+  };
+}
+
+const WRITE_PERMISSIONS = new Set<MerchantPermission>(MERCHANT_PERMISSIONS.filter((permission) => !READS.includes(permission)));
+
+/**
+ * Role flags, then the session. An API key or a session without MFA keeps the
+ * reads and loses every write, including profile.manage and payout.approve.
+ */
+export function capabilityFlagsForSession(role: MerchantRole, sessionInteractive: boolean): { [K in MerchantPermission]: boolean } {
+  const flags = capabilityFlags(role);
+  if (sessionInteractive) return flags;
+  return Object.fromEntries(
+    MERCHANT_PERMISSIONS.map((permission) => [permission, flags[permission] && !WRITE_PERMISSIONS.has(permission)]),
+  ) as {
+    [K in MerchantPermission]: boolean;
+  };
 }
 
 /** Roles that hold a permission, for docs and tests. */

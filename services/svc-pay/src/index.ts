@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
@@ -71,6 +72,7 @@ import { onCapturedOverCap } from './control/over-cap-signal.js';
 import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
+import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -403,7 +405,7 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -416,7 +418,7 @@ export const appRouter = mergeRouters(
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any
   // other and the subtree fence would be measuring the wrong actor.
-  createSubMerchantRouter(subMerchants, pay),
+  createSubMerchantRouter(subMerchants, pay, sql),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
   // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
   // A namespace with no service still refuses `pay.not_built`.
@@ -428,6 +430,9 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    ledger,
+    webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
+    webhookRetry: loadWebhookRetryLimit(process.env),
     disputes: disputeCases,
     evidence: {
       uploadEnabled: disputeEvidenceUploadEnabled(process.env),
@@ -448,7 +453,10 @@ export type { SubMerchantRouter } from './submerchant-router.js';
 export type { SubscriptionRouter } from './subscription-router.js';
 export type { PayNamespacesRouter } from './namespaces/index.js';
 
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, genReqId: () => randomUUID() });
+app.addHook('onRequest', async (req, reply) => {
+  reply.header('x-request-id', req.id);
+});
 evidenceDueByLog.warn = (eventId) => {
   app.log.warn({ eventId }, 'pay.evidence_due_by_ignored');
 };
@@ -700,7 +708,8 @@ await app.register(async (webhookScope) => {
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });
     } catch (err) {
       if (err instanceof PayError && err.code === 'pay.webhook_invalid') {
-        return reply.code(401).send({ error: 'invalid signature' });
+        reply.header('x-request-id', request.id);
+        return reply.code(401).send({ error: 'invalid signature', requestId: request.id });
       }
       if (err instanceof PayError && err.code === 'pay.webhook_unmatched') {
         // 202: the delivery is genuine but about something we do not know. Not
@@ -728,6 +737,11 @@ await app.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext: ({ req }) => edgeContext(req),
+    responseMeta({ ctx }) {
+      const requestId = ctx?.requestId;
+      if (!requestId) return {};
+      return { headers: { 'x-request-id': requestId } };
+    },
   } satisfies FastifyTRPCPluginOptions<typeof appRouter>['trpcOptions'],
 });
 

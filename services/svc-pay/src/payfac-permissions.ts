@@ -81,6 +81,7 @@ export const PAYFAC_SURFACE_AREAS = {
   'trpc.merchant.listLinks': 'payment.link',
   'trpc.merchant.deactivateLink': 'payment.link',
   'trpc.merchant.balances': 'merchant.profile',
+  'trpc.merchant.payoutDestinations.list': 'settlement.payout',
   'trpc.payment.create': 'payment',
   'trpc.payment.authorize': 'payment',
   'trpc.payment.capture': 'payment',
@@ -88,10 +89,13 @@ export const PAYFAC_SURFACE_AREAS = {
   'trpc.payment.get': 'payment',
   'trpc.payment.list': 'payment',
   'trpc.payment.history': 'payment',
+  'trpc.payment.refunds.list': 'payment',
+  'trpc.payment.refunds.get': 'payment',
   'trpc.settlement.run': 'settlement',
   'trpc.settlement.payout': 'settlement.payout',
   'trpc.settlement.get': 'settlement',
   'trpc.settlement.list': 'settlement',
+  'trpc.settlement.lifecycle': 'settlement',
   'trpc.settlement.release': 'settlement',
 } as const satisfies Record<string, PermissionArea>;
 

@@ -182,7 +182,7 @@ function testLinks() {
 }
 test('payment links: scoped records, URL search and availability, export and detail', async ({ page }) => {
   await setup(page);
-  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, testLinks()));
+  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, { items: testLinks(), nextCursor: null }));
   await signIn(page, '/pay/links');
   await expect(page.getByRole('link', { name: 'TEST workshop', exact: true })).toBeVisible();
   await expect(page.getByText('2 shown from 2 loaded links.')).toBeVisible();
@@ -268,7 +268,7 @@ test('stored light preference: app policy stays dark, all W3c routes remain acce
   test.setTimeout(90_000);
   await page.addInitScript(() => localStorage.setItem('intafaced.customer.view.v1', JSON.stringify({ theme: 'light' })));
   await setup(page);
-  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, testLinks()));
+  await page.route('**/api/pay/trpc/merchant.listLinks?*', (route) => reply(route, { items: testLinks(), nextCursor: null }));
   await signIn(page, '/pay/money');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   for (const [id, path, title] of [

@@ -89,6 +89,7 @@ import {
   type ConvertQuoteResult,
   type ConvertTradeWire,
 } from '../convert/quote.js';
+import { checkMaxOrder, checkMaxOrderNotional, resolveAdmissionLimits } from '../futures/pretrade-limits.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
 import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
@@ -1139,6 +1140,19 @@ export class TradeService {
             throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
           }
         }
+        // Owner pre-trade max-order limit (#4725) on a FRESH accept only: a
+        // bound or admitted original is a recovery and never creates new risk.
+        if (stored.lifecycle === 'open' && !original) {
+          const resolved = resolveAdmissionLimits();
+          if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code as TradeErrorCode);
+          const refusal = checkMaxOrderNotional({
+            limits: resolved.limits,
+            quoteAsset: bound.quote.quoteAsset,
+            notional: bound.fillNotional,
+            what: 'convert',
+          });
+          if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+        }
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
@@ -1486,6 +1500,15 @@ export class TradeService {
       protectionPrice = input.minProtectionPrice;
     }
 
+    // Owner pre-trade max-order limit (#4725): this is the one door every
+    // placed order passes (router, replace, copy mirror, algo child). Retries of
+    // an existing order returned above, so a retry is never newly refused. Paper
+    // markets returned above too (no real money), and seeded MM is a system action.
+    // Reduce-only orders only ever shrink a position, so they are never capped.
+    if (!seeded && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
+      await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? protectionPrice);
+    }
+
     // A market SELL holds base quantity, so `holdFor` ignores the price on that
     // branch — the zero is never read, and passing one is what keeps the
     // function total rather than partial.
@@ -1783,12 +1806,21 @@ export class TradeService {
               'trade.hold_unknown',
             );
           }
-          const cancelled = await this.sql<Array<{ id: string }>>`
-            UPDATE trade.orders SET status = 'cancelled', updated_at = now()
-             WHERE id = ${orderId} AND status = 'hold_unknown'
-             RETURNING id
-          `;
-          if (cancelled.length === 0) {
+          const cancelled = await this.cancelAbsentHoldUnknownPastBound(orderId);
+          if (cancelled === 0) {
+            const current = await this.findOrder(orderId);
+            if (current?.status === 'hold_unknown') {
+              const wait = await this.holdUnknownWaitSeconds(orderId);
+              this.noteHoldUnknown({
+                orderId,
+                resolution: 'still_unknown',
+                detail: `cancel write matched no row; ${wait}s of in-flight wait left`,
+              });
+              throw new TradeError(
+                `order ${orderId} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
+                'trade.hold_unknown',
+              );
+            }
             throw new TradeError(`order ${orderId} is being resolved; retry`, 'trade.hold_unknown');
           }
           const settled = await this.findOrder(orderId);
@@ -2219,6 +2251,25 @@ export class TradeService {
           throw new TradeError('a market order must not carry a price', 'trade.invalid_price');
         }
 
+        // Owner max-order limit (#4725) BEFORE the cancel: a refused replacement
+        // must leave the original order live, never cancel it and then refuse.
+        if (input.seeded !== true && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
+          try {
+            let reference: Amount | null = input.price ?? null;
+            if (reference == null && input.side === 'buy') {
+              reference = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+              const cap = input.maxProtectionPrice;
+              if (cap != null && cap > 0n && cap < reference) reference = cap;
+            }
+            await this.assertOwnerOrderLimit(market, input.qty, reference);
+          } catch (err) {
+            if (err instanceof TradeError && (err.code.startsWith('trade.limit_max_') || /^trade\.max_.+_unset$/.test(err.code))) {
+              return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
+            }
+            throw err;
+          }
+        }
+
         // Authority is required before cancel, so an unavailable PX-S01 source
         // cannot strand the caller by cancelling an order it cannot replace.
         try {
@@ -2363,9 +2414,19 @@ export class TradeService {
         `;
     const open = rows.map(toOrder);
     const out: OrderRecord[] = [];
+    let holdUnknown: TradeError | null = null;
     for (const order of open) {
-      out.push(await this.cancelOrder(principal, order.id));
+      try {
+        out.push(await this.cancelOrder(principal, order.id));
+      } catch (err) {
+        if (err instanceof TradeError && err.code === 'trade.hold_unknown') {
+          holdUnknown ??= err;
+          continue;
+        }
+        throw err;
+      }
     }
+    if (holdUnknown) throw holdUnknown;
     return out;
   }
 
@@ -3299,6 +3360,33 @@ export class TradeService {
     return Number(rows[0]?.wait ?? 0);
   }
 
+  /**
+   * Absent-hold delete, only if the row is still past the in-flight bound.
+   * Zero means a re-post touched `updated_at` after the wait read.
+   */
+  private async deleteAbsentHoldUnknownPastBound(orderId: string): Promise<number> {
+    const deleted = await this.sql<Array<{ id: string }>>`
+      DELETE FROM trade.orders
+       WHERE id = ${orderId}
+         AND status = 'hold_unknown'
+         AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
+      RETURNING id
+    `;
+    return deleted.length;
+  }
+
+  /** Absent-hold cancel, with the same bound predicate as the delete. */
+  private async cancelAbsentHoldUnknownPastBound(orderId: string): Promise<number> {
+    const cancelled = await this.sql<Array<{ id: string }>>`
+      UPDATE trade.orders SET status = 'cancelled', updated_at = now()
+       WHERE id = ${orderId}
+         AND status = 'hold_unknown'
+         AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
+      RETURNING id
+    `;
+    return cancelled.length;
+  }
+
   private orderIsTaker(order: OrderRecord): boolean {
     return order.type === 'market' || order.tif === 'IOC' || order.tif === 'FOK';
   }
@@ -3326,6 +3414,25 @@ export class TradeService {
     if (market.status !== 'active') return `market status is ${market.status}`;
     if (this.orderIsTaker(order) && (await this.takerOlderThanCap(order.id))) {
       return `taker order is older than ${this.holdUnknownTakerMaxAgeMs}ms`;
+    }
+    try {
+      assertTradable(market, {
+        futuresEnabled: this.futuresEnabled,
+        optionsSettlementLawStamped: this.optionsSettlementAssetLaw.trim().length > 0,
+        now: this.now(),
+      });
+    } catch (err) {
+      return err instanceof Error ? err.message : 'market is not tradable';
+    }
+    try {
+      assertSettlementRails(market);
+    } catch (err) {
+      return err instanceof Error ? err.message : 'settlement rails refused';
+    }
+    try {
+      assertMarketOpen(market, this.now());
+    } catch (err) {
+      return err instanceof Error ? err.message : 'market is closed';
     }
     return null;
   }
@@ -3524,11 +3631,21 @@ export class TradeService {
           'trade.hold_unknown',
         );
       }
-      const deleted = await this.sql<Array<{ id: string }>>`
-        DELETE FROM trade.orders WHERE id = ${order.id} AND status = 'hold_unknown' RETURNING id
-      `;
-      if (deleted.length === 0) {
+      const deleted = await this.deleteAbsentHoldUnknownPastBound(order.id);
+      if (deleted === 0) {
         const current = await this.findOrder(order.id);
+        if (current?.status === 'hold_unknown') {
+          const wait = await this.holdUnknownWaitSeconds(order.id);
+          this.noteHoldUnknown({
+            orderId: order.id,
+            resolution: 'still_unknown',
+            detail: `absent delete matched no row; ${wait}s of in-flight wait left`,
+          });
+          throw new TradeError(
+            `order ${order.id} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
+            'trade.hold_unknown',
+          );
+        }
         if (current) return current;
       }
       throw new TradeError(`order ${order.id} hold was not booked`, 'trade.hold_not_booked');
@@ -3584,16 +3701,24 @@ export class TradeService {
           });
           continue;
         }
-        const deleted = await this.sql<Array<{ id: string }>>`
-          DELETE FROM trade.orders WHERE id = ${order.id} AND status = 'hold_unknown' RETURNING id
-        `;
-        if (deleted.length > 0) {
+        const deleted = await this.deleteAbsentHoldUnknownPastBound(order.id);
+        if (deleted > 0) {
           absent.push(order.id);
           alert({
             orderId: order.id,
             resolution: 'absent',
             detail: 'sweep read order.hold as absent past the in-flight bound; unfunded intent deleted, no release posted',
           });
+        } else {
+          const current = await this.findOrder(order.id);
+          if (current?.status === 'hold_unknown') {
+            stillUnknown.push(order.id);
+            alert({
+              orderId: order.id,
+              resolution: 'still_unknown',
+              detail: 'sweep delete matched no row; a re-post touched the row inside the in-flight bound',
+            });
+          }
         }
         continue;
       }
@@ -4514,6 +4639,33 @@ export class TradeService {
     const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
     if (!market) throw new TradeError(`market ${input.symbol ?? input.marketId ?? '(unspecified)'} not found`, 'trade.market_not_found');
     return market;
+  }
+
+  /**
+   * Owner max-order admission (#4725). `price` is the funding price (limit price
+   * or market-buy protection price). A market sell has none, so it is valued at
+   * the best bid and, with no bid, at its own floor; with neither the notional
+   * cannot be known and the order refuses rather than pass unmeasured.
+   */
+  private async assertOwnerOrderLimit(market: Market, qty: Amount, price: Amount | null): Promise<void> {
+    const resolved = resolveAdmissionLimits();
+    if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code as TradeErrorCode);
+    const { limits } = resolved;
+    if (limits.maxOrder == null) return;
+    let reference = price;
+    if (reference == null) {
+      const depth = await this.matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      reference = bid ? parseAmount(bid[0]) : null;
+    }
+    if (reference == null || reference <= 0n) {
+      throw new TradeError(
+        `order notional cannot be valued (no reference price) so it cannot be checked against the max-order limit of ${limits.maxOrder} ${market.quoteAsset}`,
+        'trade.limit_max_order',
+      );
+    }
+    const refusal = checkMaxOrder({ limits, quoteAsset: market.quoteAsset, price: reference, qty });
+    if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
   }
 
   private async bestAsk(marketId: string): Promise<Amount | null> {

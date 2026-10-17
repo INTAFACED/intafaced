@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import {
   formatAmount,
+  LedgerError,
   MemoryLedger,
   parseAmount as amt,
   recipes,
@@ -445,14 +446,14 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         triggered: [],
       });
       armed = true;
-      await expect(
-        closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-lost' }),
-      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      await expect(closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-lost' })).rejects.toThrow(
+        /ECONNRESET/,
+      );
 
       const rows = await sql<Array<{ id: string; status: string }>>`
         SELECT id, status::text FROM trade.orders WHERE client_order_id = 'close-lost'
       `;
-      expect(rows).toEqual([{ id: rows[0]!.id, status: 'hold_unknown' }]);
+      expect(rows).toEqual([{ id: rows[0]!.id, status: 'recovery_required' }]);
       expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'BTC', rows[0]!.id))).amount)).toBe('1');
       expect(inner.journal().filter((tx) => tx.reason === 'order.hold' && tx.idempotencyKey === `order.hold:${rows[0]!.id}`)).toHaveLength(
         1,
@@ -460,6 +461,91 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(rows[0]!.id))).toHaveLength(
         0,
       );
+
+      // The hold is readable again. A hold_unknown close would be submitted; recovery_required must not be.
+      armed = false;
+      const before = matching.submitted.length;
+      await local.sweepHoldUnknown();
+      expect(matching.submitted.slice(before).filter((call) => call.request.orderId === rows[0]!.id)).toHaveLength(0);
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${rows[0]!.id}`).toEqual([{ status: 'recovery_required' }]);
+    });
+
+    it('deletes the pending close row when the hold post is a ledger.insufficient_funds LedgerError', async () => {
+      const inner = new MemoryLedger();
+      let armed = false;
+      const client: LedgerClient = {
+        post: async (req) => {
+          if (armed && req.reason === 'order.hold') {
+            throw new LedgerError('insufficient funds', 'ledger.insufficient_funds');
+          }
+          return inner.post(req);
+        },
+        balance: (ref) => inner.balance(ref),
+        balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+        getTx: (id) => inner.getTx(id),
+        getTxByKey: (key) => inner.getTxByKey(key),
+      };
+      const local = new TradeService(sql, client, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 200,
+      });
+      await inner.post(
+        recipes.deposit({
+          userId: BOB,
+          assetId: 'USDT',
+          amount: amt('100'),
+          rail: 'test',
+          railRef: `bob-close-refused:${Math.random()}`,
+        }),
+      );
+      await local.placeOrder(principalFor(BOB), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('100'),
+        clientOrderId: 'bob-close-refused',
+      });
+      await inner.post(
+        recipes.deposit({
+          userId: ALICE,
+          assetId: 'BTC',
+          amount: amt('2'),
+          rail: 'test',
+          railRef: `alice-close-refused:${Math.random()}`,
+        }),
+      );
+      matching.closeScript = (_marketId, request) => ({
+        accepted: true,
+        sequence: 4,
+        fills: [
+          {
+            sequence: 5,
+            makerOrderId: 'unused',
+            makerAccountId: BOB,
+            takerOrderId: request.orderId,
+            takerAccountId: ALICE,
+            takerSide: 'sell',
+            price: '100',
+            qty: '1',
+          },
+        ],
+        resting: null,
+        rejected: null,
+        cancellations: [],
+        triggered: [],
+      });
+      armed = true;
+
+      await expect(
+        closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-refused' }),
+      ).rejects.toMatchObject({ code: 'ledger.insufficient_funds' });
+
+      expect(await sql`SELECT id FROM trade.orders WHERE client_order_id = 'close-refused'`).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
     });
   });
 });

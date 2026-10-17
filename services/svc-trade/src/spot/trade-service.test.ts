@@ -1672,5 +1672,150 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(wire.recoveryRequired).toBe(true);
       expect(wire.holdUnknown).toBe(true);
     });
+
+    it('sweep rejects a booked hold_unknown order when the venue schedule is closed', async () => {
+      // Same closed-venue instant as the assertMarketOpen place door: Saturday FX.
+      const saturday = new Date('2026-01-10T12:00:00Z');
+      const inner = new MemoryLedger();
+      await fundInner(inner, '20');
+      await inner.post(
+        recipes.deposit({
+          userId: ALICE,
+          assetId: 'USD',
+          amount: amt('20'),
+          rail: 'test',
+          railRef: `closed-venue-usd:${Math.random()}`,
+        }),
+      );
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = new TradeService(sql, inner, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        now: () => saturday,
+        onHoldUnknownAlert: (alert) => alerts.push(alert),
+      });
+      matching.script1((req, next) => restsInFull(req, next()));
+      const proofOrder = await svc.placeOrder(principalFor(ALICE), limitBuy('closed-proof'));
+      const proofRows = await sql<Array<{ proof: string }>>`
+        SELECT lifecycle_proof::text AS proof FROM trade.orders WHERE id = ${proofOrder.id}
+      `;
+      const eurusd = await svc.listMarket({
+        symbol: 'EUR/USD',
+        baseAsset: 'EUR',
+        quoteAsset: 'USD',
+        tickSize: amt('0.00001'),
+        lotSize: amt('1'),
+        minQty: amt('1'),
+        maxQty: null,
+        minNotional: amt('1'),
+        makerBps: 10,
+        takerBps: 20,
+        assetClass: 'forex',
+        schedule: 'fx-global',
+        paper: true,
+      });
+      const orderId = '44444444-4444-4444-8444-444444444444';
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${eurusd.id}, 'sweep-closed', 'buy', 'limit',
+          ${'1.10000'}::numeric, ${'1'}::numeric, 'hold_unknown', 'GTC',
+          'USD', ${'10'}::numeric, 0, false, ${proofRows[0]!.proof}::jsonb,
+          ${principalFor(ALICE).sid}
+        )
+      `;
+      await inner.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USD', amount: amt('10') }));
+      const submittedBefore = matching.submitted.length;
+      const swept = await svc.sweepHoldUnknown();
+      const row = await sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${orderId}`;
+      expect(row).toEqual([{ status: 'rejected' }]);
+      expect(swept.booked).toEqual([orderId]);
+      const releases = inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(orderId));
+      expect(releases).toHaveLength(1);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USD', orderId))).amount)).toBe('0');
+      expect(matching.submitted.slice(submittedBefore).filter((call) => call.request.orderId === orderId)).toHaveLength(0);
+      expect(alerts.some((alert) => alert.orderId === orderId && alert.detail.includes('is closed'))).toBe(true);
+    });
+
+    it('past-bound delete and cancel leave a fresh hold_unknown row and write one that is 8 minutes old', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('bound-fresh'))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      const fresh = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'bound-fresh'`;
+      const freshId = fresh[0]!.id;
+      const writers = svc as unknown as {
+        deleteAbsentHoldUnknownPastBound(orderId: string): Promise<number>;
+        cancelAbsentHoldUnknownPastBound(orderId: string): Promise<number>;
+      };
+
+      expect(await writers.deleteAbsentHoldUnknownPastBound(freshId)).toBe(0);
+      expect(await writers.cancelAbsentHoldUnknownPastBound(freshId)).toBe(0);
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${freshId}`).toEqual([{ status: 'hold_unknown' }]);
+
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '8 minutes' WHERE id = ${freshId}`;
+      expect(await writers.deleteAbsentHoldUnknownPastBound(freshId)).toBe(1);
+      expect(await sql`SELECT id FROM trade.orders WHERE id = ${freshId}`).toHaveLength(0);
+
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('bound-cancel'))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      const past = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'bound-cancel'`;
+      const pastId = past[0]!.id;
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '8 minutes' WHERE id = ${pastId}`;
+      expect(await writers.cancelAbsentHoldUnknownPastBound(pastId)).toBe(1);
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${pastId}`).toEqual([{ status: 'cancelled' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+    });
+
+    it('cancel-all cancels the older open order when a newer hold_unknown row refuses', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let posts = 0;
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            posts += 1;
+            if (posts === 1) return book();
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+      const older = await svc.placeOrder(principalFor(ALICE), limitBuy('cancel-all-older'));
+      await sql`UPDATE trade.orders SET created_at = now() - interval '1 minute' WHERE id = ${older.id}`;
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('cancel-all-unknown'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+
+      await expect(svc.cancelAllOrders(principalFor(ALICE))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${older.id}`).toEqual([{ status: 'cancelled' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', older.id))).amount)).toBe('0');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(older.id))).toHaveLength(1);
+      const unknown = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'cancel-all-unknown'
+      `;
+      expect(unknown).toEqual([{ id: unknown[0]!.id, status: 'hold_unknown' }]);
+      expect(
+        inner.journal().filter((tx) => tx.reason === 'order.hold' && tx.idempotencyKey === `order.hold:${unknown[0]!.id}`),
+      ).toHaveLength(0);
+      expect(
+        inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(unknown[0]!.id)),
+      ).toHaveLength(0);
+    });
   });
 });

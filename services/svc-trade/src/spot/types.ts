@@ -144,7 +144,9 @@ export type ReplaceOutcomeCode =
   | 'RECONCILIATION_REQUIRED'
   | 'REPLACEMENT_SUBMIT_UNKNOWN'
   | 'REPLACEMENT_NOT_SUBMITTED'
-  | 'LIFECYCLE_REFUSED';
+  | 'LIFECYCLE_REFUSED'
+  /** Owner pre-trade limit would refuse the replacement; the original was left untouched (#4725). */
+  | 'LIMIT_REFUSED';
 
 /** Honest result of the two-step cancel → finalized release → submit saga. */
 export interface ReplaceOrderOutcome {
@@ -444,6 +446,13 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  /**
+   * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
+   * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
+   */
+  | 'trade.limit_max_order'
+  | 'trade.limit_max_position'
+  | 'trade.limit_max_loss'
   /**
    * MM seed refused: TRADE_MM_SEED_HALF_SPREAD_BPS or TRADE_MM_SEED_STEP_BPS
    * blank / non-integer. Never invent 10.
