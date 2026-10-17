@@ -1,6 +1,7 @@
 import { isScheduleOpen, nextScheduleTransition } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, type Amount } from '@intafaced/ledger-client';
 import { assertDatedFuturesTradable } from '../futures/dated-futures.js';
+import { FUTURES_DISABLED, readTradePlanes } from '../futures/plane-capabilities.js';
 import { assertFxHolidayNamedDegrade, assertFxSeparateFromSpot } from './fx-product.js';
 import { assertKnownAssetClass, requireTradingSchedule } from './instrument-enums.js';
 import { TradeError, type Market, type OrderSide, type OrderType } from './types.js';
@@ -110,10 +111,12 @@ export function assertTradable(market: Market, options: TradableOptions = {}): v
   // Enum authority first (D-S-05 / D26-P1-T9) — see instrument-enums.ts.
   assertKnownAssetClass(market);
   if (market.kind === 'futures') {
-    if (options.futuresEnabled !== true) {
+    const published = readTradePlanes(process.env).futures;
+    const futuresOn = options.futuresEnabled !== undefined ? options.futuresEnabled === true : published.enabled;
+    if (!futuresOn) {
       throw new TradeError(
         `${market.symbol} is a futures market and futures trading is not enabled on this deployment (TRADE_FUTURES_ENABLED)`,
-        'trade.futures_disabled',
+        published.reason ?? FUTURES_DISABLED,
       );
     }
     assertDatedFuturesTradable(market, { now: options.now });

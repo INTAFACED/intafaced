@@ -50,7 +50,7 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     const html = renderToStaticMarkup(
       <Failure result={refusal({ message: 'token.params_missing', code: 'token.params_missing' })} retry={() => undefined} />,
     );
-    expect(html).toContain('Not set up yet');
+    expect(html).toContain('Not switched on');
     expect(html).not.toContain('token.params_missing');
     expect(html).not.toContain('Try again');
   });
@@ -63,7 +63,7 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     );
     expect(html).not.toContain('token_params');
     expect(html).not.toContain('fee_discount_schedule');
-    expect(html).toContain('Not set up yet');
+    expect(html).toContain('Not switched on');
     expect(html).not.toContain('Try again');
     // Ordinary text that looks like a setting name is left alone, with or without a code.
     const file = renderToStaticMarkup(<Failure result={refusal({ message: 'Upload id_card.png failed' })} retry={() => undefined} />);
@@ -83,5 +83,35 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(html).not.toMatch(/nothing was changed|isn.t trading|paused/i);
     expect(html).not.toContain('trade.matching_unavailable');
     expect(html).not.toContain('Try again');
+  });
+  it('says a service the gateway reports as unwired is not connected here, with no button and no status code', () => {
+    const result = refusal({ reason: 'unreachable', status: 502, code: 'edge.upstream_unwired', message: 'upstream unwired (502)' });
+    expect(canTryAgain(result)).toBe(false);
+    const html = renderToStaticMarkup(<Failure result={result} retry={() => undefined} />);
+    expect(html).toContain('This service isn’t connected here.');
+    expect(html).not.toMatch(/Try again|502|unwired/);
+  });
+  it('keeps the button for a service that did not answer, in plain words with no status code', async () => {
+    const { createApiClient } = await import('./api');
+    const api = createApiClient({
+      fetch: async () => new Response(JSON.stringify({ code: 'edge.upstream_unavailable' }), { status: 502 }),
+    });
+    const result = await api.rest('/protocol/chain', (await import('zod')).z.unknown());
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.status).toBe(502);
+    expect(result.message).toBe('The service didn’t answer. Try again in a moment.');
+    const html = renderToStaticMarkup(<Failure result={result} retry={() => undefined} />);
+    expect(html).toContain('Try again');
+    expect(html).not.toMatch(/502|refused/);
+  });
+  it('says the gateway reported the service as unwired in plain words, whatever method was used', async () => {
+    const { createApiClient } = await import('./api');
+    const api = createApiClient({
+      fetch: async () => new Response(JSON.stringify({ code: 'edge.upstream_unwired' }), { status: 503 }),
+    });
+    const result = await api.rest('/protocol/chain', (await import('zod')).z.unknown());
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.message).toBe('This service isn’t connected here.');
+    expect(canTryAgain(result)).toBe(false);
   });
 });

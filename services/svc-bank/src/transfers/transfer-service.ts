@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { attachTransferMessageTx, bindTransferMessage } from './transfer-message.js';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -193,6 +194,8 @@ export class TransferService {
     fromSpaceId: string;
     toSpaceId: string;
     amount: Amount;
+    note?: string | null;
+    reference?: string | null;
     now?: Date;
   }): Promise<TransferResult> {
     const now = input.now ?? new Date();
@@ -217,6 +220,16 @@ export class TransferService {
           throw new BankError(`Cannot transfer ${from.assetId} into a ${to.assetId} space — convert first`, 'bank.asset_mismatch');
         }
 
+        const note = input.note ?? null;
+        const reference = input.reference ?? null;
+        await bindTransferMessage(this.sql, this.ledger, {
+          transferId: input.transferId,
+          fromUserId: from.userId,
+          toUserId: to.userId,
+          note,
+          reference,
+        });
+
         const tx = await this.ledger.post(
           recipes.bankTransfer({
             transferId: input.transferId,
@@ -227,6 +240,8 @@ export class TransferService {
             kind: 'manual',
           }),
         );
+
+        if (note !== null || reference !== null) await attachTransferMessageTx(this.sql, input.transferId, tx.id);
 
         return { transferId: input.transferId, occurrence: 0, ledgerTxId: tx.id, amount: formatAmount(input.amount) };
       },

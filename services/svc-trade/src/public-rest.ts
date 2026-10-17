@@ -5,6 +5,7 @@ import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { presentAlgoCapabilityNote } from './algo/algo-capability.js';
 import { presentFuturesJobsCapabilityNote } from './futures/futures-jobs-capability.js';
+import { readTradePlanes } from './futures/plane-capabilities.js';
 import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorResponse } from './ccxt-errors.js';
 import type { EngineDepth } from './spot/matching-client.js';
 import { MatchingNoBookError, MatchingUnavailableError } from './spot/matching-client.js';
@@ -604,8 +605,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     logRefusalSpec('trade.leverage_too_high');
     logRefusalSpec('trade.adl_disclosure_required');
     const { CCXT_CAPABILITY_MATRIX, CCXT_REFUSE_ARMS } = await import('./ccxt-capability-matrix.js');
+    const planes = readTradePlanes(process.env);
     return reply.code(200).send({
       asOfMs: now(),
+      spot: planes.spot,
+      futures: planes.futures,
       routes: CCXT_CAPABILITY_MATRIX,
       refuseArms: CCXT_REFUSE_ARMS,
       notes: {

@@ -150,6 +150,9 @@ export const appRouter = createAcademyRouter(
     stakeOf: (userId) => stakes.stakeOf(userId),
   },
   actionApprovals,
+  env.ACADEMY_CERT_VERIFY_RATE_MAX !== undefined && env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS !== undefined
+    ? { max: env.ACADEMY_CERT_VERIFY_RATE_MAX, windowSeconds: env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS }
+    : null,
 );
 export type AppRouter = typeof appRouter;
 
@@ -193,7 +196,11 @@ await app.register(fastifyTRPCPlugin, {
     // service never parses a token itself (§4.1 owns that). It does verify the
     // edge's signature over that principal — see packages/contracts/src/edge.ts
     // for why an unsigned header makes every scope check decorative.
-    createContext: ({ req }) => edgeContext(req),
+    createContext: ({ req }) => {
+      const ctx = edgeContext(req);
+      const peer = (req as { ip?: unknown }).ip;
+      return Object.assign(ctx, { clientAddress: typeof peer === 'string' ? peer.trim() : '' });
+    },
   } satisfies FastifyTRPCPluginOptions<AcademyRouter>['trpcOptions'],
 });
 

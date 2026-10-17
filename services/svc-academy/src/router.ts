@@ -14,6 +14,7 @@ import { AcademyError } from './errors.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
+import { VerifyRateLimiter, type VerifyRate } from './certs/verify-rate.js';
 import {
   AmbassadorPayRefuseError,
   ambassadorPayPlaneStatus,
@@ -489,6 +490,7 @@ const certGrantOut = z.object({
   certId: z.string(),
   grantedAt: z.date(),
   idempotencyKey: z.string(),
+  publicId: z.string().regex(/^[0-9a-f]{32}$/),
 });
 /**
  * Stage-2 XP outcome on a grant.
@@ -741,6 +743,22 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.enrollment_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
 
+    case 'academy.assessment_unpublished':
+    case 'academy.pass_mark_unset':
+    case 'academy.certificate_unpublished':
+    case 'academy.verify_rate_unset':
+    case 'academy.verify_address_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+
+    case 'academy.attempt_limit':
+    case 'academy.attempt_cooldown':
+    case 'academy.verify_rate_limited':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+
+    case 'academy.assessment_invalid':
+    case 'academy.holder_name_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
   }
@@ -786,6 +804,14 @@ async function consumeOperatorApproval(
   return consumed.approverId ?? consumed.requesterId;
 }
 
+/** TCP peer the HTTP adapter attached. Blank is not an address. */
+function clientAddressOf(ctx: object): string | null {
+  const value = (ctx as { clientAddress?: unknown }).clientAddress;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export type AcademyRouterPayLaws = {
   readonly ifcPayLaw?: AmbassadorIfcPayLaw;
   readonly revenueShareLaw?: AmbassadorRevenueShareLaw;
@@ -803,9 +829,11 @@ export function createAcademyRouter(
   payLaws: AcademyRouterPayLaws = {},
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  verifyRate: VerifyRate | null = null,
 ) {
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
+  const verifyLimiter = new VerifyRateLimiter();
   const guard = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -2070,6 +2098,7 @@ export function createAcademyRouter(
               certId: result.grant.certId,
               grantedAt: result.grant.grantedAt,
               idempotencyKey: result.grant.idempotencyKey,
+              publicId: result.grant.publicId,
             },
             xp: result.xp,
             perks: result.perks,
@@ -2158,6 +2187,130 @@ export function createAcademyRouter(
             grantIdempotencyKey: p.grantIdempotencyKey,
           };
         }),
+      ),
+
+    assessment: router({
+      get: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }))
+        .output(
+          z.object({
+            slug: z.string(),
+            kind: z.literal('quiz'),
+            passMark: z.number().int(),
+            questions: z.array(
+              z.object({
+                id: z.string(),
+                prompt: z.string(),
+                kind: z.literal('single'),
+                points: z.number().int(),
+                choices: z.array(z.object({ id: z.string(), text: z.string() })),
+              }),
+            ),
+          }),
+        )
+        .query(({ input }) => guard(async () => academy.getAssessment(input.slug))),
+
+      submit: scopedProcedure('academy:write', { module: 'academy' })
+        .input(
+          z.object({
+            slug: z.string().min(1).max(120),
+            clientAttemptId: z.string().min(1).max(200),
+            answers: z.array(z.object({ questionId: z.string().min(1).max(80), choiceId: z.string().min(1).max(80) })).max(100),
+          }),
+        )
+        .output(
+          z.object({
+            slug: z.string(),
+            score: z.number().int(),
+            maxScore: z.number().int(),
+            pass: z.boolean(),
+            submittedAt: z.date(),
+          }),
+        )
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.submitAssessment({
+              userId: ctx.principal.userId,
+              slug: input.slug,
+              clientAttemptId: input.clientAttemptId,
+              answers: input.answers,
+            }),
+          ),
+        ),
+
+      attempts: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }))
+        .output(
+          z.array(
+            z.object({
+              slug: z.string(),
+              score: z.number().int(),
+              maxScore: z.number().int(),
+              pass: z.boolean(),
+              submittedAt: z.date(),
+            }),
+          ),
+        )
+        .query(({ input, ctx }) => guard(() => academy.assessmentAttempts(ctx.principal.userId, input.slug))),
+    }),
+
+    /**
+     * Signed-out verification. The body is exactly the credential fields.
+     * A blank rate refuses before any lookup. Malformed and unknown ids
+     * share one not-found error.
+     */
+    certVerify: publicProcedure
+      .input(z.object({ publicId: z.string().max(200) }))
+      .output(
+        z.object({
+          certId: z.string(),
+          title: z.string(),
+          grantedAt: z.date(),
+          status: z.enum(['valid', 'revoked']),
+          holderName: z.string().optional(),
+        }),
+      )
+      .query(({ input, ctx }) =>
+        guard(async () => {
+          if (!verifyRate) throw new AcademyError('academy.verify_rate_unset', 'academy.verify_rate_unset');
+          const address = clientAddressOf(ctx);
+          if (!address) throw new AcademyError('academy.verify_address_unset', 'academy.verify_address_unset');
+          if (verifyLimiter.take(address, verifyRate) === 'limited') {
+            throw new AcademyError('academy.verify_rate_limited', 'academy.verify_rate_limited');
+          }
+          return academy.certVerify(input.publicId);
+        }),
+      ),
+
+    setCertHolderName: scopedProcedure('academy:write', { module: 'academy' })
+      .input(
+        z
+          .object({
+            grantId: z.string().min(1).max(64).optional(),
+            publicId: z.string().min(1).max(64).optional(),
+            holderName: z.string().max(400).nullable(),
+            consent: z.literal(true),
+            clientRequestId: z.string().min(1).max(200),
+          })
+          .refine((value) => (value.grantId ? 1 : 0) + (value.publicId ? 1 : 0) === 1),
+      )
+      .output(
+        z.object({
+          publicId: z.string(),
+          holderName: z.string().nullable(),
+          consentAt: z.date().nullable(),
+        }),
+      )
+      .mutation(({ input, ctx }) =>
+        guard(() =>
+          academy.setCertHolderName({
+            userId: ctx.principal.userId,
+            holderName: input.holderName,
+            clientRequestId: input.clientRequestId,
+            ...(input.grantId ? { grantId: input.grantId } : {}),
+            ...(input.publicId ? { publicId: input.publicId } : {}),
+          }),
+        ),
       ),
 
     myCompletions: scopedProcedure('academy:read', { module: 'academy' })

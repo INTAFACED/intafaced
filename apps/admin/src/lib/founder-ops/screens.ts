@@ -27,7 +27,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect the requested payout and its approval context before opening the existing decision flow.',
     ['Requested payout', 'Maker and checker', 'Screening and masked destination', 'Decision and audit history'],
-    'Masked destinations, the first founder signature and combined approval history await the next backend update. The existing queue retains its hash-bound two-founder decision flow.',
+    "This page is not wired to founderAdmin.approvals.list, and svc-pay has no single read of an approval's full history. The existing queue keeps its hash-bound two-founder decision flow.",
     'Open approval queue',
   ),
   screen(
@@ -65,7 +65,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'QUEUE',
     'Review submitted businesses, missing documents and verification decisions.',
     ['Merchant', 'Verification status', 'Submitted at', 'Age / SLA', 'Reviewer'],
-    'There is no founder-wide KYB list. Merchant-specific current/history reads cannot supply this queue.',
+    'svc-pay has no founder-wide KYB list. Merchant-specific current/history reads cannot supply this queue.',
   ),
   screen(
     'F27',
@@ -141,7 +141,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Look up payments across merchants using payment identifiers and references.',
     ['Payment', 'Merchant', 'Amount', 'Status', 'Rail', 'Created at'],
-    'There is no founder-wide payment search procedure. Merchant payment reads cannot safely stand in for it.',
+    'svc-pay has no founder-wide payment search. Merchant payment reads cannot safely stand in for it.',
   ),
   screen(
     'F35',
@@ -150,7 +150,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Track settlement windows, fees and failed workflows across merchants.',
     ['Settlement', 'Merchant', 'Gross / fee / net', 'Status', 'Window'],
-    'There is no founder-wide settlement list or aggregate. Failed-first sorting and export await that projection.',
+    'This page is not wired to founderAdmin.payouts.list, and svc-pay has no settlement aggregate, failed-first sort or export.',
   ),
   screen(
     'F36',
@@ -178,7 +178,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DETAIL',
     'Inspect approval, screening and destination evidence before retrying a payout.',
     ['Maker and checker', 'Screening result', 'Destination and transaction', 'Lifecycle and audit'],
-    'Masked destinations, payout detail and fee snapshots await the next backend update.',
+    'The payout read has no masked destination, payout detail or fee snapshot.',
     'Review retry',
   ),
   screen(
@@ -246,7 +246,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review tier definitions, caps and approval requirements.',
     ['Tier and archetype', 'Caps', 'Pricing and reserve', 'Approval threshold'],
-    'Tier definitions and merchant counts need the next backend projection; no commercial values are supplied here.',
+    'This page is not wired to founderAdmin.control.tiers.list, and svc-pay has no merchant-count-per-tier read; no commercial values are supplied here.',
   ),
   screen(
     'F55',
@@ -284,7 +284,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Review effective caps, usage and merchants approaching a configured limit.',
     ['Scope', 'Cap', 'Usage', 'Headroom', 'Last changed'],
-    'Global usage and limit-increase requests await the next backend projection. Unconfigured limits remain unset.',
+    'This page is not wired to founderAdmin.control.limitRequests.list, and svc-pay has no global cap-usage read. Unconfigured limits remain unset.',
   ),
   screen(
     'F59',
@@ -331,7 +331,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Trace state changes to their actor, second approver and before/after values.',
     ['Action and resource', 'Actor', 'Second approver', 'Before / after', 'Reason', 'Time'],
-    'The founder control audit projection is being built. An absent audit read does not mean no changes occurred.',
+    'This page is not wired to founderAdmin.control.audit.list. An absent audit list here does not mean no changes occurred.',
   ),
   screen(
     'F65',
@@ -387,7 +387,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'DASH',
     'Trace fee and spread revenue to ledger-backed merchant activity.',
     ['Fee revenue', 'Spread revenue', 'Merchant breakdown', 'Daily ledger reconciliation'],
-    'Fee snapshots and revenue breakdowns await the next backend projection.',
+    'svc-pay has no per-merchant fee-versus-spread revenue breakdown.',
   ),
   screen(
     'F71',
@@ -486,7 +486,7 @@ export function resolveScreen(path: string): { screen: FounderScreen; resourceId
   return null;
 }
 const DRILLDOWN_GAP: Record<string, string> = {
-  conversion: 'The conversion order reader (workstream W6) is not built, so quotes, fills and venue order identifiers cannot be read.',
+  conversion: 'The conversion order reader does not exist, so quotes, fills and venue order identifiers cannot be read.',
   pricing: 'Effective pricing rules and history are read in the merchant Controls tab.',
   limits: 'Cap usage, tier and overrides are read in the merchant Controls tab.',
   operator: 'Notes are read from the operator notes service.',

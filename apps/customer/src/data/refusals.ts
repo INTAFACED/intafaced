@@ -80,7 +80,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   accountOnHold: { title: 'Your account is on hold', body: 'Money cannot move right now. Contact support to find out why.' },
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
-  notSetUp: { title: 'Not set up yet', body: 'This part of INTAFACED has not been switched on yet. Nothing was changed.' },
+  notSetUp: { title: 'Not switched on', body: "This part of INTAFACED isn't switched on. Nothing was changed." },
   unknown: { title: "This can't be done right now", body: 'Try again later. If it keeps happening, contact support.' },
 };
 

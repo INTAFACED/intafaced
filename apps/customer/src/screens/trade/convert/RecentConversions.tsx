@@ -46,7 +46,6 @@ export function RecentConversions() {
           variant="unavailable"
           title={t('Recent parked title')}
           reason={t('Recent parked body')}
-          code={panel.blocker}
           action={{ label: t('View activity'), href: ACTIVITY_HREF, variant: 'secondary' }}
         />
       )}

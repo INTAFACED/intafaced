@@ -87,9 +87,9 @@ describe('Protocol blocker mapping', () => {
     const found = blockersFor('swap', { ...healthy, chain: down });
     expect(found[0]).toMatchObject({
       code: 'source_down',
-      params: { source: 'network status', reason: 'the service could not be reached' },
+      params: { source: 'network status', reason: 'no reply' },
     });
-    expect(en.t(found[0]!.key, found[0]!.params)).toContain('network status did not answer');
+    expect(en.t(found[0]!.key, found[0]!.params)).toBe('Cannot confirm: network status did not answer (no reply).');
   });
 
   it('treats a loading source as not yet confirmed, not as cleared', () => {
