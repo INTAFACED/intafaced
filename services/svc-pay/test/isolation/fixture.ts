@@ -277,6 +277,7 @@ function composeRouter(parts: {
       // W1: as src/index.ts, the approver is whoever holds payout.approve on the merchant team (W15 roles).
       control: new ControlService(parts.sql, teamAccessPorts(parts.sql)),
       conversion: parts.conversion,
+      pay: parts.pay,
     }),
   );
 }

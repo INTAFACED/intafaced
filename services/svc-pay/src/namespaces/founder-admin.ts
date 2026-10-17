@@ -1,9 +1,21 @@
 import {
+  TRPCError,
   router,
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantDrilldownInputSchema,
   founderMerchantDrilldownSchema,
+  founderMerchantSectionInputSchema,
+  founderMerchantSectionSchema,
+  founderRecentMerchantsInputSchema,
+  founderRecentMerchantsSchema,
+  founderPayoutListInputSchema,
+  founderPayoutListSchema,
+  founderDisputeListInputSchema,
+  founderDisputeListSchema,
+  founderLiveSummarySchema,
+  founderRiskSummaryInputSchema,
+  founderRiskSummarySchema,
   founderGlobalMetricsInputSchema,
   founderGlobalMetricsSchema,
   founderChangeSubmitInputSchema,
@@ -50,6 +62,11 @@ import { founderProcedure, type FounderContext } from './founder-procedure.js';
 import { readMerchantDrilldown } from './merchant-drilldown.js';
 import { guarded } from './control-errors.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
+import { createFounderMerchantReads } from './founder-merchant-reads.js';
+import { MerchantOpsError } from '../merchant-ops/errors.js';
+import { PayError } from '../payment-service.js';
+import type { PayService } from '../payment-service.js';
+import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 
 /**
  * `founderAdmin.*` — the global founder panel (W2 fills `merchants.list` and `metrics.*`; W4 the rest).
@@ -81,10 +98,49 @@ export interface FounderAdminMounts {
   halts?: PayHaltStore;
   /** W6: founder resolve of a placing conversion. Without it those procedures refuse with `pay.not_built`. */
   conversion?: ConversionService;
+  /** Pay database for founder merchant reads. Without it those procedures refuse with `pay.not_built`. */
+  sql?: Sql;
+  /** Payment, refund, settlement and link lists. Without it those sections refuse with `pay.not_built`. */
+  pay?: PayService;
+  /** Same dispute store the merchant pages use. Without it the in-memory store is empty. */
+  disputes?: DisputeCaseStore;
+}
+
+const PAY_SECTIONS = new Set(['payments', 'refunds', 'settlements', 'links']);
+
+async function readWrap<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof MerchantOpsError) {
+      const code =
+        err.kind === 'not_found'
+          ? 'NOT_FOUND'
+          : err.kind === 'forbidden'
+            ? 'FORBIDDEN'
+            : err.kind === 'conflict'
+              ? 'CONFLICT'
+              : err.kind === 'precondition'
+                ? 'PRECONDITION_FAILED'
+                : err.kind === 'unavailable'
+                  ? 'SERVICE_UNAVAILABLE'
+                  : 'BAD_REQUEST';
+      throw new TRPCError({ code, message: err.code, cause: err });
+    }
+    if (err instanceof PayError) {
+      throw new TRPCError({
+        code: err.code === 'pay.merchant_not_found' ? 'NOT_FOUND' : 'BAD_REQUEST',
+        message: err.code,
+        cause: err,
+      });
+    }
+    throw metricsToTrpcError(err);
+  }
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
   const { metrics, registries, treasury, control, halts, conversion } = mounts;
+  const reads = mounts.sql ? createFounderMerchantReads({ sql: mounts.sql, pay: mounts.pay, disputes: mounts.disputes }) : null;
   const ops = mounts.ops ?? createFounderOpsRouter({ founderAuthority });
   const founder = founderProcedure(founderAuthority);
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -122,6 +178,42 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
               ),
             );
           }),
+        section: founder
+          .input(founderMerchantSectionInputSchema)
+          .output(founderMerchantSectionSchema)
+          .query(({ ctx, input }) => {
+            if (!reads) return notBuilt('founderAdmin.merchants.section');
+            if (PAY_SECTIONS.has(input.section) && !reads.hasPay) return notBuilt('founderAdmin.merchants.section');
+            return readWrap(() => reads.section((ctx as FounderContext).founderUserId, input));
+          }),
+        recent: founder
+          .input(founderRecentMerchantsInputSchema)
+          .output(founderRecentMerchantsSchema)
+          .query(({ input }) => (reads ? readWrap(() => reads.recent(input)) : notBuilt('founderAdmin.merchants.recent'))),
+      }),
+      payouts: router({
+        list: founder
+          .input(founderPayoutListInputSchema)
+          .output(founderPayoutListSchema)
+          .query(({ input }) => (reads ? readWrap(() => reads.payoutList(input)) : notBuilt('founderAdmin.payouts.list'))),
+      }),
+      disputes: router({
+        list: founder
+          .input(founderDisputeListInputSchema)
+          .output(founderDisputeListSchema)
+          .query(({ input }) => (reads ? readWrap(() => reads.disputeList(input)) : notBuilt('founderAdmin.disputes.list'))),
+      }),
+      live: router({
+        summary: founder
+          .input(z.object({}).strict())
+          .output(founderLiveSummarySchema)
+          .query(() => (reads ? readWrap(() => reads.live()) : notBuilt('founderAdmin.live.summary'))),
+      }),
+      risk: router({
+        summary: founder
+          .input(founderRiskSummaryInputSchema)
+          .output(founderRiskSummarySchema)
+          .query(({ input }) => (reads ? readWrap(() => reads.risk(input)) : notBuilt('founderAdmin.risk.summary'))),
       }),
       metrics: router({
         global: founder

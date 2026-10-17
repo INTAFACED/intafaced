@@ -281,3 +281,499 @@ export type FounderTreasuryExposure = z.infer<typeof founderTreasuryExposureSche
 export const founderRecentActivityInputSchema = z
   .object({ limit: z.number().int().min(1).max(200), since: payTimestampSchema.optional() })
   .strict();
+
+/**
+ * Founder merchant drill-down (F07–F23) and the founder-wide lists the admin
+ * console still cannot fill. Every list is `{ items, nextCursor }`. Amounts stay
+ * decimal strings. API key secrets are not in this service: that section says
+ * `not_configured` instead of an empty catalog.
+ */
+export const FOUNDER_MERCHANT_SECTIONS = [
+  'payments',
+  'refunds',
+  'disputes',
+  'settlements',
+  'payouts',
+  'destinations',
+  'customers',
+  'links',
+  'invoices',
+  'subscriptions',
+  'team',
+  'apiKeys',
+  'webhooks',
+  'deliveries',
+  'activity',
+  'exports',
+  'profile',
+] as const;
+export type FounderMerchantSection = (typeof FOUNDER_MERCHANT_SECTIONS)[number];
+
+const founderPageLimit = z.number().int().min(1).max(200).optional();
+const founderCursor = z.string().min(1).max(512).optional();
+
+export const founderMerchantSectionInputSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    section: z.enum(FOUNDER_MERCHANT_SECTIONS),
+    limit: founderPageLimit,
+    cursor: founderCursor,
+    filters: z
+      .object({
+        status: z.string().min(1).max(32).optional(),
+        assetId: payAssetCodeSchema.optional(),
+        search: z.string().trim().min(1).max(200).optional(),
+        from: payTimestampSchema.optional(),
+        to: payTimestampSchema.optional(),
+        dueAfter: payTimestampSchema.optional(),
+        dueBefore: payTimestampSchema.optional(),
+        deadline: z.enum(['set', 'unset']).optional(),
+        paymentId: z.string().uuid().optional(),
+        active: z.boolean().optional(),
+        role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']).optional(),
+        endpointId: z.string().uuid().optional(),
+        kind: z.enum(['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees']).optional(),
+        objectType: z.enum(['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook']).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type FounderMerchantSectionInput = z.infer<typeof founderMerchantSectionInputSchema>;
+
+const feeSnapshotSchema = z
+  .object({
+    fee: payAmountStringSchema,
+    assetCode: payAssetCodeSchema,
+    appliedLayer: z.enum(['global', 'tier', 'merchant']),
+    ruleId: z.string().uuid(),
+    recordedAt: payTimestampSchema,
+  })
+  .strict();
+
+const paymentItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    merchantId: payMerchantIdSchema,
+    assetId: payAssetCodeSchema,
+    amount: payAmountStringSchema,
+    capturedAmount: payAmountStringSchema,
+    refundedAmount: payAmountStringSchema,
+    method: z.string().min(1).max(64),
+    railAdapter: z.string().min(1).max(64),
+    railRef: z.string().min(1).max(256).nullable(),
+    status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+    createdAt: payTimestampSchema,
+    failureCode: z.string().min(1).max(64).nullable(),
+    pricing: feeSnapshotSchema.nullable(),
+  })
+  .strict();
+
+const refundItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    paymentId: z.string().uuid(),
+    merchantId: payMerchantIdSchema,
+    assetId: payAssetCodeSchema,
+    amount: payAmountStringSchema,
+    refundId: z.string().min(1).max(128).nullable(),
+    outcome: z.enum(['refunded', 'reversed']),
+    failureCode: z.string().min(1).max(64).nullable(),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+
+const disputeItemSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    disputeId: z.string().min(1).max(500),
+    paymentId: z.string().min(1).max(80),
+    amount: payAmountStringSchema,
+    assetId: payAssetCodeSchema,
+    reasonCode: z.string().nullable(),
+    status: z.enum(['open', 'contested', 'accepted', 'won', 'lost']),
+    openedAt: payTimestampSchema,
+    contestedAt: payTimestampSchema.nullable(),
+    closedAt: payTimestampSchema.nullable(),
+    responseDueAt: payTimestampSchema.nullable(),
+    responseDueSource: z.enum(['rail_event']).nullable(),
+    ledgerWire: z.enum(['posted', 'refused']),
+    ledgerRefuseCode: z.string().nullable(),
+  })
+  .strict();
+
+const settlementItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    merchantId: payMerchantIdSchema,
+    window: z.string().min(1).max(64),
+    assetId: payAssetCodeSchema,
+    gross: payAmountStringSchema,
+    fees: payAmountStringSchema,
+    net: payAmountStringSchema,
+    status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+    payoutMethod: z.string().min(1).max(64).nullable(),
+    payoutReference: z.string().min(1).max(512).nullable(),
+    createdAt: payTimestampSchema,
+    sentAt: payTimestampSchema.nullable(),
+    settledAt: payTimestampSchema.nullable(),
+    failedAt: payTimestampSchema.nullable(),
+    failureCode: z.string().min(1).max(64).nullable(),
+    pricing: feeSnapshotSchema.nullable(),
+  })
+  .strict();
+
+const destinationItemSchema = z
+  .object({
+    railId: z.string().min(1).max(64),
+    kind: z.string().min(1).max(32),
+    destinationMasked: z.string().min(1).max(64),
+    updatedAt: payTimestampSchema,
+  })
+  .strict();
+
+const customerItemSchema = z
+  .object({
+    customerRef: z.string().min(1).max(200),
+    paymentCount: z.number().int().min(0),
+    subscriptionCount: z.number().int().min(0),
+    mandateCount: z.number().int().min(0),
+    firstSeenAt: payTimestampSchema,
+    lastSeenAt: payTimestampSchema,
+    totals: z.array(
+      z
+        .object({
+          assetId: payAssetCodeSchema,
+          capturedAmount: payAmountStringSchema,
+          refundedAmount: payAmountStringSchema,
+          paymentCount: z.number().int().min(0),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const linkItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    prefix: z.string().min(1).max(64),
+    label: z.string().max(200),
+    amount: payAmountStringSchema.nullable(),
+    currency: payAssetCodeSchema.nullable(),
+    active: z.boolean(),
+    expiresAt: payTimestampSchema.nullable(),
+    maxUses: z.number().int().min(0).nullable(),
+    uses: z.number().int().min(0),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+
+const invoiceItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    status: z.enum(['draft', 'sent', 'void', 'paid']),
+    assetId: payAssetCodeSchema,
+    amount: payAmountStringSchema,
+    customerRef: z.string().nullable(),
+    description: z.string().nullable(),
+    paymentLinkId: z.string().uuid().nullable(),
+    paymentId: z.string().uuid().nullable(),
+    sentAt: payTimestampSchema.nullable(),
+    voidedAt: payTimestampSchema.nullable(),
+    paidAt: payTimestampSchema.nullable(),
+    createdAt: payTimestampSchema,
+  })
+  .strict();
+
+const subscriptionItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    mandateId: z.string().uuid(),
+    merchantId: payMerchantIdSchema,
+    customerId: z.string().min(1).max(200),
+    status: z.enum(['active', 'paused', 'cancelled', 'completed']),
+    path: z.string().min(1).max(64),
+    nextRunAt: payTimestampSchema,
+    createdAt: payTimestampSchema,
+    cancelledAt: payTimestampSchema.nullable(),
+    pausedAt: payTimestampSchema.nullable(),
+    stallReason: z.string().min(1).max(64).nullable(),
+  })
+  .strict();
+
+const teamItemSchema = z
+  .object({
+    memberId: z.string().uuid().nullable(),
+    userId: z.string().min(1).max(128),
+    role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']),
+    status: z.enum(['active', 'invited', 'removed']),
+    label: z.string().nullable(),
+    invitedBy: z.string().nullable(),
+    createdAt: payTimestampSchema,
+    activatedAt: payTimestampSchema.nullable(),
+    removedAt: payTimestampSchema.nullable(),
+  })
+  .strict();
+
+const webhookItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    url: z.string().min(1).max(2000),
+    status: z.enum(['active', 'disabled']),
+    disabledReason: z.string().nullable(),
+    consecutiveFailures: z.number().int().min(0),
+    createdAt: payTimestampSchema,
+    updatedAt: payTimestampSchema,
+  })
+  .strict();
+
+const deliveryItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    endpointId: z.string().uuid(),
+    eventType: z.string().min(1).max(128),
+    status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+    attempts: z.number().int().min(0),
+    lastStatusCode: z.number().int().nullable(),
+    createdAt: payTimestampSchema,
+    deliveredAt: payTimestampSchema.nullable(),
+  })
+  .strict();
+
+const activityItemSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    occurredAt: payTimestampSchema,
+    actorId: z.string().min(1).max(128),
+    action: z.string().min(1).max(128),
+    objectType: z.enum(['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook']),
+    objectId: z.string().min(1).max(500),
+    detail: z.record(z.string().max(64), z.string().max(64)),
+  })
+  .strict();
+
+const exportItemSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    kind: z.enum(['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees']),
+    status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+    failureCode: z.string().nullable(),
+    fileName: z.string().nullable(),
+    sizeBytes: z.string().nullable(),
+    rowCount: z.number().int().nullable(),
+    requestedBy: z.string().min(1).max(128),
+    createdAt: payTimestampSchema,
+    completedAt: payTimestampSchema.nullable(),
+  })
+  .strict();
+
+const kybHistoryItemSchema = z
+  .object({
+    seq: z.string().regex(/^[1-9]\d*$/),
+    fromStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+    toStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+    kybRef: z.string().nullable(),
+    decidedBy: z.enum(['merchant', 'intafaced']),
+    reason: z.string().nullable(),
+    at: payTimestampSchema,
+  })
+  .strict();
+
+const pageOf = <T extends z.ZodTypeAny>(section: FounderMerchantSection, item: T) =>
+  z.object({ section: z.literal(section), items: z.array(item), nextCursor: z.string().nullable() }).strict();
+
+export const founderMerchantSectionSchema = z.discriminatedUnion('section', [
+  pageOf('payments', paymentItemSchema),
+  pageOf('refunds', refundItemSchema),
+  pageOf('disputes', disputeItemSchema),
+  pageOf('settlements', settlementItemSchema),
+  pageOf(
+    'payouts',
+    z
+      .object({
+        id: z.string().uuid(),
+        merchantId: payMerchantIdSchema,
+        window: z.string().min(1).max(64),
+        assetId: payAssetCodeSchema,
+        gross: payAmountStringSchema,
+        fees: payAmountStringSchema,
+        net: payAmountStringSchema,
+        status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+        payoutMethod: z.string().min(1).max(64).nullable(),
+        payoutReference: z.string().min(1).max(512).nullable(),
+        createdAt: payTimestampSchema,
+      })
+      .strict(),
+  ),
+  pageOf('destinations', destinationItemSchema),
+  pageOf('customers', customerItemSchema),
+  pageOf('links', linkItemSchema),
+  pageOf('invoices', invoiceItemSchema),
+  pageOf('subscriptions', subscriptionItemSchema),
+  pageOf('team', teamItemSchema),
+  z
+    .object({
+      section: z.literal('apiKeys'),
+      catalog: z.literal('not_configured'),
+      items: z.array(z.never()),
+      nextCursor: z.null(),
+    })
+    .strict(),
+  pageOf('webhooks', webhookItemSchema),
+  pageOf('deliveries', deliveryItemSchema),
+  pageOf('activity', activityItemSchema),
+  pageOf('exports', exportItemSchema),
+  z
+    .object({
+      section: z.literal('profile'),
+      current: z
+        .object({
+          merchantId: payMerchantIdSchema,
+          displayName: z.string().nullable(),
+          legalName: z.string().nullable(),
+          status: z.enum(['pending', 'active', 'suspended', 'closed']),
+          mode: z.enum(['gateway', 'psp', 'payfac']),
+          kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+          kybRef: z.string().nullable(),
+        })
+        .strict(),
+      items: z.array(kybHistoryItemSchema),
+      nextCursor: z.string().nullable(),
+    })
+    .strict(),
+]);
+export type FounderMerchantSectionPage = z.infer<typeof founderMerchantSectionSchema>;
+
+export const founderRecentMerchantsInputSchema = z.object({ limit: founderPageLimit, cursor: founderCursor }).strict();
+export const founderRecentMerchantsSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          merchantId: payMerchantIdSchema,
+          displayName: z.string().nullable(),
+          legalName: z.string().nullable(),
+          status: z.enum(['pending', 'active', 'suspended', 'closed']),
+          kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
+          createdAt: payTimestampSchema,
+        })
+        .strict(),
+    ),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+
+export const founderPayoutListInputSchema = z
+  .object({
+    limit: founderPageLimit,
+    cursor: founderCursor,
+    status: z.enum(['pending', 'posted', 'paid_out', 'failed']).optional(),
+  })
+  .strict();
+export type FounderPayoutListInput = z.infer<typeof founderPayoutListInputSchema>;
+export const founderPayoutListSchema = z
+  .object({
+    items: z.array(
+      z
+        .object({
+          id: z.string().uuid(),
+          merchantId: payMerchantIdSchema,
+          window: z.string().min(1).max(64),
+          assetId: payAssetCodeSchema,
+          gross: payAmountStringSchema,
+          fees: payAmountStringSchema,
+          net: payAmountStringSchema,
+          status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+          payoutMethod: z.string().min(1).max(64).nullable(),
+          payoutReference: z.string().min(1).max(512).nullable(),
+          createdAt: payTimestampSchema,
+        })
+        .strict(),
+    ),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+
+export const founderDisputeListInputSchema = z
+  .object({
+    limit: founderPageLimit,
+    cursor: founderCursor,
+    status: z.enum(['open', 'contested', 'accepted', 'won', 'lost']).optional(),
+    deadline: z.enum(['set', 'unset']).optional(),
+    dueAfter: payTimestampSchema.optional(),
+    dueBefore: payTimestampSchema.optional(),
+  })
+  .strict();
+export type FounderDisputeListInput = z.infer<typeof founderDisputeListInputSchema>;
+export const founderDisputeListSchema = z.object({ items: z.array(disputeItemSchema), nextCursor: z.string().nullable() }).strict();
+
+const statusCountSchema = z.object({ status: z.string().min(1).max(32), count: z.number().int().min(0) }).strict();
+const countWindowSchema = z
+  .object({ payments: z.array(statusCountSchema), payouts: z.array(statusCountSchema), refunds: z.array(statusCountSchema) })
+  .strict();
+
+export const founderLiveSummarySchema = z
+  .object({
+    asOf: payTimestampSchema,
+    h1: countWindowSchema,
+    h24: countWindowSchema,
+    queues: z
+      .object({
+        oldestPendingApprovalAt: payTimestampSchema.nullable(),
+        oldestPendingApprovalAgeSeconds: z.number().int().min(0).nullable(),
+        oldestPendingPayoutAt: payTimestampSchema.nullable(),
+        oldestPendingPayoutAgeSeconds: z.number().int().min(0).nullable(),
+        earliestDisputeDeadlineAt: payTimestampSchema.nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const founderRiskSummaryInputSchema = z
+  .object({
+    /** Caller chooses the cutoff. There is no default N. */
+    topN: z.number().int().min(1).max(200),
+    window: payMetricWindowSchema.optional(),
+  })
+  .strict();
+export type FounderRiskSummaryInput = z.infer<typeof founderRiskSummaryInputSchema>;
+export const founderRiskSummarySchema = z
+  .object({
+    /** Null means every projected day. A missing window is not a hidden 30-day cut. */
+    window: payMetricWindowSchema.nullable(),
+    /** Latest projected day, or null when the read model has no rows. */
+    projectedThrough: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+    concentration: z.array(
+      z
+        .object({
+          assetCode: payAssetCodeSchema,
+          totalCaptured: payAmountStringSchema,
+          /** Share of `totalCaptured` held by the returned merchants, truncated to the ledger scale. Null when the total is zero. */
+          topShare: payAmountStringSchema.nullable(),
+          merchants: z.array(
+            z
+              .object({
+                merchantId: payMerchantIdSchema,
+                captured: payAmountStringSchema,
+                share: payAmountStringSchema.nullable(),
+              })
+              .strict(),
+          ),
+        })
+        .strict(),
+    ),
+    failedWorkflows: z
+      .object({
+        paymentsFailed: z.number().int().min(0),
+        payoutsFailed: z.number().int().min(0),
+        refundsReversed: z.number().int().min(0),
+        webhookDeliveriesFailed: z.number().int().min(0),
+        webhookDeliveriesDead: z.number().int().min(0),
+        exportsFailed: z.number().int().min(0),
+      })
+      .strict(),
+  })
+  .strict();

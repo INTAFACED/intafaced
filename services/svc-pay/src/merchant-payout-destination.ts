@@ -1,4 +1,6 @@
 import type { Sql } from 'postgres';
+import { maskDestination, safeDestinationLabel } from './control/mask-destination.js';
+import { decodeCursor, encodeCursor, requireLimit } from './merchant-ops/pagination.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 
 /**
@@ -93,5 +95,40 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
     const row = rows[0];
     if (!row) throw new PayoutDestinationMissingError(input.merchantId, input.railId);
     return { kind: row.kind, ref: row.ref };
+  }
+
+  /**
+   * Founder and merchant lists see a mask. The stored ref stays in this method
+   * and is not part of the return value. The full value is the audited
+   * approval-destination read, not this list.
+   */
+  async listMasked(
+    merchantId: string,
+    input: { limit?: number; cursor?: string },
+  ): Promise<{
+    items: Array<{ railId: string; kind: string; destinationMasked: string; updatedAt: string }>;
+    nextCursor: string | null;
+  }> {
+    const limit = requireLimit(input.limit);
+    const after = decodeCursor(input.cursor);
+    const rows = await this.sql<Array<{ rail_id: string; kind: string; ref: string; updated_at: Date; cursor_ts: string }>>`
+      SELECT rail_id, kind, ref, updated_at,
+             to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+        FROM pay.merchant_payout_destinations
+       WHERE merchant_id = ${merchantId}
+         ${after ? this.sql`AND (updated_at, rail_id) < ((${after.ts}::text)::timestamptz, ${after.key})` : this.sql``}
+       ORDER BY updated_at DESC, rail_id DESC
+       LIMIT ${limit + 1}`;
+    const kept = rows.slice(0, limit);
+    const last = kept[kept.length - 1];
+    return {
+      items: kept.map((row) => ({
+        railId: row.rail_id,
+        kind: safeDestinationLabel(row.kind, row.ref),
+        destinationMasked: maskDestination(row.kind, row.ref),
+        updatedAt: row.updated_at.toISOString(),
+      })),
+      nextCursor: rows.length > limit && last ? encodeCursor(last.cursor_ts, last.rail_id) : null,
+    };
   }
 }

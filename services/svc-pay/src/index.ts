@@ -434,6 +434,7 @@ export const appRouter = mergeRouters(
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     disputes: disputeCases,
+    pay,
     evidence: {
       uploadEnabled: disputeEvidenceUploadEnabled(process.env),
       scanEnabled: disputeEvidenceScanEnabled(process.env),
