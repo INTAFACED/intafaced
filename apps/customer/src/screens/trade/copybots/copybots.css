@@ -255,4 +255,16 @@
   .cb-page [data-slot='table-scroll'] > table:has(> colgroup > col:nth-child(5):last-child:not([style])) {
     min-width: 1220px !important;
   }
+
+  /*
+   * Empty and error rows span the whole table, which is wider than the screen on a phone, so their text was laid out across the
+   * full width and cut off at the edge (the blocker sentence under "No leaders are listed" ended mid-word). Pin the message to the
+   * left edge of the scroll area and stop it at the width of the screen.
+   */
+  .cb-page [data-slot='table-empty-row'] > td > *,
+  .cb-page [data-slot='table-error-row'] > td > * {
+    position: sticky;
+    left: 0;
+    width: min(100%, calc(100vw - 2 * var(--if-gutter)));
+  }
 }
