@@ -149,7 +149,9 @@ async function signIn(register, passwordOnly = false) {
   expect = playwright.expect;
   browser = await chromium.launch({
     headless: true,
-    executablePath: process.env.S3_BROWSER || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+    // Playwright's bundled Chromium by default; never the daily Brave (it opens
+    // windows in the founder's running browser). S3_BROWSER overrides.
+    ...(process.env.S3_BROWSER ? { executablePath: process.env.S3_BROWSER } : {}),
     args: ['--disable-background-networking'],
   });
   context = await browser.newContext({ viewport: { width: 1512, height: 1000 }, locale: 'en-US', serviceWorkers: 'block' });
