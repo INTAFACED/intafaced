@@ -50,6 +50,8 @@ type SessionSql = {
   agent_id: string;
   status: 'open' | 'closed';
   opened_at: Date;
+  /** Microseconds since epoch, as text. The list cursor uses this, not the JS Date. */
+  opened_us: string;
   closed_at: Date | null;
   action_count: number;
 };
@@ -61,25 +63,27 @@ type WindowSql = {
   sealed_at: Date | null;
 };
 
-function encodeCursor(openedAt: Date, id: string): string {
-  return Buffer.from(`${openedAt.toISOString()}\n${id}`, 'utf8').toString('base64url');
+function refuseCursor(): never {
+  throw new AgentError('session list cursor is not valid', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
 }
 
-function decodeCursor(cursor: string): { at: Date; id: string } {
+function encodeCursor(openedUs: string, id: string): string {
+  return Buffer.from(`${openedUs}\n${id}`, 'utf8').toString('base64url');
+}
+
+function decodeCursor(cursor: string): { us: string; id: string } {
   let raw: string;
   try {
     raw = Buffer.from(cursor, 'base64url').toString('utf8');
   } catch {
-    throw new AgentError('session list cursor is not valid', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
+    refuseCursor();
   }
   const nl = raw.indexOf('\n');
-  if (nl < 1) throw new AgentError('session list cursor is not valid', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
-  const at = new Date(raw.slice(0, nl));
+  if (nl < 1) refuseCursor();
+  const us = raw.slice(0, nl);
   const id = raw.slice(nl + 1);
-  if (Number.isNaN(at.getTime()) || !/^[0-9a-f-]{36}$/i.test(id)) {
-    throw new AgentError('session list cursor is not valid', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
-  }
-  return { at, id };
+  if (!/^[0-9]{1,20}$/.test(us) || !/^[0-9a-f-]{36}$/i.test(id)) refuseCursor();
+  return { us, id };
 }
 
 function spendOf(windows: readonly WindowSql[], feeAssetId: string): Pick<SessionListRow, 'spend' | 'spendReason'> {
@@ -107,6 +111,8 @@ function spendOf(windows: readonly WindowSql[], feeAssetId: string): Pick<Sessio
 
 export async function listSessions(sql: Sql, input: ListSessionsInput): Promise<SessionListPage> {
   const cursor = input.cursor ? decodeCursor(input.cursor) : null;
+  const cursorUs = cursor?.us ?? null;
+  const cursorId = cursor?.id ?? null;
   const userId = input.userId ?? null;
   const agentId = input.agentId ?? null;
   const status = input.status ?? null;
@@ -119,11 +125,15 @@ export async function listSessions(sql: Sql, input: ListSessionsInput): Promise<
            s.agent_id,
            s.status,
            s.opened_at,
+           (extract(epoch from s.opened_at) * 1000000)::bigint::text AS opened_us,
            s.closed_at,
            (SELECT count(*)::int FROM agents.agent_actions a WHERE a.session_id = s.id) AS action_count
       FROM agents.agent_sessions s
-     WHERE (${cursor?.at ?? null}::timestamptz IS NULL
-            OR (s.opened_at, s.id) < (${cursor?.at ?? null}::timestamptz, ${cursor?.id ?? null}::uuid))
+     WHERE (${cursorUs}::text IS NULL
+            OR (s.opened_at, s.id) < (
+                 timestamptz 'epoch' + ${cursorUs}::bigint * interval '1 microsecond',
+                 ${cursorId}::uuid
+               ))
        AND (${userId}::text IS NULL OR s.user_id = ${userId})
        AND (${agentId}::text IS NULL OR s.agent_id = ${agentId})
        AND (${status}::text IS NULL OR s.status = ${status}::agents.session_status)
@@ -166,6 +176,6 @@ export async function listSessions(sql: Sql, input: ListSessionsInput): Promise<
   });
 
   const last = page[page.length - 1];
-  const nextCursor = rows.length > input.limit && last ? encodeCursor(last.opened_at, last.id) : null;
+  const nextCursor = rows.length > input.limit && last ? encodeCursor(last.opened_us, last.id) : null;
   return { items, nextCursor };
 }

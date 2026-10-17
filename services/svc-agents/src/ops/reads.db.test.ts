@@ -92,8 +92,8 @@ async function insertSession(input: {
       ${sql.json(JSON.parse(GUARDRAIL))},
       1,
       ${input.status}::agents.session_status,
-      ${input.openedAt}::timestamptz,
-      ${input.status === 'closed' ? input.openedAt : null}::timestamptz
+      ${input.openedAt}::text::timestamptz,
+      ${input.status === 'closed' ? input.openedAt : null}::text::timestamptz
     )
     RETURNING id
   `;
@@ -232,6 +232,72 @@ describe('ops.sessions and session.mine', () => {
 
     const operatorPage = await operator.ops.sessions({ limit: 10, userId: USER_A });
     expect(operatorPage.items.some((row) => row.userId === USER_B)).toBe(false);
+  });
+
+  it('returns every session that shares a millisecond, once, in opened_at DESC, id DESC order', async () => {
+    const later = await insertSession({
+      userId: USER_A,
+      agentId: 'navigator',
+      status: 'open',
+      openedAt: '2026-01-02T00:00:00.123700Z',
+    });
+    const tieA = await insertSession({
+      userId: USER_A,
+      agentId: 'navigator',
+      status: 'open',
+      openedAt: '2026-01-02T00:00:00.123456Z',
+    });
+    const tieB = await insertSession({
+      userId: USER_A,
+      agentId: 'navigator',
+      status: 'open',
+      openedAt: '2026-01-02T00:00:00.123456Z',
+    });
+    const earlier = await insertSession({
+      userId: USER_A,
+      agentId: 'navigator',
+      status: 'open',
+      openedAt: '2026-01-02T00:00:00.123400Z',
+    });
+    const tieOrder = await sql<Array<{ id: string }>>`
+      SELECT id::text AS id
+        FROM (VALUES (${tieA}::uuid), (${tieB}::uuid)) AS tie(id)
+       ORDER BY id DESC
+    `;
+    const stored = await sql<Array<{ id: string; us: string }>>`
+      SELECT id::text AS id,
+             (extract(epoch from opened_at) * 1000000)::bigint::text AS us
+        FROM agents.agent_sessions
+       WHERE user_id = ${USER_A}
+       ORDER BY opened_at DESC, id DESC
+    `;
+    const expected = [later, tieOrder[0]!.id, tieOrder[1]!.id, earlier];
+    expect(stored.map((row) => row.id)).toEqual(expected);
+    expect(new Set(stored.map((row) => row.us)).size).toBe(3);
+    expect(stored[1]?.us).toBe(stored[2]?.us);
+    expect(BigInt(stored[0]!.us) > BigInt(stored[1]!.us)).toBe(true);
+    expect(BigInt(stored[1]!.us) > BigInt(stored[3]!.us)).toBe(true);
+
+    async function pageAll(
+      read: (cursor?: string) => Promise<{ items: readonly { id: string }[]; nextCursor: string | null }>,
+    ): Promise<string[]> {
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      let nextCursor: string | null = null;
+      for (let page = 0; page < 8; page += 1) {
+        const result = await read(cursor);
+        ids.push(...result.items.map((row) => row.id));
+        nextCursor = result.nextCursor;
+        if (nextCursor === null) break;
+        cursor = nextCursor;
+      }
+      expect(nextCursor).toBeNull();
+      expect(ids).toEqual(expected);
+      return ids;
+    }
+
+    await pageAll((cursor) => customerA.session.mine({ limit: 1, cursor }));
+    await pageAll((cursor) => operator.ops.sessions({ limit: 1, cursor }));
   });
 });
 
