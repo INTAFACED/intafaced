@@ -8,6 +8,7 @@ import type { Order } from '../../../features/trade/trade-api';
 import { add, dec, ratio, str, sub, times } from '../../../data/decimal';
 import { floorToStep, minus, notional, onStep, positive, priceLadder, splitEqual, splitWeighted } from '../rooms/math';
 import type { BatchItem } from '../rooms/api';
+import type { Pending } from '../buy/write-lock';
 
 export type Side = 'buy' | 'sell';
 
@@ -28,6 +29,17 @@ export const isScaledId = (clientOrderId: string | null | undefined): boolean =>
 export function scaledGroupOf(clientOrderId: string | null | undefined): string | null {
   const found = /^(scl-[A-Za-z0-9]+-)\d+$/.exec(clientOrderId ?? '');
   return found ? found[1]! : null;
+}
+
+/**
+ * The device note `trade-pending:<user>` is shared with the spot desk, Buy and Convert. A room's "Check status" may release
+ * only the note it wrote itself: scaled batches (`place` with a `scl-` id), algo requests, and single-order cancels.
+ * Anything else keeps its lock until the screen that owns it checks it.
+ */
+export function ownsNote(room: 'scaled' | 'algo' | 'execCancel', pending: Pick<Pending, 'kind' | 'id'>): boolean {
+  if (room === 'scaled') return pending.kind === 'place' && pending.id.startsWith(SCALED_TAG);
+  if (room === 'algo') return pending.kind === 'algo';
+  return pending.kind === 'cancel';
 }
 
 /* ------------------------------------------------------------------ schedule (TWAP, VWAP, POV) */

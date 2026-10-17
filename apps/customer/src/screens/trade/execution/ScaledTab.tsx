@@ -6,7 +6,7 @@ import { useRoomWriter } from '../rooms/write';
 import { useBalances } from '../desk/data';
 import { execCopy } from './copy';
 import { useTradeApi, type ExecMarket } from './data';
-import { matchesPrefix, scaledPrefix } from './model';
+import { matchesPrefix, ownsNote, scaledPrefix } from './model';
 import { Why } from './parts';
 import { ScaledForm, type ScaledRun } from './ScaledForm';
 import { ScaledResult } from './ScaledResult';
@@ -39,8 +39,12 @@ export function ScaledTab({ markets }: { markets: readonly ExecMarket[] }) {
     return true;
   }
 
-  /** The note holds `scl-<nonce>` and the market, so a check works even after a reload. */
+  /** The note holds `scl-<nonce>` and the market, so a check works even after a reload. A note from another screen is never read or released here. */
   async function checkPending(id: string) {
+    if (writer.note.state === 'pending' && !ownsNote('scaled', writer.note.pending)) {
+      setNote(t('Check in another room'));
+      return;
+    }
     const symbol = writer.note.state === 'pending' ? writer.note.pending.symbol : (run?.symbol ?? '');
     const nonce = id.replace(/^scl-/, '');
     if (!symbol) return;

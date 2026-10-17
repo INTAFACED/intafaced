@@ -10,6 +10,7 @@ import { useRoomWriter } from '../rooms/write';
 import { execCopy } from './copy';
 import { useTradeApi } from './data';
 import type { BlotterRow, RowState } from './blotter';
+import { ownsNote } from './model';
 import { ConfirmDialog, useWhen } from './parts';
 
 const TONE: Record<RowState, 'neutral' | 'lime' | 'warn' | 'error' | 'up'> = {
@@ -111,6 +112,10 @@ export function useCancelFlow(onDone: () => void) {
   }
 
   async function check(id: string) {
+    if (writer.note.state === 'pending' && !ownsNote('execCancel', writer.note.pending)) {
+      setNote(t('Check in another room'));
+      return;
+    }
     const symbol = writer.note.state === 'pending' ? writer.note.pending.symbol : (order?.symbol ?? '');
     const result = await trade.order({ id, symbol });
     if (result.ok) {

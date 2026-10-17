@@ -63,6 +63,7 @@ const messages = {
   'Total size ({asset})': 'Total size ({asset})',
   'Limit price': 'Limit price',
   'Could not check yet, try again': 'We could not check yet. Nothing was changed. Try again.',
+  'Check in another room': 'This request belongs to another trading screen. Check it there.',
   'Locked by unconfirmed request': 'An earlier request is still unconfirmed, so new requests stay locked until you check it.',
   'Market closed block': 'This market is closed right now, so nothing can be placed in it.',
 

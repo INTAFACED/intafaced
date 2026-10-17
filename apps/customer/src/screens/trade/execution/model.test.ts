@@ -8,6 +8,7 @@ import {
   findGroup,
   matchesPrefix,
   newNonce,
+  ownsNote,
   planSchedule,
   reviewIceberg,
   scaledGroupOf,
@@ -227,5 +228,36 @@ describe('roomWords', () => {
   });
   it('does not use the service sentence for a code it already explains', () => {
     expect(roomWords({ code: 'scope.denied', message: 'raw words' }).body).not.toBe('raw words');
+  });
+});
+
+describe('device note ownership', () => {
+  const desk = { kind: 'place', id: 'desk:9', symbol: 'BTC/USDT' } as const;
+  it('never lets a room release a spot desk note', () => {
+    expect(ownsNote('scaled', desk)).toBe(false);
+    expect(ownsNote('algo', desk)).toBe(false);
+    expect(ownsNote('execCancel', desk)).toBe(false);
+  });
+  it('gives a scl- place note to scaled only', () => {
+    const note = { kind: 'place', id: 'scl-abc' } as const;
+    expect(ownsNote('scaled', note)).toBe(true);
+    expect(ownsNote('algo', note)).toBe(false);
+    expect(ownsNote('execCancel', note)).toBe(false);
+  });
+  it('gives algo notes, including pause/resume/cancel ones, to algo only', () => {
+    for (const note of [
+      { kind: 'algo', id: 'algo-x' },
+      { kind: 'algo', id: 'cancel:p1' },
+    ] as const) {
+      expect(ownsNote('algo', note)).toBe(true);
+      expect(ownsNote('scaled', note)).toBe(false);
+      expect(ownsNote('execCancel', note)).toBe(false);
+    }
+  });
+  it('gives a cancel note to the single-order cancel flow only', () => {
+    const note = { kind: 'cancel', id: 'o1' } as const;
+    expect(ownsNote('execCancel', note)).toBe(true);
+    expect(ownsNote('scaled', note)).toBe(false);
+    expect(ownsNote('algo', note)).toBe(false);
   });
 });
