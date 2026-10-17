@@ -234,6 +234,122 @@
     overflow-wrap: anywhere;
   }
 
+  /* Recent payments and recent recipients, left of the card */
+  .pay-recent {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    max-width: 520px;
+  }
+  .pay-recent__section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .pay-recent__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .pay-recent__head h2 {
+    font: 600 16px/24px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .pay-recent__list,
+  .pay-recent__chips {
+    display: flex;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pay-recent__list {
+    flex-direction: column;
+    border: 1px solid var(--if-line-strong);
+    border-radius: var(--if-r-md);
+  }
+  .pay-recent__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+    padding: 12px 16px;
+  }
+  .pay-recent__row + .pay-recent__row {
+    border-top: 1px solid var(--if-line);
+  }
+  .pay-recent__main,
+  .pay-recent__side {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pay-recent__side {
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .pay-recent__who {
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+    overflow-wrap: anywhere;
+  }
+  .pay-recent__meta {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .pay-recent__amount {
+    font: 500 14px/20px var(--if-font-ui);
+    font-variant-numeric: tabular-nums;
+    color: var(--if-fg);
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+  .pay-recent__amount--in {
+    color: var(--if-up-text);
+  }
+  .pay-recent__link {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .pay-recent__side .pay-recent__link {
+    align-self: flex-end;
+  }
+  .pay-recent__link:hover:not(:disabled) {
+    color: var(--if-fg);
+  }
+  .pay-recent__link:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .pay-recent__link:focus-visible,
+  .pay-recent .pay-chip:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+    border-radius: var(--if-r-sm);
+  }
+  .pay-recent__chips {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pay-recent .pay-chip {
+    height: 32px;
+    text-decoration: none;
+  }
+  .pay-recent__note {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+
   @media (max-width: 560px) {
     .pay-card [role='tablist'] {
       overflow-x: auto;

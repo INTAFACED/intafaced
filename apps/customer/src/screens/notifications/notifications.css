@@ -472,6 +472,119 @@
   .nf-deliveries .nf-why {
     grid-column: 1 / -1;
   }
+  /* Price alerts */
+  .nf-banner {
+    margin: 12px 0 0;
+    padding: 12px 16px;
+    border: 1px solid var(--if-line);
+    border-radius: 12px;
+    background: var(--if-field);
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .nf-banner p {
+    margin: 4px 0 0;
+  }
+  .nf-banner strong {
+    color: var(--if-fg);
+    font-weight: 600;
+  }
+  .nf-banner--ok {
+    border-color: var(--if-lime);
+    color: var(--if-fg);
+  }
+  .nf-banner--warn {
+    color: var(--if-fg);
+    border-color: var(--if-warn-text, var(--if-fg-2));
+  }
+  .nf-banner--bad {
+    color: var(--if-fg);
+    border-color: var(--if-down-text, var(--if-fg-2));
+  }
+  .nf-alertform {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+  }
+  .nf-alertform .nf-h2 {
+    margin-top: 0 !important;
+  }
+  .nf-field select {
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 10px;
+    background: var(--if-panel);
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .nf-field select:disabled {
+    opacity: 0.5;
+  }
+  .nf-facts {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+  }
+  .nf-facts > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .nf-facts dt {
+    color: var(--if-fg-2);
+  }
+  .nf-facts dd {
+    margin: 0;
+    color: var(--if-fg);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .nf-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .nf-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .nf-listhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--if-line);
+  }
+  .nf-h2--flush {
+    margin: 0 !important;
+  }
+  .nf-alertrow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 12px 16px;
+  }
+  .nf-alertside {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .nf-alertask {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 12px;
+    background: var(--if-field);
+    font: 400 13px/18px var(--if-font-ui);
+  }
   @media (max-width: 640px) {
     .nf-deliveries li {
       grid-template-columns: 1fr;
