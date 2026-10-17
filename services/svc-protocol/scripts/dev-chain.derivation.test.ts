@@ -8,7 +8,7 @@ import { mnemonicToAccount } from 'viem/accounts';
  * PBKDF2 seed is derived once per process. Thirty suite URLs plus anvil's ten
  * pre-funded indices used to be about forty seed derivations.
  */
-const calls = { mnemonicToAccount: 0, mnemonicToSeedSync: 0 };
+const calls = { mnemonicToAccount: 0, pbkdf2Sync: 0 };
 
 vi.mock('viem/accounts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('viem/accounts')>();
@@ -21,13 +21,13 @@ vi.mock('viem/accounts', async (importOriginal) => {
   };
 });
 
-vi.mock('@scure/bip39', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@scure/bip39')>();
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
   return {
     ...actual,
-    mnemonicToSeedSync: (...args: Parameters<typeof actual.mnemonicToSeedSync>) => {
-      calls.mnemonicToSeedSync += 1;
-      return actual.mnemonicToSeedSync(...args);
+    pbkdf2Sync: (...args: Parameters<typeof actual.pbkdf2Sync>) => {
+      calls.pbkdf2Sync += 1;
+      return actual.pbkdf2Sync(...args);
     },
   };
 });
@@ -41,11 +41,13 @@ function suiteUrl(name: string): string {
 async function loadDevChain() {
   vi.resetModules();
   calls.mnemonicToAccount = 0;
-  calls.mnemonicToSeedSync = 0;
+  calls.pbkdf2Sync = 0;
   return import('./dev-chain.js');
 }
 
 describe('suite account derivation', () => {
+  // viem's import dominates this test. Busy local runs took 4512ms and 5644ms,
+  // both past the 5000ms CI default. Budget is 5644 * 3, rounded up.
   it('derives the HD seed once and returns the same account object', async () => {
     const { devAccount, suiteAccount } = await loadDevChain();
 
@@ -56,12 +58,13 @@ describe('suite account derivation', () => {
       devAccount(i);
     }
 
-    expect(calls.mnemonicToAccount + calls.mnemonicToSeedSync).toBeLessThanOrEqual(1);
+    expect(calls.mnemonicToAccount + calls.pbkdf2Sync).toBeLessThanOrEqual(1);
+    expect(calls.pbkdf2Sync).toBe(1);
 
     const url = suiteUrl('src/lending/lending-oracle.onchain.test.ts');
     const first = suiteAccount(url);
     expect(suiteAccount(url)).toBe(first);
-  });
+  }, 17_000);
 
   it('matches mnemonicToAccount for real suite URLs and anvil account 0', async () => {
     const { devAccount, PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS, PUBLIC_ANVIL_DEV_MNEMONIC, suiteAccount, suiteSenderIndex } =

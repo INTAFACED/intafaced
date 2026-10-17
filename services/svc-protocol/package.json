@@ -36,7 +36,6 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@scure/bip39": "1.6.0",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.31.10",
     "rimraf": "^6.0.1",

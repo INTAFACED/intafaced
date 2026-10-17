@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { mnemonicToSeedSync } from '@scure/bip39';
+import { createHash, pbkdf2Sync } from 'node:crypto';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
 import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
@@ -49,12 +48,27 @@ export const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test tes
 export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 /**
- * BIP-39 seed (2048 rounds of HMAC-SHA512) is the expensive part. Derive it
- * once, on first use, and keep each child account so a repeated path returns
- * the same object. Suites that never ask for an account never pay this cost.
+ * BIP-39 seed, derived once on first use. Child accounts are cached by path
+ * so a repeated path returns the same object. Suites that never ask for an
+ * account never pay this cost.
+ *
+ * The KDF is PBKDF2-HMAC-SHA512, 2048 rounds, 64 bytes: the same inputs as
+ * `@scure/bip39`'s `mnemonicToSeedSync`. That helper runs the rounds in pure
+ * JavaScript, and one call plus the module load exceeds the 5s budget of the
+ * derivation test on a loaded CI runner. Node's `pbkdf2Sync` is the OpenSSL
+ * implementation of that same KDF.
  */
 let devRoot: HDKey | undefined;
 const devAccountByPath = new Map<string, HDAccount>();
+
+const BIP39_ROUNDS = 2048;
+const BIP39_SEED_BYTES = 64;
+
+function devMnemonicSeed(mnemonic: string, passphrase = ''): Uint8Array {
+  const password = Buffer.from(mnemonic.normalize('NFKD'), 'utf8');
+  const salt = Buffer.from(`mnemonic${passphrase}`.normalize('NFKD'), 'utf8');
+  return Uint8Array.from(pbkdf2Sync(password, salt, BIP39_ROUNDS, BIP39_SEED_BYTES, 'sha512'));
+}
 
 function devHdPath(accountIndex: number, addressIndex: number): string {
   return `m/44'/60'/${accountIndex}'/0/${addressIndex}`;
@@ -62,7 +76,7 @@ function devHdPath(accountIndex: number, addressIndex: number): string {
 
 function devRootKey(): HDKey {
   if (!devRoot) {
-    devRoot = HDKey.fromMasterSeed(mnemonicToSeedSync(PUBLIC_ANVIL_DEV_MNEMONIC));
+    devRoot = HDKey.fromMasterSeed(devMnemonicSeed(PUBLIC_ANVIL_DEV_MNEMONIC));
   }
   return devRoot;
 }
