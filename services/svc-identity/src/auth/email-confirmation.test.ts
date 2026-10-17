@@ -3,14 +3,16 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import { issueAccessToken, issueMerchantOnboardingScope, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { hashesEqual, isEmailConfirmed, publishedEmailConfirmRate, publishedEmailConfirmTtlSeconds } from './email-confirmation.js';
+import { selectOnboardingUser } from './onboarding-user.js';
 import { hashToken } from './passwords.js';
+import { totp } from './totp.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
 import { RankService } from '../rank/rank-service.js';
@@ -24,6 +26,14 @@ const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced
 const PASSWORD = 'correct horse battery staple';
 const TTL = 900;
 const T0 = Date.parse('2026-10-17T03:00:00.000Z');
+const NO_FACTOR = { mfa: false, privileged: false } as const;
+
+/** Enrol confirm burns the current step. The next sign-in uses the following step. */
+function totpNext(secret: string): string {
+  const step = 30;
+  const counter = Math.floor(Math.floor(Date.now() / 1000) / step);
+  return totp(secret, { at: new Date((counter + 1) * step * 1000) });
+}
 
 describe('email confirmation publication', () => {
   it('does not invent a lifetime or a rate budget', () => {
@@ -314,6 +324,48 @@ if (!available) {
       `;
       expect(stored[0]!.n).toBe(1);
       expect(JSON.stringify(warnings)).not.toContain(sent[0]!.code);
+    });
+
+    it('withholds pay:onboard until the real confirmation, then drops it when the email changes', async () => {
+      const user = await register();
+      const { secret } = await auth.startTotpEnrolment(user.userId, NO_FACTOR);
+      await auth.confirmTotpEnrolment(user.userId, NO_FACTOR, secret, totp(secret));
+      auth.useOwnerPayScopeSource(async (userId) => {
+        const row = await selectOnboardingUser(db.sql, userId);
+        if (!row) return [];
+        return issueMerchantOnboardingScope({ user: row, merchant: null });
+      });
+      const scopesOf = async (accessToken: string) => (await verifyAccessToken(accessToken, tokenConfig)).scopes;
+      try {
+        expect(await selectOnboardingUser(db.sql, user.userId)).toMatchObject({
+          accountStatus: 'active',
+          emailVerified: false,
+          secondFactorEnrolled: true,
+        });
+        const logged = await auth.login({ identifier: user.email, password: PASSWORD, totpCode: totpNext(secret) });
+        expect(await scopesOf(logged.accessToken)).not.toContain('pay:onboard');
+
+        const api = await asUser(logged.accessToken);
+        await api.auth.requestEmailConfirmation();
+        await api.auth.confirmEmail({ token: sent[0]!.code });
+        expect(await selectOnboardingUser(db.sql, user.userId)).toMatchObject({ emailVerified: true });
+
+        const refreshed = await auth.refresh(logged.refreshToken);
+        const granted = await scopesOf(refreshed.accessToken);
+        expect(granted).toContain('pay:onboard');
+        expect(granted).not.toContain('pay:read');
+        expect(granted).not.toContain('pay:write');
+        expect(granted).not.toContain('pay:refund');
+        expect(granted).not.toContain('pay:payout');
+
+        await db.sql`UPDATE users SET email = ${'moved-' + user.email} WHERE id = ${user.userId}`;
+        expect(await selectOnboardingUser(db.sql, user.userId)).toMatchObject({ emailVerified: false });
+        const afterMove = await auth.refresh(refreshed.refreshToken);
+        expect(await scopesOf(afterMove.accessToken)).not.toContain('pay:onboard');
+        expect((await api.me()).emailVerified).toBe(false);
+      } finally {
+        auth.useOwnerPayScopeSource(null);
+      }
     });
 
     it('refuses an API key', async () => {
