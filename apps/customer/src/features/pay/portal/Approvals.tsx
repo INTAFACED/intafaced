@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, EmptyState, Field } from '@intafaced/ui';
-import { PayTime, PaySection, ReviewedAction } from '../components';
+import { PayTime, PaySection } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { Chip, Facts, HaltBanner, Kpi, KpiGrid, Money, PortalFailure, PortalLoading, ReadAt, SelectField, SpanText } from './components';
 import { portalCopy } from './copy';
 import { useMemberNames, useNow, useReadAt, useUrlParam } from './hooks';
@@ -379,7 +380,7 @@ export function ApprovalDecision({
         <small>{t('hDecisionReason')}</small>
       </label>
       <div className="pp-actions">
-        <ReviewedAction
+        <PortalReview
           title={t('approve')}
           variant="primary"
           description={t('approveBody')}
@@ -388,7 +389,7 @@ export function ApprovalDecision({
           onConfirmed={onDone}
           disabled={disabled}
         />
-        <ReviewedAction
+        <PortalReview
           title={t('reject')}
           variant="sell"
           description={t('rejectBody')}
@@ -430,7 +431,7 @@ export function CancelRequest({
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={!mine} />
         <small>{t('hDecisionReason')}</small>
       </label>
-      <ReviewedAction
+      <PortalReview
         title={t('cancelRequest')}
         description={t('cancelRequestBody')}
         review={

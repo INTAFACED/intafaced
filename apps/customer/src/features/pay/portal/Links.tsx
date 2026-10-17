@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
-import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
+import { PayDetails, PaySection, PayTime } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { validatedMutation } from '../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import * as s from '../schemas';
@@ -164,7 +165,7 @@ export function LinksView({
                 <ComingSoon>{t('linkHistoryGap')}</ComingSoon>
                 {noWrite && <ComingSoon>{t('linkAuthorityGap')}</ComingSoon>}
                 <div title={noWrite ? t('linkAuthorityGap') : !selected.active ? t('inactiveTip') : undefined}>
-                  <ReviewedAction
+                  <PortalReview
                     title={t('deactivateLink')}
                     description={t('deactivateBody')}
                     variant="sell"
@@ -373,7 +374,7 @@ export function PaymentLinkForm({ pay, merchantId }: { pay: BusinessPayApi; merc
         </fieldset>
         {!parsed.success && <p className="muted">{t('invalidForm')}</p>}
         <div title={noWrite ? t('linkAuthorityGap') : !parsed.success ? t('invalidForm') : undefined}>
-          <ReviewedAction
+          <PortalReview
             title={t('reviewLink')}
             description={t('reviewLinkBody')}
             variant="primary"

@@ -118,8 +118,6 @@ export function parsePortalRoute(path: string): PortalRoute | null {
     return b === undefined ? { room: 'payouts' } : { room: 'payout', param: decode(b) };
   if (a === 'customers') return b === undefined ? { room: 'customers' } : { room: 'customer', param: decode(b) };
   if (a === 'disputes') {
-    // The older "disputed payments" list stays reachable at ?view=payments until the dispute service is live.
-    if (new URLSearchParams(query).get('view') === 'payments') return null;
     return b === undefined ? { room: 'disputes' } : { room: 'dispute', param: decode(b) };
   }
   return null;

@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
-import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
+import { PayDetails, PaySection, PayTime } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { CreateMandate } from '../MerchantBilling';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import { executionSchema, mandateSchema, subscriptionSchema, subscriptionPostureSchema, id } from '../schemas';
@@ -546,7 +547,7 @@ function SubscriptionActions({ subscription: s, pay, reload }: { subscription: S
           )
           .map((action) => (
             <span key={action} title={disabled ? c.t(locked ? 'unresolvedSubscription' : 'subscriptionAuthority') : undefined}>
-              <ReviewedAction
+              <PortalReview
                 key={revision}
                 title={c.t(action === 'pause' ? 'pauseSubscription' : action === 'resume' ? 'resumeSubscription' : 'cancelSubscription')}
                 description={c.t(action === 'pause' ? 'pauseEffect' : action === 'resume' ? 'resumeEffect' : 'cancelEffect')}
@@ -718,7 +719,7 @@ export function CreateSubscriptionView({
                             : undefined
                     }
                   >
-                    <ReviewedAction
+                    <PortalReview
                       key={`${mandateId}:${revision}`}
                       title={c.t('createSubscription')}
                       description={c.t('subscriptionCreateReview')}

@@ -4,6 +4,7 @@ import { fmtAmount } from '../../../data/format';
 import { displayAmount, parseAmount } from '../../../shared/money';
 import { layoutCopy } from './home-layout/copy';
 import type { Payment } from './schemas';
+import { useExactMoneyScope } from './ui/ExactMoneyScope';
 
 /** Full precision is an explicit choice in a detail, statement or review, never the headline default. */
 export const ExactMoneyContext = createContext(false);
@@ -27,10 +28,13 @@ export function MoneyDisplay({
   sensitive?: boolean;
 }) {
   const canShowExact = useContext(ExactMoneyContext);
+  const inReview = useExactMoneyScope();
   const [exact, setExact] = useState(false);
   const { t } = layoutCopy.useCopy();
   const compact = portalAmount(value, asset);
   const full = displayAmount(value);
+  // In a review the exact amount is the default and needs no toggle. In a detail view the compact amount keeps a "Show exact" button.
+  if (inReview) return <Amount className={className} value={full} sensitive={sensitive} />;
   const hasExtraPrecision = /[1-9]/.test((value.split('.')[1] ?? '').slice(asset === 'USD' || asset === 'USDT' ? 2 : 8));
   return (
     <span className="plo-money-exact">

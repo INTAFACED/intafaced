@@ -3,7 +3,8 @@ import type { z } from 'zod';
 import { useSession } from '../../session/session';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
-import { PayDetails, PaySection, PayTime, ReviewedAction } from '../components';
+import { PayDetails, PaySection, PayTime } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import { CreateWebhook, SandboxKeys, WebhookToggle } from '../MerchantNetwork';
 import * as s from '../schemas';
@@ -177,7 +178,7 @@ export function KeysView({ resource, pay, reload }: { resource: Resource<Key[]>;
                         </td>
                         <td>
                           {!key.revoked && (
-                            <ReviewedAction
+                            <PortalReview
                               title={c.t('revokeKey')}
                               description={c.t('revokeEffect')}
                               review={

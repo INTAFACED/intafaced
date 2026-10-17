@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, DataTable, Field } from '@intafaced/ui';
-import { PayTime, PaySection, ReviewedAction } from '../components';
+import { PayTime, PaySection } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { Chip, ListShell, MoreFooter, SelectField } from './components';
 import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, type ListState } from './hooks';
@@ -236,7 +237,7 @@ function RequestForm({ portal, onRequested }: { portal: PortalApi; onRequested: 
           maxLength={32}
           hint={t('hAsset')}
         />
-        <ReviewedAction
+        <PortalReview
           title={t('requestExport')}
           variant="primary"
           description={t('requestExportBody')}

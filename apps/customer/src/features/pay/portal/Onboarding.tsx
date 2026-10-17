@@ -2,7 +2,8 @@ import { Button, EmptyState } from '@intafaced/ui';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Field } from '@intafaced/ui';
-import { PayDetails, PaySection, ReviewedAction } from '../components';
+import { PayDetails, PaySection } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { Chip, ComingSoon, Gate, ListShell, MoreFooter, PortalFailure, SelectField, Timeline } from './components';
 import { portalCopy } from './copy';
 import { useCursorList, type ListState } from './hooks';
@@ -269,7 +270,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated }: Parameters
         </fieldset>
         <ComingSoon>{c('draftGap')}</ComingSoon>
         {starterFeeBps === null && <ComingSoon title={t('noStarterPricingTitle')}>{t('noStarterPricingBody')}</ComingSoon>}
-        <ReviewedAction
+        <PortalReview
           title={t('createAccount')}
           variant="primary"
           description={t('createAccountBody')}
@@ -351,7 +352,7 @@ function StepVerification({
                     error={ref.length > 0 && ref.trim().length === 0 ? t('err_required') : undefined}
                     required
                   />
-                  <ReviewedAction
+                  <PortalReview
                     title={t('submitVerification')}
                     variant="primary"
                     description={t('submitVerificationBody')}
@@ -457,7 +458,7 @@ function StepPayout({ portal, merchant, rails, saved, onDestinationSaved, retry 
                 error={shapeOk ? undefined : t(kind === 'crypto' ? 'err_address' : 'err_bankRef')}
                 required
               />
-              <ReviewedAction
+              <PortalReview
                 title={t('saveDestination')}
                 variant="primary"
                 description={t('saveDestinationBody')}

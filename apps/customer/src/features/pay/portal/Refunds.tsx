@@ -4,6 +4,7 @@ import { useResource, type Resource } from '../../../shared/resource';
 import { StatusTag, Button, DataTable, EmptyState, Field } from '@intafaced/ui';
 import { PaySection, PayTime } from '../components';
 import { MerchantRefund } from '../MerchantRefund';
+import { ExactMoneyScope } from './ui/ExactMoneyScope';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../pay-api';
 import { BackLink, ComingSoon, Facts, Gate, Kpi, KpiGrid, Money, ReadAt, SelectField, Timeline } from './components';
 import { buildCsv, downloadText } from './csv';
@@ -123,14 +124,16 @@ function RefundResults({
             />
             <ComingSoon>{t('refundAuditGap')}</ComingSoon>
             {authority ? (
-              <MerchantRefund
-                pay={pay}
-                paymentId={paymentId}
-                onRecorded={query.reload}
-                onBack={() => {
-                  window.location.href = `/pay/refunds?payment=${encodeURIComponent(paymentId)}`;
-                }}
-              />
+              <ExactMoneyScope>
+                <MerchantRefund
+                  pay={pay}
+                  paymentId={paymentId}
+                  onRecorded={query.reload}
+                  onBack={() => {
+                    window.location.href = `/pay/refunds?payment=${encodeURIComponent(paymentId)}`;
+                  }}
+                />
+              </ExactMoneyScope>
             ) : (
               <ComingSoon>{t('refundAuthorityGap')}</ComingSoon>
             )}

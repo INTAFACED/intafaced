@@ -423,7 +423,7 @@ describe('disputes', () => {
       />,
     );
     expect(out).toContain('Coming soon');
-    expect(out).toContain('href="/pay/disputes?view=payments"');
+    expect(out).not.toContain('view=payments');
   });
   const detail = (patch: Partial<p.DisputeDetail> = {}): p.DisputeDetail => ({
     ...dispute(),

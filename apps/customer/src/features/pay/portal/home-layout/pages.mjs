@@ -23,7 +23,6 @@ export const portalPages = [
   ['Payments', 'Refund detail', '/pay/refunds/TEST-refund-1', 'P10'],
   ['Payments', 'Disputes', '/pay/disputes', 'P11'],
   ['Payments', 'Dispute detail', `/pay/disputes/${dispute}`, 'P12'],
-  ['Payments', 'Disputed payment tools', '/pay/disputes?view=payments', 'P11'],
   ['Payments', 'Checkout configuration', '/pay/checkout', 'P16'],
   ['Money out', 'Balances', '/pay/money', 'P24'],
   ['Money out', 'Balance activity', '/pay/money/activity', 'P25'],

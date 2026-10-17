@@ -4,7 +4,8 @@ import { useUnsavedForm } from './useUnsavedForm';
 import { useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { DataTable, Field } from '@intafaced/ui';
-import { PayTime, PaySection, ReviewedAction } from '../components';
+import { PayTime, PaySection } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import { Kpi, KpiGrid, Chip, Gate, ListShell, MoreFooter, SelectField, Timeline } from './components';
 import { portalCopy } from './copy';
 import { useCursorList, useUrlParam, useReadAt, type ListState } from './hooks';
@@ -116,14 +117,14 @@ export function TeamView(props: {
                       </small>
                     </div>
                     <div className="pp-actions">
-                      <ReviewedAction
+                      <PortalReview
                         title={t('accept')}
                         variant="primary"
                         description={t('acceptBody')}
                         perform={() => portal.acceptInvite(invite.memberId)}
                         onConfirmed={refresh}
                       />
-                      <ReviewedAction
+                      <PortalReview
                         title={t('decline')}
                         description={t('declineBody')}
                         perform={() => portal.declineInvite(invite.memberId)}
@@ -301,7 +302,7 @@ function MemberRow({
               onChange={(v) => setNext(v as TeamRole)}
               options={options.map((r) => [r, t(`role_${r}` as 'role_owner')] as const)}
             />
-            <ReviewedAction
+            <PortalReview
               title={t('changeRole')}
               description={t('changeRoleBody')}
               review={
@@ -317,7 +318,7 @@ function MemberRow({
               onConfirmed={refresh}
               disabled={!target}
             />
-            <ReviewedAction
+            <PortalReview
               title={t('remove')}
               variant="sell"
               description={t('removeBody')}
@@ -383,7 +384,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
             disabled={blocked}
           />
         </div>
-        <ReviewedAction
+        <PortalReview
           title={t('sendInvite')}
           variant="primary"
           description={t('sendInviteBody')}

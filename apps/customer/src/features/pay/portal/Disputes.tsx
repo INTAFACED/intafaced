@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { useResource, type Resource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState } from '@intafaced/ui';
-import { PayTime, PaySection, ReviewedAction } from '../components';
+import { PayTime, PaySection } from '../components';
+import { PortalReview } from './ui/PortalReview';
 import {
   BackLink,
   Chip,
@@ -68,17 +69,9 @@ export function DisputesView({
   retry: () => void;
 }) {
   const { t } = portalCopy.useCopy();
-  // If the operations service is not live yet, say so once with the way to the older view; do not paint empty tiles.
+  // If the dispute reads are not live, say so once; do not paint empty tiles. The failure becomes the Coming soon card when unmounted.
   const notLive = list.status === 'failed' && summary.status === 'failed';
-  if (notLive)
-    return (
-      <div className="stack">
-        <PortalFailure result={list.failure} retry={retry} />
-        <a className="text-link" href="/pay/disputes?view=payments">
-          {t('seeDisputedPayments')}
-        </a>
-      </div>
-    );
+  if (notLive) return <PortalFailure result={list.failure} retry={retry} />;
   const due = list.status === 'ready' ? nextDueSoonest(list.items) : null;
   return (
     <div className="stack">
@@ -346,7 +339,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />
             <small>{t('hEvidenceNote')}</small>
           </label>
-          <ReviewedAction
+          <PortalReview
             title={t('addEvidence')}
             variant="primary"
             description={t('addEvidenceBody')}
@@ -402,7 +395,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
             <small>{t('hRespondNote')}</small>
           </label>
           <div className="pp-actions">
-            <ReviewedAction
+            <PortalReview
               title={t('contest')}
               variant="primary"
               description={t('contestBody')}
@@ -426,7 +419,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
               onConfirmed={reload}
               disabled={!canContest}
             />
-            <ReviewedAction
+            <PortalReview
               title={t('acceptLiability')}
               variant="sell"
               description={t('acceptLiabilityBody')}

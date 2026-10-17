@@ -255,9 +255,10 @@ describe('portal routes', () => {
     expect(parsePortalRoute('/pay/exports')).toEqual({ room: 'exports' });
     expect(parsePortalRoute('/pay/notifications')).toEqual({ room: 'notifications' });
   });
-  it('leaves every other room, and the older disputed-payments list, to Business Pay', () => {
-    for (const path of ['/pay/links?view=tools', '/pay/disputes?view=payments', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
+  it('leaves every other room to Business Pay, and opens the normal Disputes page for the retired disputed-payments view', () => {
+    for (const path of ['/pay/links?view=tools', '/pay', '/p2p', '/pay/team/x/y', '/pay/exports/1'])
       expect(parsePortalRoute(path), path).toBeNull();
+    expect(parsePortalRoute('/pay/disputes?view=payments')).toEqual({ room: 'disputes' });
   });
   it('maps the W3b pages and keeps their older tools reachable', () => {
     expect(parsePortalRoute('/pay/payments?status=failed')).toEqual({ room: 'payments' });

@@ -361,7 +361,6 @@ const en = {
   disputesNoMatchBody: 'Choose another status, or show all.',
   openDisputeAria: 'Open dispute {id}',
   noDeadline: 'No deadline',
-  seeDisputedPayments: 'See payments marked as disputed',
   backToDisputes: 'All disputes',
   disputeFactsBody: 'What was disputed and where it stands.',
   ledgerWire: 'Ledger entry',
