@@ -9,6 +9,7 @@ import {
   isConsumableApproval,
   isSamePersonActionType,
   namesAreNotActionApproval,
+  samePersonTargetService,
 } from '@intafaced/contracts';
 import { type ApprovalSubject, type FounderDirectory, audienceOfApproval } from './action-approval-audience.js';
 import {
@@ -130,8 +131,8 @@ export class ActionApprovalService {
     const row: StoredApproval = {
       approvalId,
       actionType: input.actionType,
-      targetService: 'svc-bank',
-      // Bank consumes with the same constants; the payload hash carries every business field.
+      targetService: samePersonTargetService(input.actionType),
+      // The consuming service recomputes the same hash. The payload carries every business field.
       targetId: input.actionType,
       expectedVersion: '1',
       payloadHash: input.payloadHash,

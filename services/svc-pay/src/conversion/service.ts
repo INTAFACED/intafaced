@@ -22,6 +22,7 @@ import { loadApplicableRules, loadMerchantControl, monthlyIntake } from '../cont
 import { computePricing, resolvePricingRule } from '../control/pricing.js';
 import { findBlockingHalt } from '../halts/store.js';
 import { postPayLedger } from '../ledger-receipt.js';
+import { liveAccountsIn } from '../sandbox-ledger-guard.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { requireMerchantPermission } from '../merchant-ops/roles.js';
 import type { RegistryReader } from '../registries/read-api.js';
@@ -436,6 +437,18 @@ export class ConversionService {
   }
 
   async execute(principal: Principal | null, input: { requestId: string; quoteId: string }): Promise<ConversionOrder> {
+    if (principal?.key_env === 'sandbox') {
+      // A sandbox key must not hold, book, release, or reverse conversion value. Those recipes name live pots.
+      const probe = recipes.fxConversionHold({
+        conversionId: input.requestId,
+        merchantId: 'sandbox-refused',
+        fromAsset: 'USDT',
+        amount: 1n,
+      });
+      if (liveAccountsIn(probe).length > 0) {
+        throw new ConversionError('pay.sandbox_live_account_refused', 'FORBIDDEN');
+      }
+    }
     await this.refuseIfLateFill();
     const caller = callerOf(principal);
     const existing = await this.orderByRequest(input.requestId);

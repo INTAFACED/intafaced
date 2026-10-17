@@ -58,7 +58,14 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { PayGuardRefusal } from './seams/guards.js';
-import { seesFullPricing } from './merchant-ops/roles.js';
+import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
+import {
+  loadDestinationHoldSeconds,
+  notifyMerchantOwners,
+  PayoutDestinationChange,
+  roleOnMerchantForDestination,
+  verifyDestinationStepUp,
+} from './payout-destination-change.js';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead, type MerchantReadAudience } from './merchant-read-access.js';
 import { logPaymentFactsReadFailure } from './payment-facts-log.js';
@@ -222,6 +229,11 @@ type WithdrawalViewOut = z.infer<typeof withdrawalView>;
  * (merchant-ownership.ts `merchantNotFound` / `refuseAsMissing`). The real
  * reason is operator-only (isolation-log.ts). Do not reintroduce FORBIDDEN here.
  */
+/** Present only for a sandbox API key. Sessions and live keys omit it. */
+function sandboxKeyEnv(principal: { key_env?: string } | null | undefined): { keyEnv: 'sandbox' } | Record<string, never> {
+  return principal?.key_env === 'sandbox' ? { keyEnv: 'sandbox' } : {};
+}
+
 export function createPayRouter(
   pay: PayService,
   rails: RailRegistry,
@@ -236,6 +248,50 @@ export function createPayRouter(
   /** Local-test starter fee. Null means the product fee is not set yet. */
   starterFee: MerchantStarterFee | null = null,
 ) {
+  const destinationChange = new PayoutDestinationChange(
+    destinations,
+    async (userId, merchantId) => {
+      if (!portalSql) throw new PayError('Payout destination changes need the pay database', 'pay.payout_destination_missing');
+      return roleOnMerchantForDestination(portalSql, userId, merchantId);
+    },
+    verifyDestinationStepUp,
+    approvals,
+    loadDestinationHoldSeconds(process.env.PAY_DESTINATION_HOLD_SECONDS),
+    portalSql
+      ? notifyMerchantOwners(portalSql)
+      : async () => {
+          throw new PayError('Payout destination changes need the pay database', 'pay.payout_destination_missing');
+        },
+  );
+
+  const setDestination = (
+    principal: { userId: string; sid: string; kid?: string; mfa?: boolean; sub_account?: string } | null | undefined,
+    input: {
+      merchantId: string;
+      railId: string;
+      kind: string;
+      ref: string;
+      stepUpApprovalId?: string | null;
+    },
+  ) => {
+    if (principal == null || !principal.userId || !principal.sid) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+    }
+    return destinationChange.set({
+      caller: {
+        userId: principal.userId,
+        sessionId: principal.sid,
+        viaApiKey: principal.kid !== undefined,
+        interactive: isInteractivePrincipal(principal),
+      },
+      merchantId: input.merchantId,
+      railId: input.railId,
+      kind: input.kind,
+      ref: input.ref,
+      stepUpApprovalId: input.stepUpApprovalId,
+    });
+  };
+
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -497,8 +553,9 @@ export function createPayRouter(
         ),
 
       /**
-       * Persist a payout destination through assertPayoutDestinationKind
-       * (IBAN / IFSC / EVM) so a later payout has a real ref before withdrawHold.
+       * Add or change the stored payout destination. Step-up, owner or admin,
+       * never an API key. A payout cannot call this. The first destination is
+       * active after step-up. A change stays pending until the hold passes.
        */
       setPayoutDestination: scopedProcedure('pay:write', { module: 'pay' })
         .input(
@@ -507,16 +564,19 @@ export function createPayRouter(
             railId: z.string().min(1),
             kind: z.string().min(1),
             ref: z.string().min(1),
+            stepUpApprovalId: z.string().max(128).nullish(),
           }),
         )
-        .output(z.object({ kind: z.string(), ref: z.string(), railId: z.string() }))
-        .mutation(({ ctx, input }) =>
-          wrap(async () => {
-            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.setPayoutDestination');
-            const dest = await destinations.persist(input);
-            return { ...dest, railId: input.railId };
+        .output(
+          z.object({
+            kind: z.string(),
+            ref: z.string(),
+            railId: z.string(),
+            status: z.enum(['active', 'pending']),
+            activatesAt: z.string().nullable(),
           }),
-        ),
+        )
+        .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
 
       /** Current merchant for the principal — null when not yet onboarded. */
       me: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
@@ -802,11 +862,36 @@ export function createPayRouter(
 
       /**
        * Saved destinations for this merchant. Masked. Screening is not stored,
-       * so that field stays `not_recorded`. set-default and remove are owner
-       * writes, the same door as `setPayoutDestination`: no second approval.
-       * Remove refuses while a payout that names the destination is in flight.
+       * so that field stays `not_recorded`. A default flag is `default` only
+       * after the owner marks the row, otherwise `unset`.
+       * `change` and `merchant.setPayoutDestination` are the step-up door.
+       * Remove applies only to unverified rows. A verified destination
+       * changes only through step-up plus the hold. set-default is an owner
+       * write and does not change the paid ref.
+       * Remove of an unverified row refuses while a payout that names the
+       * destination is in flight.
        */
       payoutDestinations: router({
+        change: scopedProcedure('pay:write', { module: 'pay' })
+          .input(
+            z.object({
+              merchantId: z.string().uuid(),
+              railId: z.string().min(1),
+              kind: z.string().min(1),
+              ref: z.string().min(1),
+              stepUpApprovalId: z.string().max(128).nullish(),
+            }),
+          )
+          .output(
+            z.object({
+              kind: z.string(),
+              ref: z.string(),
+              railId: z.string(),
+              status: z.enum(['active', 'pending']),
+              activatesAt: z.string().nullable(),
+            }),
+          )
+          .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
         list: scopedProcedure('pay:read', { module: 'pay' })
           .input(payPayoutDestinationListInputSchema)
           .output(payPageSchema(payPayoutDestinationItemSchema))
@@ -882,6 +967,7 @@ export function createPayRouter(
                 profileId: input.profileId ?? null,
                 amount: parseAmount(input.amount),
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
               'owner',
               true,
@@ -915,6 +1001,7 @@ export function createPayRouter(
               await pay.capture(input.paymentId, {
                 ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
               'owner',
               true,
@@ -943,7 +1030,14 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
-            return paymentOut(await pay.refund(input.paymentId, parseAmount(input.amount), { refundId: input.refundId }), 'owner', true);
+            return paymentOut(
+              await pay.refund(input.paymentId, parseAmount(input.amount), {
+                refundId: input.refundId,
+                ...sandboxKeyEnv(ctx.principal),
+              }),
+              'owner',
+              true,
+            );
           }),
         ),
 
@@ -1074,7 +1168,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.settlement.run');
-            return toSettlementOut(await pay.settleWindow(input));
+            return toSettlementOut(await pay.settleWindow({ ...input, ...sandboxKeyEnv(ctx.principal) }));
           }),
         ),
 
@@ -1092,10 +1186,15 @@ export function createPayRouter(
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
             await assertSettlementAccess(ctx.principal?.userId, input.settlementId, settlement.merchantId, 'trpc.settlement.payout');
+            if (input.destination !== undefined) {
+              throw new PayError('A payout cannot name a destination', 'pay.payout_destination_not_allowed');
+            }
             return toSettlementOut(
               await pay.payoutSettlement({
-                ...input,
+                settlementId: input.settlementId,
+                railId: input.railId,
                 identityAuthority: credentialAuthority(ctx.principal),
+                ...sandboxKeyEnv(ctx.principal),
               }),
             );
           }),
@@ -1594,6 +1693,7 @@ export function createPayRouter(
                   merchantId: input.merchantId,
                   amount: input.amount,
                   assetId: input.assetId,
+                  ...sandboxKeyEnv(ctx.principal),
                 });
               } catch (e) {
                 // The ledger refused for funds (money moved since the plan). A named error, NOT a recorded case: the case
@@ -1840,6 +1940,7 @@ export function createPayRouter(
                   // Taken from the token, never from the body. An operator cannot
                   // credit a balance and name somebody else as having done it.
                   creditedBy: ctx.principal.userId,
+                  ...sandboxKeyEnv(ctx.principal),
                 }),
               ),
               confirmOperatorId,
@@ -1909,6 +2010,7 @@ export function createPayRouter(
                 rail: input.railId,
                 destination: input.destination,
                 clientRef: input.clientRef,
+                ...sandboxKeyEnv(ctx.principal),
               }),
             ),
           ),
@@ -2163,6 +2265,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_book_unrecognised':
       case 'pay.identity_admission_unavailable':
       case 'pay.payout_destination_missing':
+      case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
       case 'pay.starter_fee_unpublished':
@@ -2208,6 +2311,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.payout_destination_in_flight':
+      case 'pay.payout_destination_verified_locked':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
@@ -2227,6 +2331,10 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.merchant_inactive':
       case 'pay.identity_admission_denied':
       case 'pay.merchant_forbidden':
+      case 'pay.destination_step_up_required':
+      case 'pay.destination_api_key_refused':
+      case 'pay.destination_session_required':
+      case 'pay.destination_role_forbidden':
       case 'pay.submerchant_permission_denied':
       case 'pay.rail_not_creditable':
       case 'pay.kyb_operator_required':

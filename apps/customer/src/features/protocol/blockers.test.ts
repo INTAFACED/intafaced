@@ -86,16 +86,19 @@ describe('Protocol blocker mapping', () => {
   it('names an unreachable service instead of guessing', () => {
     const found = blockersFor('swap', { ...healthy, chain: down });
     expect(found[0]).toMatchObject({
-      code: 'source_down',
-      params: { source: 'network status', reason: 'no reply' },
+      code: 'source_no_reply',
+      params: { source: 'network status', service: 'Protocol' },
     });
-    expect(en.t(found[0]!.key, found[0]!.params)).toBe('Cannot confirm: network status did not answer (no reply).');
+    expect(`Blocked: ${en.t(found[0]!.key, found[0]!.params)}`).toBe(
+      'Blocked: network status unknown — the Protocol service didn’t answer.',
+    );
   });
 
   it('treats a loading source as not yet confirmed, not as cleared', () => {
     const found = blockersFor('smartAccount', { ...healthy, health: { status: 'loading' } });
-    expect(found.map((b) => b.code)).toContain('source_down');
-    expect(found.find((b) => b.code === 'source_down')?.params.reason).toBe('still checking');
+    const checking = found.find((b) => b.code === 'source_checking');
+    expect(checking?.params.source).toBe('service health');
+    expect(en.t(checking!.key, checking!.params)).toBe('still checking service health.');
   });
 
   it('orders chain, contracts, relay, venue and finality blockers as the audit lists them', () => {

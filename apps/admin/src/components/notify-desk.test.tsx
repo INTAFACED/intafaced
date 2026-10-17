@@ -32,7 +32,7 @@ describe('delivery health', () => {
     expect(html).toContain('data-testid="channel-email"');
     expect(html).toContain('66% (2 of 3)');
     expect(html).toContain('channel.not_configured ×1');
-    expect(html).toContain('As of 2026-10-17T03:00:00.000Z');
+    expect(html).toContain('As of 03:00:00 UTC');
   });
   it('says what the figures cover, and that a full page is not all-time', () => {
     expect(render(view([row()], 200))).toContain('svc-notify returned nothing older');

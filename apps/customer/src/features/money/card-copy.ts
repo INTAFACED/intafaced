@@ -52,6 +52,12 @@ const en = {
   listWindow: 'This list may be only part of your records. A missing reference doesn’t mean it was deleted.',
   noOther: 'No other cards',
   noCards: 'No cards yet',
+  details: 'Details',
+  closedNote: 'This card is closed. A closed card cannot be reopened.',
+  noProgrammeNote: 'Freezing or closing a card needs a card programme, and none is connected here.',
+  simFreeze: 'This freezes the simulation record only. No real card or money is involved.',
+  simUnfreeze: 'This unfreezes the simulation record only. No real card or money is involved.',
+  simClose: 'This closes the simulation record for good and it cannot be reopened. No real card or money is involved.',
 } as const;
 const es = {
   selected: 'Tarjeta seleccionada',
@@ -105,6 +111,13 @@ const es = {
   listWindow: 'Esta lista puede ser solo una parte de tus registros. Que falte una referencia no significa que se haya eliminado.',
   noOther: 'No hay otras tarjetas',
   noCards: 'Aún no hay tarjetas',
+  details: 'Detalles',
+  closedNote: 'Esta tarjeta está cerrada. Una tarjeta cerrada no se puede reabrir.',
+  noProgrammeNote: 'Bloquear o cerrar una tarjeta requiere un programa de tarjetas, y aquí no hay ninguno conectado.',
+  simFreeze: 'Esto bloquea solo el registro de simulación. No interviene ninguna tarjeta real ni dinero.',
+  simUnfreeze: 'Esto desbloquea solo el registro de simulación. No interviene ninguna tarjeta real ni dinero.',
+  simClose:
+    'Esto cierra el registro de simulación de forma definitiva y no se puede reabrir. No interviene ninguna tarjeta real ni dinero.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   selected: 'Carte sélectionnée',
@@ -160,6 +173,13 @@ const fr = {
     'Cette liste peut ne contenir qu’une partie de tes enregistrements. Une référence absente ne signifie pas qu’elle a été supprimée.',
   noOther: 'Aucune autre carte',
   noCards: 'Aucune carte pour l’instant',
+  details: 'Détails',
+  closedNote: 'Cette carte est close. Une carte close ne peut pas être rouverte.',
+  noProgrammeNote: 'Bloquer ou clore une carte nécessite un programme de cartes, et aucun n’est connecté ici.',
+  simFreeze: 'Cela bloque uniquement l’enregistrement de simulation. Aucune carte réelle ni aucun argent n’est concerné.',
+  simUnfreeze: 'Cela débloque uniquement l’enregistrement de simulation. Aucune carte réelle ni aucun argent n’est concerné.',
+  simClose:
+    'Cela clôt définitivement l’enregistrement de simulation, qui ne peut pas être rouvert. Aucune carte réelle ni aucun argent n’est concerné.',
 } satisfies Record<keyof typeof en, string>;
 
 export const cardCopy = defineCopy('customer.money.cards', en, { es, fr });

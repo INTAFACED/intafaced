@@ -121,7 +121,8 @@ export async function runSimulation(input: Options, signal?: AbortSignal) {
       .sort()) {
       await step(() => sql.unsafe(readFileSync(new URL(file, drizzle), 'utf8')));
     }
-    const pay = new PayService(sql, ledger, new RailRegistry([crypto]), { payoutDestinations: memoryPayoutDestinations() });
+    const destinations = memoryPayoutDestinations();
+    const pay = new PayService(sql, ledger, new RailRegistry([crypto]), { payoutDestinations: destinations });
     const projector = new MetricsProjector(sql);
     for (const scenario of SCENARIOS) {
       const merchant = await step(() => pay.createMerchant({ userId: randomUUID(), pricing: { feeBps: 0 } }));
@@ -178,7 +179,8 @@ export async function runSimulation(input: Options, signal?: AbortSignal) {
           'payout equals actual captured less refunded TEST VALUES',
         );
         const destination = syntheticPayoutAddress(merchant.id);
-        const request = { settlementId: settlement.id, railId: crypto.id, destination: { kind: 'crypto', ref: destination } };
+        await destinations.seedVerified({ merchantId: merchant.id, railId: crypto.id, kind: 'crypto', ref: destination });
+        const request = { settlementId: settlement.id, railId: crypto.id };
         const outboundBefore = chain.outboundTransfers().length;
         for (let failure = 0; failure < 3; failure += 1) {
           deadline.check();

@@ -4,6 +4,7 @@ import { shortId } from '@/lib/desk/desk-model';
 import { ESCALATION_REASONS } from '@/lib/support/model';
 import type { SupportRating, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 
 /**
  * The two operator-only reads on a ticket: the CASE FILE an escalation was made against, and the customer's RATING.
@@ -24,11 +25,11 @@ function CaseFileBody({ file }: { file: SupportCaseFile }) {
         <dt>Escalated by</dt>
         <dd className="dk-packet">{shortId(file.escalatedBy)}</dd>
         <dt>Filed</dt>
-        <dd>{file.createdAt}</dd>
+        <dd>{formatWhen(file.createdAt)}</dd>
         <dt>Account state</dt>
         <dd>
           {g.status === 'read'
-            ? `Read ${g.readAt}: account ${g.state.status}, verification tier ${String(g.state.kycTier)}`
+            ? `Read ${formatWhen(g.readAt)}: account ${g.state.status}, verification tier ${String(g.state.kycTier)}`
             : g.reason === 'plane_dark'
               ? 'Not read: identity could not be reached when this was filed.'
               : 'Not read: the escalation was filed without reading it.'}
@@ -54,7 +55,7 @@ function CaseFileBody({ file }: { file: SupportCaseFile }) {
                 <td>{c.kind === 'kb_article' ? 'Help article' : c.kind === 'account_state' ? 'Account state' : 'Customer comment'}</td>
                 <td className="dk-packet">{c.kind === 'kb_article' ? c.ref : shortId(c.ref)}</td>
                 <td className="dk-packet">{c.digest.slice(0, 12)}</td>
-                <td>{c.readAt}</td>
+                <td>{formatWhen(c.readAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -70,7 +71,7 @@ function RatingBody({ rating }: { rating: SupportRating }) {
     <>
       <div className="dk-row">
         <Chip tone={rating.score >= 4 ? 'live' : rating.score === 3 ? 'warn' : 'danger'}>{rating.score} out of 5</Chip>
-        <span className="dk-muted">Rated {rating.createdAt}</span>
+        <span className="dk-muted">Rated {formatWhen(rating.createdAt)}</span>
       </div>
       {rating.note ? (
         <div className="adm-callout">
@@ -112,7 +113,7 @@ export function TicketExtras({ extras, loading }: { extras: TicketExtrasView | n
       ) : (
         <CaseFileBody file={extras.caseFile.data} />
       )}
-      {extras && <span className="dk-asof">As of {extras.asOf}</span>}
+      {extras && <span className="dk-asof">As of {formatAsOf(extras.asOf)}</span>}
     </section>
   );
 }

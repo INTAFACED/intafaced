@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMIN_COOKIE,
   adminSessionConfig,
+  adminSessionErrorResponse,
   assertAdminCsrf,
   assertAdminOrigin,
   assertCurrentFounder,
@@ -10,6 +11,7 @@ import {
   founderEdgeCall,
   openFounderSession,
   sealFounderSession,
+  upstreamCodeOf,
   type AdminSessionConfig,
   type FounderSession,
 } from './founder-session.js';
@@ -326,5 +328,32 @@ describe('founder admin session security boundaries', () => {
       code: 'admin.upstream_refused',
       status: 503,
     });
+  });
+
+  it('keeps the service typed code on a refusal and sends it to the browser', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { json: { message: 'ops.crm.storage_unconfigured', code: -32603, data: { httpStatus: 412 } } } }),
+            {
+              status: 412,
+            },
+          ),
+      ),
+    );
+    const refused = await founderEdgeCall(config(), 'ops', 'outreach.metrics', 'GET', {}, ACCESS).catch((error: unknown) => error);
+    expect(refused).toMatchObject({ code: 'admin.upstream_refused', status: 412, upstream: 'ops.crm.storage_unconfigured' });
+    expect(await adminSessionErrorResponse(refused).json()).toEqual({
+      code: 'admin.upstream_refused',
+      upstream: 'ops.crm.storage_unconfigured',
+    });
+  });
+
+  it('never forwards free text from a service as a code', () => {
+    expect(upstreamCodeOf({ error: { json: { message: 'Something went wrong for user 3faadae7' } } })).toBeNull();
+    expect(upstreamCodeOf({ message: 'refused [ops.crm.revision_conflict] later' })).toBe('ops.crm.revision_conflict');
+    expect(upstreamCodeOf(null)).toBeNull();
   });
 });

@@ -32,7 +32,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0086      | W6 prelive late-fill horizon, booking, hold timer     | used                                            |
 | 0087      | payment link checkout re-read and create idempotency  | used                                            |
 | 0088      | destination default, invoice lines, due date, email   | used                                            |
-| 0089+     | unassigned                                            | free; ask W0 before using                       |
+| 0089      | payout dispatched outcome before the rail call        | used                                            |
+| 0090      | D-142 payout destination verified flag and pending change | used                                         |
+| 0091+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 

@@ -2,6 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
+import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -22,13 +23,11 @@ export const amount = (value: string | null | undefined, asset: string) =>
   value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
+/** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
 export function date(value: string | null) {
   if (!value) return copyText('components.none');
   if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  const { language, timeZone } = currentPreferences();
-  return new Date(value).toLocaleString(language, {
-    ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-  });
+  return stamp(value, currentPreferences().timeZone);
 }
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {

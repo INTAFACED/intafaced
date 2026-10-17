@@ -51,7 +51,7 @@ const order = (symbol: string, over: Partial<AdminOrderRow> = {}): AdminOrderRow
   clientOrderId: null,
   ...over,
 });
-const view = (m: MarketRow): MarketRowView => ({ market: m, lifecycle: null, orders: null });
+const view = (m: MarketRow): MarketRowView => ({ market: m, lifecycle: null, orders: null, fee: { kind: 'unread' } });
 const ME = '00000000-0000-4000-8000-000000000001';
 const OTHER = '00000000-0000-4000-8000-000000000002';
 const good = {

@@ -1,4 +1,5 @@
 import type { AdminOrderRow, LifecycleRow, LifecycleState, MarketRecordStatus, MarketRow } from './reads';
+import type { FeeCell } from './fees-model';
 import type { Outcome } from './outcome';
 
 /**
@@ -72,6 +73,8 @@ export interface MarketRowView {
   readonly market: MarketRow;
   readonly lifecycle: Outcome<LifecycleRow> | null;
   readonly orders: OrderTally | null;
+  /** The fee customers are charged on this market (not the listing-row bps). */
+  readonly fee: FeeCell;
 }
 
 export const ZERO_TALLY: OrderTally = { open: 0, seeded: 0, held: 0 };

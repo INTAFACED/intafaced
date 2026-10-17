@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel } from '@intafaced/ui';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
+import { founderName, useFounderOwners, type FounderOwner } from '@/components/founder-names';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { consoleCopy } from '@/lib/console-copy';
 import { describeUnconfigured, type AuthorityStatus } from '@/lib/console-status';
@@ -16,6 +18,11 @@ export const UNFREEZE_CONFIRM_PHRASE = 'UNFREEZE LEDGER';
 export interface LedgerOpsProps {
   treasury: AuthorityStatus;
   initialFreeze: FreezeResult;
+  /**
+   * When the server received that first read, stamped where the read happened. It must not be made while rendering: the server
+   * and the browser would print different times (React error 418) and the page would claim a read it never made.
+   */
+  initialReadAt: string | null;
   /** The signed-in founder's identity user id: tells the requester from the second founder. */
   userId: string;
 }
@@ -24,9 +31,9 @@ export interface LedgerOpsProps {
  * The ledger desk. It reads the posting record and asks two founders to freeze or unfreeze it; the deployment
  * transport is distinct from the people who must agree.
  */
-export function LedgerOps({ treasury, initialFreeze, userId }: LedgerOpsProps) {
+export function LedgerOps({ treasury, initialFreeze, initialReadAt, userId }: LedgerOpsProps) {
   const [freeze, setRead] = useState(initialFreeze);
-  const [readAt, setReadAt] = useState<string | null>(initialFreeze.kind === 'reachable' ? new Date().toISOString() : null);
+  const [readAt, setReadAt] = useState<string | null>(initialFreeze.kind === 'reachable' ? initialReadAt : null);
   const sequence = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const read = useCallback(async () => {
@@ -48,7 +55,8 @@ export function LedgerOps({ treasury, initialFreeze, userId }: LedgerOpsProps) {
       controller.current?.abort();
     };
   }, [read]);
-  return <LedgerOpsView treasury={treasury} freeze={freeze} readAt={readAt} userId={userId} onRead={() => void read()} />;
+  const owners = useFounderOwners();
+  return <LedgerOpsView treasury={treasury} freeze={freeze} readAt={readAt} userId={userId} owners={owners} onRead={() => void read()} />;
 }
 
 export interface LedgerOpsViewProps {
@@ -57,12 +65,22 @@ export interface LedgerOpsViewProps {
   /** When this console received the posting record, or null when there is no usable read. */
   readAt: string | null;
   userId: string;
+  /** The two founders' names when the founder directory answered; otherwise an actor id is shown as a short reference. */
+  owners?: FounderOwner[];
   onRead: () => void;
   /** Admin has no mounted locale selection; this seam supports the local copy family. */
   locale?: LedgerLocale;
 }
-export function LedgerOpsView({ treasury, freeze, readAt, userId, onRead, locale = 'en' }: LedgerOpsViewProps) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function LedgerOpsView({ treasury, freeze, readAt, userId, owners = [], onRead, locale = 'en' }: LedgerOpsViewProps) {
   const c = ledgerCopy(locale);
+  /** An identity id becomes a name when the founder directory gave one, else a short reference labelled as an id; other opaque text is kept as is. */
+  const actorText = (actor: string): string => {
+    if (!UUID.test(actor)) return actor;
+    if (actor.toLowerCase() === userId.toLowerCase()) return c.actorSelf;
+    const named = owners.find((owner) => owner.userId.toLowerCase() === actor.toLowerCase());
+    return named ? founderName(owners, named.userId) : `${c.actorUnnamed} …${actor.slice(-4)}`;
+  };
   const state = freeze.ok && freeze.kind === 'reachable' ? decodeFreezeState(freeze.state) : null;
   const loading = freeze.kind === 'loading';
   const blocked = !treasury.configured
@@ -122,19 +140,21 @@ export function LedgerOpsView({ treasury, freeze, readAt, userId, onRead, locale
                   </div>
                   <div>
                     <dt>{c.actor}</dt>
-                    <dd lang={state.actor === null ? undefined : 'zxx'}>{state.actor ?? c.nullActor}</dd>
+                    <dd lang={state.actor === null || UUID.test(state.actor) ? undefined : 'zxx'}>
+                      {state.actor === null ? c.nullActor : actorText(state.actor)}
+                    </dd>
                   </div>
                   <div>
                     <dt>{c.changed}</dt>
                     <dd lang="zxx">
-                      <time dateTime={state.changedAt}>{state.changedAt}</time>
+                      <time dateTime={state.changedAt}>{formatWhen(state.changedAt)}</time>
                     </dd>
                   </div>
                   {readAt && (
                     <div>
                       <dt>{c.asOf}</dt>
                       <dd lang="zxx">
-                        <time dateTime={readAt}>{readAt}</time>
+                        <time dateTime={readAt}>{formatAsOf(readAt)}</time>
                       </dd>
                     </div>
                   )}

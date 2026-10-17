@@ -9,9 +9,10 @@ import type { Part } from '@/lib/desk/part';
 import { fetchDesk } from '@/lib/ops-desk/browser';
 import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
 import { downloadCsv } from '@/lib/ops-desk/csv-browser';
-import { formatCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
+import { displayCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
 import type { Cell, DeskSection, DeskSpec, DeskView, ReadData, ReadOutcome, ReadSpec, Row } from '@/lib/ops-desk/types';
 import './desk.css';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * A MODULE OPS DESK: lists, then detail, then figures with the time they were read, then actions.
@@ -38,7 +39,7 @@ function Failed({
       <strong>{plainName ? `Could not load ${plainName}` : `${title}: ${label}`}</strong>
       {plainName && (
         <p className="dk-muted">
-          {label.charAt(0).toUpperCase() + label.slice(1)}. As of {asOf ?? 'an unknown time'}.
+          {label.charAt(0).toUpperCase() + label.slice(1)}. As of {asOf ? formatAsOf(asOf) : 'an unknown time'}.
         </p>
       )}
       <p>{part.message}</p>
@@ -49,7 +50,7 @@ function Failed({
 }
 
 export function CellValueView({ cell }: { cell: Cell }) {
-  return <>{formatCell(cell)}</>;
+  return <>{displayCell(cell)}</>;
 }
 
 function RecordFacts({ cells }: { cells: readonly Cell[] }) {
@@ -203,7 +204,7 @@ export function ReadBlock({ spec, outcome, ctx, openKey, onOpen }: ReadBlockProp
       <div>
         <h3>{spec.title}</h3>
         <p className="dk-muted">{spec.note}</p>
-        <p className="dk-asof">{outcome ? `As of ${outcome.asOf} (when this console read ${spec.module})` : 'Not read yet'}</p>
+        <p className="dk-asof">{outcome ? `As of ${formatAsOf(outcome.asOf)} (when this console read ${spec.module})` : 'Not read yet'}</p>
       </div>
       {!outcome && <p className="dk-why">This part was not read. Nothing is shown rather than a guess.</p>}
       {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} plainName={spec.plainName} asOf={outcome.asOf} />}
@@ -307,7 +308,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
         <button type="button" className="adm-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{view ? `Read started ${view.asOf}` : 'No read yet'}</span>
+        <span className="dk-asof">{view ? `Read started ${formatAsOf(view.asOf)}` : 'No read yet'}</span>
         {view && (
           <Chip tone={failed === 0 ? 'live' : 'warn'}>
             {counts.length - failed} of {counts.length} reads answered
@@ -316,7 +317,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
       </div>
       {stale && view && (
         <p className="dk-why" role="alert" data-testid="stale">
-          The last refresh did not reach the console’s server, so this is the earlier read, from {view.asOf}.
+          The last refresh did not reach the console’s server, so this is the earlier read, from {formatAsOf(view.asOf)}.
         </p>
       )}
       {!view && <p className="dk-why">The console could not reach its own server for this desk. Nothing is shown rather than a guess.</p>}
