@@ -42,6 +42,7 @@ import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProb
 import { isSandboxRailId } from './sandbox-key-routing.js';
 import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
 import {
+  isRailHealthBlockingCode,
   railBlockingReason,
   railReasonCode,
   type PaymentIntent,
@@ -2891,6 +2892,18 @@ export class PayService {
           };
 
           const result = await withRailSpan(adapter.id, 'authorize', async () => adapter.authorize(intent));
+          // Health flipped between the gate above and this call, or the adapter
+          // clock and this service's clock disagree. That is not a decline: the
+          // rail never looked at the payment. Throw inside the transaction so
+          // it rolls back, the row stays `created`, and no event is kept.
+          if (!result.ok && isRailHealthBlockingCode(result.failureCode ?? '')) {
+            const failureCode = railReasonCode(result.failureCode ?? '');
+            throw new PayError(
+              `Rail "${adapter.id}" is not usable (${result.failureReason ?? failureCode}). No value moved.`,
+              'pay.rail_failed',
+              { failureCode },
+            );
+          }
           await appendEvent(tx, row.id, 'rail.authorize', railPayload(result));
 
           if (!result.ok) {

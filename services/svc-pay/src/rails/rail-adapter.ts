@@ -1058,6 +1058,15 @@ export function railUnusableReason(
  */
 const MONEY_BLOCKING_REASONS: ReadonlySet<string> = new Set([RAIL_HEALTH_STALE, RAIL_PROBE_FAILED, RAIL_MARKED_DOWN]);
 
+/**
+ * `rail.health_stale`, `rail.probe_failed`, or `rail.marked_down`.
+ * A standing `rail.rpc_unset` or `rail.sandbox_only` is not a block.
+ * The argument may be a bare code or a reason that starts with one.
+ */
+export function isRailHealthBlockingCode(code: string): boolean {
+  return MONEY_BLOCKING_REASONS.has(railReasonCode(code));
+}
+
 export function railBlockingReason(
   adapter: RailAdapter,
   now: Date = new Date(),
@@ -1065,7 +1074,7 @@ export function railBlockingReason(
 ): string | null {
   const reason = railUnusableReason(adapter, now, maxStalenessMs);
   if (!reason) return null;
-  return MONEY_BLOCKING_REASONS.has(railReasonCode(reason)) ? reason : null;
+  return isRailHealthBlockingCode(reason) ? reason : null;
 }
 
 /** A failed rail result when {@link railBlockingReason} is set. Does not touch the rail. */

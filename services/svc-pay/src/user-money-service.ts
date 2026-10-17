@@ -19,7 +19,7 @@ import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
-import { railBlockingReason, railReasonCode, type RailResult } from './rails/rail-adapter.js';
+import { railBlockingReason, railReasonCode, type RailAdapter, type RailResult } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
@@ -334,6 +334,19 @@ export class UserMoneyService {
   // ── Withdrawal ─────────────────────────────────────────────────────────────
 
   /**
+   * Refuse a fresh rail ask. This service has no injected clock, so the age is
+   * the wall clock (`railBlockingReason`'s default). Callers skip this for a
+   * `sent` replay, a held refusal's reverse, and a saved acceptance's settle.
+   */
+  private refuseFreshWithdrawal(adapter: RailAdapter): void {
+    const blocked = railBlockingReason(adapter);
+    if (!blocked) return;
+    throw new PayError(`Rail "${adapter.id}" is not usable (${blocked}). No value moved.`, 'pay.rail_failed', {
+      failureCode: railReasonCode(blocked),
+    });
+  }
+
+  /**
    * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
    *
    * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
@@ -384,12 +397,6 @@ export class UserMoneyService {
     // user has been told `sent`. Refusing at this line means no row exists, no
     // hold was placed, and nothing has to be unwound.
     assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
-    const blocked = railBlockingReason(adapter);
-    if (blocked) {
-      throw new PayError(`Rail "${adapter.id}" is not usable (${blocked}). No value moved.`, 'pay.rail_failed', {
-        failureCode: railReasonCode(blocked),
-      });
-    }
 
     // Same gate as merchant payoutSettlement: crypto must not accept an IBAN
     // (and bank/sandbox must not accept a chain address). BEFORE claim/hold so
@@ -435,6 +442,11 @@ export class UserMoneyService {
             if (claimed.failureCode)
               throw new PayError('Original rail refusal is unproven; withdrawal remains held', 'pay.rail_outcome_unknown');
           }
+
+          // A blocked rail refuses a fresh dispatch only. `sent` already returned.
+          // A held refusal already reversed above. A non-held claim has not posted
+          // its hold yet, so refusing here leaves available untouched.
+          if (claimed.status !== 'held') this.refuseFreshWithdrawal(adapter);
 
           // Residual #8: a terminal `failed` row is "this attempt is done", not
           // "this clientRef is dead forever". `claimWithdrawal` has already reopened
@@ -490,11 +502,15 @@ export class UserMoneyService {
           // Legacy held rows have unknown dispatch history. Never interpret their
           // next refusal as proof that no earlier send committed.
           const firstDispatch = prior.length === 0 && claimed.status !== 'held';
+          const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
+          // A saved acceptance settles below and does not ask the rail. Every
+          // other attempt is a fresh dispatch: refuse before the attempt row
+          // and before payout, so a blocked rail sends nothing.
+          if (!accepted) this.refuseFreshWithdrawal(adapter);
           await connection`
         INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome)
         VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
       `;
-          const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
           let result: RailResult | { ok: true; railRef: string };
           try {
             result = accepted

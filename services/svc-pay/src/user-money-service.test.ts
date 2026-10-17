@@ -673,6 +673,38 @@ describe('svc-pay user money PG-hard', () => {
       expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(1);
     });
 
+    it('replays a sent withdrawal when the rail is marked down and refuses a new clientRef', async () => {
+      let payouts = 0;
+      const realPayout = card.payout.bind(card);
+      card.payout = async (request) => {
+        payouts += 1;
+        return realPayout(request);
+      };
+
+      const sent = await withdraw({ clientRef: 'w-replay-health' });
+      expect(sent.status).toBe('sent');
+      expect(sent.railRef).toBeTruthy();
+      expect(payouts).toBe(1);
+
+      card.setHealthy(false);
+
+      const replay = await withdraw({ clientRef: 'w-replay-health' });
+      expect(replay.id).toBe(sent.id);
+      expect(replay.status).toBe('sent');
+      expect(replay.railRef).toBe(sent.railRef);
+      expect(payouts).toBe(1);
+
+      await expect(withdraw({ clientRef: 'w-fresh-blocked' })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.marked_down' },
+      });
+      expect(payouts).toBe(1);
+      expect(await availableOf()).toBe('60');
+      const still = await money.getWithdrawal(sent.id);
+      expect(still.status).toBe('sent');
+      expect(still.railRef).toBe(sent.railRef);
+    });
+
     it('refuses a reused clientRef that names different money', async () => {
       await withdraw({ clientRef: 'w-42', amount: amt('40') });
 
