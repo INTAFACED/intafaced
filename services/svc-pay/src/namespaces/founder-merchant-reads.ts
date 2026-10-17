@@ -261,7 +261,18 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
           });
           return {
             section: 'links',
-            items: page.items.map((row) => ({ ...row, amount: amountText(row.amount) })),
+            items: page.items.map((row) => ({
+              id: row.id,
+              prefix: row.prefix,
+              label: row.label,
+              amount: amountText(row.amount),
+              currency: row.currency,
+              active: row.active,
+              expiresAt: row.expiresAt,
+              maxUses: row.maxUses,
+              uses: row.uses,
+              createdAt: row.createdAt,
+            })),
             nextCursor: page.nextCursor,
           };
         }
