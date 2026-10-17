@@ -13,26 +13,20 @@ on:
   # that moves money. That is exactly what #901 ("main is red") and #221 were.
   # A PR check proves the branch was green; only a push check proves the trunk is.
   #
-  # ONE MARKDOWN FILE IS NOT DOCUMENTATION. INTAFACED_DEFINITIVE_BUILD.md is
-  # the law, and coverage-check reads it: a chapter appearing there is exactly
-  # the event that gate exists to catch. Under a blanket `**/*.md` ignore,
-  # adding §39 would skip CI entirely and no gate would ever see it — which is
-  # a fair description of how §27–§37 arrived with nobody noticing. Negation
-  # needs `paths` rather than `paths-ignore`; the last matching pattern wins.
-  # That path filter stays: it is about relevance, not cost.
+  # Docs-only PRs run this workflow so the required "Doctrine gates" job
+  # reports. A path filter that skipped docs/** and **/*.md left that check
+  # missing, and a required check that never reports cannot merge. Test shards
+  # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
+  # INTAFACED_DEFINITIVE_BUILD.md stays listed because coverage-check reads it.
+  # Agent-rule markdown stays listed so a rules-only change cannot be treated
+  # as docs-only. tooling/scripts/merge-gate.mjs mirrors this list and its
+  # test fails on drift. The last matching pattern wins.
   push:
     branches: [main]
   pull_request:
     paths:
       - '**'
-      - '!docs/**'
-      - '!**/*.md'
-      - '!NOTICE'
-      - '!LICENSE'
       - INTAFACED_DEFINITIVE_BUILD.md
-      # Agent-rule files are markdown but they ARE the law agents load: a change must run the doctrine gates, whose
-      # agent-autoload scan pins them. Listed after the markdown exclusion so they win (the last match decides).
-      # tooling/scripts/merge-gate.mjs mirrors this list (AGENT_RULE_PATTERNS) and its test fails on drift.
       - '**/AGENTS.md'
       - '**/CLAUDE.md'
       - '**/AGENT_PROTOCOL.md'

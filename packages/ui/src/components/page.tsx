@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Page chrome for every customer screen: the page frame (`Page`), the title bar (`PageHeader`),
  * the trail above it (`Breadcrumbs`), titled blocks (`PageSection`) and the body column (`PageBody`).

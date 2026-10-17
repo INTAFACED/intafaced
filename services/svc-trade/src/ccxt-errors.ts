@@ -144,6 +144,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.lifecycle_transition_partial': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.lifecycle_transition_unknown': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.lifecycle_recovery_required': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Hold reply lost and the idempotency read did not answer. Same key retries. Not a cancel. */
+  'trade.hold_unknown': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Hold reply lost and the idempotency read showed no hold. Same key may place again. */
+  'trade.hold_not_booked': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.product_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.matching_market_missing': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.matching_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
@@ -310,6 +314,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.convert_quote_ttl_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
+  'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Owner pre-trade limits (#4725). The order is well-formed but breaches a
    * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink
@@ -597,9 +603,10 @@ export function toCcxtError(err: unknown): CcxtErrorResponse | null {
   }
 
   if (err instanceof LedgerError) {
-    // The ledger refused for a reason that is not "not enough funds". Not the
-    // caller's to fix and not retryable by simply resending.
-    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode: err.name } };
+    // The ledger refused for a reason that is not "not enough funds". The
+    // desk branches on `intafacedCode` (`ledger.frozen`), not on the class
+    // name and not on message text.
+    return { status: 400, body: { code: 'ExchangeError', message: err.message, intafacedCode: err.code } };
   }
 
   return null;
