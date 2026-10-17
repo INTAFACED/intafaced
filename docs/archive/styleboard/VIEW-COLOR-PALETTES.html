@@ -1,1244 +1,2394 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>INTAFACED · pro desk color palettes (expanded)</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-      background: #0a0a0a;
-      color: #e8e8e8;
-      line-height: 1.4;
-      padding: 16px 14px 72px;
-    }
-    .wrap { max-width: 1180px; margin: 0 auto; }
-    h1 { font-size: 1.3rem; margin: 0 0 6px; }
-    h2 {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #8ab4ff;
-      margin: 28px 0 10px;
-      font-weight: 650;
-    }
-    p, li { color: #9a9a9a; font-size: 0.9rem; }
-    strong { color: #f2f2f2; }
-    code { background: #1a1a1a; padding: 1px 6px; border-radius: 4px; font-size: 0.82em; color: #ccc; }
-    .banner {
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin: 12px 0 18px;
-      font-size: 0.9rem;
-    }
-    .banner.law {
-      background: #121820;
-      border: 1px solid #2a3a50;
-      color: #c8d4e0;
-    }
-    .banner.okx {
-      background: #0e1412;
-      border: 1px solid #2a4a3a;
-      color: #c8e0d4;
-    }
-    .ref-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-    @media (max-width: 700px) { .ref-row { grid-template-columns: 1fr; } }
-    .ref-row img {
-      width: 100%;
-      height: 140px;
-      object-fit: cover;
-      object-position: top;
-      border-radius: 8px;
-      border: 1px solid #2a2a2a;
-      display: block;
-      background: #000;
-    }
-    .ref-row p { margin: 4px 0 0; font-size: 11px; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>INTAFACED · pro desk color palettes (expanded)</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+        background: #0a0a0a;
+        color: #e8e8e8;
+        line-height: 1.4;
+        padding: 16px 14px 72px;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.3rem;
+        margin: 0 0 6px;
+      }
+      h2 {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #8ab4ff;
+        margin: 28px 0 10px;
+        font-weight: 650;
+      }
+      p,
+      li {
+        color: #9a9a9a;
+        font-size: 0.9rem;
+      }
+      strong {
+        color: #f2f2f2;
+      }
+      code {
+        background: #1a1a1a;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 0.82em;
+        color: #ccc;
+      }
+      .banner {
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 12px 0 18px;
+        font-size: 0.9rem;
+      }
+      .banner.law {
+        background: #121820;
+        border: 1px solid #2a3a50;
+        color: #c8d4e0;
+      }
+      .banner.okx {
+        background: #0e1412;
+        border: 1px solid #2a4a3a;
+        color: #c8e0d4;
+      }
+      .ref-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      @media (max-width: 700px) {
+        .ref-row {
+          grid-template-columns: 1fr;
+        }
+      }
+      .ref-row img {
+        width: 100%;
+        height: 140px;
+        object-fit: cover;
+        object-position: top;
+        border-radius: 8px;
+        border: 1px solid #2a2a2a;
+        display: block;
+        background: #000;
+      }
+      .ref-row p {
+        margin: 4px 0 0;
+        font-size: 11px;
+      }
 
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-    @media (min-width: 900px) {
-      .grid { grid-template-columns: 1fr 1fr; }
-    }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      @media (min-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
 
-    .pal {
-      border: 1px solid #2e2e2e;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #0c0c0c;
-    }
-    .pal.rec { border-color: #3a7a5a; box-shadow: 0 0 0 1px rgba(0,180,120,.25); }
-    .pal-top {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      flex-wrap: wrap;
-      padding: 10px 12px 6px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-    }
-    .pal-id {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      color: #888;
-    }
-    .pal-name { font-weight: 650; font-size: 14px; }
-    .pal-tag {
-      font-size: 10px;
-      padding: 2px 7px;
-      border-radius: 999px;
-      border: 1px solid #3a5;
-      color: #8c8;
-      margin-left: auto;
-    }
-    .pal-why {
-      padding: 6px 12px 8px;
-      font-size: 12px;
-      color: #9a9a9a;
-      min-height: 2.6em;
-    }
+      .pal {
+        border: 1px solid #2e2e2e;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #0c0c0c;
+      }
+      .pal.rec {
+        border-color: #3a7a5a;
+        box-shadow: 0 0 0 1px rgba(0, 180, 120, 0.25);
+      }
+      .pal-top {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px 12px 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .pal-id {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #888;
+      }
+      .pal-name {
+        font-weight: 650;
+        font-size: 14px;
+      }
+      .pal-tag {
+        font-size: 10px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        border: 1px solid #3a5;
+        color: #8c8;
+        margin-left: auto;
+      }
+      .pal-why {
+        padding: 6px 12px 8px;
+        font-size: 12px;
+        color: #9a9a9a;
+        min-height: 2.6em;
+      }
 
-    /* Mini desk uses CSS vars from .pal */
-    .desk {
-      display: grid;
-      grid-template-columns: 1.25fr 108px 118px;
-      gap: 1px;
-      padding: 7px;
-      min-height: 168px;
-      font: 10px/1.25 ui-monospace, Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-      background: var(--bg);
-      color: var(--text);
-    }
-    .hd {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 8px;
-      height: 28px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      font-family: system-ui, sans-serif;
-      font-size: 11px;
-      margin-bottom: 1px;
-    }
-    .hd .logo { font-weight: 700; letter-spacing: 0.03em; }
-    .hd .live {
-      font-size: 10px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      border: 1px solid var(--accent);
-      color: var(--accent);
-    }
-    .hd .pair { margin-left: auto; opacity: 0.55; font-variant-numeric: tabular-nums; }
-    .ch, .bk, .tk {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 6px;
-      min-height: 120px;
-    }
-    .lbl {
-      font-family: system-ui, sans-serif;
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .cline {
-      height: 2px;
-      background: var(--accent);
-      margin: 36px 4px 0;
-      opacity: 0.85;
-      border-radius: 1px;
-    }
-    .cline2 {
-      height: 2px;
-      background: var(--up);
-      margin: 14px 35% 0 4px;
-      opacity: 0.5;
-      border-radius: 1px;
-    }
-    .r { display: flex; justify-content: space-between; gap: 6px; margin: 2px 0; }
-    .up { color: var(--up); }
-    .dn { color: var(--dn); }
-    .fld {
-      height: 20px;
-      margin: 5px 0;
-      border: 1px solid var(--border);
-      background: var(--bg);
-      border-radius: 2px;
-      display: flex;
-      align-items: center;
-      padding: 0 6px;
-      color: var(--muted);
-      font-family: system-ui, sans-serif;
-      font-size: 11px;
-    }
-    .btn {
-      margin-top: 8px;
-      text-align: center;
-      padding: 8px;
-      background: var(--accent);
-      color: var(--on-accent);
-      font: 650 11px/1 system-ui, sans-serif;
-      border-radius: 3px;
-    }
-    .money {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 1px;
-      padding: 0 7px 7px;
-      background: var(--bg);
-    }
-    .mcell {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 8px;
-      font: 10px/1.3 ui-monospace, Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-      color: var(--text);
-    }
-    .mcell .k {
-      font-family: system-ui, sans-serif;
-      font-size: 9px;
-      color: var(--muted);
-      margin-bottom: 3px;
-    }
-    .swrow {
-      display: flex;
-      gap: 5px;
-      padding: 8px 12px 10px;
-      align-items: center;
-      border-top: 1px solid rgba(255,255,255,.05);
-    }
-    .sw {
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
-      border: 1px solid rgba(255,255,255,.12);
-    }
-    .hex {
-      font: 10px/1 ui-monospace, Menlo, monospace;
-      color: #777;
-      margin-left: 4px;
-    }
+      /* Mini desk uses CSS vars from .pal */
+      .desk {
+        display: grid;
+        grid-template-columns: 1.25fr 108px 118px;
+        gap: 1px;
+        padding: 7px;
+        min-height: 168px;
+        font:
+          10px/1.25 ui-monospace,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .hd {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        height: 28px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+        margin-bottom: 1px;
+      }
+      .hd .logo {
+        font-weight: 700;
+        letter-spacing: 0.03em;
+      }
+      .hd .live {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid var(--accent);
+        color: var(--accent);
+      }
+      .hd .pair {
+        margin-left: auto;
+        opacity: 0.55;
+        font-variant-numeric: tabular-nums;
+      }
+      .ch,
+      .bk,
+      .tk {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 6px;
+        min-height: 120px;
+      }
+      .lbl {
+        font-family: system-ui, sans-serif;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .cline {
+        height: 2px;
+        background: var(--accent);
+        margin: 36px 4px 0;
+        opacity: 0.85;
+        border-radius: 1px;
+      }
+      .cline2 {
+        height: 2px;
+        background: var(--up);
+        margin: 14px 35% 0 4px;
+        opacity: 0.5;
+        border-radius: 1px;
+      }
+      .r {
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+        margin: 2px 0;
+      }
+      .up {
+        color: var(--up);
+      }
+      .dn {
+        color: var(--dn);
+      }
+      .fld {
+        height: 20px;
+        margin: 5px 0;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        border-radius: 2px;
+        display: flex;
+        align-items: center;
+        padding: 0 6px;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+      }
+      .btn {
+        margin-top: 8px;
+        text-align: center;
+        padding: 8px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font:
+          650 11px/1 system-ui,
+          sans-serif;
+        border-radius: 3px;
+      }
+      .money {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        padding: 0 7px 7px;
+        background: var(--bg);
+      }
+      .mcell {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 8px;
+        font:
+          10px/1.3 ui-monospace,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+      }
+      .mcell .k {
+        font-family: system-ui, sans-serif;
+        font-size: 9px;
+        color: var(--muted);
+        margin-bottom: 3px;
+      }
+      .swrow {
+        display: flex;
+        gap: 5px;
+        padding: 8px 12px 10px;
+        align-items: center;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .sw {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .hex {
+        font:
+          10px/1 ui-monospace,
+          Menlo,
+          monospace;
+        color: #777;
+        margin-left: 4px;
+      }
 
-    .pick {
-      margin-top: 28px;
-      border: 1px solid #2a5a40;
-      background: #0c1612;
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .pick h2 { color: #fff; text-transform: none; letter-spacing: 0; font-size: 1rem; margin: 0 0 8px; }
-    .pick ol, .pick ul { color: #c8ddd0; }
-    .pick code { background: #143; color: #cfe; }
+      .pick {
+        margin-top: 28px;
+        border: 1px solid #2a5a40;
+        background: #0c1612;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .pick h2 {
+        color: #fff;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 1rem;
+        margin: 0 0 8px;
+      }
+      .pick ol,
+      .pick ul {
+        color: #c8ddd0;
+      }
+      .pick code {
+        background: #143;
+        color: #cfe;
+      }
 
-    /* ===== PALETTE TOKENS ===== */
-    /* Family Soft charcoal / OKX-adjacent (less pure black) */
-    .p01 { --bg:#12161c; --panel:#1a1f27; --border:#2c333d; --text:#e7eaee; --muted:#8b939e; --accent:#00c2a8; --on-accent:#061512; --up:#0ecb81; --dn:#f6465d; }
-    .p02 { --bg:#131722; --panel:#1c2330; --border:#2e3748; --text:#e8ecf2; --muted:#8e97a8; --accent:#20b2aa; --on-accent:#041413; --up:#0ecb81; --dn:#f6465d; }
-    .p03 { --bg:#14181f; --panel:#1c222c; --border:#303845; --text:#e9edf2; --muted:#9098a6; --accent:#3d9cf0; --on-accent:#061018; --up:#0ecb81; --dn:#f6465d; }
-    .p04 { --bg:#151a1e; --panel:#1d2429; --border:#313a40; --text:#e8ecef; --muted:#919aa0; --accent:#f0b90b; --on-accent:#1a1402; --up:#0ecb81; --dn:#f6465d; }
+      /* ===== PALETTE TOKENS ===== */
+      /* Family Soft charcoal / OKX-adjacent (less pure black) */
+      .p01 {
+        --bg: #12161c;
+        --panel: #1a1f27;
+        --border: #2c333d;
+        --text: #e7eaee;
+        --muted: #8b939e;
+        --accent: #00c2a8;
+        --on-accent: #061512;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p02 {
+        --bg: #131722;
+        --panel: #1c2330;
+        --border: #2e3748;
+        --text: #e8ecf2;
+        --muted: #8e97a8;
+        --accent: #20b2aa;
+        --on-accent: #041413;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p03 {
+        --bg: #14181f;
+        --panel: #1c222c;
+        --border: #303845;
+        --text: #e9edf2;
+        --muted: #9098a6;
+        --accent: #3d9cf0;
+        --on-accent: #061018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p04 {
+        --bg: #151a1e;
+        --panel: #1d2429;
+        --border: #313a40;
+        --text: #e8ecef;
+        --muted: #919aa0;
+        --accent: #f0b90b;
+        --on-accent: #1a1402;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
 
-    /* Family Cool slate / steel institutional */
-    .p05 { --bg:#12151a; --panel:#181c22; --border:#2a3038; --text:#e6e8eb; --muted:#8c939c; --accent:#8ab4ff; --on-accent:#0a1018; --up:#3d9a6a; --dn:#d05a5a; }
-    .p06 { --bg:#11151c; --panel:#171d27; --border:#293241; --text:#e5eaf0; --muted:#8a94a3; --accent:#6ea8fe; --on-accent:#081018; --up:#3d9a6a; --dn:#d05a5a; }
-    .p07 { --bg:#10141b; --panel:#161c26; --border:#283040; --text:#e4e9f0; --muted:#8892a2; --accent:#a8c5ff; --on-accent:#0c121c; --up:#3d9a6a; --dn:#d05a5a; }
+      /* Family Cool slate / steel institutional */
+      .p05 {
+        --bg: #12151a;
+        --panel: #181c22;
+        --border: #2a3038;
+        --text: #e6e8eb;
+        --muted: #8c939c;
+        --accent: #8ab4ff;
+        --on-accent: #0a1018;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p06 {
+        --bg: #11151c;
+        --panel: #171d27;
+        --border: #293241;
+        --text: #e5eaf0;
+        --muted: #8a94a3;
+        --accent: #6ea8fe;
+        --on-accent: #081018;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p07 {
+        --bg: #10141b;
+        --panel: #161c26;
+        --border: #283040;
+        --text: #e4e9f0;
+        --muted: #8892a2;
+        --accent: #a8c5ff;
+        --on-accent: #0c121c;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
 
-    /* Family Blue ink (deeper pro) */
-    .p08 { --bg:#0f1419; --panel:#161d25; --border:#273039; --text:#e6ebf0; --muted:#8a949f; --accent:#5b9fd4; --on-accent:#071018; --up:#0ecb81; --dn:#f6465d; }
-    .p09 { --bg:#0e1318; --panel:#151c24; --border:#26303a; --text:#e5eaf0; --muted:#89949f; --accent:#4fc3f7; --on-accent:#06141a; --up:#0ecb81; --dn:#f6465d; }
-    .p10 { --bg:#10151c; --panel:#171e28; --border:#283240; --text:#e7ecf2; --muted:#8b96a4; --accent:#7dd3fc; --on-accent:#07141c; --up:#0ecb81; --dn:#f6465d; }
+      /* Family Blue ink (deeper pro) */
+      .p08 {
+        --bg: #0f1419;
+        --panel: #161d25;
+        --border: #273039;
+        --text: #e6ebf0;
+        --muted: #8a949f;
+        --accent: #5b9fd4;
+        --on-accent: #071018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p09 {
+        --bg: #0e1318;
+        --panel: #151c24;
+        --border: #26303a;
+        --text: #e5eaf0;
+        --muted: #89949f;
+        --accent: #4fc3f7;
+        --on-accent: #06141a;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p10 {
+        --bg: #10151c;
+        --panel: #171e28;
+        --border: #283240;
+        --text: #e7ecf2;
+        --muted: #8b96a4;
+        --accent: #7dd3fc;
+        --on-accent: #07141c;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
 
-    /* Family Warm dark (less clinical, still pro) */
-    .p11 { --bg:#141210; --panel:#1c1916; --border:#322e28; --text:#ebe6df; --muted:#9a9288; --accent:#e0a458; --on-accent:#1a1206; --up:#3d9a6a; --dn:#d05a5a; }
-    .p12 { --bg:#131110; --panel:#1b1815; --border:#312c27; --text:#eae5de; --muted:#998f86; --accent:#d4a574; --on-accent:#181008; --up:#3d9a6a; --dn:#d05a5a; }
-    .p13 { --bg:#151311; --panel:#1e1a17; --border:#342f29; --text:#ece7e0; --muted:#9b9389; --accent:#c4a574; --on-accent:#161008; --up:#3d9a6a; --dn:#d05a5a; }
+      /* Family Warm dark (less clinical, still pro) */
+      .p11 {
+        --bg: #141210;
+        --panel: #1c1916;
+        --border: #322e28;
+        --text: #ebe6df;
+        --muted: #9a9288;
+        --accent: #e0a458;
+        --on-accent: #1a1206;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p12 {
+        --bg: #131110;
+        --panel: #1b1815;
+        --border: #312c27;
+        --text: #eae5de;
+        --muted: #998f86;
+        --accent: #d4a574;
+        --on-accent: #181008;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p13 {
+        --bg: #151311;
+        --panel: #1e1a17;
+        --border: #342f29;
+        --text: #ece7e0;
+        --muted: #9b9389;
+        --accent: #c4a574;
+        --on-accent: #161008;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
 
-    /* Family Soft lifted (lowest fatigue) */
-    .p14 { --bg:#181b20; --panel:#21262e; --border:#353b45; --text:#eceff3; --muted:#949aa5; --accent:#00c2a8; --on-accent:#061512; --up:#0ecb81; --dn:#f6465d; }
-    .p15 { --bg:#1a1d22; --panel:#242830; --border:#383e48; --text:#eef1f5; --muted:#969ba6; --accent:#6ea8fe; --on-accent:#081018; --up:#0ecb81; --dn:#f6465d; }
-    .p16 { --bg:#171a1f; --panel:#20252d; --border:#343a44; --text:#ebedef; --muted:#9399a4; --accent:#e8eef5; --on-accent:#12151a; --up:#0ecb81; --dn:#f6465d; }
+      /* Family Soft lifted (lowest fatigue) */
+      .p14 {
+        --bg: #181b20;
+        --panel: #21262e;
+        --border: #353b45;
+        --text: #eceff3;
+        --muted: #949aa5;
+        --accent: #00c2a8;
+        --on-accent: #061512;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p15 {
+        --bg: #1a1d22;
+        --panel: #242830;
+        --border: #383e48;
+        --text: #eef1f5;
+        --muted: #969ba6;
+        --accent: #6ea8fe;
+        --on-accent: #081018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p16 {
+        --bg: #171a1f;
+        --panel: #20252d;
+        --border: #343a44;
+        --text: #ebedef;
+        --muted: #9399a4;
+        --accent: #e8eef5;
+        --on-accent: #12151a;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
 
-    /* Family Signal accents on charcoal (accent-forward) */
-    .p17 { --bg:#161a1f; --panel:#1b2128; --border:#2a333d; --text:#eef1f4; --muted:#8e97a0; --accent:#f0a020; --on-accent:#1a1204; --up:#00b275; --dn:#ff4a68; }
-    .p18 { --bg:#161a1f; --panel:#1b2128; --border:#2a333d; --text:#eef1f4; --muted:#8e97a0; --accent:#c4f000; --on-accent:#121a00; --up:#00b275; --dn:#ff4a68; }
-    .p19 { --bg:#161a1f; --panel:#1b2128; --border:#2a333d; --text:#eef1f4; --muted:#8e97a0; --accent:#5eead4; --on-accent:#062018; --up:#00b275; --dn:#ff4a68; }
-    .p20 { --bg:#161a1f; --panel:#1b2128; --border:#2a333d; --text:#eef1f4; --muted:#8e97a0; --accent:#ff6b00; --on-accent:#1a0c00; --up:#00b275; --dn:#ff4a68; }
+      /* Family Signal accents on charcoal (accent-forward) */
+      .p17 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --border: #2a333d;
+        --text: #eef1f4;
+        --muted: #8e97a0;
+        --accent: #f0a020;
+        --on-accent: #1a1204;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
+      .p18 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --border: #2a333d;
+        --text: #eef1f4;
+        --muted: #8e97a0;
+        --accent: #c4f000;
+        --on-accent: #121a00;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
+      .p19 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --border: #2a333d;
+        --text: #eef1f4;
+        --muted: #8e97a0;
+        --accent: #5eead4;
+        --on-accent: #062018;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
+      .p20 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --border: #2a333d;
+        --text: #eef1f4;
+        --muted: #8e97a0;
+        --accent: #ff6b00;
+        --on-accent: #1a0c00;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
 
-    /* ===== DEEPER bases (still not pure #000) — more separation ===== */
-    /* Deep neutral graphite */
-    .p21 { --bg:#0a0c10; --panel:#12151c; --border:#242a34; --text:#e8ebf0; --muted:#8a909c; --accent:#00c2a8; --on-accent:#041210; --up:#0ecb81; --dn:#f6465d; }
-    .p22 { --bg:#090b0f; --panel:#11141b; --border:#222833; --text:#e7eaf0; --muted:#888f9b; --accent:#3d9cf0; --on-accent:#061018; --up:#0ecb81; --dn:#f6465d; }
-    .p23 { --bg:#0b0d12; --panel:#141820; --border:#262c38; --text:#e9ecf2; --muted:#8b929e; --accent:#f0b90b; --on-accent:#1a1402; --up:#0ecb81; --dn:#f6465d; }
-    /* Deep cool / blue-black */
-    .p24 { --bg:#080c14; --panel:#101826; --border:#1e2a3c; --text:#e4eaf2; --muted:#8692a4; --accent:#5b9fd4; --on-accent:#061018; --up:#0ecb81; --dn:#f6465d; }
-    .p25 { --bg:#070b12; --panel:#0e1520; --border:#1c2838; --text:#e3e9f1; --muted:#8490a2; --accent:#4fc3f7; --on-accent:#06141a; --up:#0ecb81; --dn:#f6465d; }
-    .p26 { --bg:#090e18; --panel:#121a28; --border:#203044; --text:#e5ebf3; --muted:#8794a6; --accent:#8ab4ff; --on-accent:#0a1018; --up:#0ecb81; --dn:#f6465d; }
-    /* Deep green-graphite (OKX-darker) */
-    .p27 { --bg:#0a0f0e; --panel:#121a18; --border:#24302c; --text:#e6eeeb; --muted:#889890; --accent:#00c2a8; --on-accent:#041210; --up:#0ecb81; --dn:#f6465d; }
-    .p28 { --bg:#090e0c; --panel:#111815; --border:#222e28; --text:#e5ede9; --muted:#86968c; --accent:#20b2aa; --on-accent:#041413; --up:#0ecb81; --dn:#f6465d; }
-    .p29 { --bg:#0b100e; --panel:#141c18; --border:#26342c; --text:#e7efeb; --muted:#8a9a90; --accent:#2dd4bf; --on-accent:#041814; --up:#0ecb81; --dn:#f6465d; }
-    /* Deep warm / brown-black */
-    .p30 { --bg:#0c0a09; --panel:#161210; --border:#2a2420; --text:#ece6df; --muted:#968c82; --accent:#e0a458; --on-accent:#1a1206; --up:#3d9a6a; --dn:#d05a5a; }
-    .p31 { --bg:#0b0908; --panel:#15110f; --border:#28221e; --text:#ebe5de; --muted:#958b81; --accent:#d4a574; --on-accent:#181008; --up:#3d9a6a; --dn:#d05a5a; }
-    .p32 { --bg:#0d0b0a; --panel:#181412; --border:#2c2622; --text:#ede7e0; --muted:#978d83; --accent:#ff6b00; --on-accent:#1a0c00; --up:#3d9a6a; --dn:#d05a5a; }
-    /* Near-black with high panel lift (dark but readable hierarchy) */
-    .p33 { --bg:#08090c; --panel:#151820; --border:#2a303c; --text:#e8ebf0; --muted:#8a919c; --accent:#00c2a8; --on-accent:#041210; --up:#0ecb81; --dn:#f6465d; }
-    .p34 { --bg:#07080b; --panel:#14171f; --border:#282e3a; --text:#e7eaf0; --muted:#898f9b; --accent:#6ea8fe; --on-accent:#081018; --up:#0ecb81; --dn:#f6465d; }
-    .p35 { --bg:#06070a; --panel:#13161e; --border:#262c38; --text:#e6e9ef; --muted:#888e9a; --accent:#c4f000; --on-accent:#121a00; --up:#0ecb81; --dn:#f6465d; }
-    .p36 { --bg:#08090b; --panel:#16191f; --border:#2c3138; --text:#e9ebef; --muted:#8c929a; --accent:#e8eef5; --on-accent:#12151a; --up:#0ecb81; --dn:#f6465d; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Pro desk color palettes — expanded</h1>
-    <div class="banner law" style="border-color:#00c2a8;background:rgba(0,194,168,.08)">
-      <strong>Locked for now: P21</strong> Deep neutral · teal (provisional).
-      Modular — change later by swapping tokens in <code>intafaced.css</code>.
-      Doc: <code>docs/COLOR-LOCK-P21-PROVISIONAL-2026-07-31.md</code>
-    </div>
-    <p>
-      <strong>Scope of this page:</strong> color only (surfaces + text + accent + market green/red).
-      Not layout, not density language, not dual-tone structure — those can graft later.
-    </p>
-
-    <div class="banner law">
-      <strong>Hard rules (all options obey these):</strong>
-      green/red = market only · accent never encodes PnL · no pure <code>#000</code> bases (halation / fatigue) ·
-      no purple-glass SaaS · no casino neon on data · contrast high enough for long sessions ·
-      up/down locked for reading speed · placeholders are not balances.
-    </div>
-
-    <div class="banner okx">
-      <strong>Your direction (as I heard it):</strong>
-      darker, closer to <strong>OKX’s color feel</strong> (charcoal / graphite panels, not pure black),
-      but <strong>not so dark eyes tire</strong>. Board now includes a full <strong>deeper family (P21–P36)</strong>
-      with different undertones (neutral / cool blue-black / green-graphite / warm-black / near-black + lifted panels)
-      so options are not “the same gray with a different button.”
-    </div>
-
-    <h2>Reference — real desks (color jobs only)</h2>
-    <div class="ref-row">
-      <div>
-        <img src="l1/A5-okx.png" alt="OKX" />
-        <p>OKX — charcoal panels, restrained chrome (your “darker but usable” anchor)</p>
+      /* ===== DEEPER bases (still not pure #000) — more separation ===== */
+      /* Deep neutral graphite */
+      .p21 {
+        --bg: #0a0c10;
+        --panel: #12151c;
+        --border: #242a34;
+        --text: #e8ebf0;
+        --muted: #8a909c;
+        --accent: #00c2a8;
+        --on-accent: #041210;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p22 {
+        --bg: #090b0f;
+        --panel: #11141b;
+        --border: #222833;
+        --text: #e7eaf0;
+        --muted: #888f9b;
+        --accent: #3d9cf0;
+        --on-accent: #061018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p23 {
+        --bg: #0b0d12;
+        --panel: #141820;
+        --border: #262c38;
+        --text: #e9ecf2;
+        --muted: #8b929e;
+        --accent: #f0b90b;
+        --on-accent: #1a1402;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      /* Deep cool / blue-black */
+      .p24 {
+        --bg: #080c14;
+        --panel: #101826;
+        --border: #1e2a3c;
+        --text: #e4eaf2;
+        --muted: #8692a4;
+        --accent: #5b9fd4;
+        --on-accent: #061018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p25 {
+        --bg: #070b12;
+        --panel: #0e1520;
+        --border: #1c2838;
+        --text: #e3e9f1;
+        --muted: #8490a2;
+        --accent: #4fc3f7;
+        --on-accent: #06141a;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p26 {
+        --bg: #090e18;
+        --panel: #121a28;
+        --border: #203044;
+        --text: #e5ebf3;
+        --muted: #8794a6;
+        --accent: #8ab4ff;
+        --on-accent: #0a1018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      /* Deep green-graphite (OKX-darker) */
+      .p27 {
+        --bg: #0a0f0e;
+        --panel: #121a18;
+        --border: #24302c;
+        --text: #e6eeeb;
+        --muted: #889890;
+        --accent: #00c2a8;
+        --on-accent: #041210;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p28 {
+        --bg: #090e0c;
+        --panel: #111815;
+        --border: #222e28;
+        --text: #e5ede9;
+        --muted: #86968c;
+        --accent: #20b2aa;
+        --on-accent: #041413;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p29 {
+        --bg: #0b100e;
+        --panel: #141c18;
+        --border: #26342c;
+        --text: #e7efeb;
+        --muted: #8a9a90;
+        --accent: #2dd4bf;
+        --on-accent: #041814;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      /* Deep warm / brown-black */
+      .p30 {
+        --bg: #0c0a09;
+        --panel: #161210;
+        --border: #2a2420;
+        --text: #ece6df;
+        --muted: #968c82;
+        --accent: #e0a458;
+        --on-accent: #1a1206;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p31 {
+        --bg: #0b0908;
+        --panel: #15110f;
+        --border: #28221e;
+        --text: #ebe5de;
+        --muted: #958b81;
+        --accent: #d4a574;
+        --on-accent: #181008;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      .p32 {
+        --bg: #0d0b0a;
+        --panel: #181412;
+        --border: #2c2622;
+        --text: #ede7e0;
+        --muted: #978d83;
+        --accent: #ff6b00;
+        --on-accent: #1a0c00;
+        --up: #3d9a6a;
+        --dn: #d05a5a;
+      }
+      /* Near-black with high panel lift (dark but readable hierarchy) */
+      .p33 {
+        --bg: #08090c;
+        --panel: #151820;
+        --border: #2a303c;
+        --text: #e8ebf0;
+        --muted: #8a919c;
+        --accent: #00c2a8;
+        --on-accent: #041210;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p34 {
+        --bg: #07080b;
+        --panel: #14171f;
+        --border: #282e3a;
+        --text: #e7eaf0;
+        --muted: #898f9b;
+        --accent: #6ea8fe;
+        --on-accent: #081018;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p35 {
+        --bg: #06070a;
+        --panel: #13161e;
+        --border: #262c38;
+        --text: #e6e9ef;
+        --muted: #888e9a;
+        --accent: #c4f000;
+        --on-accent: #121a00;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+      .p36 {
+        --bg: #08090b;
+        --panel: #16191f;
+        --border: #2c3138;
+        --text: #e9ebef;
+        --muted: #8c929a;
+        --accent: #e8eef5;
+        --on-accent: #12151a;
+        --up: #0ecb81;
+        --dn: #f6465d;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Pro desk color palettes — expanded</h1>
+      <div class="banner law" style="border-color: #00c2a8; background: rgba(0, 194, 168, 0.08)">
+        <strong>Locked for now: P21</strong> Deep neutral · teal (provisional). Modular — change later by swapping tokens in
+        <code>intafaced.css</code>. Doc: <code>docs/COLOR-LOCK-P21-PROVISIONAL-2026-07-31.md</code>
       </div>
-      <div>
-        <img src="l1/A1-hyperliquid.png" alt="Hyperliquid" />
-        <p>Hyperliquid — cool dark + teal accent discipline</p>
+      <p>
+        <strong>Scope of this page:</strong> color only (surfaces + text + accent + market green/red). Not layout, not density language, not
+        dual-tone structure — those can graft later.
+      </p>
+
+      <div class="banner law">
+        <strong>Hard rules (all options obey these):</strong>
+        green/red = market only · accent never encodes PnL · no pure <code>#000</code> bases (halation / fatigue) · no purple-glass SaaS ·
+        no casino neon on data · contrast high enough for long sessions · up/down locked for reading speed · placeholders are not balances.
       </div>
-      <div>
-        <img src="l1/A2-coinbase.png" alt="Coinbase Advanced" />
-        <p>Coinbase Advanced — calmer dark / blue-gray seriousness</p>
+
+      <div class="banner okx">
+        <strong>Your direction (as I heard it):</strong>
+        darker, closer to <strong>OKX’s color feel</strong> (charcoal / graphite panels, not pure black), but
+        <strong>not so dark eyes tire</strong>. Board now includes a full <strong>deeper family (P21–P36)</strong>
+        with different undertones (neutral / cool blue-black / green-graphite / warm-black / near-black + lifted panels) so options are not
+        “the same gray with a different button.”
       </div>
-      <div>
-        <img src="l1/A10-dydx.png" alt="dYdX" />
-        <p>dYdX — deep dark, purple accents (we do <em>not</em> clone that purple)</p>
+
+      <h2>Reference — real desks (color jobs only)</h2>
+      <div class="ref-row">
+        <div>
+          <img src="l1/A5-okx.png" alt="OKX" />
+          <p>OKX — charcoal panels, restrained chrome (your “darker but usable” anchor)</p>
+        </div>
+        <div>
+          <img src="l1/A1-hyperliquid.png" alt="Hyperliquid" />
+          <p>Hyperliquid — cool dark + teal accent discipline</p>
+        </div>
+        <div>
+          <img src="l1/A2-coinbase.png" alt="Coinbase Advanced" />
+          <p>Coinbase Advanced — calmer dark / blue-gray seriousness</p>
+        </div>
+        <div>
+          <img src="l1/A10-dydx.png" alt="dYdX" />
+          <p>dYdX — deep dark, purple accents (we do <em>not</em> clone that purple)</p>
+        </div>
+      </div>
+
+      <h2>Family 0 · Deeper darks (new · more variety)</h2>
+      <p>
+        <strong>These are the darker options.</strong> Bases sit around <code>#06–#0d</code> (void-adjacent) with <em>lifted</em> panels so
+        hierarchy stays readable. Not pure <code>#000</code>. Undertones differ so they don’t all read as one gray.
+      </p>
+      <div class="grid">
+        <article class="pal p21 rec">
+          <div class="pal-top">
+            <span class="pal-id">P21</span><span class="pal-name">Deep neutral · teal</span><span class="pal-tag">LOCKED now</span>
+          </div>
+          <div class="pal-why">
+            Deep graphite void with teal action. Darker than Family A; panels still separate from base.
+            <strong>Provisional operator pick 2026-07-31 — modular, can swap.</strong>
+          </div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r dn"><span>97410</span><span>1.10</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="fld">Size</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0a0c10"></div>
+            <div class="sw" style="background: #12151c"></div>
+            <div class="sw" style="background: #00c2a8"></div>
+            <span class="hex">bg #0a0c10 · panel #12151c · accent #00c2a8</span>
+          </div>
+        </article>
+
+        <article class="pal p22">
+          <div class="pal-top"><span class="pal-id">P22</span><span class="pal-name">Deep neutral · blue</span></div>
+          <div class="pal-why">Same deep neutral chassis; tool-blue primary instead of teal.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #090b0f"></div>
+            <div class="sw" style="background: #11141b"></div>
+            <div class="sw" style="background: #3d9cf0"></div>
+            <span class="hex">bg #090b0f · accent #3d9cf0</span>
+          </div>
+        </article>
+
+        <article class="pal p23">
+          <div class="pal-top"><span class="pal-id">P23</span><span class="pal-name">Deep neutral · gold</span></div>
+          <div class="pal-why">Deep graphite with restrained gold — confidence, not Binance chrome yellow.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0b0d12"></div>
+            <div class="sw" style="background: #f0b90b"></div>
+            <span class="hex">bg #0b0d12 · accent #f0b90b</span>
+          </div>
+        </article>
+
+        <article class="pal p24">
+          <div class="pal-top"><span class="pal-id">P24</span><span class="pal-name">Blue-black · ocean</span></div>
+          <div class="pal-why">Cooler/darker than soft charcoal — blue-black void, ocean accent. Visibly different base family.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #080c14"></div>
+            <div class="sw" style="background: #101826"></div>
+            <div class="sw" style="background: #5b9fd4"></div>
+            <span class="hex">bg #080c14 · panel #101826</span>
+          </div>
+        </article>
+
+        <article class="pal p25">
+          <div class="pal-top"><span class="pal-id">P25</span><span class="pal-name">Blue-black · sky</span></div>
+          <div class="pal-why">Even deeper cool base; sky accent for high-visibility primary.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #070b12"></div>
+            <div class="sw" style="background: #4fc3f7"></div>
+            <span class="hex">bg #070b12 · accent #4fc3f7</span>
+          </div>
+        </article>
+
+        <article class="pal p26">
+          <div class="pal-top"><span class="pal-id">P26</span><span class="pal-name">Blue-black · steel</span></div>
+          <div class="pal-why">Blue-black chassis + steel accent — instrument feel at deeper level.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #090e18"></div>
+            <div class="sw" style="background: #8ab4ff"></div>
+            <span class="hex">bg #090e18 · accent #8ab4ff</span>
+          </div>
+        </article>
+
+        <article class="pal p27 rec">
+          <div class="pal-top">
+            <span class="pal-id">P27</span><span class="pal-name">Green-graphite deep · teal</span><span class="pal-tag">OKX-darker</span>
+          </div>
+          <div class="pal-why">Green-black undertone (closer to many CEX dark modes) + teal. Darker OKX-adjacent without pure black.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0a0f0e"></div>
+            <div class="sw" style="background: #121a18"></div>
+            <div class="sw" style="background: #00c2a8"></div>
+            <span class="hex">bg #0a0f0e · panel #121a18</span>
+          </div>
+        </article>
+
+        <article class="pal p28">
+          <div class="pal-top"><span class="pal-id">P28</span><span class="pal-name">Green-graphite deep · aqua</span></div>
+          <div class="pal-why">Slightly cooler aqua on the same green-dark family as P27.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #090e0c"></div>
+            <div class="sw" style="background: #20b2aa"></div>
+            <span class="hex">bg #090e0c · accent #20b2aa</span>
+          </div>
+        </article>
+
+        <article class="pal p29">
+          <div class="pal-top"><span class="pal-id">P29</span><span class="pal-name">Green-graphite deep · mint</span></div>
+          <div class="pal-why">Brighter mint accent on deep green-graphite — action pops without neon pink/purple.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0b100e"></div>
+            <div class="sw" style="background: #2dd4bf"></div>
+            <span class="hex">accent #2dd4bf</span>
+          </div>
+        </article>
+
+        <article class="pal p30">
+          <div class="pal-top"><span class="pal-id">P30</span><span class="pal-name">Warm-black · amber</span></div>
+          <div class="pal-why">Brown-black void (not blue-gray). Visibly different from cool families; amber primary.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0c0a09"></div>
+            <div class="sw" style="background: #161210"></div>
+            <div class="sw" style="background: #e0a458"></div>
+            <span class="hex">bg #0c0a09 · warm black</span>
+          </div>
+        </article>
+
+        <article class="pal p31">
+          <div class="pal-top"><span class="pal-id">P31</span><span class="pal-name">Warm-black · sand</span></div>
+          <div class="pal-why">Same warm-black family; quieter sand accent.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0b0908"></div>
+            <div class="sw" style="background: #d4a574"></div>
+            <span class="hex">accent #d4a574</span>
+          </div>
+        </article>
+
+        <article class="pal p32">
+          <div class="pal-top"><span class="pal-id">P32</span><span class="pal-name">Warm-black · tip orange</span></div>
+          <div class="pal-why">Deepest warm chassis + today’s orange — continuity at darker level.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0d0b0a"></div>
+            <div class="sw" style="background: #ff6b00"></div>
+            <span class="hex">bg #0d0b0a · accent #ff6b00</span>
+          </div>
+        </article>
+
+        <article class="pal p33 rec">
+          <div class="pal-top">
+            <span class="pal-id">P33</span><span class="pal-name">Near-black + high panel lift · teal</span
+            ><span class="pal-tag">darkest usable</span>
+          </div>
+          <div class="pal-why">Almost black base, but panels jump hard so you still parse regions. Dark without “one black blob.”</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #08090c"></div>
+            <div class="sw" style="background: #151820"></div>
+            <div class="sw" style="background: #00c2a8"></div>
+            <span class="hex">bg #08090c · panel #151820 (strong lift)</span>
+          </div>
+        </article>
+
+        <article class="pal p34">
+          <div class="pal-top"><span class="pal-id">P34</span><span class="pal-name">Near-black + lift · blue</span></div>
+          <div class="pal-why">Same high-lift pattern as P33; azure primary.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #07080b"></div>
+            <div class="sw" style="background: #6ea8fe"></div>
+            <span class="hex">bg #07080b · accent #6ea8fe</span>
+          </div>
+        </article>
+
+        <article class="pal p35">
+          <div class="pal-top"><span class="pal-id">P35</span><span class="pal-name">Near-black + lift · lime</span></div>
+          <div class="pal-why">Darkest usable base + lime action (marketing continuity) with strong panel lift.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #06070a"></div>
+            <div class="sw" style="background: #c4f000"></div>
+            <span class="hex">bg #06070a · accent #c4f000</span>
+          </div>
+        </article>
+
+        <article class="pal p36">
+          <div class="pal-top"><span class="pal-id">P36</span><span class="pal-name">Near-black + lift · soft white</span></div>
+          <div class="pal-why">Darkest mono action — primary is soft white, not a hue. Maximum restraint on deep base.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #08090b"></div>
+            <div class="sw" style="background: #e8eef5"></div>
+            <span class="hex">bg #08090b · accent #e8eef5</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family A · Soft charcoal (mid-dark · less fatigue)</h2>
+      <p>Lighter than Family 0. Graphite, not void. Use if deep options feel heavy after an hour.</p>
+      <div class="grid">
+        <article class="pal p01">
+          <div class="pal-top"><span class="pal-id">P01</span><span class="pal-name">OKX-range teal</span></div>
+          <div class="pal-why">Soft charcoal base + teal accent. Familiar pro CEX energy without pure black or neon.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r dn"><span>97410</span><span>1.10</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="fld">Size</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #12161c"></div>
+            <div class="sw" style="background: #1a1f27"></div>
+            <div class="sw" style="background: #00c2a8"></div>
+            <div class="sw" style="background: #0ecb81"></div>
+            <div class="sw" style="background: #f6465d"></div>
+            <span class="hex">bg #12161c · accent #00c2a8</span>
+          </div>
+        </article>
+
+        <article class="pal p02">
+          <div class="pal-top"><span class="pal-id">P02</span><span class="pal-name">Graphite aqua</span></div>
+          <div class="pal-why">Slightly cooler charcoal; aqua accent reads “venue tool” not casino.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #131722"></div>
+            <div class="sw" style="background: #1c2330"></div>
+            <div class="sw" style="background: #20b2aa"></div>
+            <span class="hex">bg #131722 · accent #20b2aa</span>
+          </div>
+        </article>
+
+        <article class="pal p03">
+          <div class="pal-top"><span class="pal-id">P03</span><span class="pal-name">Charcoal blue action</span></div>
+          <div class="pal-why">Same fatigue-safe charcoal family; blue primary for “tool UI” not “crypto meme.”</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #14181f"></div>
+            <div class="sw" style="background: #1c222c"></div>
+            <div class="sw" style="background: #3d9cf0"></div>
+            <span class="hex">bg #14181f · accent #3d9cf0</span>
+          </div>
+        </article>
+
+        <article class="pal p04">
+          <div class="pal-top"><span class="pal-id">P04</span><span class="pal-name">Charcoal gold (restrained)</span></div>
+          <div class="pal-why">Soft gold accent on charcoal — confidence without Binance-yellow chrome.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #151a1e"></div>
+            <div class="sw" style="background: #1d2429"></div>
+            <div class="sw" style="background: #f0b90b"></div>
+            <span class="hex">bg #151a1e · accent #f0b90b</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family B · Cool slate / steel (instrumental)</h2>
+      <div class="grid">
+        <article class="pal p05">
+          <div class="pal-top"><span class="pal-id">P05</span><span class="pal-name">Steel instrument</span></div>
+          <div class="pal-why">Metrology desk: steel accent, slate panels. Calm, institutional.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #12151a"></div>
+            <div class="sw" style="background: #8ab4ff"></div>
+            <span class="hex">accent #8ab4ff</span>
+          </div>
+        </article>
+        <article class="pal p06">
+          <div class="pal-top"><span class="pal-id">P06</span><span class="pal-name">Deep slate azure</span></div>
+          <div class="pal-why">Slightly deeper slate; azure action. Strong for long sessions if panels stay lifted.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #11151c"></div>
+            <div class="sw" style="background: #6ea8fe"></div>
+            <span class="hex">accent #6ea8fe</span>
+          </div>
+        </article>
+        <article class="pal p07">
+          <div class="pal-top"><span class="pal-id">P07</span><span class="pal-name">Ice steel</span></div>
+          <div class="pal-why">Paler steel accent — almost monochrome action, very low “crypto neon” risk.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #10141b"></div>
+            <div class="sw" style="background: #a8c5ff"></div>
+            <span class="hex">accent #a8c5ff</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family C · Blue ink (deeper, still not pure black)</h2>
+      <div class="grid">
+        <article class="pal p08">
+          <div class="pal-top"><span class="pal-id">P08</span><span class="pal-name">Ink ocean</span></div>
+          <div class="pal-why">Deeper pro blue-ink base; ocean accent. Dense-desk friendly if you want “serious money.”</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0f1419"></div>
+            <div class="sw" style="background: #5b9fd4"></div>
+            <span class="hex">bg #0f1419 · accent #5b9fd4</span>
+          </div>
+        </article>
+        <article class="pal p09">
+          <div class="pal-top"><span class="pal-id">P09</span><span class="pal-name">Ink sky</span></div>
+          <div class="pal-why">Slightly brighter sky accent for readability of primary actions at a glance.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #0e1318"></div>
+            <div class="sw" style="background: #4fc3f7"></div>
+            <span class="hex">accent #4fc3f7</span>
+          </div>
+        </article>
+        <article class="pal p10">
+          <div class="pal-top"><span class="pal-id">P10</span><span class="pal-name">Ink frost</span></div>
+          <div class="pal-why">Frost accent — high visibility primary without warm “retail crypto” heat.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #10151c"></div>
+            <div class="sw" style="background: #7dd3fc"></div>
+            <span class="hex">accent #7dd3fc</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family D · Warm dark (less clinical)</h2>
+      <p>Still dark; brown-graphite instead of blue-slate. Some desks prefer this for multi-hour sessions.</p>
+      <div class="grid">
+        <article class="pal p11">
+          <div class="pal-top"><span class="pal-id">P11</span><span class="pal-name">Warm graphite · amber</span></div>
+          <div class="pal-why">Warm charcoal + soft amber. Less “hospital screen,” still pro.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #141210"></div>
+            <div class="sw" style="background: #e0a458"></div>
+            <span class="hex">bg #141210 · accent #e0a458</span>
+          </div>
+        </article>
+        <article class="pal p12">
+          <div class="pal-top"><span class="pal-id">P12</span><span class="pal-name">Warm graphite · sand</span></div>
+          <div class="pal-why">Sand accent softer than gold — quieter primary actions.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #131110"></div>
+            <div class="sw" style="background: #d4a574"></div>
+            <span class="hex">accent #d4a574</span>
+          </div>
+        </article>
+        <article class="pal p13">
+          <div class="pal-top"><span class="pal-id">P13</span><span class="pal-name">Warm graphite · bronze</span></div>
+          <div class="pal-why">Bronze primary — distinctive without purple-slop or neon.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #151311"></div>
+            <div class="sw" style="background: #c4a574"></div>
+            <span class="hex">accent #c4a574</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family E · Soft lifted (lowest fatigue · slightly brighter base)</h2>
+      <p>If pure “OKX dark” still feels heavy after an hour, these raise the floor brightness while staying dark-mode.</p>
+      <div class="grid">
+        <article class="pal p14 rec">
+          <div class="pal-top">
+            <span class="pal-id">P14</span><span class="pal-name">Lifted charcoal · teal</span><span class="pal-tag">low fatigue</span>
+          </div>
+          <div class="pal-why">Brighter panels, same teal family as P01. Often best if you said “not so dark eyes tire.”</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #181b20"></div>
+            <div class="sw" style="background: #21262e"></div>
+            <div class="sw" style="background: #00c2a8"></div>
+            <span class="hex">bg #181b20 · panel #21262e</span>
+          </div>
+        </article>
+        <article class="pal p15">
+          <div class="pal-top"><span class="pal-id">P15</span><span class="pal-name">Lifted slate · blue</span></div>
+          <div class="pal-why">Lifted slate with soft blue action — easy primary target without glare.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #1a1d22"></div>
+            <div class="sw" style="background: #6ea8fe"></div>
+            <span class="hex">bg #1a1d22 · accent #6ea8fe</span>
+          </div>
+        </article>
+        <article class="pal p16">
+          <div class="pal-top"><span class="pal-id">P16</span><span class="pal-name">Lifted mono · soft white</span></div>
+          <div class="pal-why">Near-monochrome action on lifted charcoal — maximum restraint.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #171a1f"></div>
+            <div class="sw" style="background: #e8eef5"></div>
+            <span class="hex">accent #e8eef5</span>
+          </div>
+        </article>
+      </div>
+
+      <h2>Family F · Accent swaps on one charcoal base (if you already like the base)</h2>
+      <p>Same N2-like charcoal chassis; only the action color changes — including tip orange for comparison.</p>
+      <div class="grid">
+        <article class="pal p17">
+          <div class="pal-top"><span class="pal-id">P17</span><span class="pal-name">Charcoal · amber</span></div>
+          <div class="pal-why">Signal amber — warm primary on cool dark.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #f0a020"></div>
+            <span class="hex">#f0a020</span>
+          </div>
+        </article>
+        <article class="pal p18">
+          <div class="pal-top"><span class="pal-id">P18</span><span class="pal-name">Charcoal · lime</span></div>
+          <div class="pal-why">Electric lime — marketing continuity candidate; still accent-only.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #c4f000"></div>
+            <span class="hex">#c4f000</span>
+          </div>
+        </article>
+        <article class="pal p19">
+          <div class="pal-top"><span class="pal-id">P19</span><span class="pal-name">Charcoal · cyan</span></div>
+          <div class="pal-why">Cyan primary — cool, modern, low “retail casino.”</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #5eead4"></div>
+            <span class="hex">#5eead4</span>
+          </div>
+        </article>
+        <article class="pal p20">
+          <div class="pal-top"><span class="pal-id">P20</span><span class="pal-name">Charcoal · tip orange</span></div>
+          <div class="pal-why">What the shell uses today — keep only if you prefer continuity over a fresh pro read.</div>
+          <div class="desk">
+            <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
+            <div class="ch">
+              <div class="lbl">Chart</div>
+              <div class="cline"></div>
+              <div class="cline2"></div>
+            </div>
+            <div class="bk">
+              <div class="lbl">Book</div>
+              <div class="r dn"><span>97420</span><span>0.42</span></div>
+              <div class="r up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="tk">
+              <div class="lbl">Ticket</div>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="money">
+            <div class="mcell">
+              <div class="k">Available</div>
+              <div>— unknown</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Open</div>
+              <div>0</div>
+            </div>
+            <div class="mcell">
+              <div class="k">Fee</div>
+              <div>0.10%</div>
+            </div>
+          </div>
+          <div class="swrow">
+            <div class="sw" style="background: #ff6b00"></div>
+            <span class="hex">#ff6b00 (tip residue)</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="pick">
+        <h2>How to answer (color-only)</h2>
+        <p>Reply with a <strong>palette id</strong> (or two if graft). Examples:</p>
+        <ul>
+          <li><code>P01</code> — recommended if you want OKX-range dark + teal (start here)</li>
+          <li><code>P14</code> — same teal family, lifted panels (less eye fatigue)</li>
+          <li>
+            <code>P03</code> · <code>P05</code> · <code>P08</code> · <code>P11</code> · <code>P17</code> · <code>P18</code> ·
+            <code>P19</code> · <code>P20</code>
+          </li>
+          <li>Graft: <code>P14 base + P17 amber button</code></li>
+        </ul>
+        <p>
+          <strong>If you want darker (your latest note):</strong> start in <strong>Family 0</strong> — <code>P27</code> (OKX-darker teal) ·
+          <code>P21</code> (deep neutral teal) · <code>P33</code> (near-black + strong panel lift).
+        </p>
+        <p><strong>If eyes tire on deep dark:</strong> <code>P14</code> or <code>P01</code> (mid charcoal, more lifted).</p>
+        <p>
+          Open: <code>http://127.0.0.1:8765/VIEW-COLOR-PALETTES.html</code> — scroll to <strong>Family 0</strong> first for dark variants.
+        </p>
+        <p>Still banned: purple neon, pure <code>#000</code> void with no panel lift, rainbow accents, glass pastel SaaS.</p>
       </div>
     </div>
-
-    <h2>Family 0 · Deeper darks (new · more variety)</h2>
-    <p>
-      <strong>These are the darker options.</strong> Bases sit around <code>#06–#0d</code> (void-adjacent) with
-      <em>lifted</em> panels so hierarchy stays readable. Not pure <code>#000</code>. Undertones differ so they don’t all read as one gray.
-    </p>
-    <div class="grid">
-
-      <article class="pal p21 rec">
-        <div class="pal-top"><span class="pal-id">P21</span><span class="pal-name">Deep neutral · teal</span><span class="pal-tag">LOCKED now</span></div>
-        <div class="pal-why">Deep graphite void with teal action. Darker than Family A; panels still separate from base. <strong>Provisional operator pick 2026-07-31 — modular, can swap.</strong></div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r dn"><span>97410</span><span>1.10</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0a0c10"></div><div class="sw" style="background:#12151c"></div>
-          <div class="sw" style="background:#00c2a8"></div>
-          <span class="hex">bg #0a0c10 · panel #12151c · accent #00c2a8</span>
-        </div>
-      </article>
-
-      <article class="pal p22">
-        <div class="pal-top"><span class="pal-id">P22</span><span class="pal-name">Deep neutral · blue</span></div>
-        <div class="pal-why">Same deep neutral chassis; tool-blue primary instead of teal.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#090b0f"></div><div class="sw" style="background:#11141b"></div>
-          <div class="sw" style="background:#3d9cf0"></div>
-          <span class="hex">bg #090b0f · accent #3d9cf0</span>
-        </div>
-      </article>
-
-      <article class="pal p23">
-        <div class="pal-top"><span class="pal-id">P23</span><span class="pal-name">Deep neutral · gold</span></div>
-        <div class="pal-why">Deep graphite with restrained gold — confidence, not Binance chrome yellow.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0b0d12"></div><div class="sw" style="background:#f0b90b"></div>
-          <span class="hex">bg #0b0d12 · accent #f0b90b</span>
-        </div>
-      </article>
-
-      <article class="pal p24">
-        <div class="pal-top"><span class="pal-id">P24</span><span class="pal-name">Blue-black · ocean</span></div>
-        <div class="pal-why">Cooler/darker than soft charcoal — blue-black void, ocean accent. Visibly different base family.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#080c14"></div><div class="sw" style="background:#101826"></div>
-          <div class="sw" style="background:#5b9fd4"></div>
-          <span class="hex">bg #080c14 · panel #101826</span>
-        </div>
-      </article>
-
-      <article class="pal p25">
-        <div class="pal-top"><span class="pal-id">P25</span><span class="pal-name">Blue-black · sky</span></div>
-        <div class="pal-why">Even deeper cool base; sky accent for high-visibility primary.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#070b12"></div><div class="sw" style="background:#4fc3f7"></div>
-          <span class="hex">bg #070b12 · accent #4fc3f7</span>
-        </div>
-      </article>
-
-      <article class="pal p26">
-        <div class="pal-top"><span class="pal-id">P26</span><span class="pal-name">Blue-black · steel</span></div>
-        <div class="pal-why">Blue-black chassis + steel accent — instrument feel at deeper level.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#090e18"></div><div class="sw" style="background:#8ab4ff"></div>
-          <span class="hex">bg #090e18 · accent #8ab4ff</span>
-        </div>
-      </article>
-
-      <article class="pal p27 rec">
-        <div class="pal-top"><span class="pal-id">P27</span><span class="pal-name">Green-graphite deep · teal</span><span class="pal-tag">OKX-darker</span></div>
-        <div class="pal-why">Green-black undertone (closer to many CEX dark modes) + teal. Darker OKX-adjacent without pure black.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0a0f0e"></div><div class="sw" style="background:#121a18"></div>
-          <div class="sw" style="background:#00c2a8"></div>
-          <span class="hex">bg #0a0f0e · panel #121a18</span>
-        </div>
-      </article>
-
-      <article class="pal p28">
-        <div class="pal-top"><span class="pal-id">P28</span><span class="pal-name">Green-graphite deep · aqua</span></div>
-        <div class="pal-why">Slightly cooler aqua on the same green-dark family as P27.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#090e0c"></div><div class="sw" style="background:#20b2aa"></div>
-          <span class="hex">bg #090e0c · accent #20b2aa</span>
-        </div>
-      </article>
-
-      <article class="pal p29">
-        <div class="pal-top"><span class="pal-id">P29</span><span class="pal-name">Green-graphite deep · mint</span></div>
-        <div class="pal-why">Brighter mint accent on deep green-graphite — action pops without neon pink/purple.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0b100e"></div><div class="sw" style="background:#2dd4bf"></div>
-          <span class="hex">accent #2dd4bf</span>
-        </div>
-      </article>
-
-      <article class="pal p30">
-        <div class="pal-top"><span class="pal-id">P30</span><span class="pal-name">Warm-black · amber</span></div>
-        <div class="pal-why">Brown-black void (not blue-gray). Visibly different from cool families; amber primary.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0c0a09"></div><div class="sw" style="background:#161210"></div>
-          <div class="sw" style="background:#e0a458"></div>
-          <span class="hex">bg #0c0a09 · warm black</span>
-        </div>
-      </article>
-
-      <article class="pal p31">
-        <div class="pal-top"><span class="pal-id">P31</span><span class="pal-name">Warm-black · sand</span></div>
-        <div class="pal-why">Same warm-black family; quieter sand accent.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0b0908"></div><div class="sw" style="background:#d4a574"></div>
-          <span class="hex">accent #d4a574</span>
-        </div>
-      </article>
-
-      <article class="pal p32">
-        <div class="pal-top"><span class="pal-id">P32</span><span class="pal-name">Warm-black · tip orange</span></div>
-        <div class="pal-why">Deepest warm chassis + today’s orange — continuity at darker level.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0d0b0a"></div><div class="sw" style="background:#ff6b00"></div>
-          <span class="hex">bg #0d0b0a · accent #ff6b00</span>
-        </div>
-      </article>
-
-      <article class="pal p33 rec">
-        <div class="pal-top"><span class="pal-id">P33</span><span class="pal-name">Near-black + high panel lift · teal</span><span class="pal-tag">darkest usable</span></div>
-        <div class="pal-why">Almost black base, but panels jump hard so you still parse regions. Dark without “one black blob.”</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#08090c"></div><div class="sw" style="background:#151820"></div>
-          <div class="sw" style="background:#00c2a8"></div>
-          <span class="hex">bg #08090c · panel #151820 (strong lift)</span>
-        </div>
-      </article>
-
-      <article class="pal p34">
-        <div class="pal-top"><span class="pal-id">P34</span><span class="pal-name">Near-black + lift · blue</span></div>
-        <div class="pal-why">Same high-lift pattern as P33; azure primary.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#07080b"></div><div class="sw" style="background:#6ea8fe"></div>
-          <span class="hex">bg #07080b · accent #6ea8fe</span>
-        </div>
-      </article>
-
-      <article class="pal p35">
-        <div class="pal-top"><span class="pal-id">P35</span><span class="pal-name">Near-black + lift · lime</span></div>
-        <div class="pal-why">Darkest usable base + lime action (marketing continuity) with strong panel lift.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#06070a"></div><div class="sw" style="background:#c4f000"></div>
-          <span class="hex">bg #06070a · accent #c4f000</span>
-        </div>
-      </article>
-
-      <article class="pal p36">
-        <div class="pal-top"><span class="pal-id">P36</span><span class="pal-name">Near-black + lift · soft white</span></div>
-        <div class="pal-why">Darkest mono action — primary is soft white, not a hue. Maximum restraint on deep base.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#08090b"></div><div class="sw" style="background:#e8eef5"></div>
-          <span class="hex">bg #08090b · accent #e8eef5</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family A · Soft charcoal (mid-dark · less fatigue)</h2>
-    <p>Lighter than Family 0. Graphite, not void. Use if deep options feel heavy after an hour.</p>
-    <div class="grid">
-
-      <article class="pal p01">
-        <div class="pal-top"><span class="pal-id">P01</span><span class="pal-name">OKX-range teal</span></div>
-        <div class="pal-why">Soft charcoal base + teal accent. Familiar pro CEX energy without pure black or neon.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r dn"><span>97410</span><span>1.10</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#12161c"></div><div class="sw" style="background:#1a1f27"></div>
-          <div class="sw" style="background:#00c2a8"></div><div class="sw" style="background:#0ecb81"></div>
-          <div class="sw" style="background:#f6465d"></div>
-          <span class="hex">bg #12161c · accent #00c2a8</span>
-        </div>
-      </article>
-
-      <article class="pal p02">
-        <div class="pal-top"><span class="pal-id">P02</span><span class="pal-name">Graphite aqua</span></div>
-        <div class="pal-why">Slightly cooler charcoal; aqua accent reads “venue tool” not casino.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#131722"></div><div class="sw" style="background:#1c2330"></div>
-          <div class="sw" style="background:#20b2aa"></div>
-          <span class="hex">bg #131722 · accent #20b2aa</span>
-        </div>
-      </article>
-
-      <article class="pal p03">
-        <div class="pal-top"><span class="pal-id">P03</span><span class="pal-name">Charcoal blue action</span></div>
-        <div class="pal-why">Same fatigue-safe charcoal family; blue primary for “tool UI” not “crypto meme.”</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#14181f"></div><div class="sw" style="background:#1c222c"></div>
-          <div class="sw" style="background:#3d9cf0"></div>
-          <span class="hex">bg #14181f · accent #3d9cf0</span>
-        </div>
-      </article>
-
-      <article class="pal p04">
-        <div class="pal-top"><span class="pal-id">P04</span><span class="pal-name">Charcoal gold (restrained)</span></div>
-        <div class="pal-why">Soft gold accent on charcoal — confidence without Binance-yellow chrome.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#151a1e"></div><div class="sw" style="background:#1d2429"></div>
-          <div class="sw" style="background:#f0b90b"></div>
-          <span class="hex">bg #151a1e · accent #f0b90b</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family B · Cool slate / steel (instrumental)</h2>
-    <div class="grid">
-      <article class="pal p05">
-        <div class="pal-top"><span class="pal-id">P05</span><span class="pal-name">Steel instrument</span></div>
-        <div class="pal-why">Metrology desk: steel accent, slate panels. Calm, institutional.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#12151a"></div><div class="sw" style="background:#8ab4ff"></div>
-          <span class="hex">accent #8ab4ff</span>
-        </div>
-      </article>
-      <article class="pal p06">
-        <div class="pal-top"><span class="pal-id">P06</span><span class="pal-name">Deep slate azure</span></div>
-        <div class="pal-why">Slightly deeper slate; azure action. Strong for long sessions if panels stay lifted.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#11151c"></div><div class="sw" style="background:#6ea8fe"></div>
-          <span class="hex">accent #6ea8fe</span>
-        </div>
-      </article>
-      <article class="pal p07">
-        <div class="pal-top"><span class="pal-id">P07</span><span class="pal-name">Ice steel</span></div>
-        <div class="pal-why">Paler steel accent — almost monochrome action, very low “crypto neon” risk.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#10141b"></div><div class="sw" style="background:#a8c5ff"></div>
-          <span class="hex">accent #a8c5ff</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family C · Blue ink (deeper, still not pure black)</h2>
-    <div class="grid">
-      <article class="pal p08">
-        <div class="pal-top"><span class="pal-id">P08</span><span class="pal-name">Ink ocean</span></div>
-        <div class="pal-why">Deeper pro blue-ink base; ocean accent. Dense-desk friendly if you want “serious money.”</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0f1419"></div><div class="sw" style="background:#5b9fd4"></div>
-          <span class="hex">bg #0f1419 · accent #5b9fd4</span>
-        </div>
-      </article>
-      <article class="pal p09">
-        <div class="pal-top"><span class="pal-id">P09</span><span class="pal-name">Ink sky</span></div>
-        <div class="pal-why">Slightly brighter sky accent for readability of primary actions at a glance.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#0e1318"></div><div class="sw" style="background:#4fc3f7"></div>
-          <span class="hex">accent #4fc3f7</span>
-        </div>
-      </article>
-      <article class="pal p10">
-        <div class="pal-top"><span class="pal-id">P10</span><span class="pal-name">Ink frost</span></div>
-        <div class="pal-why">Frost accent — high visibility primary without warm “retail crypto” heat.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#10151c"></div><div class="sw" style="background:#7dd3fc"></div>
-          <span class="hex">accent #7dd3fc</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family D · Warm dark (less clinical)</h2>
-    <p>Still dark; brown-graphite instead of blue-slate. Some desks prefer this for multi-hour sessions.</p>
-    <div class="grid">
-      <article class="pal p11">
-        <div class="pal-top"><span class="pal-id">P11</span><span class="pal-name">Warm graphite · amber</span></div>
-        <div class="pal-why">Warm charcoal + soft amber. Less “hospital screen,” still pro.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#141210"></div><div class="sw" style="background:#e0a458"></div>
-          <span class="hex">bg #141210 · accent #e0a458</span>
-        </div>
-      </article>
-      <article class="pal p12">
-        <div class="pal-top"><span class="pal-id">P12</span><span class="pal-name">Warm graphite · sand</span></div>
-        <div class="pal-why">Sand accent softer than gold — quieter primary actions.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#131110"></div><div class="sw" style="background:#d4a574"></div>
-          <span class="hex">accent #d4a574</span>
-        </div>
-      </article>
-      <article class="pal p13">
-        <div class="pal-top"><span class="pal-id">P13</span><span class="pal-name">Warm graphite · bronze</span></div>
-        <div class="pal-why">Bronze primary — distinctive without purple-slop or neon.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#151311"></div><div class="sw" style="background:#c4a574"></div>
-          <span class="hex">accent #c4a574</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family E · Soft lifted (lowest fatigue · slightly brighter base)</h2>
-    <p>If pure “OKX dark” still feels heavy after an hour, these raise the floor brightness while staying dark-mode.</p>
-    <div class="grid">
-      <article class="pal p14 rec">
-        <div class="pal-top"><span class="pal-id">P14</span><span class="pal-name">Lifted charcoal · teal</span><span class="pal-tag">low fatigue</span></div>
-        <div class="pal-why">Brighter panels, same teal family as P01. Often best if you said “not so dark eyes tire.”</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#181b20"></div><div class="sw" style="background:#21262e"></div>
-          <div class="sw" style="background:#00c2a8"></div>
-          <span class="hex">bg #181b20 · panel #21262e</span>
-        </div>
-      </article>
-      <article class="pal p15">
-        <div class="pal-top"><span class="pal-id">P15</span><span class="pal-name">Lifted slate · blue</span></div>
-        <div class="pal-why">Lifted slate with soft blue action — easy primary target without glare.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#1a1d22"></div><div class="sw" style="background:#6ea8fe"></div>
-          <span class="hex">bg #1a1d22 · accent #6ea8fe</span>
-        </div>
-      </article>
-      <article class="pal p16">
-        <div class="pal-top"><span class="pal-id">P16</span><span class="pal-name">Lifted mono · soft white</span></div>
-        <div class="pal-why">Near-monochrome action on lifted charcoal — maximum restraint.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow">
-          <div class="sw" style="background:#171a1f"></div><div class="sw" style="background:#e8eef5"></div>
-          <span class="hex">accent #e8eef5</span>
-        </div>
-      </article>
-    </div>
-
-    <h2>Family F · Accent swaps on one charcoal base (if you already like the base)</h2>
-    <p>Same N2-like charcoal chassis; only the action color changes — including tip orange for comparison.</p>
-    <div class="grid">
-      <article class="pal p17">
-        <div class="pal-top"><span class="pal-id">P17</span><span class="pal-name">Charcoal · amber</span></div>
-        <div class="pal-why">Signal amber — warm primary on cool dark.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow"><div class="sw" style="background:#f0a020"></div><span class="hex">#f0a020</span></div>
-      </article>
-      <article class="pal p18">
-        <div class="pal-top"><span class="pal-id">P18</span><span class="pal-name">Charcoal · lime</span></div>
-        <div class="pal-why">Electric lime — marketing continuity candidate; still accent-only.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow"><div class="sw" style="background:#c4f000"></div><span class="hex">#c4f000</span></div>
-      </article>
-      <article class="pal p19">
-        <div class="pal-top"><span class="pal-id">P19</span><span class="pal-name">Charcoal · cyan</span></div>
-        <div class="pal-why">Cyan primary — cool, modern, low “retail casino.”</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow"><div class="sw" style="background:#5eead4"></div><span class="hex">#5eead4</span></div>
-      </article>
-      <article class="pal p20">
-        <div class="pal-top"><span class="pal-id">P20</span><span class="pal-name">Charcoal · tip orange</span></div>
-        <div class="pal-why">What the shell uses today — keep only if you prefer continuity over a fresh pro read.</div>
-        <div class="desk">
-          <div class="hd"><span class="logo">INTAFACED</span><span class="live">Live</span><span class="pair">BTC/USDT</span></div>
-          <div class="ch"><div class="lbl">Chart</div><div class="cline"></div><div class="cline2"></div></div>
-          <div class="bk"><div class="lbl">Book</div>
-            <div class="r dn"><span>97420</span><span>0.42</span></div>
-            <div class="r up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="tk"><div class="lbl">Ticket</div><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="money">
-          <div class="mcell"><div class="k">Available</div><div>— unknown</div></div>
-          <div class="mcell"><div class="k">Open</div><div>0</div></div>
-          <div class="mcell"><div class="k">Fee</div><div>0.10%</div></div>
-        </div>
-        <div class="swrow"><div class="sw" style="background:#ff6b00"></div><span class="hex">#ff6b00 (tip residue)</span></div>
-      </article>
-    </div>
-
-    <div class="pick">
-      <h2>How to answer (color-only)</h2>
-      <p>Reply with a <strong>palette id</strong> (or two if graft). Examples:</p>
-      <ul>
-        <li><code>P01</code> — recommended if you want OKX-range dark + teal (start here)</li>
-        <li><code>P14</code> — same teal family, lifted panels (less eye fatigue)</li>
-        <li><code>P03</code> · <code>P05</code> · <code>P08</code> · <code>P11</code> · <code>P17</code> · <code>P18</code> · <code>P19</code> · <code>P20</code></li>
-        <li>Graft: <code>P14 base + P17 amber button</code></li>
-      </ul>
-      <p><strong>If you want darker (your latest note):</strong> start in <strong>Family 0</strong> —
-        <code>P27</code> (OKX-darker teal) · <code>P21</code> (deep neutral teal) · <code>P33</code> (near-black + strong panel lift).</p>
-      <p><strong>If eyes tire on deep dark:</strong> <code>P14</code> or <code>P01</code> (mid charcoal, more lifted).</p>
-      <p>Open: <code>http://127.0.0.1:8765/VIEW-COLOR-PALETTES.html</code> — scroll to <strong>Family 0</strong> first for dark variants.</p>
-      <p>Still banned: purple neon, pure <code>#000</code> void with no panel lift, rainbow accents, glass pastel SaaS.</p>
-    </div>
-  </div>
-</body>
+  </body>
 </html>

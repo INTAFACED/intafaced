@@ -1,158 +1,428 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pick N1–N4 · visual only</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #111; color: #eee; font-family: system-ui, sans-serif; padding: 16px; }
-    h1 { font-size: 18px; margin: 0 0 6px; }
-    .sub { color: #999; font-size: 13px; margin: 0 0 14px; }
-    .rec { background: #0e1814; border: 1px solid #2a5; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; color: #cde; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1100px; }
-    @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
-    .card { border: 1px solid #333; border-radius: 10px; overflow: hidden; background: #0a0a0a; }
-    .card.rec { border-color: #3a8; }
-    .label { padding: 8px 10px; font-size: 12px; font-weight: 650; border-bottom: 1px solid #2a2a2a; }
-    .label span { font-weight: 400; color: #999; margin-left: 6px; }
-    .desk {
-      display: grid;
-      grid-template-columns: 1.2fr 100px 120px;
-      grid-template-rows: 30px 1fr;
-      gap: 1px;
-      height: 210px;
-      padding: 6px;
-      font: 10px/1.2 ui-monospace, Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    .hd { grid-column: 1/-1; display: flex; align-items: center; gap: 8px; padding: 0 8px; font-family: system-ui, sans-serif; font-size: 11px; }
-    .ch, .bk, .tk { padding: 6px; border: 1px solid transparent; }
-    .fld { height: 18px; margin-top: 4px; border: 1px solid transparent; padding: 0 4px; display: flex; align-items: center; }
-    .btn { margin-top: 8px; text-align: center; padding: 7px; font-weight: 650; font-family: system-ui, sans-serif; font-size: 11px; }
-    .r { display: flex; justify-content: space-between; margin: 2px 0; }
-    .line { height: 2px; margin-top: 36px; opacity: .9; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pick N1–N4 · visual only</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #111;
+        color: #eee;
+        font-family: system-ui, sans-serif;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 6px;
+      }
+      .sub {
+        color: #999;
+        font-size: 13px;
+        margin: 0 0 14px;
+      }
+      .rec {
+        background: #0e1814;
+        border: 1px solid #2a5;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: #cde;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        max-width: 1100px;
+      }
+      @media (max-width: 800px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        border: 1px solid #333;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #0a0a0a;
+      }
+      .card.rec {
+        border-color: #3a8;
+      }
+      .label {
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 650;
+        border-bottom: 1px solid #2a2a2a;
+      }
+      .label span {
+        font-weight: 400;
+        color: #999;
+        margin-left: 6px;
+      }
+      .desk {
+        display: grid;
+        grid-template-columns: 1.2fr 100px 120px;
+        grid-template-rows: 30px 1fr;
+        gap: 1px;
+        height: 210px;
+        padding: 6px;
+        font:
+          10px/1.2 ui-monospace,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .hd {
+        grid-column: 1/-1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+      }
+      .ch,
+      .bk,
+      .tk {
+        padding: 6px;
+        border: 1px solid transparent;
+      }
+      .fld {
+        height: 18px;
+        margin-top: 4px;
+        border: 1px solid transparent;
+        padding: 0 4px;
+        display: flex;
+        align-items: center;
+      }
+      .btn {
+        margin-top: 8px;
+        text-align: center;
+        padding: 7px;
+        font-weight: 650;
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+      }
+      .r {
+        display: flex;
+        justify-content: space-between;
+        margin: 2px 0;
+      }
+      .line {
+        height: 2px;
+        margin-top: 36px;
+        opacity: 0.9;
+      }
 
-    /* N1 */
-    .n1 .desk { background: #12151a; color: #e6e8eb; }
-    .n1 .hd { background: #181c22; border: 1px solid #2a3038; }
-    .n1 .ch, .n1 .bk, .n1 .tk { background: #181c22; border-color: #2a3038; }
-    .n1 .fld { background: #12151a; border-color: #343b46; }
-    .n1 .btn { background: #8ab4ff; color: #12151a; border-radius: 2px; }
-    .n1 .line { background: #8ab4ff; }
-    .n1 .up { color: #3d9a6a; } .n1 .dn { color: #c45c5c; }
+      /* N1 */
+      .n1 .desk {
+        background: #12151a;
+        color: #e6e8eb;
+      }
+      .n1 .hd {
+        background: #181c22;
+        border: 1px solid #2a3038;
+      }
+      .n1 .ch,
+      .n1 .bk,
+      .n1 .tk {
+        background: #181c22;
+        border-color: #2a3038;
+      }
+      .n1 .fld {
+        background: #12151a;
+        border-color: #343b46;
+      }
+      .n1 .btn {
+        background: #8ab4ff;
+        color: #12151a;
+        border-radius: 2px;
+      }
+      .n1 .line {
+        background: #8ab4ff;
+      }
+      .n1 .up {
+        color: #3d9a6a;
+      }
+      .n1 .dn {
+        color: #c45c5c;
+      }
 
-    /* N2 */
-    .n2 .desk { background: #161a1f; color: #eef1f4; }
-    .n2 .hd { background: #1b2128; border: 1px solid #2a333d; }
-    .n2 .ch, .n2 .bk, .n2 .tk { background: #1b2128; border-color: #2a333d; }
-    .n2 .fld { background: #161a1f; border-color: #343e48; }
-    .n2 .btn { background: #f0a020; color: #161a1f; border-radius: 2px; }
-    .n2 .line { background: #f0a020; }
-    .n2 .up { color: #00b275; } .n2 .dn { color: #ff4a68; }
+      /* N2 */
+      .n2 .desk {
+        background: #161a1f;
+        color: #eef1f4;
+      }
+      .n2 .hd {
+        background: #1b2128;
+        border: 1px solid #2a333d;
+      }
+      .n2 .ch,
+      .n2 .bk,
+      .n2 .tk {
+        background: #1b2128;
+        border-color: #2a333d;
+      }
+      .n2 .fld {
+        background: #161a1f;
+        border-color: #343e48;
+      }
+      .n2 .btn {
+        background: #f0a020;
+        color: #161a1f;
+        border-radius: 2px;
+      }
+      .n2 .line {
+        background: #f0a020;
+      }
+      .n2 .up {
+        color: #00b275;
+      }
+      .n2 .dn {
+        color: #ff4a68;
+      }
 
-    /* N3 — dark desk, warm money ticket only */
-    .n3 .desk { background: #161a1f; color: #eef1f4; }
-    .n3 .hd { background: #1b2128; border: 1px solid #2a333d; }
-    .n3 .ch, .n3 .bk { background: #1b2128; border-color: #2a333d; }
-    .n3 .tk { background: #f3efe6; border-color: #d4cbb8; color: #1a1a1a; }
-    .n3 .fld { background: #fffdf8; border-color: #d0c6b4; color: #1a1a1a; }
-    .n3 .btn { background: #1a1a1a; color: #f3efe6; border-radius: 2px; }
-    .n3 .line { background: #5a9e96; }
-    .n3 .up { color: #3d9a6a; } .n3 .dn { color: #c45c5c; }
-    .n3 .tag { font: 9px system-ui; opacity: .65; margin-bottom: 2px; }
+      /* N3 — dark desk, warm money ticket only */
+      .n3 .desk {
+        background: #161a1f;
+        color: #eef1f4;
+      }
+      .n3 .hd {
+        background: #1b2128;
+        border: 1px solid #2a333d;
+      }
+      .n3 .ch,
+      .n3 .bk {
+        background: #1b2128;
+        border-color: #2a333d;
+      }
+      .n3 .tk {
+        background: #f3efe6;
+        border-color: #d4cbb8;
+        color: #1a1a1a;
+      }
+      .n3 .fld {
+        background: #fffdf8;
+        border-color: #d0c6b4;
+        color: #1a1a1a;
+      }
+      .n3 .btn {
+        background: #1a1a1a;
+        color: #f3efe6;
+        border-radius: 2px;
+      }
+      .n3 .line {
+        background: #5a9e96;
+      }
+      .n3 .up {
+        color: #3d9a6a;
+      }
+      .n3 .dn {
+        color: #c45c5c;
+      }
+      .n3 .tag {
+        font: 9px system-ui;
+        opacity: 0.65;
+        margin-bottom: 2px;
+      }
 
-    /* N4 */
-    .n4 .desk { background: #0a0a0a; color: #c8c8c8; }
-    .n4 .hd { background: #0a0a0a; border: 1px solid #2a2a2a; }
-    .n4 .ch, .n4 .bk, .n4 .tk { background: #0a0a0a; border-color: #2a2a2a; }
-    .n4 .fld { background: #0f0f0f; border-color: #333; }
-    .n4 .btn { background: #c8c8c8; color: #0a0a0a; border-radius: 0; }
-    .n4 .line { background: #666; height: 1px; }
-    .n4 .up { color: #8c8; } .n4 .dn { color: #c88; }
+      /* N4 */
+      .n4 .desk {
+        background: #0a0a0a;
+        color: #c8c8c8;
+      }
+      .n4 .hd {
+        background: #0a0a0a;
+        border: 1px solid #2a2a2a;
+      }
+      .n4 .ch,
+      .n4 .bk,
+      .n4 .tk {
+        background: #0a0a0a;
+        border-color: #2a2a2a;
+      }
+      .n4 .fld {
+        background: #0f0f0f;
+        border-color: #333;
+      }
+      .n4 .btn {
+        background: #c8c8c8;
+        color: #0a0a0a;
+        border-radius: 0;
+      }
+      .n4 .line {
+        background: #666;
+        height: 1px;
+      }
+      .n4 .up {
+        color: #8c8;
+      }
+      .n4 .dn {
+        color: #c88;
+      }
 
-    .refs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 1100px; margin-top: 20px; }
-    .refs img { width: 100%; height: 160px; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid #333; display: block; background: #000; }
-    .refs p { margin: 4px 0 0; font-size: 12px; color: #aaa; }
-    .shell { max-width: 1100px; margin-top: 18px; }
-    .shell img { width: 100%; border-radius: 8px; border: 1px solid #333; display: block; max-height: 280px; object-fit: cover; object-position: top; }
-  </style>
-</head>
-<body>
-  <h1>Style pick — look only</h1>
-  <p class="sub">Same desk layout four times. Only the system changes. Reply in chat: N1 · N2 · N3 · N4 (or graft).</p>
-  <div class="rec"><strong>Recommendation: N2</strong> (daily pro desk). N3 = dark desk + warm money panel only (not a notebook).</div>
+      .refs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        max-width: 1100px;
+        margin-top: 20px;
+      }
+      .refs img {
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+        object-position: top;
+        border-radius: 8px;
+        border: 1px solid #333;
+        display: block;
+        background: #000;
+      }
+      .refs p {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #aaa;
+      }
+      .shell {
+        max-width: 1100px;
+        margin-top: 18px;
+      }
+      .shell img {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid #333;
+        display: block;
+        max-height: 280px;
+        object-fit: cover;
+        object-position: top;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Style pick — look only</h1>
+    <p class="sub">Same desk layout four times. Only the system changes. Reply in chat: N1 · N2 · N3 · N4 (or graft).</p>
+    <div class="rec"><strong>Recommendation: N2</strong> (daily pro desk). N3 = dark desk + warm money panel only (not a notebook).</div>
 
-  <div class="row">
-    <div class="card n1">
-      <div class="label">N1 Instrument <span>cool steel lab</span></div>
-      <div class="desk">
-        <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left:auto;opacity:.6">BTC/USDT</span></div>
-        <div class="ch">Chart<div class="line"></div></div>
-        <div class="bk">
-          <div class="r dn"><span>97420</span><span>0.42</span></div>
-          <div class="r dn"><span>97410</span><span>1.10</span></div>
-          <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-          <div class="r up"><span>97400</span><span>0.88</span></div>
+    <div class="row">
+      <div class="card n1">
+        <div class="label">N1 Instrument <span>cool steel lab</span></div>
+        <div class="desk">
+          <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left: auto; opacity: 0.6">BTC/USDT</span></div>
+          <div class="ch">
+            Chart
+            <div class="line"></div>
+          </div>
+          <div class="bk">
+            <div class="r dn"><span>97420</span><span>0.42</span></div>
+            <div class="r dn"><span>97410</span><span>1.10</span></div>
+            <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+            <div class="r up"><span>97400</span><span>0.88</span></div>
+          </div>
+          <div class="tk">
+            Buy · Limit
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
         </div>
-        <div class="tk">Buy · Limit<div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
+      </div>
+      <div class="card n2 rec">
+        <div class="label">N2 Signal ★ <span>ink + one accent</span></div>
+        <div class="desk">
+          <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left: auto; opacity: 0.6">BTC/USDT</span></div>
+          <div class="ch">
+            Chart
+            <div class="line"></div>
+          </div>
+          <div class="bk">
+            <div class="r dn"><span>97420</span><span>0.42</span></div>
+            <div class="r dn"><span>97410</span><span>1.10</span></div>
+            <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+            <div class="r up"><span>97400</span><span>0.88</span></div>
+          </div>
+          <div class="tk">
+            Buy · Limit
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
+        </div>
+      </div>
+      <div class="card n3">
+        <div class="label">N3 Ledger <span>dark desk · warm money</span></div>
+        <div class="desk">
+          <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left: auto; opacity: 0.6">BTC/USDT</span></div>
+          <div class="ch">
+            Chart · tape
+            <div class="line"></div>
+          </div>
+          <div class="bk">
+            <div class="r dn"><span>97420</span><span>0.42</span></div>
+            <div class="r dn"><span>97410</span><span>1.10</span></div>
+            <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+            <div class="r up"><span>97400</span><span>0.88</span></div>
+          </div>
+          <div class="tk">
+            <div class="tag">Money plane (warm)</div>
+            Buy · Limit
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
+        </div>
+      </div>
+      <div class="card n4">
+        <div class="label">N4 Terminal Zero <span>density pole</span></div>
+        <div class="desk">
+          <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left: auto; opacity: 0.6">BTC/USDT</span></div>
+          <div class="ch">
+            Chart
+            <div class="line"></div>
+          </div>
+          <div class="bk">
+            <div class="r dn"><span>97420</span><span>0.42</span></div>
+            <div class="r dn"><span>97410</span><span>1.10</span></div>
+            <div class="r" style="opacity: 0.4"><span>spr</span><span>10</span></div>
+            <div class="r up"><span>97400</span><span>0.88</span></div>
+          </div>
+          <div class="tk">
+            Buy · Limit
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="card n2 rec">
-      <div class="label">N2 Signal ★ <span>ink + one accent</span></div>
-      <div class="desk">
-        <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left:auto;opacity:.6">BTC/USDT</span></div>
-        <div class="ch">Chart<div class="line"></div></div>
-        <div class="bk">
-          <div class="r dn"><span>97420</span><span>0.42</span></div>
-          <div class="r dn"><span>97410</span><span>1.10</span></div>
-          <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-          <div class="r up"><span>97400</span><span>0.88</span></div>
-        </div>
-        <div class="tk">Buy · Limit<div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
-      </div>
-    </div>
-    <div class="card n3">
-      <div class="label">N3 Ledger <span>dark desk · warm money</span></div>
-      <div class="desk">
-        <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left:auto;opacity:.6">BTC/USDT</span></div>
-        <div class="ch">Chart · tape<div class="line"></div></div>
-        <div class="bk">
-          <div class="r dn"><span>97420</span><span>0.42</span></div>
-          <div class="r dn"><span>97410</span><span>1.10</span></div>
-          <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-          <div class="r up"><span>97400</span><span>0.88</span></div>
-        </div>
-        <div class="tk"><div class="tag">Money plane (warm)</div>Buy · Limit<div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
-      </div>
-    </div>
-    <div class="card n4">
-      <div class="label">N4 Terminal Zero <span>density pole</span></div>
-      <div class="desk">
-        <div class="hd"><strong>INTAFACED</strong> · CEX <span style="margin-left:auto;opacity:.6">BTC/USDT</span></div>
-        <div class="ch">Chart<div class="line"></div></div>
-        <div class="bk">
-          <div class="r dn"><span>97420</span><span>0.42</span></div>
-          <div class="r dn"><span>97410</span><span>1.10</span></div>
-          <div class="r" style="opacity:.4"><span>spr</span><span>10</span></div>
-          <div class="r up"><span>97400</span><span>0.88</span></div>
-        </div>
-        <div class="tk">Buy · Limit<div class="fld">Price</div><div class="fld">Size</div><div class="btn">Buy BTC</div></div>
-      </div>
-    </div>
-  </div>
 
-  <div class="shell">
-    <p class="sub" style="margin:16px 0 6px"><strong>Your product now</strong> (real shell — not a mock)</p>
-    <img src="shots/current-shell-exchange.png" alt="Current INTAFACED exchange" />
-  </div>
+    <div class="shell">
+      <p class="sub" style="margin: 16px 0 6px"><strong>Your product now</strong> (real shell — not a mock)</p>
+      <img src="shots/current-shell-exchange.png" alt="Current INTAFACED exchange" />
+    </div>
 
-  <p class="sub" style="margin:18px 0 6px"><strong>Real desks we steal jobs from</strong> (not clones)</p>
-  <div class="refs">
-    <div><img src="l1/A1-hyperliquid.png" alt="Hyperliquid" /><p>Hyperliquid — density</p></div>
-    <div><img src="l1/A2-coinbase.png" alt="Coinbase Advanced" /><p>Coinbase Advanced — calm</p></div>
-    <div><img src="l1/A5-okx.png" alt="OKX" /><p>OKX — full CEX</p></div>
-    <div><img src="l1/A10-dydx.png" alt="dYdX" /><p>dYdX — pro DEX</p></div>
-  </div>
-</body>
+    <p class="sub" style="margin: 18px 0 6px"><strong>Real desks we steal jobs from</strong> (not clones)</p>
+    <div class="refs">
+      <div>
+        <img src="l1/A1-hyperliquid.png" alt="Hyperliquid" />
+        <p>Hyperliquid — density</p>
+      </div>
+      <div>
+        <img src="l1/A2-coinbase.png" alt="Coinbase Advanced" />
+        <p>Coinbase Advanced — calm</p>
+      </div>
+      <div>
+        <img src="l1/A5-okx.png" alt="OKX" />
+        <p>OKX — full CEX</p>
+      </div>
+      <div>
+        <img src="l1/A10-dydx.png" alt="dYdX" />
+        <p>dYdX — pro DEX</p>
+      </div>
+    </div>
+  </body>
 </html>

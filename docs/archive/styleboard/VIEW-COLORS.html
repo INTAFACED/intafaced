@@ -1,594 +1,1029 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>INTAFACED · color + system pick (expanded)</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0c0c0c;
-      color: #eee;
-      padding: 18px 16px 64px;
-      line-height: 1.4;
-    }
-    .wrap { max-width: 1120px; margin: 0 auto; }
-    h1 { font-size: 1.25rem; margin: 0 0 8px; }
-    h2 { font-size: 1rem; margin: 28px 0 10px; color: #fff; }
-    p, li { color: #aaa; font-size: 0.9rem; }
-    strong { color: #fff; }
-    code { background: #222; padding: 1px 6px; border-radius: 4px; color: #ddd; font-size: 0.85em; }
-    .note {
-      border: 1px solid #3a5a3a;
-      background: #0e1814;
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin: 12px 0 20px;
-      color: #cde;
-      font-size: 0.9rem;
-    }
-    .note.warn {
-      border-color: #6a5020;
-      background: #18140c;
-      color: #e8dcc8;
-    }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>INTAFACED · color + system pick (expanded)</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #0c0c0c;
+        color: #eee;
+        padding: 18px 16px 64px;
+        line-height: 1.4;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 8px;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 28px 0 10px;
+        color: #fff;
+      }
+      p,
+      li {
+        color: #aaa;
+        font-size: 0.9rem;
+      }
+      strong {
+        color: #fff;
+      }
+      code {
+        background: #222;
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: #ddd;
+        font-size: 0.85em;
+      }
+      .note {
+        border: 1px solid #3a5a3a;
+        background: #0e1814;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 12px 0 20px;
+        color: #cde;
+        font-size: 0.9rem;
+      }
+      .note.warn {
+        border-color: #6a5020;
+        background: #18140c;
+        color: #e8dcc8;
+      }
 
-    /* Full-ish desk mock: head + chart+book+ticket + money strip + status */
-    .sys {
-      border: 1px solid #333;
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 18px;
-      background: #0a0a0a;
-    }
-    .sys-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid rgba(255,255,255,.08);
-      font-size: 13px;
-    }
-    .sys-head .id {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      color: #888;
-      margin-right: 4px;
-    }
-    .sys-head .title { font-weight: 650; }
-    .sys-head .pill {
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.12);
-      opacity: .9;
-    }
-    .sys-head .meta { margin-left: auto; font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
+      /* Full-ish desk mock: head + chart+book+ticket + money strip + status */
+      .sys {
+        border: 1px solid #333;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 18px;
+        background: #0a0a0a;
+      }
+      .sys-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 13px;
+      }
+      .sys-head .id {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #888;
+        margin-right: 4px;
+      }
+      .sys-head .title {
+        font-weight: 650;
+      }
+      .sys-head .pill {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        opacity: 0.9;
+      }
+      .sys-head .meta {
+        margin-left: auto;
+        font-size: 11px;
+        opacity: 0.55;
+        font-variant-numeric: tabular-nums;
+      }
 
-    .desk {
-      display: grid;
-      grid-template-columns: 1.35fr 140px 150px;
-      gap: 1px;
-      min-height: 240px;
-      padding: 8px;
-      font: 11px/1.25 ui-monospace, Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    .panel {
-      border: 1px solid transparent;
-      border-radius: 4px;
-      padding: 8px;
-      min-height: 220px;
-    }
-    .panel h4 {
-      margin: 0 0 8px;
-      font: 600 11px/1 system-ui, sans-serif;
-      opacity: .7;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .chart-line {
-      height: 2px;
-      margin: 48px 8px 0;
-      border-radius: 1px;
-      opacity: .9;
-    }
-    .chart-line2 {
-      height: 2px;
-      margin: 18px 40% 0 8px;
-      border-radius: 1px;
-      opacity: .45;
-    }
-    .book-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 3px 0;
-    }
-    .up { color: #00b275; }
-    .dn { color: #ff4a68; }
-    .fld {
-      height: 26px;
-      border: 1px solid transparent;
-      border-radius: 3px;
-      margin: 6px 0;
-      display: flex;
-      align-items: center;
-      padding: 0 8px;
-      font-family: system-ui, sans-serif;
-      font-size: 12px;
-    }
-    .btn {
-      margin-top: 10px;
-      text-align: center;
-      padding: 10px;
-      font: 650 12px/1 system-ui, sans-serif;
-      border-radius: 3px;
-    }
-    .money-strip {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 1px;
-      padding: 0 8px 8px;
-      font: 11px/1.3 ui-monospace, Menlo, monospace;
-      font-variant-numeric: tabular-nums;
-    }
-    .money-cell {
-      border: 1px solid transparent;
-      border-radius: 4px;
-      padding: 10px;
-    }
-    .money-cell .k {
-      font-family: system-ui, sans-serif;
-      font-size: 10px;
-      opacity: .65;
-      margin-bottom: 4px;
-    }
-    .money-cell .v { font-size: 15px; font-weight: 600; }
-    .status {
-      padding: 8px 12px 10px;
-      font: 11px/1.3 system-ui, sans-serif;
-      border-top: 1px solid rgba(255,255,255,.06);
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .chip {
-      padding: 2px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.12);
-      font-size: 11px;
-    }
-    .swatches { display: flex; gap: 6px; padding: 0 12px 12px; flex-wrap: wrap; align-items: center; }
-    .sw { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); }
-    .sw-label { font-size: 11px; color: #888; margin-right: 6px; }
+      .desk {
+        display: grid;
+        grid-template-columns: 1.35fr 140px 150px;
+        gap: 1px;
+        min-height: 240px;
+        padding: 8px;
+        font:
+          11px/1.25 ui-monospace,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .panel {
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 8px;
+        min-height: 220px;
+      }
+      .panel h4 {
+        margin: 0 0 8px;
+        font:
+          600 11px/1 system-ui,
+          sans-serif;
+        opacity: 0.7;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .chart-line {
+        height: 2px;
+        margin: 48px 8px 0;
+        border-radius: 1px;
+        opacity: 0.9;
+      }
+      .chart-line2 {
+        height: 2px;
+        margin: 18px 40% 0 8px;
+        border-radius: 1px;
+        opacity: 0.45;
+      }
+      .book-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 3px 0;
+      }
+      .up {
+        color: #00b275;
+      }
+      .dn {
+        color: #ff4a68;
+      }
+      .fld {
+        height: 26px;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        margin: 6px 0;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+      }
+      .btn {
+        margin-top: 10px;
+        text-align: center;
+        padding: 10px;
+        font:
+          650 12px/1 system-ui,
+          sans-serif;
+        border-radius: 3px;
+      }
+      .money-strip {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1px;
+        padding: 0 8px 8px;
+        font:
+          11px/1.3 ui-monospace,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .money-cell {
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 10px;
+      }
+      .money-cell .k {
+        font-family: system-ui, sans-serif;
+        font-size: 10px;
+        opacity: 0.65;
+        margin-bottom: 4px;
+      }
+      .money-cell .v {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .status {
+        padding: 8px 12px 10px;
+        font:
+          11px/1.3 system-ui,
+          sans-serif;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .chip {
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        font-size: 11px;
+      }
+      .swatches {
+        display: flex;
+        gap: 6px;
+        padding: 0 12px 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .sw {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .sw-label {
+        font-size: 11px;
+        color: #888;
+        margin-right: 6px;
+      }
 
-    /* ========== N1 Instrument ========== */
-    .n1 { --bg:#12151a; --panel:#181c22; --line:#2a3038; --text:#e6e8eb; --accent:#8ab4ff; --up:#3d9a6a; --dn:#c45c5c; }
-    .n1, .n1 .panel, .n1 .money-cell { background: var(--bg); color: var(--text); }
-    .n1 .sys-head, .n1 .panel, .n1 .money-cell { background: var(--panel); border-color: var(--line); }
-    .n1 .desk, .n1 .money-strip { background: var(--bg); }
-    .n1 .fld { background: var(--bg); border-color: #343b46; }
-    .n1 .btn { background: var(--accent); color: var(--bg); }
-    .n1 .chart-line { background: var(--accent); }
-    .n1 .chart-line2 { background: var(--up); }
-    .n1 .up { color: var(--up); } .n1 .dn { color: var(--dn); }
-    .n1 .chip.acc { border-color: var(--accent); color: var(--accent); }
+      /* ========== N1 Instrument ========== */
+      .n1 {
+        --bg: #12151a;
+        --panel: #181c22;
+        --line: #2a3038;
+        --text: #e6e8eb;
+        --accent: #8ab4ff;
+        --up: #3d9a6a;
+        --dn: #c45c5c;
+      }
+      .n1,
+      .n1 .panel,
+      .n1 .money-cell {
+        background: var(--bg);
+        color: var(--text);
+      }
+      .n1 .sys-head,
+      .n1 .panel,
+      .n1 .money-cell {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+      .n1 .desk,
+      .n1 .money-strip {
+        background: var(--bg);
+      }
+      .n1 .fld {
+        background: var(--bg);
+        border-color: #343b46;
+      }
+      .n1 .btn {
+        background: var(--accent);
+        color: var(--bg);
+      }
+      .n1 .chart-line {
+        background: var(--accent);
+      }
+      .n1 .chart-line2 {
+        background: var(--up);
+      }
+      .n1 .up {
+        color: var(--up);
+      }
+      .n1 .dn {
+        color: var(--dn);
+      }
+      .n1 .chip.acc {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
 
-    /* ========== N2 base + accent variants ========== */
-    .n2 { --bg:#161a1f; --panel:#1b2128; --line:#2a333d; --text:#eef1f4; --up:#00b275; --dn:#ff4a68; }
-    .n2-amber { --accent:#f0a020; }
-    .n2-lime { --accent:#c4f000; }
-    .n2-cyan { --accent:#5eead4; }
-    .n2-white { --accent:#e8eef5; }
-    .n2, .n2 .panel, .n2 .money-cell { color: var(--text); }
-    .n2 .desk, .n2 .money-strip { background: var(--bg); }
-    .n2 .sys-head, .n2 .panel, .n2 .money-cell { background: var(--panel); border-color: var(--line); }
-    .n2 .fld { background: var(--bg); border-color: #343e48; color: var(--text); }
-    .n2 .btn { background: var(--accent); color: #12151a; }
-    .n2-white .btn { color: #161a1f; }
-    .n2 .chart-line { background: var(--accent); }
-    .n2 .chart-line2 { background: var(--up); }
-    .n2 .up { color: var(--up); } .n2 .dn { color: var(--dn); }
-    .n2 .chip.acc { border-color: var(--accent); color: var(--accent); }
+      /* ========== N2 base + accent variants ========== */
+      .n2 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --line: #2a333d;
+        --text: #eef1f4;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
+      .n2-amber {
+        --accent: #f0a020;
+      }
+      .n2-lime {
+        --accent: #c4f000;
+      }
+      .n2-cyan {
+        --accent: #5eead4;
+      }
+      .n2-white {
+        --accent: #e8eef5;
+      }
+      .n2,
+      .n2 .panel,
+      .n2 .money-cell {
+        color: var(--text);
+      }
+      .n2 .desk,
+      .n2 .money-strip {
+        background: var(--bg);
+      }
+      .n2 .sys-head,
+      .n2 .panel,
+      .n2 .money-cell {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+      .n2 .fld {
+        background: var(--bg);
+        border-color: #343e48;
+        color: var(--text);
+      }
+      .n2 .btn {
+        background: var(--accent);
+        color: #12151a;
+      }
+      .n2-white .btn {
+        color: #161a1f;
+      }
+      .n2 .chart-line {
+        background: var(--accent);
+      }
+      .n2 .chart-line2 {
+        background: var(--up);
+      }
+      .n2 .up {
+        color: var(--up);
+      }
+      .n2 .dn {
+        color: var(--dn);
+      }
+      .n2 .chip.acc {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
 
-    /* ========== N3 dual-tone ========== */
-    .n3 { --bg:#161a1f; --panel:#1b2128; --line:#2a333d; --text:#eef1f4; --warm:#f3efe6; --warmline:#d4cbb8; --ink:#1a1a1a; --accent:#5a9e96; --up:#3d9a6a; --dn:#c45c5c; }
-    .n3 .desk { background: var(--bg); color: var(--text); }
-    .n3 .sys-head { background: var(--panel); border-color: var(--line); color: var(--text); }
-    .n3 .panel.chart, .n3 .panel.book { background: var(--panel); border-color: var(--line); color: var(--text); }
-    .n3 .panel.ticket { background: var(--warm); border-color: var(--warmline); color: var(--ink); }
-    .n3 .panel.ticket .fld { background: #fffdf8; border-color: var(--warmline); color: var(--ink); }
-    .n3 .panel.ticket .btn { background: var(--ink); color: var(--warm); }
-    .n3 .panel.ticket h4 { color: #555; }
-    .n3 .money-strip { background: var(--bg); }
-    .n3 .money-cell { background: var(--warm); border-color: var(--warmline); color: var(--ink); }
-    .n3 .money-cell .k { color: #666; opacity: 1; }
-    .n3 .chart-line { background: var(--accent); }
-    .n3 .chart-line2 { background: #c4a574; }
-    .n3 .up { color: var(--up); } .n3 .dn { color: var(--dn); }
-    .n3 .chip.acc { border-color: var(--accent); color: var(--accent); }
+      /* ========== N3 dual-tone ========== */
+      .n3 {
+        --bg: #161a1f;
+        --panel: #1b2128;
+        --line: #2a333d;
+        --text: #eef1f4;
+        --warm: #f3efe6;
+        --warmline: #d4cbb8;
+        --ink: #1a1a1a;
+        --accent: #5a9e96;
+        --up: #3d9a6a;
+        --dn: #c45c5c;
+      }
+      .n3 .desk {
+        background: var(--bg);
+        color: var(--text);
+      }
+      .n3 .sys-head {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .n3 .panel.chart,
+      .n3 .panel.book {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .n3 .panel.ticket {
+        background: var(--warm);
+        border-color: var(--warmline);
+        color: var(--ink);
+      }
+      .n3 .panel.ticket .fld {
+        background: #fffdf8;
+        border-color: var(--warmline);
+        color: var(--ink);
+      }
+      .n3 .panel.ticket .btn {
+        background: var(--ink);
+        color: var(--warm);
+      }
+      .n3 .panel.ticket h4 {
+        color: #555;
+      }
+      .n3 .money-strip {
+        background: var(--bg);
+      }
+      .n3 .money-cell {
+        background: var(--warm);
+        border-color: var(--warmline);
+        color: var(--ink);
+      }
+      .n3 .money-cell .k {
+        color: #666;
+        opacity: 1;
+      }
+      .n3 .chart-line {
+        background: var(--accent);
+      }
+      .n3 .chart-line2 {
+        background: #c4a574;
+      }
+      .n3 .up {
+        color: var(--up);
+      }
+      .n3 .dn {
+        color: var(--dn);
+      }
+      .n3 .chip.acc {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
 
-    /* N3 alt: warm charcoal money (not cream) */
-    .n3-charcoal .panel.ticket,
-    .n3-charcoal .money-cell {
-      background: #2a2622;
-      border-color: #4a433c;
-      color: #f0ebe3;
-    }
-    .n3-charcoal .panel.ticket .fld {
-      background: #1f1c19;
-      border-color: #4a433c;
-      color: #f0ebe3;
-    }
-    .n3-charcoal .panel.ticket .btn { background: #f0ebe3; color: #1a1a1a; }
-    .n3-charcoal .panel.ticket h4 { color: #b0a89e; }
-    .n3-charcoal .money-cell .k { color: #a89f94; }
+      /* N3 alt: warm charcoal money (not cream) */
+      .n3-charcoal .panel.ticket,
+      .n3-charcoal .money-cell {
+        background: #2a2622;
+        border-color: #4a433c;
+        color: #f0ebe3;
+      }
+      .n3-charcoal .panel.ticket .fld {
+        background: #1f1c19;
+        border-color: #4a433c;
+        color: #f0ebe3;
+      }
+      .n3-charcoal .panel.ticket .btn {
+        background: #f0ebe3;
+        color: #1a1a1a;
+      }
+      .n3-charcoal .panel.ticket h4 {
+        color: #b0a89e;
+      }
+      .n3-charcoal .money-cell .k {
+        color: #a89f94;
+      }
 
-    /* ========== N4 ========== */
-    .n4 { --bg:#0a0a0a; --panel:#0a0a0a; --line:#2a2a2a; --text:#c8c8c8; --accent:#c8c8c8; --up:#8c8; --dn:#c88; }
-    .n4 .desk, .n4 .money-strip { background: var(--bg); color: var(--text); }
-    .n4 .sys-head, .n4 .panel, .n4 .money-cell { background: var(--panel); border-color: var(--line); color: var(--text); }
-    .n4 .fld { background: #0f0f0f; border-color: #333; }
-    .n4 .btn { background: var(--accent); color: #0a0a0a; border-radius: 0; }
-    .n4 .chart-line { background: #888; height: 1px; }
-    .n4 .chart-line2 { background: #555; height: 1px; }
-    .n4 .up { color: var(--up); } .n4 .dn { color: var(--dn); }
+      /* ========== N4 ========== */
+      .n4 {
+        --bg: #0a0a0a;
+        --panel: #0a0a0a;
+        --line: #2a2a2a;
+        --text: #c8c8c8;
+        --accent: #c8c8c8;
+        --up: #8c8;
+        --dn: #c88;
+      }
+      .n4 .desk,
+      .n4 .money-strip {
+        background: var(--bg);
+        color: var(--text);
+      }
+      .n4 .sys-head,
+      .n4 .panel,
+      .n4 .money-cell {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .n4 .fld {
+        background: #0f0f0f;
+        border-color: #333;
+      }
+      .n4 .btn {
+        background: var(--accent);
+        color: #0a0a0a;
+        border-radius: 0;
+      }
+      .n4 .chart-line {
+        background: #888;
+        height: 1px;
+      }
+      .n4 .chart-line2 {
+        background: #555;
+        height: 1px;
+      }
+      .n4 .up {
+        color: var(--up);
+      }
+      .n4 .dn {
+        color: var(--dn);
+      }
 
-    /* Tip residue option */
-    .tip { --bg:#000; --panel:#0d0d0d; --line:rgba(255,255,255,.12); --text:#f2f2f2; --accent:#ff6b00; --up:#00b275; --dn:#ff4a68; }
-    .tip .desk, .tip .money-strip { background: var(--bg); color: var(--text); }
-    .tip .sys-head, .tip .panel, .tip .money-cell { background: var(--panel); border-color: var(--line); }
-    .tip .fld { background: #000; border-color: #333; }
-    .tip .btn { background: var(--accent); color: #000; border-radius: 8px; }
-    .tip .chart-line { background: var(--accent); }
-    .tip .chart-line2 { background: var(--up); }
-    .tip .up { color: var(--up); } .tip .dn { color: var(--dn); }
-    .tip .chip.acc { border-color: var(--accent); color: var(--accent); }
+      /* Tip residue option */
+      .tip {
+        --bg: #000;
+        --panel: #0d0d0d;
+        --line: rgba(255, 255, 255, 0.12);
+        --text: #f2f2f2;
+        --accent: #ff6b00;
+        --up: #00b275;
+        --dn: #ff4a68;
+      }
+      .tip .desk,
+      .tip .money-strip {
+        background: var(--bg);
+        color: var(--text);
+      }
+      .tip .sys-head,
+      .tip .panel,
+      .tip .money-cell {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+      .tip .fld {
+        background: #000;
+        border-color: #333;
+      }
+      .tip .btn {
+        background: var(--accent);
+        color: #000;
+        border-radius: 8px;
+      }
+      .tip .chart-line {
+        background: var(--accent);
+      }
+      .tip .chart-line2 {
+        background: var(--up);
+      }
+      .tip .up {
+        color: var(--up);
+      }
+      .tip .dn {
+        color: var(--dn);
+      }
+      .tip .chip.acc {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
 
-    .grid-acc {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: 1fr;
-    }
-    @media (min-width: 900px) {
-      .grid-acc { grid-template-columns: 1fr 1fr; }
-    }
-    .pick {
-      margin-top: 24px;
-      border: 1px solid #2a5;
-      background: #0e1814;
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .pick h2 { margin-top: 0; }
-    .pick ol { color: #cde; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Expanded style pick — systems + colors</h1>
-    <p>
-      <strong>What you’re deciding:</strong> not just one hex — a <strong>look system</strong> (dark surfaces, density, chrome)
-      <em>plus</em> where the accent color goes (button / focus / live chips — <strong>never</strong> on up/down prices).
-    </p>
+      .grid-acc {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: 1fr;
+      }
+      @media (min-width: 900px) {
+        .grid-acc {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .pick {
+        margin-top: 24px;
+        border: 1px solid #2a5;
+        background: #0e1814;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .pick h2 {
+        margin-top: 0;
+      }
+      .pick ol {
+        color: #cde;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Expanded style pick — systems + colors</h1>
+      <p>
+        <strong>What you’re deciding:</strong> not just one hex — a <strong>look system</strong> (dark surfaces, density, chrome)
+        <em>plus</em> where the accent color goes (button / focus / live chips — <strong>never</strong> on up/down prices).
+      </p>
 
-    <div class="note">
-      <strong>Why more options than N1–N4 alone:</strong> N2 is one system with several accent candidates (amber, lime, cyan, soft white).
-      N3 is dual-tone (dark desk + warm money) — cream or warm charcoal for the money plane.
-      Also shown: <strong>Tip orange</strong> = keep today’s shell accent as a baseline to beat, not sacred.
-    </div>
-    <div class="note warn">
-      Green/red = market only on every option. No notebook cosplay. Numbers on mocks are layout placeholders, not balances.
-    </div>
-
-    <!-- ========== FULL SYSTEMS ========== -->
-    <h2>A · Full systems (more of each look)</h2>
-    <p>Each block = header chrome + chart + book + ticket + money row + status chips. Scroll and compare.</p>
-
-    <!-- N1 -->
-    <section class="sys n1" id="n1">
-      <div class="sys-head">
-        <span class="id">N1</span>
-        <span class="title">Instrument</span>
-        <span class="pill">steel lab</span>
-        <span class="meta">BTC/USDT · Live</span>
+      <div class="note">
+        <strong>Why more options than N1–N4 alone:</strong> N2 is one system with several accent candidates (amber, lime, cyan, soft white).
+        N3 is dual-tone (dark desk + warm money) — cream or warm charcoal for the money plane. Also shown: <strong>Tip orange</strong> =
+        keep today’s shell accent as a baseline to beat, not sacred.
       </div>
-      <div class="desk">
-        <div class="panel chart">
-          <h4>Chart</h4>
-          <div class="chart-line"></div>
-          <div class="chart-line2"></div>
-          <div style="margin-top:28px;opacity:.5;font-family:system-ui;font-size:11px">Hairlines · slate · steel primary</div>
+      <div class="note warn">
+        Green/red = market only on every option. No notebook cosplay. Numbers on mocks are layout placeholders, not balances.
+      </div>
+
+      <!-- ========== FULL SYSTEMS ========== -->
+      <h2>A · Full systems (more of each look)</h2>
+      <p>Each block = header chrome + chart + book + ticket + money row + status chips. Scroll and compare.</p>
+
+      <!-- N1 -->
+      <section class="sys n1" id="n1">
+        <div class="sys-head">
+          <span class="id">N1</span>
+          <span class="title">Instrument</span>
+          <span class="pill">steel lab</span>
+          <span class="meta">BTC/USDT · Live</span>
         </div>
-        <div class="panel book">
-          <h4>Book</h4>
-          <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
-          <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
-          <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
-          <div class="book-row" style="opacity:.4"><span>spread</span><span>10.5</span></div>
-          <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
-          <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
-          <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
-        </div>
-        <div class="panel ticket">
-          <h4>Ticket</h4>
-          <div style="font-family:system-ui;font-size:12px;margin-bottom:4px">Buy · Limit</div>
-          <div class="fld">Price</div>
-          <div class="fld">Size</div>
-          <div class="btn">Buy BTC</div>
-        </div>
-      </div>
-      <div class="money-strip">
-        <div class="money-cell"><div class="k">Available (venue)</div><div class="v">— unknown</div></div>
-        <div class="money-cell"><div class="k">Open orders</div><div class="v">0</div></div>
-        <div class="money-cell"><div class="k">Fee (est.)</div><div class="v">0.10%</div></div>
-      </div>
-      <div class="status">
-        <span class="chip acc">Live</span>
-        <span class="chip">Loading…</span>
-        <span class="chip">Empty</span>
-        <span class="chip">Error · named</span>
-      </div>
-      <div class="swatches"><span class="sw-label">Tokens</span>
-        <div class="sw" style="background:#12151a"></div>
-        <div class="sw" style="background:#181c22"></div>
-        <div class="sw" style="background:#8ab4ff"></div>
-        <div class="sw" style="background:#3d9a6a"></div>
-        <div class="sw" style="background:#c45c5c"></div>
-      </div>
-    </section>
-
-    <!-- N2 amber (default recommend) -->
-    <section class="sys n2 n2-amber" id="n2">
-      <div class="sys-head">
-        <span class="id">N2</span>
-        <span class="title">Signal · amber</span>
-        <span class="pill">recommended base system</span>
-        <span class="meta">BTC/USDT · Live</span>
-      </div>
-      <div class="desk">
-        <div class="panel chart">
-          <h4>Chart</h4>
-          <div class="chart-line"></div>
-          <div class="chart-line2"></div>
-          <div style="margin-top:28px;opacity:.5;font-family:system-ui;font-size:11px">Ink panels · one accent voice · no glass</div>
-        </div>
-        <div class="panel book">
-          <h4>Book</h4>
-          <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
-          <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
-          <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
-          <div class="book-row" style="opacity:.4"><span>spread</span><span>10.5</span></div>
-          <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
-          <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
-          <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
-        </div>
-        <div class="panel ticket">
-          <h4>Ticket</h4>
-          <div style="font-family:system-ui;font-size:12px;margin-bottom:4px">Buy · Limit</div>
-          <div class="fld">Price</div>
-          <div class="fld">Size</div>
-          <div class="btn">Buy BTC</div>
-        </div>
-      </div>
-      <div class="money-strip">
-        <div class="money-cell"><div class="k">Available (venue)</div><div class="v">— unknown</div></div>
-        <div class="money-cell"><div class="k">Open orders</div><div class="v">0</div></div>
-        <div class="money-cell"><div class="k">Fee (est.)</div><div class="v">0.10%</div></div>
-      </div>
-      <div class="status">
-        <span class="chip acc">Live</span>
-        <span class="chip">Loading…</span>
-        <span class="chip">Empty</span>
-        <span class="chip">Error · named</span>
-      </div>
-      <div class="swatches"><span class="sw-label">Amber accent</span>
-        <div class="sw" style="background:#161a1f"></div>
-        <div class="sw" style="background:#1b2128"></div>
-        <div class="sw" style="background:#f0a020"></div>
-        <div class="sw" style="background:#00b275"></div>
-        <div class="sw" style="background:#ff4a68"></div>
-      </div>
-    </section>
-
-    <!-- N3 cream -->
-    <section class="sys n3" id="n3">
-      <div class="sys-head">
-        <span class="id">N3</span>
-        <span class="title">Ledger · warm cream money</span>
-        <span class="pill">dual-tone</span>
-        <span class="meta">desk dark · money warm</span>
-      </div>
-      <div class="desk">
-        <div class="panel chart">
-          <h4>Chart · venue tape</h4>
-          <div class="chart-line"></div>
-          <div class="chart-line2"></div>
-          <div style="margin-top:28px;opacity:.5;font-family:system-ui;font-size:11px">Dark trading surface</div>
-        </div>
-        <div class="panel book">
-          <h4>Book</h4>
-          <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
-          <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
-          <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
-          <div class="book-row" style="opacity:.4"><span>spread</span><span>10.5</span></div>
-          <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
-          <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
-          <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
-        </div>
-        <div class="panel ticket">
-          <h4>Money plane</h4>
-          <div style="font-family:system-ui;font-size:12px;margin-bottom:4px">Buy · Limit</div>
-          <div class="fld">Price</div>
-          <div class="fld">Size</div>
-          <div class="btn">Buy BTC</div>
-        </div>
-      </div>
-      <div class="money-strip">
-        <div class="money-cell"><div class="k">Available (venue)</div><div class="v">— unknown</div></div>
-        <div class="money-cell"><div class="k">Open orders</div><div class="v">0</div></div>
-        <div class="money-cell"><div class="k">Fee (est.)</div><div class="v">0.10%</div></div>
-      </div>
-      <div class="status">
-        <span class="chip acc">Live</span>
-        <span class="chip">Money plane · warm</span>
-        <span class="chip">Not a notebook</span>
-      </div>
-      <div class="swatches"><span class="sw-label">Dual-tone</span>
-        <div class="sw" style="background:#161a1f"></div>
-        <div class="sw" style="background:#f3efe6"></div>
-        <div class="sw" style="background:#1a1a1a"></div>
-        <div class="sw" style="background:#5a9e96"></div>
-      </div>
-    </section>
-
-    <!-- N4 -->
-    <section class="sys n4" id="n4">
-      <div class="sys-head">
-        <span class="id">N4</span>
-        <span class="title">Terminal Zero</span>
-        <span class="pill">density pole</span>
-        <span class="meta">BTC/USDT</span>
-      </div>
-      <div class="desk">
-        <div class="panel chart">
-          <h4>Chart</h4>
-          <div class="chart-line"></div>
-          <div class="chart-line2"></div>
-          <div style="margin-top:28px;opacity:.5;font-family:system-ui;font-size:11px">Almost no chrome</div>
-        </div>
-        <div class="panel book">
-          <h4>Book</h4>
-          <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
-          <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
-          <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
-          <div class="book-row" style="opacity:.4"><span>spread</span><span>10.5</span></div>
-          <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
-          <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
-          <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
-        </div>
-        <div class="panel ticket">
-          <h4>Ticket</h4>
-          <div style="font-family:system-ui;font-size:12px;margin-bottom:4px">Buy · Limit</div>
-          <div class="fld">Price</div>
-          <div class="fld">Size</div>
-          <div class="btn">Buy BTC</div>
-        </div>
-      </div>
-      <div class="money-strip">
-        <div class="money-cell"><div class="k">Available (venue)</div><div class="v">— unknown</div></div>
-        <div class="money-cell"><div class="k">Open orders</div><div class="v">0</div></div>
-        <div class="money-cell"><div class="k">Fee (est.)</div><div class="v">0.10%</div></div>
-      </div>
-      <div class="status">
-        <span class="chip">Focus only</span>
-        <span class="chip">Highest density</span>
-      </div>
-    </section>
-
-    <!-- ========== COLOR / ACCENT VARIANTS ========== -->
-    <h2>B · More color options (same N2 system · different accent)</h2>
-    <p>If you like N2’s density but not amber, pick one of these accents. Accent = button / Live chip only.</p>
-    <div class="grid-acc">
-      <section class="sys n2 n2-lime">
-        <div class="sys-head"><span class="id">N2 · lime</span><span class="title">Marketing-adjacent electric lime</span><span class="meta">token swap</span></div>
         <div class="desk">
-          <div class="panel chart"><h4>Chart</h4><div class="chart-line"></div><div class="chart-line2"></div></div>
-          <div class="panel book"><h4>Book</h4>
-            <div class="book-row dn"><span>97420</span><span>0.42</span></div>
-            <div class="book-row up"><span>97400</span><span>0.88</span></div>
+          <div class="panel chart">
+            <h4>Chart</h4>
+            <div class="chart-line"></div>
+            <div class="chart-line2"></div>
+            <div style="margin-top: 28px; opacity: 0.5; font-family: system-ui; font-size: 11px">Hairlines · slate · steel primary</div>
           </div>
-          <div class="panel ticket"><h4>Ticket</h4><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="status"><span class="chip acc">Live</span><div class="swatches" style="padding:0;margin-left:auto"><div class="sw" style="background:#c4f000"></div></div></div>
-      </section>
-      <section class="sys n2 n2-cyan">
-        <div class="sys-head"><span class="id">N2 · cyan</span><span class="title">Cold teal / cyan-white</span><span class="meta">token swap</span></div>
-        <div class="desk">
-          <div class="panel chart"><h4>Chart</h4><div class="chart-line"></div><div class="chart-line2"></div></div>
-          <div class="panel book"><h4>Book</h4>
-            <div class="book-row dn"><span>97420</span><span>0.42</span></div>
-            <div class="book-row up"><span>97400</span><span>0.88</span></div>
+          <div class="panel book">
+            <h4>Book</h4>
+            <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
+            <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
+            <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
+            <div class="book-row" style="opacity: 0.4"><span>spread</span><span>10.5</span></div>
+            <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
+            <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
+            <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
           </div>
-          <div class="panel ticket"><h4>Ticket</h4><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="status"><span class="chip acc">Live</span><div class="swatches" style="padding:0;margin-left:auto"><div class="sw" style="background:#5eead4"></div></div></div>
-      </section>
-      <section class="sys n2 n2-white">
-        <div class="sys-head"><span class="id">N2 · soft white</span><span class="title">Almost monochrome accent</span><span class="meta">token swap</span></div>
-        <div class="desk">
-          <div class="panel chart"><h4>Chart</h4><div class="chart-line"></div><div class="chart-line2"></div></div>
-          <div class="panel book"><h4>Book</h4>
-            <div class="book-row dn"><span>97420</span><span>0.42</span></div>
-            <div class="book-row up"><span>97400</span><span>0.88</span></div>
+          <div class="panel ticket">
+            <h4>Ticket</h4>
+            <div style="font-family: system-ui; font-size: 12px; margin-bottom: 4px">Buy · Limit</div>
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
           </div>
-          <div class="panel ticket"><h4>Ticket</h4><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="status"><span class="chip acc">Live</span><div class="swatches" style="padding:0;margin-left:auto"><div class="sw" style="background:#e8eef5"></div></div></div>
-      </section>
-      <section class="sys tip">
-        <div class="sys-head"><span class="id">Tip · orange</span><span class="title">What you have today</span><span class="pill">residue · not law</span></div>
-        <div class="desk">
-          <div class="panel chart"><h4>Chart</h4><div class="chart-line"></div><div class="chart-line2"></div></div>
-          <div class="panel book"><h4>Book</h4>
-            <div class="book-row dn"><span>97420</span><span>0.42</span></div>
-            <div class="book-row up"><span>97400</span><span>0.88</span></div>
-          </div>
-          <div class="panel ticket"><h4>Ticket</h4><div class="fld">Price</div><div class="btn">Buy BTC</div></div>
-        </div>
-        <div class="status"><span class="chip acc">Live</span><div class="swatches" style="padding:0;margin-left:auto"><div class="sw" style="background:#ff6b00"></div></div></div>
-      </section>
-    </div>
-
-    <h2>C · N3 money-plane color variants</h2>
-    <p>Same dual-tone idea; money plane cream vs warm charcoal.</p>
-    <div class="grid-acc">
-      <section class="sys n3">
-        <div class="sys-head"><span class="id">N3 · cream</span><span class="title">Warm paper money plane</span></div>
-        <div class="desk">
-          <div class="panel chart"><h4>Desk dark</h4><div class="chart-line"></div></div>
-          <div class="panel book"><h4>Book</h4><div class="book-row up"><span>97400</span><span>0.88</span></div></div>
-          <div class="panel ticket"><h4>Money</h4><div class="fld">Amount</div><div class="btn">Confirm</div></div>
         </div>
         <div class="money-strip">
-          <div class="money-cell"><div class="k">Balance row</div><div class="v">— unknown</div></div>
-          <div class="money-cell"><div class="k">History</div><div class="v">Empty</div></div>
-          <div class="money-cell"><div class="k">Status</div><div class="v">Honest</div></div>
+          <div class="money-cell">
+            <div class="k">Available (venue)</div>
+            <div class="v">— unknown</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Open orders</div>
+            <div class="v">0</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Fee (est.)</div>
+            <div class="v">0.10%</div>
+          </div>
+        </div>
+        <div class="status">
+          <span class="chip acc">Live</span>
+          <span class="chip">Loading…</span>
+          <span class="chip">Empty</span>
+          <span class="chip">Error · named</span>
+        </div>
+        <div class="swatches">
+          <span class="sw-label">Tokens</span>
+          <div class="sw" style="background: #12151a"></div>
+          <div class="sw" style="background: #181c22"></div>
+          <div class="sw" style="background: #8ab4ff"></div>
+          <div class="sw" style="background: #3d9a6a"></div>
+          <div class="sw" style="background: #c45c5c"></div>
         </div>
       </section>
-      <section class="sys n3 n3-charcoal">
-        <div class="sys-head"><span class="id">N3 · charcoal</span><span class="title">Warm dark money plane</span></div>
+
+      <!-- N2 amber (default recommend) -->
+      <section class="sys n2 n2-amber" id="n2">
+        <div class="sys-head">
+          <span class="id">N2</span>
+          <span class="title">Signal · amber</span>
+          <span class="pill">recommended base system</span>
+          <span class="meta">BTC/USDT · Live</span>
+        </div>
         <div class="desk">
-          <div class="panel chart"><h4>Desk dark</h4><div class="chart-line"></div></div>
-          <div class="panel book"><h4>Book</h4><div class="book-row up"><span>97400</span><span>0.88</span></div></div>
-          <div class="panel ticket"><h4>Money</h4><div class="fld">Amount</div><div class="btn">Confirm</div></div>
+          <div class="panel chart">
+            <h4>Chart</h4>
+            <div class="chart-line"></div>
+            <div class="chart-line2"></div>
+            <div style="margin-top: 28px; opacity: 0.5; font-family: system-ui; font-size: 11px">
+              Ink panels · one accent voice · no glass
+            </div>
+          </div>
+          <div class="panel book">
+            <h4>Book</h4>
+            <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
+            <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
+            <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
+            <div class="book-row" style="opacity: 0.4"><span>spread</span><span>10.5</span></div>
+            <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
+            <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
+            <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
+          </div>
+          <div class="panel ticket">
+            <h4>Ticket</h4>
+            <div style="font-family: system-ui; font-size: 12px; margin-bottom: 4px">Buy · Limit</div>
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
         </div>
         <div class="money-strip">
-          <div class="money-cell"><div class="k">Balance row</div><div class="v">— unknown</div></div>
-          <div class="money-cell"><div class="k">History</div><div class="v">Empty</div></div>
-          <div class="money-cell"><div class="k">Status</div><div class="v">Honest</div></div>
+          <div class="money-cell">
+            <div class="k">Available (venue)</div>
+            <div class="v">— unknown</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Open orders</div>
+            <div class="v">0</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Fee (est.)</div>
+            <div class="v">0.10%</div>
+          </div>
+        </div>
+        <div class="status">
+          <span class="chip acc">Live</span>
+          <span class="chip">Loading…</span>
+          <span class="chip">Empty</span>
+          <span class="chip">Error · named</span>
+        </div>
+        <div class="swatches">
+          <span class="sw-label">Amber accent</span>
+          <div class="sw" style="background: #161a1f"></div>
+          <div class="sw" style="background: #1b2128"></div>
+          <div class="sw" style="background: #f0a020"></div>
+          <div class="sw" style="background: #00b275"></div>
+          <div class="sw" style="background: #ff4a68"></div>
         </div>
       </section>
-    </div>
 
-    <div class="pick">
-      <h2>How to reply (simple)</h2>
-      <p>You can answer in one line. Examples:</p>
-      <ul>
-        <li><code>N2 amber</code> — recommended default</li>
-        <li><code>N2 lime</code> · <code>N2 cyan</code> · <code>N2 white</code></li>
-        <li><code>N1</code> · <code>N4</code></li>
-        <li><code>N3 cream</code> · <code>N3 charcoal</code></li>
-        <li><code>N2 cyan + N3 cream money</code> — graft allowed</li>
-        <li><code>Keep tip orange for now</code> — only if you want no retheme yet</li>
-      </ul>
-      <p><strong>My recommendation:</strong> <strong>N2 amber</strong> (or <strong>N2 lime</strong> if you want brand continuity with marketing electric lime). Use N3 only if dual-tone money-vs-desk is a must.</p>
-      <p>Open this page: <code>http://127.0.0.1:8765/VIEW-COLORS.html</code></p>
+      <!-- N3 cream -->
+      <section class="sys n3" id="n3">
+        <div class="sys-head">
+          <span class="id">N3</span>
+          <span class="title">Ledger · warm cream money</span>
+          <span class="pill">dual-tone</span>
+          <span class="meta">desk dark · money warm</span>
+        </div>
+        <div class="desk">
+          <div class="panel chart">
+            <h4>Chart · venue tape</h4>
+            <div class="chart-line"></div>
+            <div class="chart-line2"></div>
+            <div style="margin-top: 28px; opacity: 0.5; font-family: system-ui; font-size: 11px">Dark trading surface</div>
+          </div>
+          <div class="panel book">
+            <h4>Book</h4>
+            <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
+            <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
+            <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
+            <div class="book-row" style="opacity: 0.4"><span>spread</span><span>10.5</span></div>
+            <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
+            <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
+            <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
+          </div>
+          <div class="panel ticket">
+            <h4>Money plane</h4>
+            <div style="font-family: system-ui; font-size: 12px; margin-bottom: 4px">Buy · Limit</div>
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
+        </div>
+        <div class="money-strip">
+          <div class="money-cell">
+            <div class="k">Available (venue)</div>
+            <div class="v">— unknown</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Open orders</div>
+            <div class="v">0</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Fee (est.)</div>
+            <div class="v">0.10%</div>
+          </div>
+        </div>
+        <div class="status">
+          <span class="chip acc">Live</span>
+          <span class="chip">Money plane · warm</span>
+          <span class="chip">Not a notebook</span>
+        </div>
+        <div class="swatches">
+          <span class="sw-label">Dual-tone</span>
+          <div class="sw" style="background: #161a1f"></div>
+          <div class="sw" style="background: #f3efe6"></div>
+          <div class="sw" style="background: #1a1a1a"></div>
+          <div class="sw" style="background: #5a9e96"></div>
+        </div>
+      </section>
+
+      <!-- N4 -->
+      <section class="sys n4" id="n4">
+        <div class="sys-head">
+          <span class="id">N4</span>
+          <span class="title">Terminal Zero</span>
+          <span class="pill">density pole</span>
+          <span class="meta">BTC/USDT</span>
+        </div>
+        <div class="desk">
+          <div class="panel chart">
+            <h4>Chart</h4>
+            <div class="chart-line"></div>
+            <div class="chart-line2"></div>
+            <div style="margin-top: 28px; opacity: 0.5; font-family: system-ui; font-size: 11px">Almost no chrome</div>
+          </div>
+          <div class="panel book">
+            <h4>Book</h4>
+            <div class="book-row dn"><span>97420.5</span><span>0.420</span></div>
+            <div class="book-row dn"><span>97415.0</span><span>1.100</span></div>
+            <div class="book-row dn"><span>97410.0</span><span>0.880</span></div>
+            <div class="book-row" style="opacity: 0.4"><span>spread</span><span>10.5</span></div>
+            <div class="book-row up"><span>97400.0</span><span>0.880</span></div>
+            <div class="book-row up"><span>97395.5</span><span>2.010</span></div>
+            <div class="book-row up"><span>97390.0</span><span>1.440</span></div>
+          </div>
+          <div class="panel ticket">
+            <h4>Ticket</h4>
+            <div style="font-family: system-ui; font-size: 12px; margin-bottom: 4px">Buy · Limit</div>
+            <div class="fld">Price</div>
+            <div class="fld">Size</div>
+            <div class="btn">Buy BTC</div>
+          </div>
+        </div>
+        <div class="money-strip">
+          <div class="money-cell">
+            <div class="k">Available (venue)</div>
+            <div class="v">— unknown</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Open orders</div>
+            <div class="v">0</div>
+          </div>
+          <div class="money-cell">
+            <div class="k">Fee (est.)</div>
+            <div class="v">0.10%</div>
+          </div>
+        </div>
+        <div class="status">
+          <span class="chip">Focus only</span>
+          <span class="chip">Highest density</span>
+        </div>
+      </section>
+
+      <!-- ========== COLOR / ACCENT VARIANTS ========== -->
+      <h2>B · More color options (same N2 system · different accent)</h2>
+      <p>If you like N2’s density but not amber, pick one of these accents. Accent = button / Live chip only.</p>
+      <div class="grid-acc">
+        <section class="sys n2 n2-lime">
+          <div class="sys-head">
+            <span class="id">N2 · lime</span><span class="title">Marketing-adjacent electric lime</span><span class="meta">token swap</span>
+          </div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Chart</h4>
+              <div class="chart-line"></div>
+              <div class="chart-line2"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row dn"><span>97420</span><span>0.42</span></div>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Ticket</h4>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="chip acc">Live</span>
+            <div class="swatches" style="padding: 0; margin-left: auto"><div class="sw" style="background: #c4f000"></div></div>
+          </div>
+        </section>
+        <section class="sys n2 n2-cyan">
+          <div class="sys-head">
+            <span class="id">N2 · cyan</span><span class="title">Cold teal / cyan-white</span><span class="meta">token swap</span>
+          </div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Chart</h4>
+              <div class="chart-line"></div>
+              <div class="chart-line2"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row dn"><span>97420</span><span>0.42</span></div>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Ticket</h4>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="chip acc">Live</span>
+            <div class="swatches" style="padding: 0; margin-left: auto"><div class="sw" style="background: #5eead4"></div></div>
+          </div>
+        </section>
+        <section class="sys n2 n2-white">
+          <div class="sys-head">
+            <span class="id">N2 · soft white</span><span class="title">Almost monochrome accent</span><span class="meta">token swap</span>
+          </div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Chart</h4>
+              <div class="chart-line"></div>
+              <div class="chart-line2"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row dn"><span>97420</span><span>0.42</span></div>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Ticket</h4>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="chip acc">Live</span>
+            <div class="swatches" style="padding: 0; margin-left: auto"><div class="sw" style="background: #e8eef5"></div></div>
+          </div>
+        </section>
+        <section class="sys tip">
+          <div class="sys-head">
+            <span class="id">Tip · orange</span><span class="title">What you have today</span><span class="pill">residue · not law</span>
+          </div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Chart</h4>
+              <div class="chart-line"></div>
+              <div class="chart-line2"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row dn"><span>97420</span><span>0.42</span></div>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Ticket</h4>
+              <div class="fld">Price</div>
+              <div class="btn">Buy BTC</div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="chip acc">Live</span>
+            <div class="swatches" style="padding: 0; margin-left: auto"><div class="sw" style="background: #ff6b00"></div></div>
+          </div>
+        </section>
+      </div>
+
+      <h2>C · N3 money-plane color variants</h2>
+      <p>Same dual-tone idea; money plane cream vs warm charcoal.</p>
+      <div class="grid-acc">
+        <section class="sys n3">
+          <div class="sys-head"><span class="id">N3 · cream</span><span class="title">Warm paper money plane</span></div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Desk dark</h4>
+              <div class="chart-line"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Money</h4>
+              <div class="fld">Amount</div>
+              <div class="btn">Confirm</div>
+            </div>
+          </div>
+          <div class="money-strip">
+            <div class="money-cell">
+              <div class="k">Balance row</div>
+              <div class="v">— unknown</div>
+            </div>
+            <div class="money-cell">
+              <div class="k">History</div>
+              <div class="v">Empty</div>
+            </div>
+            <div class="money-cell">
+              <div class="k">Status</div>
+              <div class="v">Honest</div>
+            </div>
+          </div>
+        </section>
+        <section class="sys n3 n3-charcoal">
+          <div class="sys-head"><span class="id">N3 · charcoal</span><span class="title">Warm dark money plane</span></div>
+          <div class="desk">
+            <div class="panel chart">
+              <h4>Desk dark</h4>
+              <div class="chart-line"></div>
+            </div>
+            <div class="panel book">
+              <h4>Book</h4>
+              <div class="book-row up"><span>97400</span><span>0.88</span></div>
+            </div>
+            <div class="panel ticket">
+              <h4>Money</h4>
+              <div class="fld">Amount</div>
+              <div class="btn">Confirm</div>
+            </div>
+          </div>
+          <div class="money-strip">
+            <div class="money-cell">
+              <div class="k">Balance row</div>
+              <div class="v">— unknown</div>
+            </div>
+            <div class="money-cell">
+              <div class="k">History</div>
+              <div class="v">Empty</div>
+            </div>
+            <div class="money-cell">
+              <div class="k">Status</div>
+              <div class="v">Honest</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="pick">
+        <h2>How to reply (simple)</h2>
+        <p>You can answer in one line. Examples:</p>
+        <ul>
+          <li><code>N2 amber</code> — recommended default</li>
+          <li><code>N2 lime</code> · <code>N2 cyan</code> · <code>N2 white</code></li>
+          <li><code>N1</code> · <code>N4</code></li>
+          <li><code>N3 cream</code> · <code>N3 charcoal</code></li>
+          <li><code>N2 cyan + N3 cream money</code> — graft allowed</li>
+          <li><code>Keep tip orange for now</code> — only if you want no retheme yet</li>
+        </ul>
+        <p>
+          <strong>My recommendation:</strong> <strong>N2 amber</strong> (or <strong>N2 lime</strong> if you want brand continuity with
+          marketing electric lime). Use N3 only if dual-tone money-vs-desk is a must.
+        </p>
+        <p>Open this page: <code>http://127.0.0.1:8765/VIEW-COLORS.html</code></p>
+      </div>
     </div>
-  </div>
-</body>
+  </body>
 </html>
