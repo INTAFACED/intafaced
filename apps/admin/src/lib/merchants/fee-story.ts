@@ -53,7 +53,7 @@ export function feeLines(rules: PricingRules | null): FeeLine[] {
 }
 
 export const FEE_WORKED_OUT_AT_SETTLEMENT = 'Fee is worked out when a payment settles; none has settled.';
-export const FEE_NOT_CONFIGURED = 'No fee rule is set for this merchant, its tier or globally, so payments refuse.';
+export const FEE_NOT_CONFIGURED = 'The merchant’s own fee is set on its account; this console’s pricing rules do not include it.';
 export const FEE_NOT_RECORDED = 'No fee was recorded for this settled payment.';
 
 /** True when the status mix of the selected window holds at least one settled payment. */

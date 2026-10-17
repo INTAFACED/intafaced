@@ -594,10 +594,10 @@ describe('merchant drill-down', () => {
       expect(out).not.toContain('none has settled');
     });
 
-    it('says plainly that no rule exists rather than inventing a fee', async () => {
+    it('says the account fee is outside the pricing rules rather than inventing a fee', async () => {
       services({ ...base, ...drilldown(null) });
       const out = html(await page());
-      expect(out).toContain('No fee rule is set for this merchant, its tier or globally, so payments refuse.');
+      expect(out).toContain('The merchant’s own fee is set on its account; this console’s pricing rules do not include it.');
       expect(out).not.toContain('none has settled');
     });
   });
