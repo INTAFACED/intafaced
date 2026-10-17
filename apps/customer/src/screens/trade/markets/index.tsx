@@ -327,7 +327,7 @@ function Freshness({ tickers }: { tickers: Loadable<Record<string, TickerRow>> }
     <StatusChip
       asOf={null}
       staleAfterMs={STALE_AFTER_MS}
-      reason={tickers.status === 'error' ? t('Prices could not be loaded') : t('Prices have not arrived yet')}
+      reason={tickers.status === 'error' ? t('Prices could not be loaded') : t('Prices have not arrived')}
     />
   );
 }

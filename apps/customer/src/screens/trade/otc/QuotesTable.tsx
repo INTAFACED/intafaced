@@ -210,7 +210,7 @@ export function QuotesTable({
         selection="single"
         selectedIds={selected ? new Set([selected]) : new Set()}
         onRowActivate={(r) => onSelect(r.id)}
-        emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('No quotes yet')}</p>}
+        emptyState={<p className="m-0 p-3 text-sm text-fg-2">{t('No quotes')}</p>}
       />
       <p className="m-0 text-xs text-fg-2">{t('Quotes table note')}</p>
     </div>

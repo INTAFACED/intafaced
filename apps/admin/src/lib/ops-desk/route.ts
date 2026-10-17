@@ -5,11 +5,12 @@ import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { handleStep, refusalResponse, stepResponse } from '@/lib/desk/step-route';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { DESKS } from './catalog';
+import { DESKS, readSpecFor } from './catalog';
 import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
-import { loadDesk } from './server';
+import { loadDesk, loadPage, loadTransferDetail } from './server';
+import { transferIdOf } from './transfer-id';
 import type { OpsDeskId } from './types';
 
 /**
@@ -71,4 +72,42 @@ export async function deskDirectPost(request: Request, deskId: OpsDeskId): Promi
   return stepResponse(
     reply.ok ? { ok: true, step: 'execute', detail: reply.detail } : { ok: false, step: 'execute', refusal: reply.refusal },
   );
+}
+
+/** The page marker svc-bank issues is base64url; nothing else is passed on. */
+const PAGE_CURSOR = /^[A-Za-z0-9_-]{1,512}$/;
+
+/**
+ * GET one transfer's full record (svc-bank `ops.transferDetail`) as the signed-in founder. Every record handed out writes an audit
+ * line naming the founder, so the request must come from this console's own page: a browser that says the request is not same-origin
+ * (another site, or a sibling subdomain) is refused before anything is read. The id is checked here only for shape; the service
+ * judges the rest, and gives an unknown id and a malformed one the same answer.
+ */
+export async function payTransferGet(request: Request): Promise<Response> {
+  const disabled = moduleDisabledResponse(DESKS.pay.module);
+  if (disabled) return disabled;
+  const site = request.headers.get('sec-fetch-site');
+  if (site !== null && site !== 'same-origin') return Response.json({ error: 'not_same_origin' }, { status: 403, headers: NO_STORE });
+  const session = await adminBffSession(request);
+  if (session instanceof Response) return session;
+  const id = transferIdOf(new URL(request.url).searchParams.get('id'));
+  if (id === null) return Response.json({ error: 'transfer_id_invalid' }, { status: 400, headers: NO_STORE });
+  return Response.json(await loadTransferDetail(session, id), { headers: NO_STORE });
+}
+
+/** GET the next page of a Personal Pay list that has a page marker (`?read=<read id>&cursor=<marker>`), as the signed-in founder. */
+export async function payPageGet(request: Request): Promise<Response> {
+  const disabled = moduleDisabledResponse(DESKS.pay.module);
+  if (disabled) return disabled;
+  const session = await adminBffSession(request);
+  if (session instanceof Response) return session;
+  const params = new URL(request.url).searchParams;
+  const cursor = params.get('cursor') ?? '';
+  const readId = params.get('read') ?? '';
+  const spec = readSpecFor('pay', readId);
+  if (!PAGE_CURSOR.test(cursor) || spec === undefined || spec.cursorKey === undefined) {
+    return Response.json({ error: 'page_invalid' }, { status: 400, headers: NO_STORE });
+  }
+  const outcome = await loadPage(session, 'pay', readId, cursor);
+  return Response.json(outcome, { headers: NO_STORE });
 }

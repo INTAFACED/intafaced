@@ -18,8 +18,8 @@ export function SettlementTab({ policy }: { policy: Loadable<OptionsPolicy> }) {
       <KeyValue
         density="dense"
         items={[
-          { label: t('Settlement asset'), value: p ? (p.settlementAssetLawStamped ? t('Published') : t('Not published yet')) : null },
-          { label: t('Settlement price source'), value: p ? (p.settlementFixingConfigured ? t('Set up') : t('Not set up yet')) : null },
+          { label: t('Settlement asset'), value: p ? (p.settlementAssetLawStamped ? t('Published') : t('Not published')) : null },
+          { label: t('Settlement price source'), value: p ? (p.settlementFixingConfigured ? t('Set up') : t('Not set up')) : null },
           { label: t('Style'), value: p ? (p.europeanOnly ? t('European: exercised at expiry only') : t('Other')) : null },
           { label: t('Collateral'), value: p ? (p.fullCollateralV1 ? t('Full collateral') : t('Other')) : null },
           { label: t('Exercise and expiry runs'), value: null, hint: t('Jobs hint') },

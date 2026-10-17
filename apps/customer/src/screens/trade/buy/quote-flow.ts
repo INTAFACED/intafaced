@@ -59,7 +59,7 @@ export function useAvailable(asset: string | null): { state: 'loading' | 'error'
 }
 
 /**
- * Codes the service sends that the data layer's table does not sort yet. Until it does, they are read here as the kind
+ * Codes the service sends that the data layer's table does not sort. Until it does, they are read here as the kind
  * they mean, so a customer sees "Amount is too small" and not a generic failure. (A request to the data layer's owner.)
  */
 const LOCAL_CODES: Readonly<Record<string, string>> = {

@@ -112,7 +112,7 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
           <BlotterTable
             rows={shown}
             label={t('Orders and fills')}
-            emptyText={all.length === 0 ? t('No orders or fills yet') : t('Nothing matches these filters')}
+            emptyText={all.length === 0 ? t('No orders or fills') : t('Nothing matches these filters')}
             onCancel={cancel.ask}
             cancelLocked={cancel.locked}
           />

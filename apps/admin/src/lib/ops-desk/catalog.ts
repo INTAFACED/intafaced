@@ -405,6 +405,492 @@ const bankSections: readonly DeskSection[] = [
   },
 ];
 
+// ─── Personal Pay ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const FORBID_PAY_READ =
+  'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read on an interactive sign-in; a long-lived key is refused).';
+const FORBID_PAY_COMPLIANCE =
+  'svc-bank did not accept your founder session for this read (it needs the operator permission admin:compliance on an interactive sign-in; admin:read alone is refused).';
+
+/** Typed refusals of the three transfer reads, each with the real reason in a sentence. */
+const TRANSFER_REFUSALS: Readonly<Record<string, string>> = {
+  'bank.transfer_health_window_unset':
+    'svc-bank refused because this console sent no valid window. The window must be a whole number of hours from 1 to 720, and svc-bank has no default.',
+  'bank.failed_transfers_window_unset':
+    'svc-bank refused because this console sent no valid window. The window must be a whole number of hours from 1 to 720, and svc-bank has no default.',
+  'bank.failed_transfers_limit_unset':
+    'svc-bank refused because this console sent no page size. svc-bank has no default page size, so a blank one is refused.',
+  'bank.failed_transfers_cursor_invalid': 'svc-bank refused the page marker as one it did not issue.',
+  'bank.party_handles_unset':
+    'svc-bank cannot name the sender and receiver because its identity lookup (IDENTITY_URL) is not set. It refuses the whole list rather than show rows without names.',
+  'bank.party_handles_unavailable':
+    'The identity service did not answer svc-bank’s name lookup, so svc-bank refused the whole list rather than show rows without names. Nothing is shown.',
+  'bank.ops_transfer_not_found':
+    'svc-bank has no transfer with this id. It gives the same answer for an id that is not in its format, so this does not say which.',
+};
+
+const BILLS_REFUSALS: Readonly<Record<string, string>> = {
+  'bank.bills_list_limit_unset': 'svc-bank refused because this console sent no page size. svc-bank has no default page size.',
+  'bank.global_list_limit_unset': 'svc-bank refused because this console sent no page size. svc-bank has no default page size.',
+  'bank.bills_cursor_invalid': 'svc-bank refused the page marker as one it did not issue.',
+};
+
+/**
+ * The rate columns of a transfer-health block. svc-bank gives a ratio as a decimal string or a reduced fraction ("0.25",
+ * "1/3"), or null when the window has no rows; it is shown as the service wrote it.
+ */
+const RATE_NOTE =
+  'The rate is a ratio the service computed (0.25 is one in four; 1/3 is a third). A dash means the window holds no rows, so there is no ratio to give: it is not zero.';
+
+function payHealth(hours: 24 | 168): { standing: ReadSpec; oneOff: ReadSpec; bills: ReadSpec } {
+  const when = hours === 24 ? 'last 24 hours' : 'last 7 days';
+  const key = hours === 24 ? '24h' : '7d';
+  const base = {
+    module: 'bank',
+    procedure: 'ops.transferHealth',
+    input: { windowHours: hours },
+    shape: 'record',
+    emptyText: '',
+    forbiddenText: FORBID_PAY_READ,
+    refusals: TRANSFER_REFUSALS,
+  } as const;
+  return {
+    standing: {
+      ...base,
+      id: `pay.standing-${key}`,
+      title: `Standing orders attempted, ${when}`,
+      note: `Executions of standing orders whose attempt time falls in the ${when}. Counts only; no money total is given. ${RATE_NOTE}`,
+      plainName: `standing-order health (${when})`,
+      columns: [
+        time('asOf', 'Computed by svc-bank at'),
+        int('standingOrders.total', 'Attempts'),
+        int('standingOrders.settled', 'Settled'),
+        int('standingOrders.pending', 'Pending'),
+        int('standingOrders.rejected', 'Rejected'),
+        int('standingOrders.skipped', 'Skipped'),
+        text('standingOrders.failureRate', 'Rejected out of attempts', { nullable: true }),
+        col(
+          'standingOrders.oldestPendingAgeSeconds',
+          'Oldest pending among attempts in this window (older ones are not counted; a dash means none in this window is pending)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
+      ],
+    },
+    oneOff: {
+      ...base,
+      id: `pay.oneoff-${key}`,
+      title: `One-off sends created, ${when}`,
+      note: `Person-to-person sends created in the ${when}. svc-bank stores only reserved and posted sends: a refused send deletes its reservation, so a failure count does not exist and the rate is a dash with that reason.`,
+      plainName: `one-off send health (${when})`,
+      columns: [
+        time('asOf', 'Computed by svc-bank at'),
+        bool('oneOff.available', 'svc-bank counts one-off sends', { mustBe: true }),
+        int('oneOff.total', 'Created'),
+        int('oneOff.posted', 'Posted'),
+        int('oneOff.reserved', 'Reserved, not yet posted'),
+        text('oneOff.failureRate', 'Failed out of created', { nullable: true, alwaysNull: true }),
+        text('oneOff.failureRateReason', 'Why there is no failure figure', { mustBe: 'failures_not_recorded' }),
+        col(
+          'oneOff.oldestPendingAgeSeconds',
+          'Oldest reserved among sends created in this window (older ones are not counted; a dash means none created in this window is still reserved)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
+      ],
+    },
+    bills: {
+      ...base,
+      id: `pay.bills-${key}`,
+      title: `Bill payments created, ${when}`,
+      note: `Bill payments created in the ${when}. Returned is its own count and is not folded into failed. ${RATE_NOTE}`,
+      plainName: `bill payment health (${when})`,
+      columns: [
+        time('asOf', 'Computed by svc-bank at'),
+        bool('bills.available', 'svc-bank counts bill payments', { mustBe: true }),
+        int('bills.total', 'Created'),
+        int('bills.paid', 'Paid'),
+        int('bills.accepted', 'Accepted by the biller'),
+        int('bills.submitted', 'Submitted, not yet accepted'),
+        int('bills.failed', 'Failed'),
+        int('bills.returned', 'Returned'),
+        text('bills.failureRate', 'Failed out of created', { nullable: true }),
+        col(
+          'bills.oldestPendingAgeSeconds',
+          'Oldest submitted among payments created in this window (older ones are not counted; a dash means none created in this window is still waiting)',
+          'seconds',
+          {
+            nullable: true,
+          },
+        ),
+      ],
+    },
+  };
+}
+
+const health24 = payHealth(24);
+const health7d = payHealth(168);
+
+const payP2pPointer: ReadSpec = {
+  id: 'pay.p2p-pointer',
+  title: 'P2P transfers',
+  note: 'svc-bank states that it does not count P2P trades and gives no number for them. They are counted by svc-p2p on the P2P desk.',
+  module: 'bank',
+  plainName: 'the P2P pointer',
+  procedure: 'ops.transferHealth',
+  input: { windowHours: 24 },
+  shape: 'record',
+  columns: [
+    bool('p2p.available', 'svc-bank counts P2P trades', { mustBe: false }),
+    text('p2p.reason', 'Where they are counted', { mustBe: 'served_by_p2p_ops' }),
+  ],
+  emptyText: '',
+  forbiddenText: FORBID_PAY_READ,
+  refusals: TRANSFER_REFUSALS,
+};
+
+const payFailedStanding: ReadSpec = {
+  id: 'pay.failed-standing',
+  title: 'Rejected standing-order transfers, last 7 days',
+  note: 'Newest first. Rejected executions only: svc-bank records no failed one-off sends, so none are listed (see below). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page; the 7-day figure under Transfer health is the count. A dash in a name column is explained in the column beside it. Open a row to read its full record.',
+  cursorKey: 'nextCursor',
+  module: 'bank',
+  plainName: 'the rejected standing orders',
+  procedure: 'ops.failedTransfers',
+  input: { windowHours: 168, limit: 50 },
+  shape: 'list',
+  rowsKey: 'items',
+  idKey: 'id',
+  page: 50,
+  rowAction: 'pay.transfer.detail',
+  columns: [
+    time('attemptedAt', 'Attempted'),
+    amount('amount', 'Amount'),
+    text('assetId', 'Asset'),
+    text('reason', 'Why it was rejected'),
+    text('sender.handle', 'Sender', { nullable: true }),
+    text('sender.reason', 'Why no sender name', { nullable: true }),
+    text('receiver.handle', 'Receiver', { nullable: true }),
+    text('receiver.reason', 'Why no receiver name', { nullable: true }),
+    text('rejectionCode', 'Rejection code (in words)', { detail: true }),
+    text('status', 'Status', { detail: true, mustBe: 'rejected' }),
+    text('kind', 'Kind', { detail: true, mustBe: 'standing_order' }),
+    text('id', 'Execution id', { detail: true }),
+  ],
+  emptyText:
+    'svc-bank lists no rejected standing-order execution in the last 7 days. That means none were rejected in that window, not that every transfer worked: one-off sends and bills are not in this list.',
+  forbiddenText: FORBID_PAY_COMPLIANCE,
+  refusals: TRANSFER_REFUSALS,
+};
+
+/**
+ * One transfer's full record. Not part of any section: it is read on request (a row's Open, or the id box), because svc-bank
+ * writes a log line with the reader and the id every time it hands one out.
+ */
+export const PAY_TRANSFER_DETAIL: ReadSpec = {
+  id: 'pay.transfer-detail',
+  title: 'Transfer record',
+  note: 'One standing-order execution or one one-off send. A dash means svc-bank holds no value for that field for this kind of transfer: a one-off send has no schedule, occurrence, rejection code or settle time, and an unsettled transfer has no settle time or ledger transaction.',
+  module: 'bank',
+  plainName: 'the transfer record',
+  procedure: 'ops.transferDetail',
+  shape: 'record',
+  columns: [
+    text('kind', 'Kind'),
+    text('status', 'Status'),
+    amount('amount', 'Amount'),
+    text('assetId', 'Asset'),
+    time('attemptedAt', 'Attempted (created, for a one-off send)'),
+    time('settledAt', 'Settled', { nullable: true }),
+    text('reason', 'Why it was rejected', { nullable: true }),
+    text('rejectionCode', 'Rejection code (in words)', { nullable: true }),
+    text('senderUserId', 'Sender (account id)'),
+    text('receiverUserId', 'Receiver (account id)'),
+    text('ledgerTxId', 'Ledger transaction', { nullable: true }),
+    text('scheduleId', 'Standing order (schedule id)', { nullable: true }),
+    int('occurrence', 'Occurrence number', { nullable: true }),
+    text('id', 'Transfer id'),
+  ],
+  emptyText: '',
+  forbiddenText: FORBID_PAY_COMPLIANCE,
+  refusals: TRANSFER_REFUSALS,
+};
+
+const payBillsSummary: ReadSpec = {
+  id: 'pay.bills-summary',
+  title: 'Bill payments, all time',
+  note: 'Counts by status over every bill payment, and whether each provider connection is set. "Unset" means no provider is connected, which is not the same as a rail that is up.',
+  module: 'bank',
+  plainName: 'the bill payment summary',
+  procedure: 'bills.ops.summary',
+  shape: 'record',
+  columns: [
+    time('asOf', 'Computed by svc-bank at'),
+    int('counts.paid', 'Paid'),
+    int('counts.accepted', 'Accepted by the biller'),
+    int('counts.submitted', 'Submitted, not yet accepted'),
+    int('counts.failed', 'Failed'),
+    int('counts.returned', 'Returned'),
+    text('rails.billerDirectory', 'Biller directory (unset: none connected)'),
+    text('rails.lookup', 'Biller lookup (unset: none connected)'),
+    text('rails.payRail', 'Pay rail (unset: none connected)'),
+    text('rails.blocker', 'Waiting on'),
+  ],
+  emptyText: '',
+  forbiddenText: FORBID_PAY_READ,
+};
+
+const payBillsVolumes: ReadSpec = {
+  id: 'pay.bills-volumes',
+  title: 'Bill payments by status and asset, all time',
+  note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
+  module: 'bank',
+  plainName: 'the bill payment volumes',
+  procedure: 'bills.ops.summary',
+  shape: 'list',
+  rowsKey: 'volumes',
+  anonymousRows: true,
+  columns: [text('status', 'Status'), text('assetId', 'Asset'), int('count', 'Payments'), amount('amount', 'Total amount')],
+  emptyText: 'svc-bank holds no bill payment, so there is no volume. That is not a statement that bill pay is healthy.',
+  forbiddenText: FORBID_PAY_READ,
+};
+
+const payBillsFailed: ReadSpec = {
+  id: 'pay.bills-failed',
+  title: 'Failed bill payments',
+  note: 'Newest first, status failed only (a returned payment is not in this list). Fifty a page: when svc-bank says more exist, “Next 50” reads the next page.',
+  cursorKey: 'nextCursor',
+  module: 'bank',
+  plainName: 'the failed bill payments',
+  procedure: 'bills.ops.failed',
+  input: { limit: 50 },
+  shape: 'list',
+  rowsKey: 'items',
+  idKey: 'id',
+  page: 50,
+  columns: [
+    time('createdAt', 'Created'),
+    text('billerId', 'Biller'),
+    amount('amount', 'Amount'),
+    text('assetId', 'Asset'),
+    text('failureCode', 'Failure', { nullable: true }),
+    text('failureBlocker', 'Waiting on', { nullable: true }),
+    text('reference', 'Reference at the biller', { detail: true }),
+    text('status', 'Status', { detail: true, mustBe: 'failed' }),
+    text('userId', 'Payer (account id)', { detail: true }),
+    text('fromSpaceId', 'Paid from (space id)', { detail: true }),
+    text('providerRef', 'Provider reference', { nullable: true, detail: true }),
+    text('ledgerTxId', 'Ledger transaction', { nullable: true, detail: true }),
+    time('updatedAt', 'Last changed', { detail: true }),
+    text('id', 'Payment id', { detail: true }),
+  ],
+  emptyText:
+    'svc-bank lists no failed bill payment. That means none have failed, not that bill pay is working: a payment that was never attempted is not here.',
+  forbiddenText: FORBID_PAY_READ,
+  refusals: BILLS_REFUSALS,
+};
+
+const payGlobalSummary: ReadSpec = {
+  id: 'pay.global-summary',
+  title: 'Global sends, all time',
+  note: 'Counts by status over every cross-border send, and whether each provider connection is set. "Unset" means no provider is connected; travel-rule "undecided" means no decision is recorded.',
+  module: 'bank',
+  plainName: 'the global send summary',
+  procedure: 'global.ops.summary',
+  shape: 'record',
+  columns: [
+    time('asOf', 'Computed by svc-bank at'),
+    int('counts.arrived', 'Arrived'),
+    int('counts.on_the_way', 'On the way'),
+    int('counts.sent', 'Sent'),
+    int('counts.submitted', 'Submitted, not yet sent'),
+    int('counts.failed', 'Failed'),
+    text('rails.corridors', 'Corridors (unset: none connected)'),
+    text('rails.fx', 'Exchange rates (unset: none connected)'),
+    text('rails.payout', 'Payout (unset: none connected)'),
+    text('rails.bic', 'Bank code directory (unset: none connected)'),
+    text('rails.travelRule', 'Travel-rule decision'),
+    text('rails.blocker', 'Waiting on'),
+  ],
+  emptyText: '',
+  forbiddenText: FORBID_PAY_READ,
+};
+
+const payGlobalVolumes: ReadSpec = {
+  id: 'pay.global-volumes',
+  title: 'Global sends by status and asset, all time',
+  note: 'The amount is the service’s own sum for each status and asset. svc-bank gives these rows no id, so they have no detail.',
+  module: 'bank',
+  plainName: 'the global send volumes',
+  procedure: 'global.ops.summary',
+  shape: 'list',
+  rowsKey: 'volumes',
+  anonymousRows: true,
+  columns: [text('status', 'Status'), text('assetId', 'Asset'), int('count', 'Sends'), amount('amount', 'Total amount')],
+  emptyText: 'svc-bank holds no global send, so there is no volume. That is not a statement that global send is healthy.',
+  forbiddenText: FORBID_PAY_READ,
+};
+
+const payGlobalFailed: ReadSpec = {
+  id: 'pay.global-failed',
+  title: 'Failed global sends',
+  note: 'Newest first, status failed only. The 50 newest. svc-bank gives this list no page marker, so when exactly 50 are shown more may exist and older failures cannot be reached from here.',
+  module: 'bank',
+  plainName: 'the failed global sends',
+  procedure: 'global.ops.failed',
+  input: { limit: 50 },
+  shape: 'list',
+  idKey: 'id',
+  page: 50,
+  columns: [
+    time('createdAt', 'Created'),
+    amount('amount', 'Amount'),
+    text('assetId', 'Asset'),
+    text('toCurrency', 'Pays out in'),
+    text('country', 'Country'),
+    text('deliveryMethod', 'Delivery'),
+    text('failureCode', 'Failure', { nullable: true }),
+    text('failureBlocker', 'Waiting on', { nullable: true }),
+    text('status', 'Status', { detail: true, mustBe: 'failed' }),
+    text('userId', 'Sender (account id)', { detail: true }),
+    text('fromSpaceId', 'Sent from (space id)', { detail: true }),
+    text('recipientId', 'Recipient (id)', { detail: true }),
+    text('providerRef', 'Provider reference', { nullable: true, detail: true }),
+    text('quoteRate', 'Quoted rate', { nullable: true, detail: true }),
+    text('quoteFee', 'Quoted fee', { nullable: true, detail: true }),
+    text('quoteFeeAsset', 'Quoted fee asset', { nullable: true, detail: true }),
+    text('quoteReceive', 'Quoted amount received', { nullable: true, detail: true }),
+    text('quoteValidUntil', 'Quote valid until', { nullable: true, detail: true }),
+    text('quoteEta', 'Quoted arrival', { nullable: true, detail: true }),
+    text('ledgerTxId', 'Ledger transaction', { nullable: true, detail: true }),
+    time('updatedAt', 'Last changed', { detail: true }),
+    text('id', 'Send id', { detail: true }),
+  ],
+  emptyText: 'svc-bank lists no failed global send. That means none have failed, not that global send is working.',
+  forbiddenText: FORBID_PAY_READ,
+  refusals: BILLS_REFUSALS,
+};
+
+const paySections: readonly DeskSection[] = [
+  {
+    id: 'failures',
+    title: 'Rejected transfers and lookup',
+    intro:
+      'The standing-order executions svc-bank rejected, then any one transfer by id. Opening a record reads it from svc-bank on request.',
+    reads: [payFailedStanding],
+    unavailable: [
+      un(
+        'pay.pending-transfers',
+        'List of pending standing-order executions and reserved one-off sends',
+        'The counts under Transfer health give how many are pending and the age of the oldest, but svc-bank has no read that lists them, so a stuck transfer cannot be picked from a list. It can be read by id below. Those figures also count only rows created or attempted inside the window: a transfer older than the window that is still pending is in no figure at all, and the list that is needed must not be limited by a window (or must allow a long one).',
+        41,
+      ),
+    ],
+    disabledActions: [],
+    sectionAction: 'pay.transfer.lookup',
+    links: [],
+  },
+  {
+    id: 'bills',
+    title: 'Bill payments',
+    intro: 'Bill payments across every payer, from svc-bank’s operator reads. Totals are all-time; there is no window on these.',
+    reads: [payBillsFailed, payBillsSummary, payBillsVolumes],
+    unavailable: [
+      un(
+        'pay.bills-returned',
+        'List of returned bill payments, and a windowed bill summary',
+        'The failed list holds status failed only, and the summary has no window, so a returned payment can be counted (under Transfer health, over the last 24 hours and 7 days) but not listed, and the volumes cannot be limited to a period.',
+        42,
+      ),
+    ],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'global',
+    title: 'Global sends',
+    intro: 'Cross-border sends across every sender, from svc-bank’s operator reads. Totals are all-time; there is no window on these.',
+    reads: [payGlobalFailed, payGlobalSummary, payGlobalVolumes],
+    unavailable: [
+      un(
+        'pay.global-health',
+        'Global sends in the transfer-health windows',
+        'The transfer-health read covers standing orders, one-off sends and bills but not global sends, so there is no 24-hour or 7-day count, failure rate or oldest-pending age for them. The failed list also has no page marker, so only the newest 50 failures can be reached.',
+        43,
+      ),
+    ],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'health',
+    title: 'Transfer health',
+    intro:
+      'Counts of what personal transfers did in a window, from svc-bank’s own tables: standing orders, one-off sends and bill payments. Two windows are read, 24 hours and 7 days, ending when this console reads. Counts only; svc-bank gives no money total for these. An age is the oldest still-pending row among those created in the window: a transfer older than the window that is still pending is in no figure here (back-end need 41).',
+    reads: [health24.standing, health24.oneOff, health24.bills, payP2pPointer, health7d.standing, health7d.oneOff, health7d.bills],
+    unavailable: [
+      un(
+        'pay.oneoff-failures',
+        'Failed one-off sends',
+        'svc-bank stores a one-off send as reserved or posted only. A refused send deletes its reservation, so there is no failed count, no failure rate and no list of failed one-off sends to read.',
+        40,
+      ),
+    ],
+    disabledActions: [],
+    links: [{ href: '/p2p-ops', label: 'P2P ops', why: 'P2P trades, disputes and the 24-hour dispute rate are counted there, not here.' }],
+  },
+  {
+    id: 'actions',
+    title: 'Actions',
+    intro:
+      'svc-bank has no operator action on a personal transfer, so none is offered here. Each is shown switched off with the reason. Jobs that run on a schedule are on Operator tools.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [
+      {
+        id: 'pay.standing-cancel',
+        label: 'Cancel, pause or resume a standing order',
+        reason:
+          'svc-bank only lets the owner of a standing order cancel, pause or resume it, and refuses anyone else. It has no operator version, so a founder cannot do it for a customer.',
+      },
+      {
+        id: 'pay.execution-retry',
+        label: 'Retry one rejected standing-order execution',
+        reason:
+          'svc-bank has no procedure that re-runs a chosen execution. The only related control is the sweep of every due schedule, which is a treasury job on Operator tools and cannot be aimed at one failure.',
+      },
+      {
+        id: 'pay.oneoff-reverse',
+        label: 'Reverse or release a one-off send',
+        reason:
+          'svc-bank has no operator procedure to reverse a posted send or release a reservation, and a reversal moves money, so it would need a two-founder approval at the service that does not exist.',
+      },
+      {
+        id: 'pay.bill-refund',
+        label: 'Retry, refund or return a bill payment',
+        reason:
+          'svc-bank has no operator procedure that acts on one bill payment or one global send. Its operator reads for them are a summary, a failed list and one record; the only writer is the due-schedule job for recurring bills, which runs as a service job and cannot be aimed at one payment.',
+      },
+    ],
+    links: [
+      {
+        href: '/tools',
+        label: 'Operator tools: run due standing transfers',
+        why: 'The sweep of every due standing order (bank.ops.runDueTransfers) runs as a treasury job there, with its own form.',
+      },
+      {
+        href: '/accounts',
+        label: 'Account controls',
+        why: 'Restrict or restore one person’s account, with a reason, if a transfer pattern needs it.',
+      },
+    ],
+  },
+];
+
 // ─── P2P ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const FORBID_P2P_MOD =
@@ -1566,6 +2052,15 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     intro:
       'Pools, loans, cards, ramps and business approvals, as svc-bank reports them. The one action here is an operator card freeze, which a second founder must approve. Bank money jobs stay on Operator tools.',
     sections: bankSections,
+  },
+  pay: {
+    id: 'pay',
+    module: 'pay-ops',
+    endpoint: '/api/pay-ops',
+    title: 'Personal Pay operations',
+    intro:
+      'How personal transfers are doing, from svc-bank’s operator reads: standing orders, one-off sends, bill payments and global sends, each with the time it was read. Lists lead to a record; counts say which window they cover. This desk changes nothing: svc-bank has no operator action on a personal transfer, and each one is shown switched off with the reason.',
+    sections: paySections,
   },
   p2p: {
     id: 'p2p',

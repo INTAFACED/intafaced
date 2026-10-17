@@ -102,7 +102,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
 
   let body: React.ReactNode;
   if (candles.status === 'loading') body = <Skeleton className="dk-chart-skeleton bg-field" />;
-  else if (candles.status === 'empty') body = <StateBlock kind="empty" title={t('No trades yet in this period')} />;
+  else if (candles.status === 'empty') body = <StateBlock kind="empty" title={t('No trades in this period')} />;
   else if (candles.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
   else if (candles.status === 'refused') {

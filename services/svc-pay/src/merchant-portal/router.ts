@@ -25,6 +25,7 @@ import {
   TRPCError,
 } from '@intafaced/contracts';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
+import { merchantProfileReviewFields } from '../approval-bindings.js';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { isInteractivePrincipal } from '../merchant-ops/roles.js';
@@ -119,12 +120,18 @@ export function merchantPortalExtensions(deps: {
             const reviewerId = ctx.principal?.userId;
             if (!reviewerId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             await profile.assertPendingReview(input.merchantId, input.requestId, input.expectedChangeHash);
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.merchant_profile_review', {
-              merchantId: input.merchantId,
-              requestId: input.requestId,
-              decision: input.decision,
-              expectedChangeHash: input.expectedChangeHash,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.merchant_profile_review',
+              merchantProfileReviewFields({
+                merchantId: input.merchantId,
+                requestId: input.requestId,
+                decision: input.decision,
+                expectedChangeHash: input.expectedChangeHash,
+                reason: input.reason,
+              }),
+            );
             const decided = await profile.review(reviewerId, input);
             return { ...decided, confirmOperatorId };
           }),

@@ -33,7 +33,7 @@ import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote 
 type TabId = 'leaders' | 'follows' | 'rules';
 const TABS: readonly TabId[] = ['leaders', 'follows', 'rules'];
 
-/** A row of the leader directory. The service has no directory yet (see TRCOPY-BACKEND-NEEDS), so this stays empty and says why. */
+/** A row of the leader directory. The service has no directory (see TRCOPY-BACKEND-NEEDS), so this stays empty and says why. */
 interface LeaderRow {
   id: string;
   name: string;
@@ -280,7 +280,7 @@ export function CopyRoom({ path }: { path: string }) {
                   variant="unavailable"
                   title={t('No leaders are listed')}
                   reason={t(
-                    'There is no published leader directory yet, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.',
+                    'There is no published leader directory, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.',
                   )}
                   action={{ label: t('Follow by leader ID'), onClick: () => setWizard({ open: true, leader: '' }), variant: 'secondary' }}
                 />
@@ -344,7 +344,7 @@ export function CopyRoom({ path }: { path: string }) {
                 { label: t('How a leader is paid'), value: t('From the trading fee, never from your profit') },
                 {
                   label: t('Leader’s share of the fee'),
-                  value: desk.data ? (bpsText(desk.data.leaderShareBps) ?? t('Not approved yet')) : null,
+                  value: desk.data ? (bpsText(desk.data.leaderShareBps) ?? t('Not approved')) : null,
                 },
                 { label: t('Your trading fee'), value: t('The same as trading alone') },
                 { label: t('Ranking'), value: t('Leaders are not ranked by profit') },
@@ -355,7 +355,7 @@ export function CopyRoom({ path }: { path: string }) {
                   value: desk.data
                     ? desk.data.jurisdictionPublished
                       ? t('A country list is published')
-                      : t('Not approved yet, so new follows are refused')
+                      : t('Not approved, so new follows are refused')
                     : null,
                 },
                 {

@@ -39,7 +39,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Plane off title': 'Futures trading is switched off',
   'Plane off reason':
     'The platform has switched the futures service off. Open positions stay as they are. Nothing can be opened or changed until it is switched back on.',
-  'No contracts title': 'No futures contract is listed yet',
+  'No contracts title': 'No futures contract is listed',
   'No contracts reason':
     'The platform has not listed a futures contract on this service, so there is nothing to open. Your account and balances are unchanged.',
   'Empty desk reason': 'No futures contract is listed',
@@ -67,7 +67,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Chart style': 'Chart style',
   Candles: 'Candles',
   Line: 'Line',
-  'Chart no candles title': 'No chart data for this contract yet',
+  'Chart no candles title': 'No chart data for this contract',
   'Chart no candles reason': 'The service has no price history for this contract, so no chart is drawn.',
   'Chart error title': 'Couldn’t load the chart',
   'Position lines': 'Your position lines',

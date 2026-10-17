@@ -234,6 +234,7 @@ const auth = new AuthService(
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
+  env.REFRESH_RECOVERY_SECONDS,
 );
 if (env.PAY_URL) {
   const payUrl = env.PAY_URL;

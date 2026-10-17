@@ -61,7 +61,7 @@ const en = {
   reqMakeAnother: 'Make another',
   reqDeviceOnlyTitle: 'Kept on this device only',
   reqDeviceOnlyBody:
-    'INTAFACED doesn’t keep payment requests yet. It can’t tell you when one is paid, remind the other person, or stop a link from being used later. Check Activity to see money that arrived.',
+    'This screen keeps your requests in this browser only, so it can’t tell you when one is paid, remind the other person, or stop a link from being used later. Check Activity to see money that arrived.',
   reqListTitle: 'Your requests',
   reqListEmpty: 'You haven’t made a request in this browser yet.',
   reqAnyAmount: 'Any amount',
@@ -84,9 +84,9 @@ const en = {
   reqPayContinue: 'Continue to Send',
   reqActivity: 'View activity',
   // Bills
-  billsReasonTitle: 'Bill pay isn’t connected yet',
+  billsReasonTitle: 'Bill pay isn’t connected',
   billsReasonBody:
-    'No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps you will see once it is.',
+    'No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps bill pay needs, and none of them can start.',
   stepBiller: 'Choose a biller',
   stepReference: 'Enter the bill reference',
   stepAmount: 'Enter the amount',
@@ -108,9 +108,9 @@ const en = {
   statusAccepted: 'Accepted by the biller',
   statusPaid: 'Paid',
   // Global
-  globalReasonTitle: 'Sending abroad isn’t connected yet',
+  globalReasonTitle: 'Sending abroad isn’t connected',
   globalReasonBody:
-    'No international payment provider or exchange-rate source is connected, so we can’t check a bank account, quote a rate or send. We never estimate a rate. These are the steps you will see once it is.',
+    'No international payment provider or exchange-rate source is connected, so we can’t check a bank account, quote a rate or send. We never estimate a rate. These are the steps sending abroad needs, and none of them can start.',
   globalStepDestination: 'Choose where it goes',
   globalStepRecipient: 'Add the recipient’s bank details',
   globalStepAmount: 'Enter what you send',
@@ -193,7 +193,7 @@ const es = {
   reqMakeAnother: 'Crear otra',
   reqDeviceOnlyTitle: 'Guardada solo en este dispositivo',
   reqDeviceOnlyBody:
-    'INTAFACED todavía no guarda las solicitudes de pago. No puede avisarte cuando se pague una, recordárselo a la otra persona ni impedir que se use un enlace más adelante. Mira Actividad para ver el dinero recibido.',
+    'Esta pantalla guarda tus solicitudes solo en este navegador, así que no puede avisarte cuando se pague una, recordárselo a la otra persona ni impedir que se use un enlace más adelante. Mira Actividad para ver el dinero recibido.',
   reqListTitle: 'Tus solicitudes',
   reqListEmpty: 'Aún no has creado ninguna solicitud en este navegador.',
   reqAnyAmount: 'Cualquier importe',
@@ -215,9 +215,9 @@ const es = {
   reqPayNote: 'Motivo',
   reqPayContinue: 'Continuar a Enviar',
   reqActivity: 'Ver actividad',
-  billsReasonTitle: 'El pago de facturas aún no está conectado',
+  billsReasonTitle: 'El pago de facturas no está conectado',
   billsReasonBody:
-    'No hay una red de emisores ni un servicio de pago de facturas conectado, así que no hay emisores que buscar y no se puede pagar ninguna factura. Nada de esto es un ejemplo: son los pasos que verás cuando lo esté.',
+    'No hay una red de emisores ni un servicio de pago de facturas conectado, así que no hay emisores que buscar y no se puede pagar ninguna factura. Nada de esto es un ejemplo: son los pasos que necesita el pago de facturas, y ninguno puede empezar.',
   stepBiller: 'Elige un emisor',
   stepReference: 'Introduce la referencia de la factura',
   stepAmount: 'Introduce el importe',
@@ -238,9 +238,9 @@ const es = {
   statusSubmitted: 'Enviada',
   statusAccepted: 'Aceptada por el emisor',
   statusPaid: 'Pagada',
-  globalReasonTitle: 'El envío al extranjero aún no está conectado',
+  globalReasonTitle: 'El envío al extranjero no está conectado',
   globalReasonBody:
-    'No hay un proveedor de pagos internacionales ni una fuente de tipos de cambio conectados, así que no podemos comprobar una cuenta bancaria, cotizar un tipo ni enviar. Nunca estimamos un tipo de cambio. Estos son los pasos que verás cuando lo esté.',
+    'No hay un proveedor de pagos internacionales ni una fuente de tipos de cambio conectados, así que no podemos comprobar una cuenta bancaria, cotizar un tipo ni enviar. Nunca estimamos un tipo de cambio. Son los pasos que necesita el envío al extranjero, y ninguno puede empezar.',
   globalStepDestination: 'Elige el destino',
   globalStepRecipient: 'Añade los datos bancarios del destinatario',
   globalStepAmount: 'Introduce lo que envías',
@@ -323,7 +323,7 @@ const fr = {
   reqMakeAnother: 'En créer une autre',
   reqDeviceOnlyTitle: 'Conservée sur cet appareil uniquement',
   reqDeviceOnlyBody:
-    'INTAFACED ne conserve pas encore les demandes de paiement. Il ne peut pas vous dire quand l’une d’elles est payée, relancer l’autre personne ni empêcher l’utilisation d’un lien plus tard. Consultez l’Activité pour voir l’argent reçu.',
+    'Cet écran ne garde vos demandes que dans ce navigateur : il ne peut donc pas vous dire quand l’une d’elles est payée, relancer l’autre personne ni empêcher l’utilisation d’un lien plus tard. Consultez l’Activité pour voir l’argent reçu.',
   reqListTitle: 'Vos demandes',
   reqListEmpty: 'Vous n’avez pas encore créé de demande dans ce navigateur.',
   reqAnyAmount: 'Montant libre',
@@ -345,9 +345,9 @@ const fr = {
   reqPayNote: 'Motif',
   reqPayContinue: 'Continuer vers Envoyer',
   reqActivity: 'Voir l’activité',
-  billsReasonTitle: 'Le paiement de factures n’est pas encore connecté',
+  billsReasonTitle: 'Le paiement de factures n’est pas connecté',
   billsReasonBody:
-    'Aucun réseau de facturiers ni service de paiement de factures n’est connecté : il n’y a donc aucun facturier à rechercher et aucune facture ne peut être payée. Rien ici n’est un exemple : ce sont les étapes que vous verrez une fois qu’il le sera.',
+    'Aucun réseau de facturiers ni service de paiement de factures n’est connecté : il n’y a donc aucun facturier à rechercher et aucune facture ne peut être payée. Rien ici n’est un exemple : ce sont les étapes qu’exige le paiement de factures, et aucune ne peut démarrer.',
   stepBiller: 'Choisir un facturier',
   stepReference: 'Saisir la référence de la facture',
   stepAmount: 'Saisir le montant',
@@ -368,9 +368,9 @@ const fr = {
   statusSubmitted: 'Soumise',
   statusAccepted: 'Acceptée par le facturier',
   statusPaid: 'Payée',
-  globalReasonTitle: 'L’envoi à l’étranger n’est pas encore connecté',
+  globalReasonTitle: 'L’envoi à l’étranger n’est pas connecté',
   globalReasonBody:
-    'Aucun prestataire de paiement international ni source de taux de change n’est connecté : nous ne pouvons donc ni vérifier un compte bancaire, ni proposer un taux, ni envoyer. Nous n’estimons jamais un taux. Ce sont les étapes que vous verrez une fois qu’il le sera.',
+    'Aucun prestataire de paiement international ni source de taux de change n’est connecté : nous ne pouvons donc ni vérifier un compte bancaire, ni proposer un taux, ni envoyer. Nous n’estimons jamais un taux. Ce sont les étapes qu’exige l’envoi à l’étranger, et aucune ne peut démarrer.',
   globalStepDestination: 'Choisir la destination',
   globalStepRecipient: 'Ajouter les coordonnées bancaires du bénéficiaire',
   globalStepAmount: 'Saisir ce que vous envoyez',

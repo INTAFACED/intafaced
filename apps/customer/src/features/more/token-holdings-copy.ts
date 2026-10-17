@@ -28,7 +28,7 @@ const en = {
   ticketLock: 'Lock length',
   ticketReview: 'Review stake',
   ticketBlocked:
-    'Unavailable: staking is closed until the staking asset’s identity is published to this app. The amount is checked here but nothing is sent. No return or yield is promised for any term.',
+    'Unavailable: staking is closed because the staking asset’s identity is not published to this app. The amount is checked here but nothing is sent. No return or yield is promised for any term.',
   ticketInvalid: 'Enter a positive number.',
   export: 'Export my stakes (CSV)',
   exported: 'Stakes exported.',
@@ -66,7 +66,7 @@ const es = {
   ticketLock: 'Duración del bloqueo',
   ticketReview: 'Revisar staking',
   ticketBlocked:
-    'No disponible: el staking está cerrado hasta que se publique a esta app la identidad del activo de staking. La cantidad se comprueba aquí pero no se envía nada. No se promete ningún rendimiento para ningún plazo.',
+    'No disponible: el staking está cerrado porque la identidad del activo de staking no está publicada en esta app. La cantidad se comprueba aquí pero no se envía nada. No se promete ningún rendimiento para ningún plazo.',
   ticketInvalid: 'Introduce un número positivo.',
   export: 'Exportar mis stakings (CSV)',
   exported: 'Stakings exportados.',
@@ -104,7 +104,7 @@ const fr = {
   ticketLock: 'Durée du verrouillage',
   ticketReview: 'Examiner le staking',
   ticketBlocked:
-    'Indisponible : le staking est fermé tant que l’identité de l’actif de staking n’est pas publiée dans cette app. Le montant est vérifié ici mais rien n’est envoyé. Aucun rendement n’est promis, quelle que soit la durée.',
+    'Indisponible : le staking est fermé car l’identité de l’actif de staking n’est pas publiée dans cette app. Le montant est vérifié ici mais rien n’est envoyé. Aucun rendement n’est promis, quelle que soit la durée.',
   ticketInvalid: 'Saisis un nombre positif.',
   export: 'Exporter mes stakings (CSV)',
   exported: 'Stakings exportés.',

@@ -7,7 +7,7 @@ const en = {
   payment: 'External payment to verify',
   verify: 'Check your bank account. A buyer’s payment claim is not proof that you received it.',
   buyerInstruction: 'Use the agreed payment details. Mark payment sent only after you make the external payment.',
-  sellerWaiting: 'The buyer has not reported payment sent. Escrow cannot be released here yet.',
+  sellerWaiting: 'The buyer has not reported payment sent, so escrow cannot be released here.',
   buyerWaiting:
     'Payment is marked sent. The seller must verify receipt before releasing escrow. Inspect the order or raise a dispute if needed.',
   disputed: 'A dispute is open. Inspect its status and evidence; release requires the recorded resolution.',
@@ -37,7 +37,7 @@ const es = {
   payment: 'Pago externo que debes verificar',
   verify: 'Comprueba tu cuenta bancaria. La declaración del comprador no demuestra que hayas recibido el pago.',
   buyerInstruction: 'Usa los datos de pago acordados. Marca el pago como enviado solo después de realizarlo.',
-  sellerWaiting: 'El comprador no ha comunicado el envío del pago. Aún no puedes liberar el depósito aquí.',
+  sellerWaiting: 'El comprador no ha comunicado el envío del pago. Por eso no puedes liberar el depósito aquí.',
   buyerWaiting:
     'El pago figura como enviado. El vendedor debe comprobar la recepción antes de liberar el depósito. Consulta el pedido o abre una disputa si es necesario.',
   disputed: 'Hay una disputa abierta. Consulta su estado y las pruebas; la liberación requiere una resolución registrada.',
@@ -68,7 +68,7 @@ const fr = {
   payment: 'Paiement externe à vérifier',
   verify: 'Vérifiez votre compte bancaire. La déclaration de l’acheteur ne prouve pas que vous avez reçu le paiement.',
   buyerInstruction: 'Utilisez les coordonnées convenues. Indiquez le paiement comme envoyé uniquement après l’avoir effectué.',
-  sellerWaiting: 'L’acheteur n’a pas signalé l’envoi du paiement. Vous ne pouvez pas encore libérer le séquestre ici.',
+  sellerWaiting: 'L’acheteur n’a pas signalé l’envoi du paiement. Vous ne pouvez donc pas libérer le séquestre ici.',
   buyerWaiting:
     'Le paiement est indiqué comme envoyé. Le vendeur doit vérifier sa réception avant de libérer le séquestre. Consultez la commande ou ouvrez un litige si nécessaire.',
   disputed: 'Un litige est ouvert. Consultez son état et ses preuves ; la libération nécessite une résolution enregistrée.',

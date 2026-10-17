@@ -6,7 +6,7 @@ const en = {
   participation: 'My participation',
   launchUnavailable: 'Asset launches are unavailable',
   launchBody:
-    'Issuance, a trading-market listing and sale participation need their own connected capabilities. This room cannot launch an asset or accept a sale order yet.',
+    'Issuance, a trading-market listing and sale participation need their own connected capabilities. This room cannot launch an asset or accept a sale order.',
   ordersUnavailable: 'Your launch orders are unavailable',
   ordersBody: 'Your participation records cannot be read in this room. Unavailable records do not mean you have no orders.',
   support: 'Contact Support',
@@ -38,7 +38,7 @@ const es = {
   participation: 'Mi participación',
   launchUnavailable: 'Los lanzamientos de activos no están disponibles',
   launchBody:
-    'La emisión, el listado en un mercado de negociación y la participación en ventas requieren sus propias funciones conectadas. Esta sala aún no puede lanzar un activo ni aceptar una orden de venta.',
+    'La emisión, el listado en un mercado de negociación y la participación en ventas requieren sus propias funciones conectadas. Esta sala no puede lanzar un activo ni aceptar una orden de venta.',
   ordersUnavailable: 'Tus órdenes de lanzamiento no están disponibles',
   ordersBody: 'Esta sala no puede leer tus registros de participación. Que no estén disponibles no significa que no tengas órdenes.',
   support: 'Contactar con Soporte',
@@ -72,7 +72,7 @@ const fr = {
   participation: 'Ma participation',
   launchUnavailable: 'Les lancements d’actifs sont indisponibles',
   launchBody:
-    'L’émission, la cotation sur un marché de négociation et la participation aux ventes nécessitent leurs propres fonctions connectées. Cette salle ne peut pas encore lancer un actif ni accepter un ordre de vente.',
+    'L’émission, la cotation sur un marché de négociation et la participation aux ventes nécessitent leurs propres fonctions connectées. Cette salle ne peut pas lancer un actif ni accepter un ordre de vente.',
   ordersUnavailable: 'Tes ordres de lancement sont indisponibles',
   ordersBody:
     'Tes dossiers de participation ne peuvent pas être consultés dans cette salle. Leur indisponibilité ne signifie pas que tu n’as aucun ordre.',

@@ -618,3 +618,194 @@ describe('operator reads wired onto the desks', () => {
     expect(html).toContain('Not available: Payouts made and hashrate of the pool');
   });
 });
+
+describe('Personal Pay desk', () => {
+  const EXEC = '5a3b9c10-1111-4222-8333-444455556666';
+  const FAILED = {
+    id: EXEC,
+    kind: 'standing_order',
+    amount: '25.50',
+    assetId: 'USDC',
+    status: 'rejected',
+    rejectionCode: 'bank.recipient_cannot_receive',
+    reason: 'This recipient cannot receive payments',
+    attemptedAt: AT,
+    sender: { handle: 'alice', reason: null },
+    receiver: { handle: null, reason: 'handle_unresolved' },
+  };
+  const HEALTH = {
+    asOf: AT,
+    standingOrders: { pending: 0, settled: 0, rejected: 0, skipped: 0, total: 0, failureRate: null, oldestPendingAgeSeconds: null },
+    oneOff: {
+      available: true,
+      reserved: 0,
+      posted: 0,
+      total: 0,
+      failureRate: null,
+      failureRateReason: 'failures_not_recorded',
+      oldestPendingAgeSeconds: null,
+    },
+    p2p: { available: false, reason: 'served_by_p2p_ops' },
+    bills: {
+      available: true,
+      submitted: 0,
+      accepted: 0,
+      paid: 0,
+      failed: 0,
+      returned: 0,
+      total: 0,
+      failureRate: null,
+      oldestPendingAgeSeconds: null,
+    },
+  };
+  it('puts the lists first, then the metrics, then the actions', () => {
+    const html = render(props('pay', view('pay', [])));
+    const order = ['section-failures', 'section-bills', 'section-global', 'section-health', 'section-actions'].map((id) =>
+      html.indexOf(`data-testid="${id}"`),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+  it('a rejected standing order shows its reason and the dash for a name the directory could not give, with why', () => {
+    const html = render(props('pay', view('pay', [okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: null })])));
+    expect(html).toContain('This recipient cannot receive payments');
+    expect(html).toContain('25.50');
+    expect(html).toContain('The directory could not name this person');
+    expect(html).toContain('As of 03:00:00 UTC');
+  });
+  it('an open row offers to read the full record on request; it is not read with the page', () => {
+    const outcome = okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: null });
+    const closed = render(props('pay', view('pay', [outcome])));
+    expect(closed).not.toContain('data-testid="transfer-detail"');
+    const open = render(props('pay', view('pay', [outcome]), { openKey: `pay.failed-standing:${EXEC}` }));
+    expect(open).toContain('data-testid="transfer-detail"');
+    expect(open).toContain('Read the full transfer record');
+    expect(open).toContain('logs your account and this id');
+  });
+  it('an empty window shows dashes with their reason, never a zero rate; one-off failures say they are not recorded', () => {
+    const html = render(
+      props(
+        'pay',
+        view('pay', [
+          okOutcome('pay', 'pay.standing-24h', HEALTH),
+          okOutcome('pay', 'pay.oneoff-24h', HEALTH),
+          okOutcome('pay', 'pay.p2p-pointer', HEALTH),
+        ]),
+      ),
+    );
+    expect(html).toMatch(/<dt>Rejected out of attempts<\/dt><dd>—<\/dd>/);
+    expect(html).toMatch(/<dt>Failed out of created<\/dt><dd>—<\/dd>/);
+    expect(html).toContain('svc-bank does not record a refused one-off send, so it has no failure figure');
+    expect(html).toContain('Counted on the P2P desk; svc-bank gives no P2P figure');
+    expect(html).toContain('Computed by svc-bank at');
+    expect(html).toContain('Standing orders attempted, last 24 hours');
+  });
+  it('a refused read says which permission it needs, and its neighbours still render', () => {
+    const html = render(
+      props(
+        'pay',
+        view('pay', [
+          failed('pay.failed-standing', {
+            forbidden: true,
+            code: 'forbidden',
+            message:
+              'svc-bank did not accept your founder session for this read (it needs the operator permission admin:compliance on an interactive sign-in; admin:read alone is refused).',
+          }),
+          okOutcome('pay', 'pay.standing-24h', HEALTH),
+        ]),
+      ),
+    );
+    expect(html).toContain('Could not load the rejected standing orders');
+    expect(html).toContain('admin:compliance');
+    expect(html).toContain('Standing orders attempted, last 24 hours');
+  });
+  it('a typed refusal is shown in its own sentence', () => {
+    const sentence = DESKS.pay.sections[0]!.reads[0]!.refusals!['bank.party_handles_unset']!;
+    const html = render(
+      props('pay', view('pay', [failed('pay.failed-standing', { code: 'bank.party_handles_unset', message: sentence })])),
+    );
+    expect(html).toContain('IDENTITY_URL');
+    expect(html).toContain('refuses the whole list rather than show rows without names');
+  });
+  it('every figure it cannot give is named as not available with its reason and need number', () => {
+    const html = render(props('pay', view('pay', [])));
+    expect(html).toContain('Not available: Failed one-off sends');
+    expect(html).toContain('Back-end need 40');
+    expect(html).toContain('Not available: List of pending standing-order executions and reserved one-off sends');
+    expect(html).toContain('Back-end need 41');
+    expect(html).toContain('Not available: Global sends in the transfer-health windows');
+    expect(html).toContain('Back-end need 43');
+  });
+  it('shows no enabled action: the four are real disabled buttons with the reason beside them', () => {
+    const html = render(props('pay', view('pay', [])));
+    for (const label of [
+      'Cancel, pause or resume a standing order',
+      'Retry one rejected standing-order execution',
+      'Reverse or release a one-off send',
+      'Retry, refund or return a bill payment',
+    ]) {
+      expect(html).toMatch(new RegExp(`<button[^>]*disabled[^>]*>${label}</button>`));
+    }
+    expect(html).toContain('only lets the owner of a standing order cancel');
+    expect(html).toContain('href="/tools"');
+  });
+  it('a list with a next page offers “Next 50” and says more exist; the last page says that is all', () => {
+    const more = render(props('pay', view('pay', [okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: 'abc_-1' })])));
+    expect(more).toContain('data-testid="next-page"');
+    expect(more).toContain('Next 50');
+    expect(more).toContain('more rows exist');
+    const last = render(props('pay', view('pay', [okOutcome('pay', 'pay.failed-standing', { items: [FAILED], nextCursor: null })])));
+    expect(last).not.toContain('data-testid="next-page"');
+    expect(last).toContain('that is all of them');
+  });
+  it('the global list has no page marker, so exactly 50 rows are described as “may exist”', () => {
+    const send = {
+      id: EXEC,
+      userId: 'u',
+      fromSpaceId: 's',
+      assetId: 'USDC',
+      amount: '1',
+      toCurrency: 'EUR',
+      recipientId: 'r',
+      country: 'DE',
+      deliveryMethod: 'bank',
+      status: 'failed',
+      failureCode: null,
+      failureBlocker: null,
+      providerRef: null,
+      quoteRate: null,
+      quoteFee: null,
+      quoteFeeAsset: null,
+      quoteReceive: null,
+      quoteValidUntil: null,
+      quoteEta: null,
+      ledgerTxId: null,
+      createdAt: AT,
+      updatedAt: AT,
+    };
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...send, id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}` }));
+    const html = render(props('pay', view('pay', [okOutcome('pay', 'pay.global-failed', rows)])));
+    expect(html).toContain('more may exist');
+    expect(html).not.toContain('data-testid="next-page"');
+  });
+  it('a stuck-transfer age reads as a duration with the window named', () => {
+    const html = render(
+      props(
+        'pay',
+        view('pay', [
+          okOutcome('pay', 'pay.oneoff-7d', {
+            ...HEALTH,
+            oneOff: { ...HEALTH.oneOff, reserved: 1, total: 1, oldestPendingAgeSeconds: 604_000 },
+          }),
+        ]),
+      ),
+    );
+    expect(html).toContain('6 d 23 h');
+    expect(html).toContain('older ones are not counted');
+  });
+  it('has a lookup box for one transfer by id', () => {
+    const html = render(props('pay', view('pay', [])));
+    expect(html).toContain('data-testid="transfer-lookup"');
+    expect(html).toContain('Look up one transfer');
+  });
+});

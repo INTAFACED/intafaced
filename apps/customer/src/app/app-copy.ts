@@ -22,8 +22,6 @@ const messages = {
     'The Team deployment address is not configured. Ask your operator for the verified console address.',
   'This room is parked': 'This room is parked',
   'Chain services are not active': 'Chain services are not active',
-  'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.',
   'Sign in': 'Sign in',
   'Sign in to continue': 'Sign in to continue',
   'Your account context is needed before this room can show private information.':
@@ -34,8 +32,8 @@ const messages = {
     'The account service did not answer. Your sign-in is not lost; try again.',
   Retry: 'Retry',
   'Pick an offer to edit': 'Pick an offer to edit',
-  'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.',
+  'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.',
   'Go to my offers': 'Go to my offers',
 } as const;
 
@@ -52,8 +50,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Return to one of the four customer doors.': 'Vuelve a una de las cuatro secciones del cliente.',
     'Return to one of the customer tabs.': 'Vuelve a una de las pestañas del cliente.',
     'Pick an offer to edit': 'Elige una oferta para editar',
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-      'Abre tus ofertas y elige una para revisarla. Cambiar una oferta ya publicada aún no está disponible.',
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+      'Abre tus ofertas y elige una para revisarla. Cambiar una oferta ya publicada no está disponible.',
     'Go to my offers': 'Ir a mis ofertas',
     'Separate team desk': 'Mesa independiente del equipo',
     'Open the operator console': 'Abrir la consola del operador',
@@ -66,8 +64,6 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
       'La dirección de Team no está configurada. Pide al operador la dirección verificada de la consola.',
     'This room is parked': 'Esta sección está en espera',
     'Chain services are not active': 'Los servicios de cadena no están activos',
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-      'Esta sección está reservada hasta que el propietario la active. No está disponible en la navegación ni en la búsqueda del cliente.',
     'Sign in': 'Iniciar sesión',
     'Sign in to continue': 'Inicia sesión para continuar',
     'Your account context is needed before this room can show private information.':
@@ -90,8 +86,8 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Return to one of the four customer doors.': 'Retournez dans l’un des quatre espaces clients.',
     'Return to one of the customer tabs.': 'Retournez dans l’un des onglets clients.',
     'Pick an offer to edit': 'Choisissez une offre à modifier',
-    'Open your offers and choose one to review. Changing an offer after it is published is not available yet.':
-      'Ouvrez vos offres et choisissez-en une à consulter. Modifier une offre déjà publiée n’est pas encore disponible.',
+    'Open your offers and choose one to review. Changing an offer after it is published is not available.':
+      'Ouvrez vos offres et choisissez-en une à consulter. Modifier une offre déjà publiée n’est pas disponible.',
     'Go to my offers': 'Aller à mes offres',
     'Separate team desk': 'Console séparée de l’équipe',
     'Open the operator console': 'Ouvrir la console opérateur',
@@ -104,8 +100,6 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
       'L’adresse de déploiement de Team n’est pas configurée. Demandez à votre opérateur l’adresse vérifiée de la console.',
     'This room is parked': 'Cet espace est en attente',
     'Chain services are not active': 'Les services de chaîne ne sont pas actifs',
-    'This room remains reserved until owner activation. It is not available from customer navigation or search.':
-      'Cet espace reste réservé jusqu’à son activation par le propriétaire. Il est absent de la navigation et de la recherche clients.',
     'Sign in': 'Se connecter',
     'Sign in to continue': 'Connectez-vous pour continuer',
     'Your account context is needed before this room can show private information.':

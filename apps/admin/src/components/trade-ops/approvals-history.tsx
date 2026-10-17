@@ -43,7 +43,7 @@ export function ApprovalsHistory({ rows, label = 'Restriction history' }: { rows
       sort={sort}
       onSortChange={setSort}
       maxHeight={360}
-      emptyState={<p className="p-4 text-sm text-fg-2">The service has no restriction entries for this account yet.</p>}
+      emptyState={<p className="p-4 text-sm text-fg-2">The service has no restriction entries for this account.</p>}
     />
   );
 }

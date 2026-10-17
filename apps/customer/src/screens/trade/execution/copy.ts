@@ -62,7 +62,7 @@ const messages = {
   'Total size': 'Total size',
   'Total size ({asset})': 'Total size ({asset})',
   'Limit price': 'Limit price',
-  'Could not check yet, try again': 'We could not check yet. Nothing was changed. Try again.',
+  'Could not check, try again': 'We could not check. Nothing was changed. Try again.',
   'Check in another room': 'This request belongs to another trading screen. Check it there.',
   'Locked by unconfirmed request': 'An earlier request is still unconfirmed, so new requests stay locked until you check it.',
   'Market closed block': 'This market is closed right now, so nothing can be placed in it.',
@@ -126,7 +126,7 @@ const messages = {
   // Algo list and detail
   'Open by id': 'Open by id',
   'Any schedule id you have, for example from another device': 'Any schedule id you have, for example one made on another device.',
-  'No schedules known': 'No schedules to show yet',
+  'No schedules known': 'No schedules to show',
   'No schedules known reason':
     'The service does not list your schedules, so this page shows the ones made here plus any id you open by hand.',
   Schedules: 'Schedules',
@@ -197,7 +197,7 @@ const messages = {
   'Limit price times total, held in {asset}': 'Limit price times total, held in {asset}.',
   'Place iceberg': 'Place iceberg',
   'Iceberg blocker':
-    'Iceberg orders have no customer door yet. The matching engine supports a display size; the order API does not accept one.',
+    'Iceberg orders have no customer door. The matching engine supports a display size; the order API does not accept one.',
   'Iceberg problem total': 'Enter a total size above zero.',
   'Iceberg problem display': 'Enter a display size above zero.',
   'Iceberg problem displayTooBig': 'The display size must be smaller than the total.',
@@ -271,7 +271,7 @@ const messages = {
   'Not on the book': 'Not on the book',
   '{n} not on the book': '{n} not on the book',
   'Review blocked unconfirmed':
-    'Some orders of the last ladder are not confirmed yet. Check status on the result first, then review a new ladder.',
+    'Some orders of the last ladder are not confirmed. Check status on the result first, then review a new ladder.',
 
   'Cancel result': 'Cancel result',
   'Cancel cancelled': 'Cancelled',
@@ -317,7 +317,7 @@ const messages = {
   'Scaled groups': 'Scaled ladders',
   'Ladder {i}: {n} orders shown': 'Ladder {i}: {n} orders shown',
   'Orders and fills': 'Orders and fills',
-  'No orders or fills yet': 'No orders or fills yet.',
+  'No orders or fills': 'No orders or fills.',
   'Nothing matches these filters': 'Nothing matches these filters.',
 
   // Routing

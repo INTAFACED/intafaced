@@ -40,7 +40,7 @@ export const APPROVAL_CODE_WORDS: Record<string, string> = {
   'action_approval.service_mismatch': 'This approval belongs to a different service.',
   'action_approval.target_mismatch': 'This approval is for a different target than the one named.',
   'action_approval.consumed': 'This approval was already used.',
-  'action_approval.not_approved': 'This approval has not been approved yet.',
+  'action_approval.not_approved': 'This approval has not been approved.',
   'action_approval.type_not_four_eyes': 'This action type does not use two-person approval.',
   'mfa.required': 'A second sign-in factor is needed. Verify your second factor, then try again.',
   'operator.denied': 'Your operator access is missing or was revoked.',

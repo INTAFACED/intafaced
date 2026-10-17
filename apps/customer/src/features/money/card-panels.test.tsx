@@ -54,7 +54,7 @@ describe('card screens show every control and say why one is off', () => {
   });
   it('ordering is disabled with the first reason that applies', () => {
     const none = renderToStaticMarkup(<OrderCard open={() => undefined} programme={null} assets={[{ assetId: 'USDT', available: '1' }]} />);
-    expect(none).toContain('No card issuer is connected yet');
+    expect(none).toContain('No card issuer is connected');
     expect(none).toMatch(/<button[^>]*disabled[^>]*>Order a card<\/button>/);
     const test = renderToStaticMarkup(
       <OrderCard open={() => undefined} programme={{ id: 'card-sim', simulated: true }} assets={[{ assetId: 'USDT', available: '1' }]} />,
