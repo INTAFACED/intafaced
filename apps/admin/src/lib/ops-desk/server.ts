@@ -1,7 +1,7 @@
 import 'server-only';
 import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom } from '@/lib/desk/part';
-import { DESKS, allReads } from './catalog';
+import { DESKS, PAY_TRANSFER_DETAIL, allReads, readSpecFor } from './catalog';
 import { inputFor, readData } from './model';
 import type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
 
@@ -39,7 +39,11 @@ function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: st
   return {
     id: spec.id,
     asOf,
-    part: partFrom(result, (d) => d, { service: SERVICE[spec.module], forbiddenMessage: spec.forbiddenText }),
+    part: partFrom(result, (d) => d, {
+      service: SERVICE[spec.module],
+      forbiddenMessage: spec.forbiddenText,
+      refusedMessage: (code) => (code !== null && spec.refusals && Object.hasOwn(spec.refusals, code) ? spec.refusals[code]! : null),
+    }),
   };
 }
 
@@ -62,6 +66,21 @@ async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], no
 
 export async function loadRead(ctx: FounderCallContext, spec: ReadSpec): Promise<ReadOutcome> {
   return (await loadGroup(ctx, [spec], new Date()))[0]!;
+}
+
+/** One transfer's full record, read on request (a click), because svc-bank writes a log line for every one it hands out. */
+export async function loadTransferDetail(ctx: FounderCallContext, id: string): Promise<ReadOutcome> {
+  return loadRead(ctx, { ...PAY_TRANSFER_DETAIL, input: { id } });
+}
+
+/**
+ * The next page of a list whose service gives a page marker, read on request. Only a read that names a `cursorKey` can be paged,
+ * and the marker is passed to the service untouched: it is the service's to judge (a marker it did not issue is its refusal).
+ */
+export async function loadPage(ctx: FounderCallContext, deskId: OpsDeskId, readId: string, cursor: string): Promise<ReadOutcome | null> {
+  const spec = readSpecFor(deskId, readId);
+  if (spec === undefined || spec.cursorKey === undefined) return null;
+  return loadRead(ctx, { ...spec, input: { ...spec.input, cursor } });
 }
 
 export async function loadDesk(ctx: FounderCallContext, deskId: OpsDeskId, now: Date = new Date()): Promise<DeskView> {
