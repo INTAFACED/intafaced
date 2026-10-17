@@ -23,6 +23,7 @@ import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
+import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
@@ -420,7 +421,18 @@ await app.register(async (api) => {
       return reply.code(gate.status).send(gate.body);
     }
 
+    const csrf = refuseCookieCsrf({
+      method: req.method,
+      pathname: url.pathname,
+      headers: req.headers,
+      allowedOrigins: cors.origins,
+    });
+    if (csrf) {
+      return reply.code(403).send({ error: userCopy('edge.origin_not_allowed'), code: csrf.code });
+    }
+
     const body = upstreamBody(req.method, req.body);
+    const upstreamHeaders = prepareUpstreamRequestHeaders(url.pathname, exchanged.headers);
 
     return withEdgeSpan(
       'edge.proxy',
@@ -434,7 +446,7 @@ await app.register(async (api) => {
         try {
           const request = {
             method: req.method,
-            headers: exchanged.headers,
+            headers: upstreamHeaders,
             redirect: 'error' as const,
             cache: 'no-store',
             ...(body === undefined ? {} : { body }),
@@ -449,10 +461,12 @@ await app.register(async (api) => {
         }
 
         const text = await response.text();
-        return reply
-          .code(response.status)
-          .header('content-type', response.headers.get('content-type') ?? 'application/json')
-          .send(text);
+        const forwarded = forwardUpstreamResponseHeaders(url.pathname, response.headers);
+        let sent = reply.code(response.status);
+        for (const [name, value] of Object.entries(forwarded)) {
+          sent = sent.header(name, value);
+        }
+        return sent.send(text);
       },
     );
   });

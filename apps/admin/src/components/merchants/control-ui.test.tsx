@@ -6,7 +6,7 @@ import { RefusalBlock } from './registry-form';
 import { DecisionPanel, DecisionResult, ApprovalDecision, type DecisionSubject } from './approval-decision';
 import { ConfirmChangeView } from './confirm-change-panel';
 import { ControlChangeForm, currentAsChange, ReviewStage, SubmittedStage } from './control-change-form';
-import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
+import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { postControl } from '@/lib/merchants/control-client';
 import { makeHandoff, type ControlChange, type TierView } from '@/lib/merchants/control-model';
 
@@ -371,10 +371,73 @@ describe('halt panels', () => {
     expect(html(<AutoTripCard autoTrip={{ enabled: true, consecutiveFailures: null }} />)).toContain('Automatic trip is off');
   });
 
-  it('pending clears are an honest "not available yet", not an empty list', () => {
-    const out = html(<PendingClearsGap />);
-    expect(out).toContain('not available yet');
-    expect(out).toContain('no read for it');
+  const proposal = (over: Record<string, unknown> = {}) => ({
+    requestId: 'req-1',
+    scope: 'payout' as const,
+    target: { level: 'global' as const },
+    expectedVersion: '3',
+    reason: 'Rail repaired, retesting',
+    requestedByUserId: OTHER,
+    requestedAt: '2026-10-15T10:00:00.000Z',
+    ...over,
+  });
+
+  it('pending clears: a listed proposal says the halt is still on and names who has to confirm', () => {
+    const other = html(
+      <PendingClearsPanel result={{ kind: 'ok', data: { proposals: [proposal()], nextCursor: null } }} currentUserId={ME} retryHref="/x" />,
+    );
+    expect(other).toContain('Rail repaired, retesting');
+    expect(other).toContain('The halt is still on for every row above');
+    expect(other).toContain('Review and confirm');
+    const mine = html(
+      <PendingClearsPanel
+        result={{ kind: 'ok', data: { proposals: [proposal({ requestedByUserId: ME })], nextCursor: null } }}
+        currentUserId={ME}
+        retryHref="/x"
+      />,
+    );
+    expect(mine).toContain('You proposed it');
+    expect(mine).not.toContain('Review and confirm');
+  });
+
+  it('pending clears: none waiting is an empty state, a failed read is an error with Try again, and neither says "not available yet"', () => {
+    const empty = html(<PendingClearsPanel result={{ kind: 'ok', data: { proposals: [], nextCursor: null } }} retryHref="/x" />);
+    expect(empty).toContain('No clear is waiting for a second founder');
+    const failed = html(<PendingClearsPanel result={{ kind: 'unavailable', requestId: 'r-9' }} retryHref="/x" />);
+    expect(failed).toContain('Try again');
+    expect(failed).toContain('r-9');
+    for (const out of [empty, failed]) {
+      expect(out).not.toContain('not available yet');
+      expect(out).not.toContain('no read for it');
+    }
+  });
+
+  it('pending clears on a merchant page list only the clears that cover that merchant', () => {
+    const MID = '33333333-3333-4333-8333-333333333333';
+    const out = html(
+      <PendingClearsPanel
+        result={{
+          kind: 'ok',
+          data: {
+            proposals: [
+              proposal({ requestId: 'a', reason: 'global one' }),
+              proposal({ requestId: 'b', target: { level: 'merchant', merchantId: MID }, reason: 'this merchant' }),
+              proposal({
+                requestId: 'c',
+                target: { level: 'merchant', merchantId: '44444444-4444-4444-8444-444444444444' },
+                reason: 'other merchant',
+              }),
+            ],
+            nextCursor: null,
+          },
+        }}
+        merchantId={MID}
+        retryHref="/x"
+      />,
+    );
+    expect(out).toContain('global one');
+    expect(out).toContain('this merchant');
+    expect(out).not.toContain('other merchant');
   });
 
   const event = (over: Partial<PayHaltEvent>): PayHaltEvent => ({

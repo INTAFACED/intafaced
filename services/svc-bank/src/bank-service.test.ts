@@ -3016,6 +3016,8 @@ describe('svc-bank money PG-hard', () => {
         'auto_invest_rules.amount': 'a POLICY spend for a DCA schedule, or round-up granularity; instruction, not a holding',
         'auto_invest_runs.amount': 'a RECORD of one run (settled or rejected); written once',
         'business_accounts.spend_threshold': 'a POLICY dual-control floor; instruction, not a holding',
+        'business_control_requests.spend_threshold':
+          'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
       };

@@ -10,6 +10,7 @@ import type { RegistriesMountDeps } from '../registries/index.js';
 import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { InvoiceLinkPort } from '../merchant-ops/invoices.js';
+import type { PayService } from '../payment-service.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
@@ -57,6 +58,8 @@ export function createPayNamespaces(deps: {
   invoiceLinks?: InvoiceLinkPort;
   /** Production passes the Postgres dispute store. Omitted keeps the memory store. */
   disputes?: DisputeCaseStore;
+  /** Payment, refund, settlement and link lists for founder drill-down. */
+  pay?: PayService;
 }) {
   const opsDeps = {
     founderAuthority: deps.founderAuthority,
@@ -79,6 +82,9 @@ export function createPayNamespaces(deps: {
       control: deps.control,
       halts: deps.payHalts?.store,
       conversion: deps.conversion,
+      sql: deps.sql,
+      pay: deps.pay,
+      disputes: deps.disputes,
     }),
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

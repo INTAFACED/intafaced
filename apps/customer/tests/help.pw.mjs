@@ -62,6 +62,14 @@ async function network(context, options = {}) {
       state.allPosts.push(procedure);
       if (procedure !== 'auth.login' && procedure !== 'auth.refresh' && procedure !== 'auth.logout') state.posts.push(procedure);
     }
+    // Models the HttpOnly `ifc_rt` cookie: sign-in sets it, logout clears it, and a bare refresh without it is session_invalid.
+    if (procedure === 'auth.refresh' && !state.cookie)
+      return route.fulfill({
+        status: 401,
+        json: { error: { message: 'Session not found', data: { intafacedCode: 'auth.session_invalid' } } },
+      });
+    if (procedure === 'auth.login') state.cookie = true;
+    if (procedure === 'auth.logout') state.cookie = false;
     if (procedure === 'auth.login' || procedure === 'auth.refresh')
       return reply(route, {
         userId: state.owner,

@@ -36,4 +36,10 @@ describe('page-level module guard', () => {
       expect(readFileSync(file, 'utf8'), route.href).toContain(`requireModulePage('${route.id}')`);
     }
   });
+
+  it('guards every trade desk room through its layout', () => {
+    const layout = fileURLToPath(new URL('../app/(console)/trade-ops/layout.tsx', import.meta.url));
+    expect(readFileSync(layout, 'utf8')).toContain("requireModulePage('tradeops')");
+    expect(() => requireModulePage('tradeops', { ADMIN_MODULES: 'crm' })).toThrow('REDIRECT:/crm');
+  });
 });

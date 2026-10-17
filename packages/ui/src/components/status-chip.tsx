@@ -1,3 +1,5 @@
+'use client';
+
 import * as React from 'react';
 import { cn } from './cn.js';
 import { type Density, DEFAULT_DENSITY } from './density.js';

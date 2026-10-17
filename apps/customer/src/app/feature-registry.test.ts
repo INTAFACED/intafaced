@@ -34,6 +34,7 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/bank/earn',
       '/trade/margin',
       '/trade/copy',
+      '/otc',
       '/otc/tradeInfo',
       '/pay/request',
       '/p2p',

@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Table: the one data table for every customer screen (dense for the pro desk, comfortable for money lists).
  *

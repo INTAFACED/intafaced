@@ -53,6 +53,23 @@ describe('admin middleware module gate', () => {
     }
   });
 
+  it('ADMIN_MODULES=crm: the trade desk page redirects and its APIs return 404', async () => {
+    process.env.ADMIN_MODULES = 'crm';
+    for (const path of ['/trade-ops', '/trade-ops/orders']) {
+      const res = run(path);
+      expect(res.status, path).toBe(307);
+      expect(new URL(res.headers.get('location')!).pathname).toBe('/crm');
+    }
+    for (const path of ['/api/trade-ops/approvals', '/api/trade-ops/kill-switch']) {
+      const res = run(path);
+      expect(res.status, path).toBe(404);
+      expect(await res.json()).toEqual({ error: 'not_found' });
+    }
+    process.env.ADMIN_MODULES = 'crm,tradeops';
+    expect(passes(run('/trade-ops'))).toBe(true);
+    expect(passes(run('/api/trade-ops/approvals'))).toBe(true);
+  });
+
   it('a module listed in the env stays on, an unlisted one is off', () => {
     process.env.ADMIN_MODULES = 'crm,ledger';
     expect(passes(run('/ledger'))).toBe(true);

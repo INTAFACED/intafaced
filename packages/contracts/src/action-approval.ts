@@ -39,6 +39,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.business.proposeTransfer',
   'bank.step_up.business.approve',
   'bank.step_up.business.addMember',
+  'bank.step_up.business.removeMember',
+  'bank.step_up.business.setMemberRole',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
 ] as const;

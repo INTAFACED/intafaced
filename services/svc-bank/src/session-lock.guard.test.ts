@@ -127,11 +127,11 @@ describe('svc-bank never holds one pool connection while waiting for a second', 
     expect(offenders).toEqual([]);
   });
 
-  it('the three lock wrappers keep the keys the old code took (rolling deploys exclude each other)', () => {
+  it('loan repay and liquidation take both historical keys on one session (rolling deploys still collide)', () => {
     const loans = readFileSync(join(here, 'loans', 'loan-service.ts'), 'utf8');
     const ramps = readFileSync(join(here, 'ramps', 'ramp-service.ts'), 'utf8');
-    expect(loans).toContain("withSessionAdvisoryLock(this.sql, 'bank.loan.liquidate', loanId, body)");
-    expect(loans).toContain("withSessionAdvisoryLock(this.sql, 'bank.loan.repay', loanId, body)");
+    expect(loans).toContain("withSessionAdvisoryLocks(this.sql, ['bank.loan.liquidate', 'bank.loan.repay'], loanId, body)");
+    expect(loans).toContain("withSessionAdvisoryLock(this.sql, 'bank.loan.open', loanId, body)");
     expect(ramps).toContain("withSessionAdvisoryLock(this.sql, 'bank.ramp.offramp', offrampId, body)");
   });
 });
