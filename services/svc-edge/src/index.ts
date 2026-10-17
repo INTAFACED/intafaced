@@ -290,7 +290,13 @@ registerGeoBlockGuard(app);
 // Network fail-closed on /api — product Done bar for VPN/signal residual.
 // Must not invent a partner; refuses only when env arms fail-closed / flagged.
 registerNetworkAccessGuard(app);
-registerAdminRoutes(app, admin, env.MATCHING_URL ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS) : null);
+registerAdminRoutes(
+  app,
+  admin,
+  env.MATCHING_URL && env.EDGE_PRINCIPAL_SECRET
+    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, env.EDGE_PRINCIPAL_SECRET)
+    : null,
+);
 
 registerWidgetRampRoute(app);
 

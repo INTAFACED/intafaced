@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { AuthError, bearerToken, requireMfa, requireScope, verifyAccessToken, type TokenConfig } from '@intafaced/auth';
+import { AuthError, requireMfa, requireScope } from '@intafaced/auth';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { marketLifecycleAdmissionProofSchema, orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
@@ -8,6 +8,7 @@ import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
   rawBodyOf,
   retainRawBody,
+  verifyForwardedPrincipal,
   verifyServiceHeaders,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
@@ -503,11 +504,11 @@ export interface MatchingRouteOptions {
    */
   operatorIds?: ReadonlySet<string>;
   /**
-   * Founder bearer door. Unset → `/operator/*` answers 503
+   * Founder door verifies the edge principal. Unset → `/operator/*` answers 503
    * `matching.operator_auth_unconfigured` and does not read the book.
-   * S2S halt stays on the HMAC routes.
+   * S2S halt stays on the HMAC routes. This door does not read a bearer.
    */
-  tokens?: TokenConfig;
+  edgePrincipalSecret?: string;
 }
 
 export function registerRoutes(
@@ -1498,27 +1499,55 @@ export function registerRoutes(
 
   const founderIdem = new Map<string, { fingerprint: string; value: unknown }>();
 
+  const headerValue = (req: FastifyRequest, name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
   const founderPrincipal = async (
     req: FastifyRequest,
     scope: 'admin:read' | 'admin:write',
-  ): Promise<{ ok: true; userId: string } | { ok: false; status: number; body: { code: string; message: string } }> => {
-    if (!options.tokens) {
+  ): Promise<
+    | { ok: true; userId: string }
+    | {
+        ok: false;
+        status: number;
+        body: { code: string; message: string; rejected?: 'bad-signature' | 'malformed' | 'expired' | null };
+      }
+  > => {
+    if (!options.edgePrincipalSecret) {
       return {
         ok: false,
         status: 503,
         body: {
           code: 'matching.operator_auth_unconfigured',
-          message: 'JWT_ACCESS_SECRET is unpublished. The founder door does not read the book and does not halt.',
+          message: 'EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.',
+        },
+      };
+    }
+    const region = headerValue(req, 'x-intafaced-region') ?? 'XX';
+    const verified = verifyForwardedPrincipal(
+      headerValue(req, 'x-intafaced-principal'),
+      headerValue(req, 'x-intafaced-principal-sig'),
+      options.edgePrincipalSecret,
+      new Date(),
+      region,
+    );
+    if (verified.principal === null) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          code: 'token.invalid',
+          message: verified.rejected ? `Edge principal refused (${verified.rejected}).` : 'An edge-signed principal is required.',
+          rejected: verified.rejected,
         },
       };
     }
     try {
-      const token = bearerToken(req.headers.authorization);
-      if (!token) throw new AuthError('An operator token is required', 'token.invalid');
-      const principal = await verifyAccessToken(token, options.tokens);
-      requireScope(principal, scope);
-      if (scope === 'admin:write') requireMfa(principal);
-      return { ok: true, userId: principal.userId };
+      requireScope(verified.principal, scope);
+      if (scope === 'admin:write') requireMfa(verified.principal);
+      return { ok: true, userId: verified.principal.userId };
     } catch (err) {
       if (err instanceof AuthError) {
         return {

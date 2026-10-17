@@ -102,16 +102,14 @@ const schema = baseEnvSchema
       ),
 
       /**
-       * Founder bearer door. Blank → `/operator/*` refuses
+       * Founder door verifies the edge principal. Blank → `/operator/*` refuses
        * matching.operator_auth_unconfigured. S2S HMAC halt does not need it.
-       * Never required at boot: a missing secret must not crash-loop the book.
+       * Never required at boot: a missing value must not crash-loop the book.
        */
-      JWT_ACCESS_SECRET: z.preprocess(
+      EDGE_PRINCIPAL_SECRET: z.preprocess(
         (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
         z.string().min(32).optional(),
       ),
-      JWT_ISSUER: z.string().default('intafaced'),
-      JWT_AUDIENCE: z.string().default('intafaced.api'),
 
       MATCHING_OPERATOR_IDS: z
         .string()

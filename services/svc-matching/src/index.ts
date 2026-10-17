@@ -131,16 +131,7 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
   operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
-  ...(env.JWT_ACCESS_SECRET
-    ? {
-        tokens: {
-          secret: env.JWT_ACCESS_SECRET,
-          issuer: env.JWT_ISSUER,
-          audience: env.JWT_AUDIENCE,
-          accessTtlSeconds: 900,
-        },
-      }
-    : {}),
+  ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
 });
 
 const holds = env.LEDGER_URL

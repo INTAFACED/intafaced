@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { AuthError } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import {
   checkNetworkAccess,
   type ComplianceQueueDispositionRequest,
@@ -721,39 +721,63 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
   });
 
   const matchingUnwired = {
-    error: 'MATCHING_URL is unpublished. This edge does not read the book and does not halt it.',
+    error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
     code: 'edge.matching_unwired' as const,
   };
+
+  // Same resolver the /api proxy uses before signPrincipalHeader. Never a
+  // caller-supplied region: trustProxy and the geo header name come from env.
+  const matchingRegion = (headers: Record<string, string | string[] | undefined>): string =>
+    resolveRequestRegion({
+      defaultRegion: process.env.DEFAULT_REGION ?? 'XX',
+      trustProxy: process.env.EDGE_TRUST_PROXY !== undefined,
+      geoHeaderName: process.env.EDGE_GEO_COUNTRY_HEADER,
+      headers,
+    }).region;
 
   const forwardMatching = async (
     path: MatchingOperatorPath,
     method: 'GET' | 'POST',
-    bearer: string,
+    principal: Principal,
     body: unknown,
     reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+    region: string,
   ) => {
     if (!matching) return reply.code(503).send(matchingUnwired);
-    const res = await matching(path, method, bearer, body);
+    const res = await matching(path, method, principal, body, region);
     return reply.code(res.status).send(res.body);
   };
 
   app.get('/admin/matching/in-flight', async (req, reply) => {
+    let principal: Principal;
     try {
-      await admin.authenticateRead(req.headers.authorization);
+      principal = await admin.authenticateRead(req.headers.authorization);
     } catch (err) {
       if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
       throw err;
     }
-    const bearer = req.headers.authorization;
-    if (!bearer) return reply.code(401).send({ error: 'An operator token is required', code: 'token.invalid' });
-    return forwardMatching('/operator/in-flight', 'GET', bearer, undefined, reply);
+    return forwardMatching(
+      '/operator/in-flight',
+      'GET',
+      principal,
+      undefined,
+      reply,
+      matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+    );
   });
 
   const matchingPost = (adminPath: string, upstream: MatchingOperatorPath) => {
     app.post(adminPath, async (req, reply) => {
       const auth = await operator(req.headers.authorization, reply, 'module');
       if (!auth) return reply;
-      return forwardMatching(upstream, 'POST', auth.bearer, req.body, reply);
+      return forwardMatching(
+        upstream,
+        'POST',
+        auth.principal,
+        req.body,
+        reply,
+        matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+      );
     });
   };
   matchingPost('/admin/matching/halt', '/operator/halt');
