@@ -1,3 +1,4 @@
+-- intafaced:destructive replaces the (user_id, path_slug) primary key with a surrogate id and a partial unique index on active rows (left_at IS NULL), so a left enrolment stays as history and a re-enrolment is a new row; no rows are deleted
 -- svc-academy · path enrolment leave (audit row kept, re-enrol is a new row)
 -- Reversal: 0006_cert_enrollment_leave.down.sql
 --
