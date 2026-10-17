@@ -237,7 +237,7 @@ if (!available) {
     return handle;
   }
 
-  it('password sign-in sets an httpOnly Strict path-scoped cookie and returns the refresh token', async () => {
+  it('password sign-in sets the cookie and omits refreshToken from a browser reply', async () => {
     const handle = await registerUser();
     const server = await app();
     try {
@@ -258,7 +258,8 @@ if (!available) {
       const token = cookieValue(lines);
       const body = wireData(browser);
       expect(lines.length).toBe(REFRESH_COOKIE_PATHS.length);
-      expect(body.refreshToken).toBe(token);
+      expect(body).not.toHaveProperty('refreshToken');
+      expect(token.length).toBeGreaterThan(0);
       expect(typeof body.accessToken).toBe('string');
 
       const secure = await server.inject({
@@ -275,7 +276,9 @@ if (!available) {
         headers: { host: 'app.example.com' },
         payload: { identifier: handle, password: PASSWORD },
       });
-      expect(typeof wireData(api).refreshToken).toBe('string');
+      const apiBody = wireData(api);
+      expect(apiBody.refreshToken).toBe(cookieValue(cookieLines(api)));
+      expect(typeof apiBody.refreshToken).toBe('string');
     } finally {
       await server.close();
     }
@@ -301,7 +304,7 @@ if (!available) {
       expect(refreshed.statusCode).toBe(200);
       const second = cookieValue(cookieLines(refreshed));
       expect(second).not.toBe(first);
-      expect(wireData(refreshed).refreshToken).toBe(second);
+      expect(wireData(refreshed)).not.toHaveProperty('refreshToken');
       const access = wireData(refreshed).accessToken;
       expect(typeof access).toBe('string');
       await expect(verifyAccessToken(access as string, tokenConfig)).resolves.toMatchObject({ userId: expect.any(String) });
@@ -391,7 +394,8 @@ if (!available) {
       expect(lines.every((line) => line.includes('SameSite=Strict'))).toBe(true);
       expectCookiePaths(lines);
       const token = cookieValue(lines);
-      expect(wireData(res).refreshToken).toBe(token);
+      expect(token.length).toBeGreaterThan(0);
+      expect(wireData(res)).not.toHaveProperty('refreshToken');
       const principal = await verifyAccessToken(wireData(res).accessToken as string, tokenConfig);
       expect(principal.mfa).toBe(true);
     } finally {
@@ -445,8 +449,8 @@ if (!available) {
       expect(setB).not.toBe(cookieB);
       expect(wireData(refreshA).userId).toBe(userA);
       expect(wireData(refreshB).userId).toBe(userB);
-      expect(wireData(refreshA).refreshToken).toBe(setA);
-      expect(wireData(refreshB).refreshToken).toBe(setB);
+      expect(wireData(refreshA)).not.toHaveProperty('refreshToken');
+      expect(wireData(refreshB)).not.toHaveProperty('refreshToken');
 
       const missing = await httpPost(port, agent, '/trpc/auth.refresh', undefined, {});
       expect(missing.statusCode).toBe(401);

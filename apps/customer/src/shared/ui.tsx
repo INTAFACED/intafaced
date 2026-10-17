@@ -3,6 +3,7 @@ import { Panel } from '@intafaced/ui';
 import type { ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
+import { classifyRefusal, type RefusalKind } from '../data/refusal-codes';
 export { Panel };
 
 export function Button({
@@ -20,6 +21,7 @@ export function Field({
 }: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; hint?: ReactNode; error?: ReactNode }) {
   const generatedId = useId();
   const id = input.id ?? `${input.name ?? 'field'}-${generatedId}`;
+  const describedBy = [input['aria-describedby'], hint || error ? `${id}-help` : undefined].filter(Boolean).join(' ') || undefined;
   return (
     <label className="field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
@@ -28,7 +30,7 @@ export function Field({
         id={id}
         aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}
         aria-invalid={Boolean(error)}
-        aria-describedby={hint || error ? `${id}-help` : undefined}
+        aria-describedby={describedBy}
       />
       {(hint || error) && (
         <small id={`${id}-help`} className={error ? 'error-text' : ''}>
@@ -77,6 +79,32 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
+/** Refusals that come from something not being switched on, allowed or listed. A second attempt cannot change them. */
+const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
+  'screening',
+  'region',
+  'verify',
+  'convertSpreadUnset',
+  'slippageCapUnset',
+  'noBook',
+  'marketNotOpen',
+  'stepUp',
+  'mfaRequired',
+  'noPermission',
+  'orderTypeUnsupported',
+  'accountOnHold',
+  'notFound',
+  'notSetUp',
+]);
+/** Try again belongs to network trouble and to refusals that can clear by themselves, never to a missing setting or permission. */
+export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {
+  if (result.reason === 'uncertain' || result.reason === 'unauthorized') return false;
+  if (result.reason === 'unreachable' || result.reason === 'invalid_response' || result.reason === 'aborted') return true;
+  // A source that is unavailable, stale or unknown can recover by itself, whatever else its code says.
+  if (result.code && /_(unavailable|stale|unknown)$/.test(result.code)) return true;
+  if (result.reason === 'forbidden' || result.reason === 'not_mounted' || result.reason === 'not_supported') return false;
+  return !SETTLED_KINDS.has(classifyRefusal(result.code));
+}
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
@@ -95,7 +123,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
           </a>
         )}
         {words.reference && <small className="muted">{words.reference}</small>}
-        {retry && result.reason !== 'uncertain' && result.reason !== 'unauthorized' && (
+        {retry && canTryAgain(result) && (
           <Button variant="secondary" onClick={retry}>
             <Copy k="retry" />
           </Button>
@@ -117,7 +145,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
         </a>
       ) : (
         retry &&
-        result.reason !== 'uncertain' && (
+        canTryAgain(result) && (
           <Button variant="secondary" onClick={retry}>
             <Copy k="retry" />
           </Button>

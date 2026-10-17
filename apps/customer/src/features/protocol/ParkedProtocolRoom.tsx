@@ -4,7 +4,7 @@ import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
+import { Button, canTryAgain, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
 import { createProtocolApi, type DexQuote } from './api';
 import {
   blockersFor,
@@ -39,7 +39,17 @@ function toSource<T>(value: Resource<T>): Source<T> {
 }
 
 /** Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails. */
-function Answer<T>({ value, source, t, children }: { value: Resource<T>; source: string; t: Translate; children: (data: T) => ReactNode }) {
+export function Answer<T>({
+  value,
+  source,
+  t,
+  children,
+}: {
+  value: Resource<T>;
+  source: string;
+  t: Translate;
+  children: (data: T) => ReactNode;
+}) {
   const { resource, reload } = value;
   if (resource.status === 'loading') return <Loading label={t('checking', { source })} />;
   if (resource.status === 'failed')
@@ -50,9 +60,11 @@ function Answer<T>({ value, source, t, children }: { value: Resource<T>; source:
           // 502/503/504 through the gateway means the Protocol service itself is down, not a generic network fault.
           <div className="failure" role="status">
             <p>{t('serviceNotRunning')}</p>
-            <Button variant="secondary" onClick={reload}>
-              {t('retry')}
-            </Button>
+            {canTryAgain(resource.failure) && (
+              <Button variant="secondary" onClick={reload}>
+                {t('retry')}
+              </Button>
+            )}
           </div>
         ) : (
           <Failure result={resource.failure} retry={reload} />
@@ -260,7 +272,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
-      <Answer value={chain} source="protocol.chainStatus" t={t}>
+      <Answer value={chain} source={t('src_chain')} t={t}>
         {(c) => (
           <Rows
             t={t}
@@ -284,7 +296,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const auditPanel = (
     <Panel title={t('auditTitle')}>
-      <Answer value={audit} source="protocol.auditStatus" t={t}>
+      <Answer value={audit} source={t('src_audit')} t={t}>
         {(a) => (
           <Rows
             t={t}
@@ -303,7 +315,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
-      <Answer value={indexer} source="indexer.status" t={t}>
+      <Answer value={indexer} source={t('src_indexer')} t={t}>
         {(i) => (
           <>
             <Rows
@@ -317,7 +329,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           </>
         )}
       </Answer>
-      <Answer value={dex} source="dex.health" t={t}>
+      <Answer value={dex} source={t('src_dex')} t={t}>
         {(d) => (
           <Rows
             t={t}
@@ -338,7 +350,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('tab_blocks')}>
         <p className="muted">{t('blocksNote')}</p>
-        <Answer value={indexer} source="indexer.status" t={t}>
+        <Answer value={indexer} source={t('src_indexer')} t={t}>
           {(i) => (
             <>
               <Rows
@@ -378,7 +390,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('poolsTitle')}>
         <p className="muted">{t('poolsNote')}</p>
-        <Answer value={dex} source="dex.health" t={t}>
+        <Answer value={dex} source={t('src_dex')} t={t}>
           {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
         </Answer>
       </Panel>
@@ -395,7 +407,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       <>
         {chainStatusPanel}
         <Panel title={t('tab_overview')}>
-          <Answer value={health} source="protocol.health" t={t}>
+          <Answer value={health} source={t('src_health')} t={t}>
             {(h) => (
               <Rows
                 t={t}
@@ -438,7 +450,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
-      <Page title={title} description={description} eyebrow={[`${label.name}.`, label.note, t('banner')].filter(Boolean).join(' ')}>
+      <Page title={title} description={description} eyebrow={t('banner')}>
         <Tabs
           label={t('subnav')}
           items={tabs.map((entry) => entry.id)}

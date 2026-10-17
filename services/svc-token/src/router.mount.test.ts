@@ -829,12 +829,13 @@ describe('svc-token mount — governance close', () => {
     const caller = createTokenRouter(token).createCaller(signed(principal({ scopes: ['token:read'] })));
     await expect(caller.listProposals({})).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'token.proposal_list_limit_unset',
+      message: userCopy('token.proposal_list_limit_unset'),
     });
     await expect(caller.listProposals()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'token.proposal_list_limit_unset',
+      message: userCopy('token.proposal_list_limit_unset'),
     });
+    expect(userCopy('token.proposal_list_limit_unset')).not.toMatch(/50/);
     await expect(caller.listProposals({ limit: 50 })).resolves.toEqual([]);
   });
 });
@@ -865,12 +866,13 @@ describe('svc-token mount — the public surface', () => {
     const caller = createTokenRouter(token).createCaller(signed(principal({ scopes: ['token:read'] })));
     await expect(caller.listStakes({ status: 'active' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'token.stakes_list_limit_unset',
+      message: userCopy('token.stakes_list_limit_unset'),
     });
     await expect(caller.listStakes()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'token.stakes_list_limit_unset',
+      message: userCopy('token.stakes_list_limit_unset'),
     });
+    expect(userCopy('token.stakes_list_limit_unset')).not.toMatch(/50/);
     await expect(caller.listStakes({ limit: 50 })).resolves.toEqual([]);
   });
 });

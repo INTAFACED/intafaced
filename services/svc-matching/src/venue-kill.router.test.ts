@@ -66,7 +66,11 @@ async function mount(): Promise<{ app: FastifyInstance; engine: MatchingEngine }
     snapshotEvery: 0,
   });
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return { app, engine };
 }
@@ -226,7 +230,7 @@ describe('POST /resume-all', () => {
     expect(halt.json().accepted).toBe(true);
 
     const resume = await post(app, '/resume-all', {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -235,7 +239,7 @@ describe('POST /resume-all', () => {
     expect(resume.json()).toMatchObject({
       accepted: true,
       halted: false,
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       rejected: null,
     });
@@ -262,7 +266,7 @@ describe('POST /resume-all', () => {
     });
     expect(halt.json().accepted).toBe(true);
     const resume = await post(app, '/resume-all', {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',

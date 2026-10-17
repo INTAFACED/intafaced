@@ -6,12 +6,13 @@
  * path. Until then, settle must refuse by name — never invent a maker book.
  */
 
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { OtcError } from './errors.js';
 
 export const OTC_MAKER_ROUTING_SOCKET = 'socket.otc-maker-routing' as const;
 
 export const OTC_MAKER_ROUTING_RESIDUAL =
-  'Maker-routed OTC settle is refuse-closed until owner publishes maker routing + ledger recipe — SOCKET §13 socket.otc-maker-routing; platform principal only';
+  'Sending this OTC trade to an outside maker is not available yet. Only the platform can be the counterparty.';
 
 export type OtcMakerRoutingCounterparty = 'platform' | 'maker';
 
@@ -28,8 +29,7 @@ export type OtcMakerRoutingRecipe = {
 };
 
 function refuseRouting(message: string): never {
-  // Keep the stable OTC error shape used by the desk/settle click path while
-  // retaining the socket name in the operator-facing message.
+  logRefusalSpec('trade.otc_settle_refused');
   throw new OtcError(message, 'trade.otc_settle_refused', OTC_MAKER_ROUTING_RESIDUAL);
 }
 
@@ -73,6 +73,7 @@ export function parseOtcMakerRoutingJson(raw: string | null | undefined): OtcMak
 }
 
 export function otcMakerRoutingStatus() {
+  logRefusalSpec('trade.otc_settle_refused');
   return {
     published: false as const,
     socket: OTC_MAKER_ROUTING_SOCKET,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseOperatorIds } from './action-approval-consume.js';
 import {
   baseEnvSchema,
   httpEnvSchema,
@@ -81,6 +82,27 @@ const schema = baseEnvSchema
        * Blank / unset → those doors refuse (`action_approval.identity_unwired`).
        */
       IDENTITY_URL: z.string().url().optional(),
+
+      /**
+       * Who may propose and approve venue actions (open, halt, resume, ...):
+       * comma-separated identity user ids, whitespace trimmed, compared without
+       * case. REQUIRED, at least two distinct ids (a proposer and a different
+       * approver). Blank, one id or duplicates refuse boot: a lost variable must
+       * not leave journal-replayed markets trading with no reachable halt.
+       */
+      MATCHING_OPERATOR_IDS: z
+        .string()
+        .default('')
+        .superRefine((raw, ctx) => {
+          if (parseOperatorIds(raw).size < 2) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                'FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). ' +
+                'svc-matching refuses to boot without them: with no operators nobody could halt or open a market.',
+            });
+          }
+        }),
     }),
   );
 

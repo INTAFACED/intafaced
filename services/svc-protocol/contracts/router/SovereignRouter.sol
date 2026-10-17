@@ -38,6 +38,9 @@ contract SovereignRouter {
         returns (uint256 amountOut)
     {
         if (pool == address(0) || tokenIn == address(0) || to == address(0) || amountIn == 0) revert BadAmount();
+        // Same backstop as the pool, before this contract pulls tokens. The
+        // strict `<` check below still applies to a non-zero minimum.
+        if (minAmountOut == 0) revert InsufficientOut();
         IConstantProductPool p = IConstantProductPool(pool);
         address t0 = p.token0();
         address t1 = p.token1();

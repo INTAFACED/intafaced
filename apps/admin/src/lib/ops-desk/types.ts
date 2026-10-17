@@ -10,7 +10,7 @@ import type { ModuleId as AdminModuleId } from '@/lib/modules';
  * the time this console read it, and a figure the service cannot give is printed as "not available" with the reason.
  */
 
-export type OpsDeskId = 'bank' | 'p2p' | 'academy' | 'more';
+export type OpsDeskId = 'bank' | 'p2p' | 'academy' | 'more' | 'protocol';
 
 /** How one field of an answer is read and shown. Strict: a field of the wrong type makes the whole read invalid. */
 export type CellKind =
@@ -34,6 +34,16 @@ export interface Column {
   readonly nullable?: boolean;
   /** Shown in the row's detail only, not in the table. */
   readonly detail?: boolean;
+  /**
+   * The key sits inside an object the service may send as null (`halted.reason` when nothing is halted). With this set, a
+   * null parent reads as a null value; without it a null parent still makes the whole read invalid. Needs `nullable`.
+   */
+  readonly parentNullable?: boolean;
+  /**
+   * The service promises exactly this value (a literal in its output schema, such as `audited: false`). A different value
+   * makes the whole read invalid, so a page can never print a claim the service is not allowed to make.
+   */
+  readonly mustBe?: string | number | boolean;
 }
 
 export interface ReadSpec {
@@ -42,6 +52,8 @@ export interface ReadSpec {
   /** One honest sentence on what this read is and is not. */
   readonly note: string;
   readonly module: DeskModule;
+  /** The service, as an operator reads it ("chain status"). When set, a failed read says "Could not load <plainName>" with its time. */
+  readonly plainName?: string;
   readonly procedure: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /** `record` is one object shown as facts; `list` is rows with a detail each. */
@@ -61,7 +73,13 @@ export interface ReadSpec {
   readonly rowAction?: RowAction;
 }
 
-export type RowAction = 'market.vendor.vet' | 'academy.ambassador';
+export type RowAction = 'market.vendor.vet' | 'academy.ambassador' | 'academy.residency';
+
+/** A control that belongs to a whole section rather than to a row (it needs a typed target). */
+export type SectionAction = 'academy.ambassador.appoint';
+
+/** A section that is drawn by its own component from the reads above it, not as a list or facts. */
+export type SectionPanel = 'protocol.blockers';
 
 /** Something the desk cannot show, and exactly why. Never rendered as a zero. */
 export interface Unavailable {
@@ -93,6 +111,9 @@ export interface DeskSection {
   readonly unavailable: readonly Unavailable[];
   readonly disabledActions: readonly DisabledAction[];
   readonly links: readonly DeskLink[];
+  /** A two-founder control for the whole section, such as appointing a person who is not yet in any list. */
+  readonly sectionAction?: SectionAction;
+  readonly panel?: SectionPanel;
 }
 
 export interface DeskSpec {

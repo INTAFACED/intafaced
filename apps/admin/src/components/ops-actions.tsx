@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
-import type { VendorDecision } from '@/lib/desk/approval-packet';
+import type { ResidencyDecision, VendorDecision } from '@/lib/desk/approval-packet';
 import { ambassadorVerb, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
 import type { Row } from '@/lib/ops-desk/types';
 import './desk.css';
@@ -118,6 +118,106 @@ export function AmbassadorActions({ row, userId, onChanged }: { row: Row; userId
         action={action}
         consequence={`${verb === 'freeze' ? 'The ambassador stops holding the role until the freeze is lifted.' : 'The ambassador holds the role again.'} ${TWO_PEOPLE}`}
         blockedButtonLabel="Freeze unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+const RESIDENCY_COPY: Record<ResidencyDecision, { label: string; consequence: string; danger: boolean }> = {
+  accepted: { label: 'Accept', consequence: 'The application is recorded as accepted.', danger: false },
+  rejected: { label: 'Reject', consequence: 'The application is recorded as rejected.', danger: true },
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Decide an open residency application. Only an application still waiting ("applied") offers a decision; the two-founder
+ * request carries the application and the decision only, because that is all the service binds to the approval.
+ */
+export function ResidencyActions({ row, userId, onChanged }: { row: Row; userId: string; onChanged: () => void }) {
+  const applicationId = rowText(row, 'id');
+  const status = rowText(row, 'status') ?? '';
+  const [choice, setChoice] = useState<ResidencyDecision>('accepted');
+  if (applicationId === null || status !== 'applied') {
+    return (
+      <p className="dk-muted" data-testid="residency-no-action">
+        Only an application that is still waiting can be decided here. This one is{' '}
+        {status === '' ? 'in a status this console does not act on' : status}.
+      </p>
+    );
+  }
+  const copy = RESIDENCY_COPY[choice];
+  const action: ControlAction = {
+    heading: `${copy.label} this residency application`,
+    submitLabel: `Ask a second operator to approve: ${copy.label.toLowerCase()} the application (this console admits only founders)`,
+    needsReason: false,
+    reasonLabel: '',
+    build: () => ({ kind: 'academy.residency.decide', id: applicationId, decision: choice }),
+    danger: copy.danger,
+  };
+  return (
+    <div className="dk-stack" data-testid="residency-actions">
+      <div className="dk-row" role="group" aria-label="Decision">
+        {(Object.keys(RESIDENCY_COPY) as ResidencyDecision[]).map((o) => (
+          <button key={o} type="button" className="adm-btn" aria-pressed={choice === o} onClick={() => setChoice(o)}>
+            {RESIDENCY_COPY[o].label}
+          </button>
+        ))}
+      </div>
+      <ControlDesk
+        key={`${applicationId}:${choice}`}
+        endpoint="/api/academy-ops"
+        userId={userId}
+        blockedReason={null}
+        action={action}
+        consequence={`${copy.consequence} No note is sent: the approval covers the application and the decision only. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Decision unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+/**
+ * Appoint an ambassador. The person is not in any list yet, so the founder types their user id. The control is always on the
+ * page; it asks for the id first, then runs the same two-founder flow as every other Academy control.
+ */
+export function AppointAmbassadorAction({ userId, onChanged }: { userId: string; onChanged: () => void }) {
+  const [target, setTarget] = useState('');
+  const person = target.trim().toLowerCase();
+  const valid = UUID.test(person);
+  const action: ControlAction = {
+    heading: 'Appoint this person as an ambassador',
+    submitLabel: 'Ask a second operator to approve the appointment (this console admits only founders)',
+    needsReason: false,
+    reasonLabel: '',
+    build: () => ({ kind: 'academy.ambassador.appoint', userId: person }),
+  };
+  return (
+    <div className="dk-stack" data-testid="appoint-ambassador">
+      <h3>Appoint an ambassador</h3>
+      <div className="adm-field">
+        <label htmlFor="appoint-user">User id of the person to appoint</label>
+        <input
+          id="appoint-user"
+          className="adm-input"
+          value={target}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          onChange={(e) => setTarget(e.target.value)}
+        />
+      </div>
+      <ControlDesk
+        key={valid ? person : 'no-person'}
+        endpoint="/api/academy-ops"
+        userId={userId}
+        blockedReason={null}
+        formHold={valid ? null : 'Enter the person’s user id above first (it looks like 9f8e7d6c-1111-4222-8333-444455556666).'}
+        action={action}
+        consequence={`The person holds the ambassador role and badge. It is a status only and pays nothing. A person who is already an ambassador, active or frozen, is refused by the service. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Appoint unavailable"
         onChanged={onChanged}
       />
     </div>

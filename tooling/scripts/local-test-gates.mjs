@@ -42,6 +42,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -87,7 +88,7 @@ export function assertLocalTarget({ home = os.homedir(), urls } = {}) {
 }
 
 export function gatePaths(home = os.homedir()) {
-  const stateDir = path.join(home, '.intafaced', 'local-test-stack');
+  const stateDir = localStackState(home);
   return {
     stateDir,
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
@@ -307,6 +308,7 @@ class Edge {
     this.origin = origin;
   }
   async call(method, route, body, token) {
+    if (method !== 'GET') assertActiveLocalStack();
     const headers = { origin: this.origin, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
     if (token) headers.authorization = `Bearer ${token}`;
     const res = await fetch(`${this.base}${route}`, {
@@ -354,6 +356,7 @@ function decodeJwtPayload(token) {
 
 export async function makeContext({ home = os.homedir(), log = say } = {}) {
   const { paths, marker } = assertLocalTarget({ home });
+  assertActiveLocalStack({ stateDir: paths.stateDir });
   const p = gatePaths(home);
   const secrets = readJson(p.secrets, null);
   if (!secrets?.internal || !secrets?.jwt) throw new Error('secrets.json is missing the internal or jwt secret');
@@ -453,6 +456,15 @@ export async function ensureOperators(ctx) {
   return ops;
 }
 
+/** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
+async function mintOperatorToken(ctx, op) {
+  const minted = await ctx.tokens.issueAccessToken(
+    { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
+    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+  );
+  return minted.token;
+}
+
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
 export async function operatorSessions(ctx) {
   const ops = await ensureOperators(ctx);
@@ -467,11 +479,16 @@ export async function operatorSessions(ctx) {
       token: loginToken,
       /** Same session, plus the operator scope. Short-lived. */
       async complianceToken() {
-        const minted = await ctx.tokens.issueAccessToken(
-          { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
-          { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
-        );
-        return minted.token;
+        return mintOperatorToken(ctx, op);
+      },
+      /**
+       * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
+       * operator action types (matching.open, kyc.approve, ...) refuses a plain session token (an ordinary user,
+       * #4724), so propose, approve and reject use this. Identity still checks the proposer and the approver are
+       * two distinct users, so the two operators keep two distinct tokens. Accepted before and after that rule.
+       */
+      async approvalToken() {
+        return mintOperatorToken(ctx, op);
       },
     };
   }
@@ -480,14 +497,14 @@ export async function operatorSessions(ctx) {
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
 async function twoPerson(ctx, sessions, proposal) {
-  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, sessions.a.token);
+  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await sessions.a.approvalToken());
   const row = data(proposed);
   if (!row?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
   const approved = await ctx.edge.mutate(
     'identity',
     'actionApproval.approve',
     { approvalId: row.approvalId, expectedPayloadHash: proposal.payloadHash },
-    sessions.b.token,
+    await sessions.b.approvalToken(),
   );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
@@ -497,6 +514,7 @@ async function twoPerson(ctx, sessions, proposal) {
 // ── 1. Lifecycle (the owner stand-in) ───────────────────────────────────────
 
 async function signedTrade(ctx, method, route, bodyObj) {
+  if (method !== 'GET') assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
   const raw = bodyObj === undefined ? '' : JSON.stringify(bodyObj);
   const headers = { ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw) };
   if (raw) headers['content-type'] = 'application/json';
@@ -555,6 +573,7 @@ export async function openBooks(ctx) {
   for (const m of markets) {
     const ids = await twoPerson(ctx, sessions, openProposal(m.id));
     const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
     const res = await fetch(`${matchingBase}/markets/${encodeURIComponent(m.id)}/open`, {
       redirect: 'error',
       method: 'POST',

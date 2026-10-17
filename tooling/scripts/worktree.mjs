@@ -483,18 +483,12 @@ function remove(branch) {
     fail(`${branch} has uncommitted changes:\n${dirty}\n\nCommit or discard them first, then re-run.`);
   }
 
+  // Plain `git worktree remove`, which refuses a dirty checkout, and never a
+  // branch delete: AGENTS.md says branches are never deleted, merged or not.
   console.log(`· removing worktree ${path}`);
   git(['worktree', 'remove', path], { stdio: 'inherit' });
-
-  const merged = git(['branch', '--merged', baseBranch()]).includes(branch);
-  if (merged) {
-    git(['branch', '-d', branch], { stdio: 'inherit' });
-    console.log(`✓ removed worktree and merged branch ${branch}`);
-  } else {
-    console.log(`✓ removed worktree`);
-    console.log(`  Branch "${branch}" kept — it is not merged into ${baseBranch()}.`);
-    console.log(`  Delete it with: git branch -D ${branch}`);
-  }
+  console.log(`✓ removed worktree · branch kept: ${branch}`);
+  console.log(`  \`pnpm wt ${branch}\` restores a checkout.`);
 }
 
 /** The start point `create` resolves, plus how far HEAD is from it. */
@@ -669,6 +663,13 @@ if (selfTest) {
     check('install uses the pinned pnpm binary', runtime.includes("spawnSync(pnpmBin, ['install']"), true);
     check('install does not use shell:true', /spawnSync\(pnpmBin, \['install'\], \{[^}]*shell: true/s.test(runtime), false);
     check('pnpm wt does not refresh the map', runtime.includes('graphify'), false);
+    // remove() keeps the branch and never forces: slice its body and look for the verbs.
+    const removeBody = runtime.slice(runtime.indexOf('function remove('), runtime.indexOf('/** The start point'));
+    check('remove() exists in the runtime code', removeBody.length > 0, true);
+    check('remove() never deletes a branch', /\[\s*'branch'/.test(removeBody), false);
+    check('remove() never passes --force', /--force|'-f'/.test(removeBody), false);
+    check('remove() uses plain git worktree remove', removeBody.includes("['worktree', 'remove', path]"), true);
+    check('remove() says the branch is kept', removeBody.includes('branch kept'), true);
   }
 
   let failed = 0;

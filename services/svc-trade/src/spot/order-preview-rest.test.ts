@@ -126,6 +126,7 @@ function appWith(input: {
   spotEnabled?: boolean;
   feeSchedule?: OwnerFeeSchedule;
   slippageCapBps?: number | null;
+  feeDiscountBps?: (userId: string) => Promise<number>;
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -163,6 +164,7 @@ function appWith(input: {
     optionsSettlementLawStamped: false,
     slippageCapBps: input.slippageCapBps === undefined ? 200 : input.slippageCapBps,
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
+    ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
   });
   return { app, submit, ledgerPost };
 }
@@ -190,10 +192,72 @@ describe('POST /api/v1/orders/preview', () => {
       feeAsset: 'fixture-base',
       feeBps: 2,
       feeRole: 'taker',
+      feeScheduleVersion: 'preview-test',
+      makerFeeBps: 1,
+      takerFeeBps: 2,
       orderable: true,
       refusals: [],
     });
     expect(submit).not.toHaveBeenCalled();
+    expect(ledgerPost).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('quotes maker when a GTC limit buy is strictly below a known best ask', async () => {
+    const { app } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, price: '99' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ feeRole: 'maker', feeBps: 1, orderable: true });
+    await app.close();
+  });
+
+  it('quotes taker for a limit sell', async () => {
+    const { app } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, side: 'sell' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ feeRole: 'taker', side: 'sell' });
+    await app.close();
+  });
+
+  it('refuses maker-or-cancel and does not call the ledger', async () => {
+    const { app, ledgerPost } = appWith({});
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, price: '99', timeInForce: 'MOC' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().orderable).toBe(false);
+    expect(response.json().refusals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'timeInForce' })]),
+    );
+    expect(ledgerPost).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('given a taker fee of 100 bps and a rank discount of 5000, a limit buy preview fee bps is 50', async () => {
+    const schedule = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'rank-50', makerBps: '100', takerBps: '100' }));
+    const { app, ledgerPost } = appWith({ feeSchedule: schedule, feeDiscountBps: async () => 5000 });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({
+      feeBps: 50,
+      makerFeeBps: 50,
+      takerFeeBps: 50,
+      feeScheduleVersion: 'rank-50',
+      orderable: true,
+    });
     expect(ledgerPost).not.toHaveBeenCalled();
     await app.close();
   });

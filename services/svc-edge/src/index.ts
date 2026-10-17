@@ -428,7 +428,7 @@ await app.register(async (api) => {
       allowedOrigins: cors.origins,
     });
     if (csrf) {
-      return reply.code(403).send({ error: userCopy('edge.origin_not_allowed'), code: csrf.code });
+      return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
     }
 
     const body = upstreamBody(req.method, req.body);

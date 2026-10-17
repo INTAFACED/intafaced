@@ -1,10 +1,19 @@
 import type { ApiClient } from '../../../shared/api';
 import { isTerminalOrder, orderSchema, type Draft, type Order } from '../../../features/trade/trade-api';
+import type { ScaleOutcome } from './ticket/scale-flow';
 
 export type ResendResult =
   | { ok: true; order: Order }
   /** `unsure`: the answer was lost again or did not match; keep the marker. `refused`: the service said no, nothing was placed. */
-  | { ok: false; reason: 'unsure' | 'refused'; code?: string };
+  | { ok: false; reason: 'unsure' | 'refused' | 'unauthorized' | 'forbidden'; code?: string };
+
+export function resendOutcome(result: ResendResult): ScaleOutcome {
+  if (result.ok) return 'accounted';
+  if (result.reason === 'unsure') return 'lost';
+  if (result.reason === 'unauthorized') return 'unauthorized';
+  if (result.reason === 'forbidden') return 'forbidden';
+  return 'refused';
+}
 
 /** The code the trade service uses when the same order number comes back with a different order. */
 export const CONFLICT_CODE = 'trade.client_order_id_conflict';
@@ -19,10 +28,12 @@ export const CONFLICT_CODE = 'trade.client_order_id_conflict';
  */
 export async function resendOrder(client: ApiClient, draft: Draft): Promise<ResendResult> {
   const result = await client.rest('/orders', orderSchema, { method: 'POST', body: draft });
-  if (!result.ok)
-    return result.reason === 'uncertain'
-      ? { ok: false, reason: 'unsure' }
-      : { ok: false, reason: 'refused', ...(result.code ? { code: result.code } : {}) };
+  if (!result.ok) {
+    if (result.reason === 'uncertain') return { ok: false, reason: 'unsure' };
+    if (result.reason === 'unauthorized') return { ok: false, reason: 'unauthorized' };
+    if (result.reason === 'forbidden') return { ok: false, reason: 'forbidden' };
+    return { ok: false, reason: 'refused', ...(result.code ? { code: result.code } : {}) };
+  }
   const order = result.data;
   if (order.symbol !== draft.symbol || order.clientOrderId !== draft.clientOrderId) return { ok: false, reason: 'unsure' };
   if (order.recoveryRequired && !isTerminalOrder(order)) return { ok: false, reason: 'unsure' };

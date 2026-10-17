@@ -63,6 +63,11 @@ export function assertBusinessPendingListLimit(limit: number | undefined): numbe
   return assertOwnerListLimit(limit, 'bank.business_pending_list_limit_unset', 'business.pending');
 }
 
+/** business.approvals page size. Omit used to dump every approval. */
+export function assertBusinessApprovalsListLimit(limit: number | undefined): number {
+  return assertOwnerListLimit(limit, 'bank.business_approvals_list_limit_unset', 'business.approvals');
+}
+
 /** ramps.onramps page size. Omit used to dump every on-ramp. */
 export function assertOnrampsListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.onramps_list_limit_unset', 'ramps.onramps');

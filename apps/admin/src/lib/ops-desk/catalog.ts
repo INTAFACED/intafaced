@@ -664,7 +664,8 @@ const academySections: readonly DeskSection[] = [
   {
     id: 'ambassadors',
     title: 'Ambassadors and residencies',
-    intro: 'The people who carry the Academy role, and applications waiting for a decision.',
+    intro:
+      'The people who carry the Academy role, and applications waiting for a decision. Appointing an ambassador and deciding a residency are two-founder requests.',
     reads: [
       {
         id: 'academy.ambassadors',
@@ -692,13 +693,14 @@ const academySections: readonly DeskSection[] = [
       {
         id: 'academy.residencies',
         title: 'Residency applications awaiting a decision',
-        note: 'Open applications, as svc-academy lists them.',
+        note: 'Open applications, as svc-academy lists them. Accept or reject each as a two-founder request.',
         module: 'academy',
         procedure: 'openResidencies',
         input: { limit: 100 },
         shape: 'list',
         idKey: 'id',
         page: 100,
+        rowAction: 'academy.residency',
         columns: [
           text('userId', 'Applicant'),
           text('cohortSlug', 'Cohort'),
@@ -712,24 +714,16 @@ const academySections: readonly DeskSection[] = [
       },
     ],
     unavailable: [],
-    disabledActions: [
-      {
-        id: 'academy.decide-residency',
-        label: 'Decide a residency',
-        reason: 'svc-academy has decideResidency (admin:write) but this console does not carry it yet, so decisions are made outside it.',
-      },
-      {
-        id: 'academy.appoint',
-        label: 'Appoint an ambassador',
-        reason: 'svc-academy has appointAmbassador (two-person approval) but this console does not carry it yet.',
-      },
-    ],
+    disabledActions: [],
+    sectionAction: 'academy.ambassador.appoint',
     links: [],
   },
 ];
 
 // ─── More ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+const FORBID_TOKEN_READ =
+  'Your console session does not have token read permission yet: svc-token did not accept your founder session for this read (it needs token:read).';
 const FORBID_MARKET_OPS = 'svc-market did not accept your founder session for this read (it needs market:ops).';
 
 const moreSections: readonly DeskSection[] = [
@@ -828,7 +822,7 @@ const moreSections: readonly DeskSection[] = [
       un(
         'launch.predict',
         'Predict markets',
-        'Predict stays on Protocol and waits for the recorded P1 GO. Nothing here reads a chain.',
+        'Predict stays on Protocol. The P1 GO is recorded, but INTACORE and svc-predict do not run yet. Nothing here reads a chain.',
         null,
       ),
     ],
@@ -961,6 +955,70 @@ const moreSections: readonly DeskSection[] = [
     links: [],
   },
   {
+    id: 'token',
+    title: 'Token',
+    intro:
+      'Governance proposals, the burned supply and the next emission epoch, as svc-token reports them. Reads only: nothing here mints, burns, stakes or votes.',
+    reads: [
+      {
+        id: 'token.proposals',
+        title: 'Governance proposals',
+        note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make yet, so neither is shown.',
+        module: 'token',
+        plainName: 'governance proposals',
+        procedure: 'listProposals',
+        input: { limit: 50 },
+        shape: 'list',
+        idKey: 'id',
+        page: 50,
+        columns: [
+          text('kind', 'Kind'),
+          text('status', 'Status'),
+          time('opensAt', 'Opens'),
+          time('closesAt', 'Closes'),
+          time('createdAt', 'Created'),
+          text('id', 'Proposal id', { detail: true }),
+        ],
+        emptyText: 'svc-token lists no proposals. That means none exist, not that governance is healthy.',
+        forbiddenText: FORBID_TOKEN_READ,
+      },
+      {
+        id: 'token.burned',
+        title: 'Burned supply',
+        note: 'Tokens burned so far, as a decimal exactly as svc-token formats it. A burn total, not the circulating supply.',
+        module: 'token',
+        plainName: 'burned supply',
+        procedure: 'burnedSupply',
+        shape: 'record',
+        columns: [amount('burned', 'Burned')],
+        emptyText: '',
+        forbiddenText: FORBID_TOKEN_READ,
+      },
+      {
+        id: 'token.epoch',
+        title: 'Next emission epoch',
+        note: 'The epoch number the next emission would use. A read: it mints nothing, and minting stays behind its own switch in svc-token.',
+        module: 'token',
+        plainName: 'the next emission epoch',
+        procedure: 'nextEmissionEpoch',
+        shape: 'record',
+        columns: [int('epoch', 'Next epoch')],
+        emptyText: '',
+        forbiddenText: FORBID_TOKEN_READ,
+      },
+    ],
+    unavailable: [
+      un(
+        'token.supply',
+        'Total and circulating supply, total staked, number of stakers',
+        'svc-token answers stakes only for the signed-in holder (listStakes, stakeOf) and has no supply read beyond the burn total. There is no operator aggregate.',
+        29,
+      ),
+    ],
+    disabledActions: [],
+    links: [],
+  },
+  {
     id: 'campaigns',
     title: 'Campaigns',
     intro: 'Customer campaigns and who took part.',
@@ -975,6 +1033,175 @@ const moreSections: readonly DeskSection[] = [
     ],
     disabledActions: [],
     links: [{ href: '/crm', label: 'CRM outreach campaigns', why: 'Enquiries, sources and outreach campaigns that do exist.' }],
+  },
+];
+
+// ─── Protocol ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const FORBID_PROTOCOL = 'svc-protocol did not accept your founder session for this read. Nothing is shown rather than a guess.';
+const FORBID_INDEXER = 'svc-indexer did not accept your founder session for this read. Nothing is shown rather than a guess.';
+const FORBID_DEX = 'svc-dex did not accept your founder session for this read. Nothing is shown rather than a guess.';
+
+const protocolSections: readonly DeskSection[] = [
+  {
+    id: 'chain',
+    title: 'Chain status',
+    intro:
+      'What svc-protocol finds when it asks the chain it is configured for. "Reachable" and "deployed" are read from the chain; "configured" is only an address in settings.',
+    reads: [
+      {
+        id: 'protocol.chain',
+        title: 'Chain status',
+        note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
+        module: 'protocol',
+        plainName: 'chain status',
+        procedure: 'chainStatus',
+        shape: 'record',
+        columns: [
+          bool('reachable', 'A chain answered'),
+          int('configuredChainId', 'Configured chain id'),
+          int('observedChainId', 'Chain id the node reported', { nullable: true }),
+          text('blockNumber', 'Latest block', { nullable: true }),
+          bool('suiteConfigured', 'Smart-account contracts configured'),
+          bool('suiteDeployed', 'Smart-account contracts deployed (read from the chain)'),
+          bool('tokenFactoryConfigured', 'Token factory configured'),
+          bool('tokenFactoryDeployed', 'Token factory deployed (read from the chain)'),
+          bool('usable', 'Smart accounts usable'),
+          bool('launchUsable', 'Token launch usable'),
+          text('refusalCode', 'Refusal code', { nullable: true }),
+          text('reason', 'Reason', { nullable: true }),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_PROTOCOL,
+      },
+    ],
+    unavailable: [
+      un(
+        'protocol.validators',
+        'Blocks, validators and staking for INTACHAIN',
+        'No INTACHAIN chain service or validator set exists yet, so there is nothing to read. svc-protocol talks to a configured test chain and says nothing about validators.',
+        30,
+      ),
+    ],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'audit',
+    title: 'Audit status',
+    intro: 'Where the smart-account audit stands, as svc-protocol states it. Passing tests is not an audit.',
+    reads: [
+      {
+        id: 'protocol.audit',
+        title: 'Audit status',
+        note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
+        module: 'protocol',
+        plainName: 'audit status',
+        procedure: 'auditStatus',
+        shape: 'record',
+        columns: [
+          text('id', 'Package'),
+          text('kind', 'Kind', { mustBe: 'internal' }),
+          text('packagePath', 'Path'),
+          text('artifactHash', 'Artifact hash'),
+          text('signedBy', 'Signed by', { nullable: true }),
+          time('signedAt', 'Signed at', { nullable: true }),
+          bool('audited', 'Audited by an outside firm', { mustBe: false }),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_PROTOCOL,
+      },
+    ],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'indexer',
+    title: 'Indexer finality',
+    intro: 'How far the indexer has read and how much of it is final. Nothing below the finalized height can change; above it, it can.',
+    reads: [
+      {
+        id: 'protocol.indexer',
+        title: 'Indexer status',
+        note: 'Live per request. A blank height means the indexer has none yet, not zero. "Blocks behind" is blank when the chain tip or the indexer cursor is unknown.',
+        module: 'indexer',
+        plainName: 'indexer finality',
+        procedure: 'status',
+        shape: 'record',
+        columns: [
+          int('chainId', 'Chain id'),
+          text('chainSource', 'Chain source'),
+          bool('ingestEnabled', 'Reading blocks'),
+          int('indexedHeight', 'Indexed height', { nullable: true }),
+          int('finalityDepth', 'Finality depth (blocks)'),
+          int('finalizedHeight', 'Finalized height', { nullable: true }),
+          int('behindBy', 'Blocks behind the chain', { nullable: true }),
+          bool('chain.reachable', 'Chain reachable from the indexer', { nullable: true, parentNullable: true }),
+          int('chain.chainHeight', 'Chain height seen by the indexer', { nullable: true, parentNullable: true }),
+          text('halted.reason', 'Halted because', { nullable: true, parentNullable: true }),
+          time('halted.at', 'Halted at', { nullable: true, parentNullable: true }),
+          text('lastError.message', 'Last error', { nullable: true, parentNullable: true }),
+          time('lastError.at', 'Last error at', { nullable: true, parentNullable: true }),
+          bool('clob.live', 'Order-book venue live'),
+          text('clob.kind', 'Order-book venue state'),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_INDEXER,
+      },
+    ],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'dex',
+    title: 'DEX health',
+    intro: 'Which venues the DEX service has wired. It quotes and builds unsigned calls; it holds no balances and submits nothing.',
+    reads: [
+      {
+        id: 'protocol.dex',
+        title: 'DEX health',
+        note: 'Configuration facts from svc-dex. A venue that is not wired is not a venue that is down.',
+        module: 'dex',
+        plainName: 'DEX health',
+        procedure: 'health',
+        shape: 'record',
+        columns: [
+          bool('ammVenueWired', 'AMM venue wired'),
+          bool('externalVenueWired', 'External venue wired'),
+          bool('internalBook.enabled', 'Internal order book enabled'),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_DEX,
+      },
+      {
+        id: 'protocol.health',
+        title: 'Protocol service health',
+        note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
+        module: 'protocol',
+        plainName: 'protocol service health',
+        procedure: 'health',
+        shape: 'record',
+        columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],
+        emptyText: '',
+        forbiddenText: FORBID_PROTOCOL,
+      },
+    ],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+  },
+  {
+    id: 'blockers',
+    title: 'What is blocking each action',
+    intro:
+      'The same named blockers the customer Protocol rooms show, worked out here from the reads above. Every action has at least one, because nothing is audited and no customer execution path is wired.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+    panel: 'protocol.blockers',
   },
 ];
 
@@ -1009,8 +1236,17 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     module: 'more-ops',
     endpoint: '/api/more-ops',
     title: 'More modules',
-    intro: 'Agents, Quant, Mining, Launch, Market and Campaigns. What can be read is shown; what cannot is named.',
+    intro: 'Agents, Quant, Mining, Launch, Market, Token and Campaigns. What can be read is shown; what cannot is named.',
     sections: moreSections,
+  },
+  protocol: {
+    id: 'protocol',
+    module: 'protocol-ops',
+    endpoint: '/api/protocol-ops',
+    title: 'Protocol operations',
+    intro:
+      'Chain, audit, indexer and DEX status as the protocol services report them, with the time each was read. Read-only. The network label comes from the chain id a service reports: nothing here is INTACHAIN until a service says so, and nothing is audited.',
+    sections: protocolSections,
   },
 };
 

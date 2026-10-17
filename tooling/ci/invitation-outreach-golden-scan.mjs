@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Outreach golden tests — the proofs for the 05_Web_Front modules that the
+ * Outreach golden tests — the proofs for the vendored modules (apps/invitation/src/vendored) that the
  * public invitation app (apps/invitation) still bundles.
  *
  * The legacy Vue customer site in that directory is retired (see its
@@ -23,8 +23,8 @@ import { fileURLToPath } from 'node:url';
 
 const posix = (p) => p.replaceAll('\\', '/');
 const ROOT = posix(fileURLToPath(new URL('../..', import.meta.url))).replace(/\/$/, '');
-const SHELL = join(ROOT, 'vendor/upstream-exchange/05_Web_Front');
-const GOLDEN_DIR = join(SHELL, 'src/assets/js');
+const SHELL = join(ROOT, 'apps/invitation/src/vendored');
+const GOLDEN_DIR = join(SHELL, 'assets/js');
 
 function listGoldens(dir) {
   let entries;

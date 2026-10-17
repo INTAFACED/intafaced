@@ -40,6 +40,7 @@ import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
+import { categoryLabel } from './analytics-copy';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBank } from './BusinessBank';
 import { businessCopy } from './business-copy';
@@ -254,7 +255,12 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                             <dt>
                               <Text k="rooms.space.reference" />
                             </dt>
-                            <dd>{space.id}</dd>
+                            <dd>
+                              <details>
+                                <summary>{spaceCopy.t('details')}</summary>
+                                <span lang="zxx">{space.id}</span>
+                              </details>
+                            </dd>
                           </div>
                         </dl>
                         <SpaceActions space={space} open={open} />
@@ -1391,7 +1397,7 @@ function Analytics() {
                 {Object.entries(summary.outflowByCategory).length ? (
                   Object.entries(summary.outflowByCategory).map(([category, quantity]) => (
                     <div className="money-space-row" key={category}>
-                      <span>{category}</span>
+                      <span>{categoryLabel(category)}</span>
                       <strong className="numeric">{funds(quantity, summary.assetId)}</strong>
                     </div>
                   ))

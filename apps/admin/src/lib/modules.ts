@@ -32,6 +32,7 @@ export const MODULE_IDS = [
   'p2p-ops',
   'academy-ops',
   'more-ops',
+  'protocol-ops',
   'tradeops',
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
@@ -52,6 +53,7 @@ export const MODULE_ROUTES: readonly { readonly id: ModuleId; readonly href: str
   { id: 'p2p-ops', href: '/p2p-ops', label: 'P2P ops' },
   { id: 'academy-ops', href: '/academy-ops', label: 'Academy ops' },
   { id: 'more-ops', href: '/more-ops', label: 'More modules' },
+  { id: 'protocol-ops', href: '/protocol-ops', label: 'Protocol ops' },
   { id: 'tradeops', href: '/trade-ops', label: 'Trade desk' },
 ];
 
@@ -73,6 +75,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/p2p-ops', 'p2p-ops'],
   ['/api/academy-ops', 'academy-ops'],
   ['/api/more-ops', 'more-ops'],
+  ['/api/protocol-ops', 'protocol-ops'],
   ['/api/operator-tools', 'tools'],
   ['/api/analytics', 'tools'],
   ['/api/merchants', 'merchants'],

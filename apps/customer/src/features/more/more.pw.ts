@@ -1,43 +1,36 @@
 import { test, expect } from '@playwright/test';
-test('Quant Studio saves exact block amounts and compulsory risk controls only after review', async ({ page }) => {
-  let seen: Record<string, unknown> | undefined;
+test('Quant Studio keeps the draft on this device, closes the shared library, and makes no list or save call', async ({ page }) => {
+  const saves: unknown[] = [];
   await page.route('**/api/**', async (route) => {
     const proc = new URL(route.request().url()).pathname.split('/').at(-1);
-    let data: unknown = { strategies: [] };
-    if (proc === 'studio.save') {
-      seen = route.request().postDataJSON();
-      data = {
-        ...seen,
-        id: 'strategy-owned-by-service',
-        language: 'javascript',
-        source: 'compiled by service',
-        kind: 'paper',
-        claimLabel: 'Paper — not live performance',
-        live: false,
-        simulated: true,
-      };
-    }
-    await route.fulfill({ json: { result: { data } } });
+    if (proc === 'studio.save' || proc === 'studio.list') saves.push(proc);
+    await route.fulfill({ json: { result: { data: { strategies: [] } } } });
   });
   await page.goto('/quant/studio');
   await page.getByLabel('Strategy name').fill('My experiment');
   await page.getByLabel('Simulated starting cash').fill('0.000000000000000123');
   await page.getByLabel('Block 1 symbol').fill('ACTUAL/USD');
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
-  await page.getByLabel('Max drawdown (service unit unspecified)').fill('0.1');
-  await page.getByLabel('Max notional (service unit unspecified)').fill('0.2');
-  await page.getByLabel('Kill threshold (service unit unspecified)').fill('0.3');
-  await page.getByRole('button', { name: 'Review strategy', exact: true }).click();
-  expect(seen).toBeUndefined();
-  await page.getByRole('dialog').getByRole('button', { name: 'Save strategy' }).click();
-  await expect(page.getByText('Strategy saved in the deployment catalogue')).toBeVisible();
-  expect(seen).toMatchObject({
-    cash: '0.000000000000000123',
-    blocks: [{ side: 'buy', symbol: 'ACTUAL/USD', qty: '0.000000000000000456' }],
-    risk: { maxDrawdown: '0.1', maxNotional: '0.2', kill: '0.3' },
-    environment: 'paper',
-    presentedAs: 'paper',
+  await expect(page.getByText('Saved strategies are not private to accounts yet, so the shared library is closed.')).toBeVisible();
+  const save = page.getByRole('button', { name: 'Save to library', exact: true });
+  await expect(save).toBeDisabled();
+  await expect(page.getByText('Saved strategies are not private to your account yet, so drafts stay on this device.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
+  await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
+  expect(saves).toEqual([]);
+});
+test('Quant Backtest closes the shared library in its catalogue and makes no list call', async ({ page }) => {
+  const listed: string[] = [];
+  await page.route('**/api/**', async (route) => {
+    const proc = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (proc === 'studio.list') listed.push(proc);
+    await route.fulfill({ json: { result: { data: { strategies: [] } } } });
   });
+  await page.goto('/quant/backtest');
+  await page.locator('details.quant-catalogue > summary').click();
+  await expect(page.getByText('Saved strategies are not private to accounts yet, so the shared library is closed.')).toBeVisible();
+  expect(listed).toEqual([]);
 });
 test('campaign assessment shows the real warehouse refusal and sends no publication request', async ({ page }) => {
   let seen: unknown;
@@ -203,7 +196,7 @@ test('Academy media requests a real seat credential and never labels an expired 
   await page.getByRole('button', { name: 'Rooms', exact: true }).click();
   await page.getByRole('button', { name: 'Open Study' }).click();
   await page.getByRole('button', { name: 'Connect audio/video' }).click({ timeout: 3000 });
-  await expect(page.getByText('The service returned an expired media credential. No connection was started.')).toBeVisible();
+  await expect(page.getByText('The connection details have expired, so no connection was started.')).toBeVisible();
   expect(credentials).toBe(1);
   await expect(page.getByRole('button', { name: 'Enable microphone' })).toHaveCount(0);
 });

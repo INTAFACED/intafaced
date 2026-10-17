@@ -39,6 +39,7 @@ export type RecipeDisposition =
  */
 export const RECIPE_MATRIX = {
   deposit: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
+  depositReverse: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/rails/deposit-reorg.ts' },
   marketMakerSeedFund: {
     kind: 'socket',
     socket: '§13',

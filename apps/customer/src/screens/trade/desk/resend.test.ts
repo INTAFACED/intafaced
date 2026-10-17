@@ -72,4 +72,10 @@ describe('resendOrder', () => {
     expect(await resendOrder(refused.client, draft)).toEqual({ ok: false, reason: 'refused', code: 'trade.min_qty_exceeds_qty' });
     expect(refused.calls).toHaveLength(1);
   });
+
+  it('a 401 is unauthorized so the send lock can stay', async () => {
+    const expired = clientFor(() => new Response(JSON.stringify({ message: 'sign in' }), { status: 401 }));
+    expect(await resendOrder(expired.client, draft)).toEqual({ ok: false, reason: 'unauthorized' });
+    expect(expired.calls).toHaveLength(1);
+  });
 });

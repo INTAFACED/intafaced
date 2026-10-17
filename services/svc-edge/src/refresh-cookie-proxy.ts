@@ -8,11 +8,13 @@
  * The Cookie request header is forwarded only on the auth procedures,
  * which are the ones that read it.
  *
- * A state-changing auth request that presents `ifc_rt` is refused when Origin
- * is present, is not the request host, and is not on the customer allowlist.
- * SameSite=Strict already blocks cross-site browsers. This catches a same-site
- * different port (localhost:9999 calling localhost:4000), which still sends
- * a Strict cookie.
+ * A state-changing auth request that presents `ifc_rt` must show either an
+ * Origin on the customer allowlist or `x-session-request: 1`. Missing both
+ * is `auth.csrf_origin_required` and the edge returns 403 before the
+ * upstream runs, so the refresh token is not rotated and the session is
+ * not revoked. An Origin that is not on the allowlist is
+ * `edge.origin_not_allowed`. An empty allowlist matches no Origin
+ * (fail closed). SameSite=Strict already blocks cross-site browsers.
  */
 
 const REFRESH_COOKIE_NAME = 'ifc_rt';
@@ -48,16 +50,6 @@ function readRefreshCookie(header: string | undefined): string | null {
     return value.length > 0 ? value : null;
   }
   return null;
-}
-
-function originMatchesRequestHost(origin: string, hostHeader: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(origin);
-  } catch {
-    return false;
-  }
-  return hostHeader.trim().toLowerCase() === url.host;
 }
 
 export function rewriteRefreshCookiePath(line: string): string {
@@ -98,20 +90,26 @@ export function prepareUpstreamRequestHeaders(pathname: string, headers: Record<
   return next;
 }
 
+function sessionRequestHeader(headers: { [key: string]: string | string[] | undefined }): string | undefined {
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === 'x-session-request') return headerOne(value);
+  }
+  return undefined;
+}
+
 export function refuseCookieCsrf(input: {
   method: string;
   pathname: string;
-  headers: { cookie?: string | string[] | undefined; origin?: string | string[] | undefined; host?: string | string[] | undefined };
+  headers: { [key: string]: string | string[] | undefined };
   allowedOrigins: readonly string[];
-}): { code: 'edge.origin_not_allowed' } | null {
+}): { code: 'auth.csrf_origin_required' | 'edge.origin_not_allowed' } | null {
   const method = input.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return null;
   if (!isRefreshCookieRoute(input.pathname)) return null;
   if (!readRefreshCookie(headerOne(input.headers.cookie))) return null;
+  if (sessionRequestHeader(input.headers) === '1') return null;
   const origin = headerOne(input.headers.origin) ?? null;
-  if (origin === null) return null;
-  if (input.allowedOrigins.includes(origin)) return null;
-  const host = headerOne(input.headers.host);
-  if (host && originMatchesRequestHost(origin, host)) return null;
+  if (origin !== null && input.allowedOrigins.includes(origin)) return null;
+  if (origin === null) return { code: 'auth.csrf_origin_required' };
   return { code: 'edge.origin_not_allowed' };
 }

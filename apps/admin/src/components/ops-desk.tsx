@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
-import { AmbassadorActions, VendorActions } from '@/components/ops-actions';
+import { AmbassadorActions, AppointAmbassadorAction, ResidencyActions, VendorActions } from '@/components/ops-actions';
+import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk } from '@/lib/ops-desk/browser';
+import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
+import { downloadCsv } from '@/lib/ops-desk/csv-browser';
 import { formatCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
 import type { Cell, DeskSection, DeskSpec, DeskView, ReadData, ReadOutcome, ReadSpec, Row } from '@/lib/ops-desk/types';
 import './desk.css';
@@ -18,13 +21,26 @@ import './desk.css';
  * as a zero. A read that was refused or is down says so in words and does not hide the reads beside it.
  */
 
-function Failed({ title, part }: { title: string; part: Extract<Part<unknown>, { kind: 'failed' }> }) {
+function Failed({
+  title,
+  part,
+  plainName,
+  asOf,
+}: {
+  title: string;
+  part: Extract<Part<unknown>, { kind: 'failed' }>;
+  plainName?: string | undefined;
+  asOf?: string | undefined;
+}) {
   const label = part.notBuilt ? 'not switched on' : part.forbidden ? 'refused your session' : 'unavailable';
   return (
     <div className="adm-callout" data-tone={part.forbidden || part.notBuilt ? 'warn' : 'danger'} role="status" data-testid="read-failed">
-      <strong>
-        {title}: {label}
-      </strong>
+      <strong>{plainName ? `Could not load ${plainName}` : `${title}: ${label}`}</strong>
+      {plainName && (
+        <p className="dk-muted">
+          {label.charAt(0).toUpperCase() + label.slice(1)}. As of {asOf ?? 'an unknown time'}.
+        </p>
+      )}
       <p>{part.message}</p>
       {part.code && <p className="dk-muted">Code: {part.code}</p>}
       <p className="dk-muted">Nothing is shown here rather than a guess.</p>
@@ -71,6 +87,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       </dl>
       {spec.rowAction === 'market.vendor.vet' && <VendorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'academy.ambassador' && <AmbassadorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'academy.residency' && <ResidencyActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
     </div>
   );
 }
@@ -82,9 +99,31 @@ export interface ListViewProps {
   /** The row open across the whole desk, as `${readId}:${rowId}`, so only one detail (and one form) is open at a time. */
   readonly openKey: string | null;
   readonly onOpen: (key: string | null) => void;
+  /** When the console read this list. It goes into the CSV filename and the note beside the button. */
+  readonly asOf?: string;
 }
 
-export function ListView({ spec, data, ctx, openKey, onOpen }: ListViewProps) {
+/** "Export CSV": the rows on screen, nothing more. The note beside it says so, and says when the page was full. */
+export function ExportCsv({ spec, data, asOf }: { spec: ReadSpec; data: Extract<ReadData, { shape: 'list' }>; asOf: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="dk-row" data-testid="export-csv">
+      <button type="button" className="adm-btn" onClick={() => setFailed(!downloadCsv(csvFilename(spec.id, asOf), listToCsv(spec, data)))}>
+        Export CSV ({data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'} shown)
+      </button>
+      <span className="dk-muted" data-testid="export-note">
+        {exportNote(data.rows.length, data.pageFull, spec.page, asOf)}
+      </span>
+      {failed && (
+        <span className="dk-why" role="alert">
+          The browser did not allow the download. Nothing was saved.
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewProps) {
   if (data.rows.length === 0) {
     return (
       <p className="dk-muted" data-testid="list-empty">
@@ -98,6 +137,7 @@ export function ListView({ spec, data, ctx, openKey, onOpen }: ListViewProps) {
       <p className="dk-muted" data-testid="list-count">
         {rowCountText(data.rows.length, data.pageFull, spec.page)}
       </p>
+      {asOf !== undefined && <ExportCsv spec={spec} data={data} asOf={asOf} />}
       <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
         <table className="adm-table">
           <thead>
@@ -166,10 +206,10 @@ export function ReadBlock({ spec, outcome, ctx, openKey, onOpen }: ReadBlockProp
         <p className="dk-asof">{outcome ? `As of ${outcome.asOf} (when this console read ${spec.module})` : 'Not read yet'}</p>
       </div>
       {!outcome && <p className="dk-why">This part was not read. Nothing is shown rather than a guess.</p>}
-      {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} />}
+      {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} plainName={spec.plainName} asOf={outcome.asOf} />}
       {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'record' && <RecordFacts cells={outcome.part.data.cells} />}
       {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && (
-        <ListView spec={spec} data={outcome.part.data} ctx={ctx} openKey={openKey} onOpen={onOpen} />
+        <ListView spec={spec} data={outcome.part.data} ctx={ctx} openKey={openKey} onOpen={onOpen} asOf={outcome.asOf} />
       )}
     </section>
   );
@@ -197,6 +237,7 @@ export function SectionView({
       {section.reads.map((spec) => (
         <ReadBlock key={spec.id} spec={spec} outcome={view?.reads[spec.id]} ctx={ctx} openKey={openKey} onOpen={onOpen} />
       ))}
+      {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
       {section.unavailable.length > 0 && (
         <div className="dk-stack" data-testid="unavailable">
           {section.unavailable.map((u) => (
@@ -210,6 +251,7 @@ export function SectionView({
           ))}
         </div>
       )}
+      {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.disabledActions.length > 0 && (
         <div className="dk-stack" data-testid="disabled-actions">
           {section.disabledActions.map((a) => (

@@ -121,7 +121,7 @@ function toTrpcError(err: unknown): TRPCError {
     return new TRPCError({ code: 'BAD_REQUEST', message: userCopy(err.code), cause: err });
   }
   if (err instanceof TokenError) {
-    const message = userCopy(err.code);
+    const message = err.code === 'token.params_unset' ? userCopy(err.code, err.config ? { config: err.config } : {}) : userCopy(err.code);
     switch (err.code) {
       case 'token.proposal_not_found':
       case 'token.stake_not_found':
@@ -158,6 +158,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.params_missing':
       case 'token.params_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+      case 'token.params_unset':
       case 'token.yield_job_unset':
       case 'token.buyback_job_unset':
       case 'token.governance_quorum_unset':

@@ -143,9 +143,30 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
-    id: 'copy-bots-execution-quote',
-    label: 'Copy, Bots, Execution, Quote desk',
-    paths: ['/trade/copy', '/trade/bots', '/execution', '/otc', '/otc/*'],
+    id: 'copy',
+    label: 'Copy trading',
+    paths: ['/trade/copy'],
+    status: 'blocked',
+    reason:
+      'The leader fee share and the list of countries where copy trading is allowed are not approved yet, so the service refuses every new follow',
+    unlock: 'Approval of the leader fee share and of the country list',
+    tab: 'trade',
+  },
+  {
+    id: 'bots',
+    label: 'Bots',
+    paths: ['/trade/bots'],
+    status: 'live',
+    reason: 'Catalogue, set-up and controls load real data through svc-trade',
+    unlock: 'already live',
+    tab: 'trade',
+    checked:
+      '2026-10-17, local stack as the TEST account: every bot room and action walked to a result or a typed refusal (TRCOPY receipt).',
+  },
+  {
+    id: 'execution-quote',
+    label: 'Execution, Quote desk',
+    paths: ['/execution', '/otc', '/otc/*'],
     status: 'blocked',
     reason: 'Not a first-release customer path',
     unlock: 'per contract',

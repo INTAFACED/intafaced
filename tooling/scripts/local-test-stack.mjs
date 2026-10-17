@@ -40,12 +40,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import {
+  ensureFounderVaultDraft,
+  enrolTestStackFounders,
+  founderIdentityEnv,
+  foundersEnrolled,
+  planFounderIdentityRestart,
+  readFounderPinStamp,
+  writeFounderPinStamp,
+} from './local-test-founders.mjs';
+import {
+  localStackState,
+  assertActiveLocalStack,
+  processRecordMatches,
+  readProcessIdentity,
+  postgresProcessMatches,
+} from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
-const STATE = path.join(os.homedir(), '.intafaced', 'local-test-stack');
+const STATE = localStackState();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
@@ -113,7 +129,7 @@ const SCHEMAS = [
   'blueprint',
 ];
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — balances are test funds, not real money';
+const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -147,7 +163,7 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 function baseEnv() {
   // A clean environment: nothing from the caller's shell leaks into services.
-  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp') };
+  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp'), LOCAL_STACK_STATE: STATE };
 }
 
 function freeGb() {
@@ -219,6 +235,18 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+function localOperatorIds() {
+  try {
+    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
+    return ['a', 'b']
+      .map((k) => ops[k]?.userId)
+      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
+      .join(',');
+  } catch {
+    return '';
+  }
+}
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
@@ -231,12 +259,9 @@ function readProcs() {
 }
 const writeProcs = (procs) => writePrivate(P.procs, JSON.stringify(procs, null, 2));
 
-/** A record is "ours and alive" only if the pid is alive AND its argv still matches. */
+/** Verify each record independently, including while other stack services are down. */
 function ownedAlive(rec) {
-  if (!rec?.pid) return false;
-  const cmd = psCommand(rec.pid);
-  if (!cmd) return false;
-  return cmd.startsWith(rec.argv[0]) && rec.argv.slice(1).every((a) => cmd.includes(a));
+  return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
 function startProc(name, argv, env, cwd) {
@@ -283,8 +308,8 @@ function psql(secrets, sql, { db = 'postgres', user = DB_ADMIN, password = secre
 function pgRunning() {
   const pidFile = path.join(P.pgdata, 'postmaster.pid');
   if (!fs.existsSync(pidFile)) return false;
-  const pid = Number(fs.readFileSync(pidFile, 'utf8').split('\n')[0]);
-  return Boolean(pid) && psCommand(pid).includes(P.pgdata);
+  const [pid, directory, started] = fs.readFileSync(pidFile, 'utf8').split('\n');
+  return directory === P.pgdata && postgresProcessMatches(P.pgdata, Number(started) * 1000, readProcessIdentity(Number(pid)));
 }
 
 function ensurePostgres(secrets) {
@@ -698,6 +723,9 @@ function serviceDefs(secrets) {
         IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+        // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
+        // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
+        ...identityFounderEnv(),
       }),
     },
     {
@@ -710,6 +738,11 @@ function serviceDefs(secrets) {
         // Opening a market needs a two-person approval that matching consumes from identity
         // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
         IDENTITY_URL: urlOf('identity'),
+        // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
+        // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
+        // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
+        // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
+        ...(localOperatorIds() ? { MATCHING_OPERATOR_IDS: localOperatorIds() } : {}),
       }),
     },
     {
@@ -1022,16 +1055,67 @@ function ensureStreams() {
   say(`  nats streams: ${r.stdout.trim()}`);
 }
 
+/** Invite hashes and, once enrolled, the two local-test founder ids. A bad vault contributes nothing. */
+function identityFounderEnv() {
+  const file = path.join(STATE, 'founders.json');
+  if (!fs.existsSync(file)) return {};
+  let vault;
+  try {
+    vault = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    fail(`local test founder vault is unreadable: ${err instanceof Error ? err.message : err}`);
+  }
+  return founderIdentityEnv(vault);
+}
+
 async function startNodeService(def) {
-  const port = Number(def.env().HTTP_PORT);
+  const env = def.env();
+  const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
+  if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], def.env(), path.join(REPO, 'services', `svc-${def.name}`));
+  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
   await waitHealthy(def.name, url, pid);
+}
+
+async function restartIdentity() {
+  say('  identity: restarting so the local test founder pair is the configured pair');
+  await stopProc('identity', readProcs().identity);
+  const def = serviceDefs(readJson(P.secrets)).find((d) => d.name === 'identity');
+  await startNodeService(def);
+}
+
+/**
+ * Seed local_test_founder_a and local_test_founder_b on this stack's identity and
+ * pin IDENTITY_FOUNDER_* to those two ids. No-op when identity or edge is not up.
+ */
+async function ensureLocalTestFounders() {
+  const identityUp = (await httpGet(`${urlOf('identity')}/health`, 2000)).status === 200;
+  const edgeUp = (await httpGet(`${urlOf('edge')}/health`, 2000)).status === 200;
+  if (!identityUp || !edgeUp) {
+    say('  founders: identity or edge is not up, so the local test founder pair was not enrolled on this run');
+    return;
+  }
+  const marker = readJson(P.marker);
+  const edgeUrl = urlOf('edge');
+  const { vaultPath } = ensureFounderVaultDraft({ stateDir: STATE, marker, edgeUrl, log: say });
+  const readVault = () => JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+  let vault = readVault();
+  const plan = planFounderIdentityRestart({ enrolled: foundersEnrolled(vault), stamp: readFounderPinStamp(STATE), vault });
+  if (plan.restartBeforeEnrol) await restartIdentity();
+  if (!foundersEnrolled(vault)) {
+    say('  founders: enrolling local_test_founder_a and local_test_founder_b on this stack');
+    await enrolTestStackFounders({ stateDir: STATE, marker, edgeUrl, log: say });
+    vault = readVault();
+    await restartIdentity();
+  } else if (plan.restartToPin) {
+    await restartIdentity();
+  }
+  if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
 }
 
 async function startCustomer() {
@@ -1149,7 +1233,19 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
+  // Vault before identity starts, so the first boot already has the invite hashes.
+  // Enrolment itself waits until edge is up (below).
+  try {
+    ensureFounderVaultDraft({ stateDir: STATE, marker: readJson(P.marker), edgeUrl: urlOf('edge'), log: say });
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
   for (const def of wanted) await startNodeService(def);
+  try {
+    await ensureLocalTestFounders();
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
@@ -1167,6 +1263,12 @@ async function cmdStart(flags) {
   }
   say('');
   say(`  ${describeCustomerDist()}`);
+  const pinned = identityFounderEnv();
+  say(
+    pinned.IDENTITY_FOUNDER_NITRO_USER_ID && pinned.IDENTITY_FOUNDER_PHANTOM_USER_ID
+      ? '  Founders: local_test_founder_a and local_test_founder_b are the identity pair on this stack'
+      : '  Founders: pair not pinned (identity and edge must both be up)',
+  );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
@@ -1179,7 +1281,7 @@ async function cmdStart(flags) {
  */
 function ensureMarket() {
   const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
-    env: { PATH: process.env.PATH, HOME: os.homedir() },
+    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
@@ -1196,7 +1298,7 @@ async function cmdStop(names = []) {
     const rec = procs[name];
     if (!rec) continue;
     if (rec.pid && psCommand(rec.pid) && !ownedAlive(rec)) {
-      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line, refusing to signal it`);
+      say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line or start time, refusing to signal it`);
       bad = true;
       continue;
     }
@@ -1239,7 +1341,13 @@ function cmdPlan(flags) {
   const bp = buildPlan(flags.includes('--rebuild'), act);
   const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
   if (flags.includes('--json'))
-    return say(JSON.stringify({ host: HOST, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer }, null, 2));
+    return say(
+      JSON.stringify(
+        { host: HOST, stateDir: STATE, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer },
+        null,
+        2,
+      ),
+    );
   say('INTAFACED local test stack, plan (nothing is started or changed)');
   for (const sv of services)
     say(
@@ -1444,6 +1552,7 @@ async function cmdFund(rawArgs) {
   }
   if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
   if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['ledger'] });
 
   // `who` = "house": stock the house market-maker pot, which Convert settles against (quotes are principal
   // inventory, not book trades: services/svc-trade/src/convert/settle.ts). Without BTC in that pot an accepted

@@ -1,3 +1,4 @@
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { TradeError, type Market } from './types.js';
 
 /**
@@ -23,7 +24,7 @@ export const FOREX_SETTLEMENT_SOCKET = 'socket.forex-settlement' as const;
 export const FOREX_SETTLEMENT_REFUSE_CODE = 'trade.unsettled_asset_class_listing' as const;
 
 export const FOREX_SETTLEMENT_RESIDUAL =
-  'D26-P0-05 options/forex settlement asset law + fiat settle rails — refuse-closed (never invent settlement asset)';
+  'Forex and commodity trading is not available yet: the settlement asset and fiat settlement rails are not set.';
 
 export type ForexSettlementStatus = {
   /** Always false until P0-05 ADR + fiat rails are owner-published. */
@@ -31,7 +32,7 @@ export type ForexSettlementStatus = {
   socket: typeof FOREX_SETTLEMENT_SOCKET;
   statusLine: string;
   residual: string;
-  blockers: readonly ['D26-P0-05', 'fiat_settle_rails'];
+  blockers: readonly ['settlement_asset_law', 'fiat_settle_rails'];
   /** What remains legal while the socket is open. */
   allowed: {
     paperListing: true;
@@ -46,12 +47,13 @@ export type ForexSettlementStatus = {
  * Never reports a publishable settlement asset; there is none until P0-05.
  */
 export function forexSettlementStatus(): ForexSettlementStatus {
+  logRefusalSpec('trade.unsettled_asset_class_listing');
   return {
     published: false,
     socket: FOREX_SETTLEMENT_SOCKET,
-    statusLine: `published=0 socket=${FOREX_SETTLEMENT_SOCKET} residual=D26-P0-05+fiat_settle_rails`,
+    statusLine: `published=0 socket=${FOREX_SETTLEMENT_SOCKET} residual=settlement_asset_law+fiat_settle_rails`,
     residual: FOREX_SETTLEMENT_RESIDUAL,
-    blockers: ['D26-P0-05', 'fiat_settle_rails'],
+    blockers: ['settlement_asset_law', 'fiat_settle_rails'],
     allowed: {
       paperListing: true,
       nonActiveListing: true,
@@ -77,9 +79,9 @@ export function assertProductionUnsettledAssetClassListing(input: {
   if (!isUnsettledAssetClass(input.assetClass)) return;
   if (input.paper) return;
   if (input.status !== 'active') return;
+  logRefusalSpec('trade.unsettled_asset_class_listing');
   throw new TradeError(
-    `${input.assetClass} cannot be listed for production trading until ${FOREX_SETTLEMENT_SOCKET} closes ` +
-      `(D26-P0-05 settlement asset law + fiat settle rails — list as paper=true or status pending/halted; never invent settlement)`,
+    `${input.assetClass} cannot be listed for production trading yet: the settlement asset and fiat settlement rails are not set. List it as paper, or as pending or halted.`,
     FOREX_SETTLEMENT_REFUSE_CODE,
   );
 }
@@ -91,9 +93,9 @@ export function assertProductionUnsettledAssetClassListing(input: {
 export function assertSettlementRails(market: Pick<Market, 'symbol' | 'assetClass' | 'paper'>): void {
   if (market.paper) return;
   if (!isUnsettledAssetClass(market.assetClass)) return;
+  logRefusalSpec('trade.unsettled_asset_class_listing');
   throw new TradeError(
-    `${market.symbol} is ${market.assetClass} — production place refuse-closed at ${FOREX_SETTLEMENT_SOCKET} ` +
-      `(D26-P0-05 + fiat settle rails; list as paper or wait for owner settlement law — never invent)`,
+    `${market.symbol} is ${market.assetClass} and cannot be traded yet: the settlement asset and fiat settlement rails are not set.`,
     FOREX_SETTLEMENT_REFUSE_CODE,
   );
 }
