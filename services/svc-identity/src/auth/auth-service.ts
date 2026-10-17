@@ -59,7 +59,7 @@ import {
   syncNavigatorSessionOpen,
   syncNavigatorSessionsClosedForUser,
 } from '../agents/navigator-session-projection-sync.js';
-import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS } from './refresh-cookie.js';
+import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import type { RankService } from '../rank/rank-service.js';
 
@@ -345,6 +345,16 @@ function uniqueConstraintName(err: unknown): string {
   return typeof name === 'string' ? name : '';
 }
 
+/**
+ * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
+ * value above the ceiling is off. Never invents 120.
+ */
+function recoveryWindowMs(seconds: number | undefined): number {
+  if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds)) return 0;
+  if (seconds <= 0 || seconds > REFRESH_RECOVERY_SECONDS_CEILING) return 0;
+  return seconds * 1000;
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -354,6 +364,11 @@ export class AuthService {
   private readonly maxSubAccounts: number | undefined;
   /** How long a just-rotated refresh token may be presented again by a second tab. */
   private readonly reuseGraceMs: number;
+  /**
+   * Owner-published lost-reply window past the grace, in milliseconds.
+   * 0 is off: a presentation outside the grace window is reuse, as before.
+   */
+  private readonly recoveryMs: number;
   /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
@@ -388,6 +403,7 @@ export class AuthService {
     pendingTotp?: PendingTotpEnrolmentStore,
     maxSubAccounts?: number,
     reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
+    recoverySeconds?: number,
   ) {
     this.webauthn = webauthn;
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
@@ -397,6 +413,7 @@ export class AuthService {
       maxSubAccounts !== undefined && Number.isFinite(maxSubAccounts) && maxSubAccounts >= 1 ? Math.floor(maxSubAccounts) : undefined;
     const grace = Number.isFinite(reuseGraceSeconds) ? Math.floor(reuseGraceSeconds) : DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
     this.reuseGraceMs = Math.min(120, Math.max(0, grace)) * 1000;
+    this.recoveryMs = recoveryWindowMs(recoverySeconds);
   }
 
   /** Cookie Max-Age. Same number as the refresh-token row lifetime. */
@@ -821,17 +838,26 @@ export class AuthService {
       rotated_at: Date | null;
       successor_id: string | null;
       successor_refresh: string | null;
+      device: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
       | { kind: 'grace'; tokens: SessionTokens }
+      | {
+          kind: 'recovered';
+          tokens: SessionTokens;
+          userId: string;
+          predecessorId: string;
+          successorId: string;
+          ageSeconds: number;
+        }
       | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -846,10 +872,22 @@ export class AuthService {
         }
         const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
         if (grace) return { kind: 'grace', tokens: grace };
+        const recovered = await this.recoverTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null, options.device);
+        if (recovered) {
+          return {
+            kind: 'recovered',
+            tokens: recovered.tokens,
+            userId: session.user_id,
+            predecessorId: session.id,
+            successorId: recovered.tokens.sessionId,
+            ageSeconds: recovered.ageSeconds,
+          };
+        }
         // A rotation stamps the predecessor. Presenting that token again,
-        // outside the grace window, is reuse and burns every live session.
-        // Logout and other explicit revokes leave no stamp: the token is
-        // dead, and saying so must not sign the person out elsewhere.
+        // outside the grace window and outside a published recovery window,
+        // is reuse and burns every live session. Logout and other explicit
+        // revokes leave no stamp: the token is dead, and saying so must not
+        // sign the person out elsewhere.
         if (!session.rotated_at && !session.successor_id) {
           throw new AuthError('Session not found', 'auth.session_invalid');
         }
@@ -865,6 +903,9 @@ export class AuthService {
       }
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
+      // The row that still holds a sealed copy of THIS session's refresh token
+      // is no longer pointing at the tip. Drop that copy in the same transaction.
+      await tx`UPDATE sessions SET successor_refresh = NULL WHERE successor_id = ${session.id}`;
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
@@ -896,6 +937,18 @@ export class AuthService {
       };
     });
     if (result.kind === 'grace') return result.tokens;
+    if (result.kind === 'recovered') {
+      this.log.warn(
+        {
+          userId: result.userId,
+          predecessorId: result.predecessorId,
+          successorId: result.successorId,
+          ageSeconds: result.ageSeconds,
+        },
+        'auth.refresh_recovered',
+      );
+      return result.tokens;
+    }
     if (result.kind === 'reuse') {
       await this.sql`UPDATE sessions SET revoked = true, reuse_detected_at = now() WHERE user_id = ${result.userId} AND revoked = false`;
       await this.sql`UPDATE sessions SET reuse_detected_at = now() WHERE id = ${result.sessionId}`;
@@ -920,8 +973,8 @@ export class AuthService {
    * Second tab, same cookie, inside the grace window. The row lock on the
    * predecessor serialises two refreshes: the loser sees the successor the
    * winner committed and returns that refresh token plus a new access token
-   * for the same successor session. Outside the window, or if the successor
-   * is already dead, the caller burns the family.
+   * for the same successor session. Outside the window the caller either
+   * recovers a lost reply or burns the family.
    */
   private async graceTokens(
     tx: Sql,
@@ -935,7 +988,7 @@ export class AuthService {
   ): Promise<SessionTokens | null> {
     if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
-    const nextToken = openRefreshToken(this.tokens.secret, session.successor_refresh);
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
     const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
       SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
@@ -956,6 +1009,100 @@ export class AuthService {
       userId: successor.user_id,
       mfaRequired: false,
     };
+  }
+
+  /**
+   * Lost reply, past the grace window, inside the owner-published recovery
+   * window. Same row locks as `refresh`: the predecessor is already locked,
+   * and the successor is locked here, so a concurrent rotation of that
+   * successor cannot commit beside this read. Any doubt returns null and the
+   * caller burns the family. Does not rotate, revoke, or insert.
+   */
+  private async recoverTokens(
+    tx: Sql,
+    session: {
+      id: string;
+      user_id: string;
+      user_status: string;
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      device: string | null;
+    },
+    peekedScopes: readonly Scope[] | null,
+    requestDevice: string | undefined,
+  ): Promise<{ tokens: SessionTokens; ageSeconds: number } | null> {
+    if (this.recoveryMs <= 0) return null;
+    if (session.user_status !== 'active') return null;
+    if (!session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
+    if (!this.deviceAllowsRecovery(session.device, requestDevice)) return null;
+    const age = Date.now() - session.rotated_at.getTime();
+    if (!Number.isFinite(age) || age <= this.reuseGraceMs || age > this.recoveryMs) return null;
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
+    if (!nextToken) return null;
+    const rows = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        revoked: boolean;
+        mfa: boolean;
+        expires_at: Date;
+        rotated_at: Date | null;
+        successor_id: string | null;
+      }>
+    >`
+      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    `;
+    const successor = rows[0];
+    if (!successor || successor.user_id !== session.user_id) return null;
+    if (successor.revoked !== false) return null;
+    if (successor.rotated_at !== null) return null;
+    if (successor.successor_id !== null) return null;
+    if (successor.expires_at.getTime() <= Date.now()) return null;
+    const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      this.tokens,
+    );
+    return {
+      tokens: {
+        accessToken,
+        refreshToken: nextToken,
+        expiresAt: accessExpiresAt,
+        sessionId: successor.id,
+        userId: successor.user_id,
+        mfaRequired: false,
+      },
+      ageSeconds: Math.floor(age / 1000),
+    };
+  }
+
+  /**
+   * Open a sealed successor token only while it is still inside the longer of
+   * the grace and recovery windows. Older ciphertext is ignored even if the
+   * column still holds it. A bad seal returns null (fail closed).
+   */
+  private openSealedSuccessor(rotatedAt: Date, sealed: string): string | null {
+    const age = Date.now() - rotatedAt.getTime();
+    if (!Number.isFinite(age)) return null;
+    if (age > Math.max(this.reuseGraceMs, this.recoveryMs)) return null;
+    if (typeof sealed !== 'string' || sealed.length === 0) return null;
+    return openRefreshToken(this.tokens.secret, sealed);
+  }
+
+  /**
+   * The device check applies only when the predecessor stored a label and the
+   * request carries one. A mismatch, or a request device that is not a string,
+   * refuses recovery.
+   */
+  private deviceAllowsRecovery(stored: string | null, presented: string | undefined): boolean {
+    if (presented !== undefined && typeof presented !== 'string') return false;
+    const storedLabel = typeof stored === 'string' && stored.length > 0 ? stored : null;
+    const presentedLabel = typeof presented === 'string' && presented.length > 0 ? presented : null;
+    if (storedLabel !== null && presentedLabel !== null && storedLabel !== presentedLabel) return false;
+    return true;
   }
 
   async logout(refreshToken: string): Promise<void> {
