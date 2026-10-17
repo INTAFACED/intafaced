@@ -82,6 +82,7 @@ export function stackPaths(home = os.homedir(), env = process.env) {
     marker: path.join(stateDir, 'LOCAL-TEST-STACK.json'),
     secrets: path.join(stateDir, 'secrets.json'),
     accounts: path.join(stateDir, 'world-accounts.json'),
+    ownerFactor: path.join(stateDir, 'world-owner-factor.json'),
     state: path.join(stateDir, 'run', 'world-state.json'),
     pidFile: path.join(stateDir, 'run', 'world.json'),
     log: path.join(stateDir, 'logs', 'world.log'),
@@ -295,9 +296,93 @@ function fundViaStack(userId, asset, amount, ref) {
 
 // ── Edge client (the same front door the customer app uses) ─────────────────
 
+/** The auth.login body. The TOTP code is added only when the caller has one; nothing else changes. */
+export function loginRequestBody(account, totpCode) {
+  return {
+    identifier: account.email,
+    password: account.password,
+    ...(typeof totpCode === 'string' && totpCode.length > 0 ? { totpCode } : {}),
+  };
+}
+
+export const TOTP_STEP_MS = 30_000;
+export const totpStepAt = (ms) => Math.floor(ms / TOTP_STEP_MS);
+
+/**
+ * A code for a TOTP step strictly after the last one used (identity refuses a replayed step).
+ * Waits for the next step when the current one is spent. `totp` may be async.
+ */
+export async function freshTotpCode({ secret, lastStep = 0, totp, now = Date.now, wait = sleep }) {
+  while (totpStepAt(now()) <= Number(lastStep ?? 0)) await wait(1000);
+  const step = totpStepAt(now());
+  return { code: await totp(secret), step };
+}
+
+/**
+ * The LOCAL TEST owner's second factor (TOTP). The secret lives only in the populate state
+ * file (mode 600), never in a log or a printed line. `totp` turns a secret into a 6-digit code.
+ */
+export class OwnerFactor {
+  constructor({ file, totp, now = Date.now, wait = sleep, log = () => {} }) {
+    this.file = file;
+    this.totp = totp;
+    this.now = now;
+    this.wait = wait;
+    this.log = log;
+    const have = readJson(file, null);
+    this.data = have && typeof have === 'object' ? have : {};
+  }
+  get secret() {
+    return typeof this.data.secret === 'string' && this.data.secret ? this.data.secret : null;
+  }
+  get pendingSecret() {
+    return typeof this.data.pendingSecret === 'string' && this.data.pendingSecret ? this.data.pendingSecret : null;
+  }
+  save() {
+    writePrivate(this.file, {
+      kind: 'intafaced-local-test-owner-factor',
+      label: LABEL,
+      note: 'LOCAL TEST account second factor (TOTP). Not a person. Never valid outside this stack. Secrets: do not print.',
+      ...this.data,
+    });
+  }
+  /** A code for this secret on a step after the last one used. */
+  async codeFor(secret, lastStep) {
+    const before = totpStepAt(this.now());
+    if (before <= Number(lastStep ?? 0)) this.log('waiting for the next TOTP step (identity refuses a repeated step)');
+    return freshTotpCode({ secret, lastStep, totp: this.totp, now: this.now, wait: this.wait });
+  }
+  /** The login code, or undefined when no confirmed secret is held. Records the step so a rerun does not repeat it. */
+  async nextCode() {
+    const secret = this.secret;
+    if (!secret) return undefined;
+    const { code, step } = await this.codeFor(secret, this.data.lastStep);
+    this.data.lastStep = step;
+    this.save();
+    return code;
+  }
+  /** Write the new secret (and its recovery codes) down BEFORE confirming it, so a crash cannot lose it. */
+  savePending(secret, recoveryCodes) {
+    this.data.pendingSecret = secret;
+    this.data.pendingRecoveryCodes = Array.isArray(recoveryCodes) ? recoveryCodes : [];
+    this.save();
+  }
+  /** The pending secret was confirmed with a code on `step`. */
+  adoptPending(step) {
+    this.data.secret = this.data.pendingSecret;
+    this.data.recoveryCodes = this.data.pendingRecoveryCodes ?? [];
+    delete this.data.pendingSecret;
+    delete this.data.pendingRecoveryCodes;
+    this.data.lastStep = step;
+    this.data.enrolledAt = new Date().toISOString();
+    this.save();
+  }
+}
+
 class EdgeClient {
-  constructor(account) {
+  constructor(account, factor = null) {
     this.account = account;
+    this.factor = factor;
     this.token = null;
     this.tokenAt = 0;
   }
@@ -328,12 +413,8 @@ class EdgeClient {
     this.account.userId = data.userId;
   }
   async login() {
-    const res = await this.http(
-      'POST',
-      '/api/identity/trpc/auth.login',
-      { identifier: this.account.email, password: this.account.password },
-      false,
-    );
+    const totpCode = this.factor ? await this.factor.nextCode() : undefined;
+    const res = await this.http('POST', '/api/identity/trpc/auth.login', loginRequestBody(this.account, totpCode), false);
     const data = res.json?.result?.data;
     if (!data?.accessToken) throw new Error(`login refused for ${this.account.handle} (${res.status}): ${refusalText(res)}`);
     this.adopt(data);
@@ -1730,7 +1811,10 @@ const MERCHANT_MONEY = new Set([
  *    null. This step reads PAY_MERCHANT_STARTER_FEE_BPS and does the same.
  *    pay:onboard is issued on the next sign-in after the account is active,
  *    the email is confirmed, and a second factor is enrolled. This step
- *    confirms the email, then signs in again, and does not enrol a factor.
+ *    confirms the email, enrols a TOTP factor for the LOCAL TEST owner if it has
+ *    none (secret kept in the populate owner-factor file, mode 600; a factor it
+ *    holds no secret for is a REFUSED, never a reset), then signs in again
+ *    with a fresh TOTP code.
  * 4. KYB is pay.merchant.submitKyb (pay:onboard), then pay.merchant.decideKybStub
  *    while value movement is allow-sandbox. Under live-only the stub returns
  *    pay.kyb_operator_required and the step uses the two local test founders
@@ -1808,7 +1892,7 @@ async function confirmSeededOwnerEmail(user, record, outboxPath = localEmailOutb
   }
   if (me.data?.emailVerified === true) {
     record('merchant', 'email confirmation', 'exists', 'already confirmed');
-    return true;
+    return 'exists';
   }
   const requested = await call(user, 'm', 'identity', 'auth.requestEmailConfirmation');
   if (!requested.ok) {
@@ -1834,7 +1918,7 @@ async function confirmSeededOwnerEmail(user, record, outboxPath = localEmailOutb
     confirmed.ok ? 'created' : 'refused',
     confirmed.ok ? 'confirmed through auth.confirmEmail' : confirmed.refusal,
   );
-  return confirmed.ok;
+  return confirmed.ok ? 'confirmed' : false;
 }
 
 /** pay:onboard and the owner pay scopes are attached when the access token is issued. */
@@ -1849,11 +1933,75 @@ async function resignInForMerchantScopes(user, record, why) {
   }
 }
 
+/** What a totp.enrol refusal means for populate. Nothing is ever reset. */
+export function ownerFactorRefusal(refusal) {
+  const why = String(refusal ?? '');
+  if (/mfa_already_enrolled|already enrolled/i.test(why))
+    return 'the TEST account already has a second factor whose secret populate does not hold (not in the populate owner-factor file); nothing was reset, so populate cannot sign in with it';
+  if (/mfa_required|second factor|passkey|webauthn/i.test(why))
+    return `the TEST account has a second factor populate cannot drive (${oneLine(why, 140)}); nothing was reset`;
+  return why;
+}
+
+/**
+ * pay:onboard needs a second factor. If populate already holds a TOTP secret for the TEST owner it
+ * is used as is. Otherwise identity enrols one through totp.enrol and totp.confirm, and the secret
+ * goes into the populate owner-factor file (mode 600, labelled LOCAL TEST) before it is confirmed.
+ * A factor that exists but whose secret populate lacks is a REFUSED, never a reset.
+ * Returns { ok, changed }.
+ */
+async function ensureOwnerSecondFactor(ctx) {
+  const { user, record, factor } = ctx;
+  const item = 'second factor (TEST TOTP)';
+  if (!factor) {
+    record('merchant', item, 'refused', 'no owner-factor store in this run; nothing was enrolled');
+    return { ok: false, changed: false };
+  }
+  if (factor.secret) {
+    record('merchant', item, 'exists', 'LOCAL TEST secret held in the populate state file (mode 600)');
+    return { ok: true, changed: false };
+  }
+  const confirmWith = async (secret) => {
+    const { code, step } = await factor.codeFor(secret, 0);
+    const confirmed = await call(user, 'm', 'identity', 'totp.confirm', { secret, code });
+    return { confirmed, step };
+  };
+  if (factor.pendingSecret) {
+    const resumed = await confirmWith(factor.pendingSecret);
+    if (resumed.confirmed.ok) {
+      factor.adoptPending(resumed.step);
+      record('merchant', item, 'created', 'finished an enrolment started earlier; LOCAL TEST secret kept in the populate state file');
+      return { ok: true, changed: true };
+    }
+  }
+  const enrol = await call(user, 'm', 'identity', 'totp.enrol');
+  if (!enrol.ok) {
+    record('merchant', item, 'refused', ownerFactorRefusal(enrol.refusal));
+    return { ok: false, changed: false };
+  }
+  factor.savePending(enrol.data.secret, enrol.data.recoveryCodes);
+  const done = await confirmWith(enrol.data.secret);
+  if (!done.confirmed.ok) {
+    record('merchant', item, 'refused', `totp.confirm refused: ${done.confirmed.refusal}`);
+    return { ok: false, changed: false };
+  }
+  factor.adoptPending(done.step);
+  record(
+    'merchant',
+    item,
+    'created',
+    'enrolled through identity totp.enrol and totp.confirm; LOCAL TEST secret kept in the populate state file (mode 600)',
+  );
+  return { ok: true, changed: true };
+}
+
 async function populateMerchantStep(ctx) {
   const { user, record, secrets, log } = ctx;
-  const confirmed = await confirmSeededOwnerEmail(user, record);
-  if (confirmed) {
-    const signed = await resignInForMerchantScopes(user, record, 'sign-in after email confirmation');
+  const emailState = await confirmSeededOwnerEmail(user, record);
+  const factorState = await ensureOwnerSecondFactor(ctx);
+  if (!factorState.ok) return;
+  if (emailState === 'confirmed' || factorState.changed) {
+    const signed = await resignInForMerchantScopes(user, record, 'sign-in after email confirmation and second factor');
     if (!signed) return;
   }
   const me = await call(user, 'q', 'pay', 'merchant.me');
@@ -2436,16 +2584,32 @@ async function cmdPopulate(argv) {
   }
   if (!login) die(`no Email / Password lines in ${opts.loginFile} (the test account note). Nothing was changed.`);
   const account = { handle: 'local_test_account', email: login.email, password: login.password, userId: null };
-  const user = new EdgeClient(account);
+  let totpFn = null;
+  const factor = new OwnerFactor({
+    file: p.ownerFactor,
+    log,
+    totp: async (secret) => {
+      if (!totpFn) {
+        const gates = await gatesApi();
+        totpFn = (await gates.makeContext({ log })).totp.totp;
+      }
+      return totpFn(secret);
+    },
+  });
+  const user = new EdgeClient(account, factor);
   try {
     await user.login();
   } catch (err) {
+    if (/mfa_required|Two-factor code required/i.test(String(err?.message)))
+      die(
+        `the test account has a second factor and populate holds no secret for it (looked in ${p.ownerFactor}). Nothing was reset or changed.`,
+      );
     die(`the test account could not sign in: ${oneLine(err.message, 200)}`);
   }
   log(`populate started for ${account.email} (${account.userId}). ${LABEL}. Steps: ${steps.join(', ')}`);
 
   const results = [];
-  const ctx = { user, p, secrets, log, spaces: null, friend: null, record: null };
+  const ctx = { user, factor, p, secrets, log, spaces: null, friend: null, record: null };
   let room = 'run';
   ctx.record = (r, item, status, detail = '') => {
     const row = { room: r, item, status, detail };
