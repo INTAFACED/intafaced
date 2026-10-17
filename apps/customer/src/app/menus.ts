@@ -30,7 +30,7 @@ type PlainKey =
   | 'Academy'
   | 'Learning paths and certificates'
   | 'All rooms'
-  | 'Everything Intafaced offers'
+  | 'Everything INTAFACED offers'
   | 'Settings'
   | 'Display, language and notifications'
   | 'Account'
@@ -107,7 +107,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
       items: signedIn
         ? [
             { id: 'academy', href: '/academy', icon: 'academy', title: 'Academy', description: 'Learning paths and certificates' },
-            { id: 'rooms', href: '/more', icon: 'grid', title: 'All rooms', description: 'Everything Intafaced offers' },
+            { id: 'rooms', href: '/more', icon: 'grid', title: 'All rooms', description: 'Everything INTAFACED offers' },
             { id: 'help', href: '/support', icon: 'help', title: 'Help', description: 'Answers and support' },
             { id: 'settings', href: '/view', icon: 'settings', title: 'Settings', description: 'Display, language and notifications' },
           ]

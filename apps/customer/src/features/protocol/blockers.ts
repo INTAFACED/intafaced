@@ -23,15 +23,13 @@ export const INTACHAIN_P1_GO: boolean = false;
  * no id is ever labelled INTACHAIN or mainnet.
  */
 export const KNOWN_NETWORKS: Readonly<Record<number, { name: string; note: string }>> = {
-  84532: { name: 'Base Sepolia', note: 'Testnet. Not INTACHAIN. Not mainnet. audited:false.' },
-  31337: { name: 'Local anvil', note: 'Local test chain used by CI. Not INTACHAIN. Not mainnet.' },
+  84532: { name: 'Base Sepolia test network', note: 'Testnet only.' },
+  31337: { name: 'Local test chain', note: 'Used for automated checks only.' },
 };
 export function networkLabel(chainId: number | null | undefined): { name: string; note: string; known: boolean } {
   if (chainId === null || chainId === undefined) return { name: 'No chain reported', note: 'Not confirmed as INTACHAIN.', known: false };
   const known = KNOWN_NETWORKS[chainId];
-  return known
-    ? { ...known, known: true }
-    : { name: `Chain ${chainId} (unrecognised)`, note: 'Not confirmed as INTACHAIN. Not audited.', known: false };
+  return known ? { ...known, known: true } : { name: 'Unrecognised network', note: 'Not confirmed as INTACHAIN.', known: false };
 }
 
 export type Source<T> = { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string };

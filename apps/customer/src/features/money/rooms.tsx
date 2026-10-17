@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { useSession } from '../session/session';
-import { usePreferences } from '../../shared/preferences';
+import { usePreferences, savePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { createMoneyClient, validateTransfer, type MoneyOverview, type Space } from './client';
 import {
@@ -1567,14 +1567,30 @@ function BankOverview() {
         <Section
           title={copyText('index.holdings')}
           actions={
-            <Button variant="ghost" onClick={reload}>
-              <Text k="rooms.refresh" />
-            </Button>
+            <>
+              <Button variant="ghost" onClick={() => savePreferences({ hideBalances: !hideBalances })} aria-pressed={hideBalances}>
+                <Text k={hideBalances ? 'index.show.amounts' : 'index.hide.amounts'} />
+              </Button>
+              <Button variant="ghost" onClick={reload}>
+                <Text k="rooms.refresh" />
+              </Button>
+            </>
           }
         >
           <ResourceView resource={resource} reload={reload}>
             {(overview) => (
               <>
+                {overview.balances.ok && (
+                  <p className="money-response-time">
+                    {Number.isFinite(Date.parse(overview.balances.data.datetime)) ? (
+                      <time dateTime={overview.balances.data.datetime} dir="auto">
+                        {copyText('overview.reported', { time: date(overview.balances.data.datetime) })}
+                      </time>
+                    ) : (
+                      <Text k="overview.time.unavailable" />
+                    )}
+                  </p>
+                )}
                 {!overview.balances.ok && <Failure result={overview.balances} retry={reload} />}
                 {overview.conflicts.length > 0 && (
                   <p className="notice" role="status">
@@ -1639,7 +1655,16 @@ function BankOverview() {
                   <NoRows title={copyText('index.no.user.ledger.accounts.returned')}>
                     <Text k="index.an.empty.projection.is.not.a.complete" />
                   </NoRows>
-                ) : null}
+                ) : (
+                  <div className="notice" role="status">
+                    <h3>
+                      <Text k="availability.holdings.unavailable" />
+                    </h3>
+                    <p>
+                      <Text k="availability.refresh.balances" />
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </ResourceView>

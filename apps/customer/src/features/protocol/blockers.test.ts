@@ -142,11 +142,12 @@ describe('Protocol blocker mapping', () => {
 });
 
 describe('Network label and copy honesty', () => {
-  it('labels 84532 as Base Sepolia, not INTACHAIN', () => {
+  it('labels 84532 as the Base Sepolia test network, not INTACHAIN', () => {
     const label = networkLabel(84532);
-    expect(label.name).toBe('Base Sepolia');
-    expect(label.note).toContain('Not INTACHAIN');
-    expect(label.note).toContain('audited:false');
+    expect(label.name).toBe('Base Sepolia test network');
+    expect(label.note).toContain('Testnet');
+    expect(en.t('banner')).toContain('Not INTACHAIN');
+    expect(en.t('banner')).toContain('Not audited');
   });
 
   it('never labels an unknown or missing chain as INTACHAIN or mainnet', () => {
@@ -165,7 +166,7 @@ describe('Network label and copy honesty', () => {
       }
     expect(en.t('blk_p1_go')).toContain('launch has not been approved');
     expect(en.t('blk_p1_go')).not.toMatch(/Nitro|P1 GO/);
-    expect(en.t('blk_not_audited')).toContain('audited:false');
+    expect(en.t('blk_not_audited')).toContain('Not audited');
   });
 });
 

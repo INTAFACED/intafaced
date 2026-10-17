@@ -72,7 +72,7 @@ const messages = {
   Academy: 'Academy',
   'Learning paths and certificates': 'Learning paths and certificates',
   'All rooms': 'All rooms',
-  'Everything Intafaced offers': 'Everything Intafaced offers',
+  'Everything INTAFACED offers': 'Everything INTAFACED offers',
   Settings: 'Settings',
   'Display, language and notifications': 'Display, language and notifications',
   'Search markets': 'Search markets',

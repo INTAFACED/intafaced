@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { navigate } from '../../app/location';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -187,7 +188,7 @@ function QuoteResult({ quote, t }: { quote: DexQuote; t: Translate }) {
           [t('filled'), quote.route.filledQty],
           [t('unfilled'), quote.route.unfilledQty],
           [t('totalQuote'), quote.route.totalQuoteAmount],
-          [t('executable'), flag(t, quote.executable)],
+          [t('executable'), quote.executable ? t('executableYes') : t('executableNo')],
           [t('nonExecutable'), orNone(t, quote.nonExecutableReason)],
         ]}
       />
@@ -246,12 +247,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     dex: toSource(dex),
     health: toSource(health),
   };
-  const [chosen, setChosen] = useState<string | undefined>(undefined);
-  const tab = chosen ?? tabFromSubPath(slug, subPath);
+  // The URL is the source of truth for the tab, so deep links and tab clicks agree.
+  const tab = tabFromSubPath(slug, subPath);
   const tabs = SUBNAV[slug];
   const actions = tabs.find((entry) => entry.id === tab)?.actions ?? [];
-  const configuredChainId = chain.resource.status === 'ready' ? chain.resource.data.configuredChainId : null;
-  const label = networkLabel(configuredChainId);
+  const label =
+    chain.resource.status === 'loading'
+      ? { name: t('networkChecking'), note: '' }
+      : networkLabel(chain.resource.status === 'ready' ? chain.resource.data.configuredChainId : null);
   const title = slug === 'chain' ? t('titleChain') : slug === 'dex' ? t('titleDex') : t('titleProtocol');
   const description = slug === 'chain' ? t('descChain') : slug === 'dex' ? t('descDex') : t('descProtocol');
 
@@ -435,12 +438,12 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
-      <Page title={title} description={description} eyebrow={`${label.name}, ${t('banner')}`}>
+      <Page title={title} description={description} eyebrow={[`${label.name}.`, label.note, t('banner')].filter(Boolean).join(' ')}>
         <Tabs
           label={t('subnav')}
           items={tabs.map((entry) => entry.id)}
           value={tab}
-          onChange={setChosen}
+          onChange={(id) => navigate(id === tabs[0]!.id ? `/${slug}` : `/${slug}/${id}`)}
           labels={Object.fromEntries(tabs.map((entry) => [entry.id, t(`tab_${entry.id}` as 'tab_status')]))}
         />
         {body}
