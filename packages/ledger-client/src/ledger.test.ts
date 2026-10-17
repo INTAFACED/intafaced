@@ -26,6 +26,7 @@ import { formatAmount, parseAmount as amt, sum } from './money.js';
 import { assertBalanced, assertPairedLocks, assertPurposedHolds, assertValidPost, LOCK_KINDS } from './client.js';
 import { ACCOUNT_KINDS, ACCOUNT_KIND_CLASS } from './types.js';
 import {
+  futuresLossSink,
   houseFees,
   insuranceFund,
   marketMaker,
@@ -969,7 +970,8 @@ describe('recipes — the money paths', () => {
       }),
     );
     expect(formatAmount((await ledger.balance(positionCollateralAccount(USER_A, 'USDT', 'pos-loss'))).amount)).toBe('0');
-    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('150'); // 50 fee + 100 loss
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('50');
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('100');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
