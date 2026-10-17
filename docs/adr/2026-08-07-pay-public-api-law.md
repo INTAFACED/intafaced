@@ -81,7 +81,7 @@ The API is not free to adopt the conventional `amount: 110, currency: "usd"` sha
 
 **Decided:** `/api/pay/v1/...`. Within a version, only additive change. A field is never repurposed and never silently narrowed — merchants cannot redeploy on our schedule.
 
-**Pre-launch amendment (2026-10-16).** `GET /v1/payments` returns `{ items, nextCursor }` instead of a bare array. That is a breaking change inside `/v1`. It is recorded here because there are no external callers before launch, and keyset paging cannot name the next page without `nextCursor` (`null` on the last page). An omitted `limit` still refuses rather than inventing a page size. After launch this shape stays; a later break needs a new version.
+**Pre-launch amendment (2026-10-16).** `GET /v1/payments` and `GET /v1/payment-links` return `{ items, nextCursor }` instead of a bare array. That is a breaking change inside `/v1`. It is recorded here because there are no external callers before launch, and keyset paging cannot name the next page without `nextCursor` (`null` on the last page). An omitted `limit` still refuses rather than inventing a page size. After launch this shape stays; a later break needs a new version.
 
 ---
 

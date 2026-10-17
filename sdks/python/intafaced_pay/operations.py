@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from intafaced_pay.client import PayClient
 from intafaced_pay.payments_page import PayPaymentPage, payment_page_from_response
+from intafaced_pay.payment_links_page import PayPaymentLinkPage, payment_link_page_from_response
 
 
 
@@ -43,9 +44,9 @@ class PayOperations:
         params=None,
         idempotency_key=None,
         max_retries=None,
-    ):
+    ) -> PayPaymentLinkPage:
         """GET /payment-links — List a merchant’s payment links, newest first"""
-        return self._client.call(
+        response = self._client.call(
             "GET",
             "/payment-links",
             body=body,
@@ -55,6 +56,7 @@ class PayOperations:
             idempotency_key=idempotency_key,
             max_retries=max_retries,
         )
+        return payment_link_page_from_response(response)
 
     def post_payment_links(
         self,

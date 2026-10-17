@@ -143,7 +143,18 @@ export interface PublicRestDeps {
  * `pay.*` codes are the public codes. No competitor taxonomy.
  */
 interface ErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string; requestId: string };
+}
+
+function requestIdOf(reply: FastifyReply): string {
+  const id = reply.request.id;
+  return typeof id === 'string' ? id : String(id ?? '');
+}
+
+function errorBody(reply: FastifyReply, code: string, message: string): ErrorBody {
+  const requestId = requestIdOf(reply);
+  reply.header('x-request-id', requestId);
+  return { error: { code, message, requestId } };
 }
 
 const errorSchema = {
@@ -152,10 +163,11 @@ const errorSchema = {
   properties: {
     error: {
       type: 'object',
-      required: ['code', 'message'],
+      required: ['code', 'message', 'requestId'],
       properties: {
         code: { type: 'string', description: 'Stable `pay.*` code. Branch on this, never on the message.' },
         message: { type: 'string' },
+        requestId: { type: 'string', description: 'Same value as the x-request-id response header. Show this when asking for help.' },
       },
     },
   },
@@ -360,25 +372,16 @@ function send(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof PayGuardRefusal) {
     // A guard seam refused (seams/guards.ts). Code only: composeGuards already
     // stripped internals, and the message is the code by construction.
-    const body: ErrorBody = { error: { code: err.code, message: err.code } };
-    return reply.code(err.kind === 'unavailable' ? 503 : 403).send(body);
+    return reply.code(err.kind === 'unavailable' ? 503 : 403).send(errorBody(reply, err.code, err.code));
   }
   if (err instanceof SandboxRailRefusal) {
-    const body: ErrorBody = {
-      error: {
-        code: 'pay.sandbox_rail_refused',
-        message: err.message,
-      },
-    };
-    return reply.code(503).send(body);
+    return reply.code(503).send(errorBody(reply, 'pay.sandbox_rail_refused', err.message));
   }
   if (err instanceof PayError) {
-    const body: ErrorBody = { error: { code: err.code, message: err.message } };
-    return reply.code(statusFor(err.code)).send(body);
+    return reply.code(statusFor(err.code)).send(errorBody(reply, err.code, err.message));
   }
   if (err instanceof SubMerchantError) {
-    const body: ErrorBody = { error: { code: err.code, message: err.message } };
-    return reply.code(statusFor(err.code)).send(body);
+    return reply.code(statusFor(err.code)).send(errorBody(reply, err.code, err.message));
   }
   throw err;
 }
@@ -411,7 +414,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     const code = rawCode.startsWith('pay.') ? rawCode : status < 500 ? 'pay.validation' : 'pay.internal';
     const http = status >= 500 ? 500 : status;
     const message = status >= 500 ? 'Something went wrong.' : (err.message ?? 'Invalid request');
-    return reply.code(http).send({ error: { code, message } });
+    return reply.code(http).send(errorBody(reply, code, message));
   });
 
   await app.register(swagger, {
@@ -508,12 +511,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       requireScope(ctx.principal, scope);
       return ctx.principal;
     } catch {
-      reply.code(401).send({
-        error: {
-          code: 'pay.unauthorized',
-          message: `A valid API key with the ${scope} scope is required.`,
-        },
-      });
+      reply.code(401).send(errorBody(reply, 'pay.unauthorized', `A valid API key with the ${scope} scope is required.`));
       return null;
     }
   }
@@ -522,21 +520,17 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     const raw = req.headers['idempotency-key'];
     const key = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? raw[0]?.trim() : '';
     if (!key) {
-      reply.code(400).send({
-        error: {
-          code: 'pay.idempotency_required',
-          message: 'Idempotency-Key header is required on every mutating POST. NOTHING WAS ATTEMPTED.',
-        },
-      });
+      reply
+        .code(400)
+        .send(
+          errorBody(reply, 'pay.idempotency_required', 'Idempotency-Key header is required on every mutating POST. NOTHING WAS ATTEMPTED.'),
+        );
       return null;
     }
     if (key.length > 255) {
-      reply.code(400).send({
-        error: {
-          code: 'pay.idempotency_required',
-          message: 'Idempotency-Key must be at most 255 characters. NOTHING WAS ATTEMPTED.',
-        },
-      });
+      reply
+        .code(400)
+        .send(errorBody(reply, 'pay.idempotency_required', 'Idempotency-Key must be at most 255 characters. NOTHING WAS ATTEMPTED.'));
       return null;
     }
     return key;
@@ -558,12 +552,15 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
     const fingerprint = fingerprintRequest(req.method, path, body ?? {});
     const claim = await idempotency.claim(ownerId, key, fingerprint);
     if (claim.kind === 'conflict') {
-      return reply.code(409).send({
-        error: {
-          code: 'pay.idempotency_conflict',
-          message: 'Idempotency-Key was already used with a different request body. Refusing rather than guessing which result you wanted.',
-        },
-      });
+      return reply
+        .code(409)
+        .send(
+          errorBody(
+            reply,
+            'pay.idempotency_conflict',
+            'Idempotency-Key was already used with a different request body. Refusing rather than guessing which result you wanted.',
+          ),
+        );
     }
     if (claim.kind === 'replay') {
       return reply.code(claim.record.statusCode).send(claim.record.body);
@@ -1112,22 +1109,59 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
              * Blank is not 50; pass 50 explicitly.
              */
             limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+            cursor: { type: 'string', minLength: 1, maxLength: 300 },
+            search: { type: 'string', minLength: 1, maxLength: 200 },
+            assetId: { type: 'string', minLength: 1, maxLength: 16 },
+            from: { type: 'string', format: 'date-time' },
+            to: { type: 'string', format: 'date-time' },
+            active: { type: 'boolean' },
           },
         },
         response: {
-          200: { type: 'array', items: paymentLinkListItemSchema },
+          200: {
+            type: 'object',
+            required: ['items', 'nextCursor'],
+            properties: {
+              items: { type: 'array', items: paymentLinkListItemSchema },
+              nextCursor: { type: 'string', nullable: true },
+            },
+          },
           401: errorSchema,
           403: errorSchema,
           404: errorSchema,
         },
       },
     },
-    async (req: FastifyRequest<{ Querystring: { merchantId: string; limit?: number } }>, reply) => {
+    async (
+      req: FastifyRequest<{
+        Querystring: {
+          merchantId: string;
+          limit?: number;
+          cursor?: string;
+          search?: string;
+          assetId?: string;
+          from?: string;
+          to?: string;
+          active?: boolean;
+        };
+      }>,
+      reply,
+    ) => {
       const principal = principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payment-links.list'));
-        return reply.send(await deps.pay.listPaymentLinks(req.query.merchantId, req.query.limit));
+        return reply.send(
+          await deps.pay.listPaymentLinks(req.query.merchantId, {
+            limit: req.query.limit,
+            cursor: req.query.cursor,
+            search: req.query.search,
+            assetId: req.query.assetId,
+            from: req.query.from,
+            to: req.query.to,
+            active: req.query.active,
+          }),
+        );
       } catch (err) {
         return send(reply, err);
       }

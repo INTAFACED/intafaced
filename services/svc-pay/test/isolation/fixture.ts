@@ -89,6 +89,10 @@ export interface Entity {
   readonly settlementId: string;
   readonly linkId: string;
   readonly endpointId: string;
+  /** A second endpoint the isolation sweep may disable without silencing the primary. */
+  readonly spareEndpointId: string;
+  /** A failed delivery on `endpointId`, so a retry positive control has a row to requeue. */
+  readonly deliveryId: string;
   /** W15: a dispute case (process-wide store; the id is unique per entity) on `paymentId`. */
   readonly disputeId: string;
   /** W15: the opaque customer reference the merchant put on `paymentId`. */
@@ -261,6 +265,8 @@ function composeRouter(parts: {
       metrics: parts.metrics,
       registries: { sql: parts.sql, approvals: actionApprovals },
       sql: parts.sql, // W15: merchantOps.* and founderAdmin.ops.*
+      webhooksAllowLocalHttp: true,
+      webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
       invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
@@ -378,7 +384,16 @@ export async function createWorld(): Promise<World> {
     const settlement = await pay.settleWindow({ merchantId, window: `w14-${tag}`, assetId: 'USDT', ...settleAt });
     const link = await pay.createPaymentLink({ merchantId, label: `link-${tag}` });
     const endpoint = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}`);
+    const spare = await webhooks.registerEndpoint(merchantId, `http://localhost:9/hook-${tag}-spare`);
     await webhooks.enqueue({ type: 'payment.captured', payment: captured });
+    const deliveryRows = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.merchant_webhook_deliveries
+       WHERE merchant_id = ${merchantId} AND endpoint_id = ${endpoint.id}
+       ORDER BY created_at DESC LIMIT 1`;
+    await sql`
+      UPDATE pay.merchant_webhook_deliveries SET status = 'failed', attempts = 1
+       WHERE id = ${deliveryRows[0]!.id}`;
+    await sql`DELETE FROM pay.merchant_webhook_deliveries WHERE endpoint_id = ${spare.id}`;
 
     // W15 merchant operations rows. Direct inserts for the ones the product creates asynchronously
     // (export, invitations), so seeding starts no background work.
@@ -426,6 +441,8 @@ export async function createWorld(): Promise<World> {
       settlementId: settlement.id,
       linkId: link.id,
       endpointId: endpoint.id,
+      spareEndpointId: spare.id,
+      deliveryId: deliveryRows[0]!.id,
       disputeId,
       customerRef,
       exportJobId: exportRows[0]!.id,
@@ -528,6 +545,8 @@ export async function createWorld(): Promise<World> {
         x.settlementId,
         x.linkId,
         x.endpointId,
+        x.spareEndpointId,
+        x.deliveryId,
         x.disputeId,
         x.exportJobId,
         x.notificationId,

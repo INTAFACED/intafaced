@@ -4,6 +4,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
+import { ACTIVITY_OBJECT_TYPES, ActivityFeed } from './activity.js';
 import { CustomerDirectory } from './customers.js';
 import { DisputeOpsService, EVIDENCE_KINDS } from './disputes.js';
 import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidence-policy.js';
@@ -14,8 +15,10 @@ import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
+import { PayoutList } from './payouts.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
 import { TeamService } from './team.js';
+import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -39,6 +42,12 @@ export interface MerchantOpsDeps {
   /** Hosted payment links. Absent: invoice send refuses, it does not mint a second checkout. */
   readonly invoiceLinks?: InvoiceLinkPort;
   readonly exports?: ExportDeps;
+  /** Ledger balances for a statement export. Absent: that kind refuses. */
+  readonly ledger?: ExportDeps['ledger'];
+  /** http://localhost webhook URLs. Production leaves this off. */
+  readonly webhooksAllowLocalHttp?: boolean;
+  /** Retry window. Unset: retry refuses. No production default. */
+  readonly webhookRetry?: WebhookRetryLimit;
   /**
    * How a freshly queued export gets generated. Default: run it in this process
    * on the next tick. Tests pass a no-op and drive `processQueued` themselves.
@@ -61,8 +70,15 @@ function makeParts(deps: MerchantOpsDeps) {
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
         kyb: new MerchantKybView(sql),
-        exports: new ExportService(sql, deps.exports),
+        exports: new ExportService(sql, {
+          ...deps.exports,
+          disputes: deps.exports?.disputes ?? deps.disputes ?? defaultDisputeCaseStore,
+          ledger: deps.exports?.ledger ?? deps.ledger,
+        }),
         notifications: new NotificationService(sql),
+        activity: new ActivityFeed(sql),
+        payouts: new PayoutList(sql),
+        webhooks: new WebhookOps(sql, { allowLocalHttp: deps.webhooksAllowLocalHttp === true, retry: deps.webhookRetry }),
         notes: new OperatorNotes(sql),
       }
     : null;
@@ -97,6 +113,9 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               cursor: cursorInput,
               status: z.enum(['open', 'contested', 'accepted', 'won', 'lost']).optional(),
               paymentId: id.optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+              from: iso.optional(),
+              to: iso.optional(),
               dueAfter: iso.optional(),
               dueBefore: iso.optional(),
               deadline: z.enum(['set', 'unset']).optional(),
@@ -215,7 +234,15 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
 
       team: router({
         list: read
-          .input(z.object({ limit: limitInput, cursor: cursorInput, status: z.enum(['active', 'invited', 'removed']).optional() }))
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              status: z.enum(['active', 'invited', 'removed']).optional(),
+              role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']).optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+            }),
+          )
           .query(({ ctx, input }) => wrapOps(async () => need().team.list(await callerOf(ctx), input))),
         history: read
           .input(z.object({ limit: limitInput, cursor: cursorInput }))
@@ -277,6 +304,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .object({ from: iso.optional(), to: iso.optional(), status: z.string().max(32).optional(), assetId: assetIdIn.optional() })
                 .strict()
                 .default({}),
+              columns: z
+                .array(z.string().regex(/^[a-z_]{1,64}$/))
+                .max(32)
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) =>
@@ -293,16 +324,98 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               limit: limitInput,
               cursor: cursorInput,
               kind: z.enum(EXPORT_KINDS).optional(),
-              status: z.enum(['queued', 'running', 'ready', 'failed']).optional(),
+              status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']).optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+              from: iso.optional(),
+              to: iso.optional(),
             }),
           )
           .query(({ ctx, input }) => wrapOps(async () => need().exports.list(await callerOf(ctx), input))),
+        expire: write
+          .input(z.object({ jobId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().exports.expire(await callerOf(ctx), input.jobId))),
         get: read
           .input(z.object({ jobId: id }))
           .query(({ ctx, input }) => wrapOps(async () => need().exports.get(await callerOf(ctx), input.jobId))),
         download: read
           .input(z.object({ jobId: id }))
           .query(({ ctx, input }) => wrapOps(async () => need().exports.download(await callerOf(ctx), input.jobId))),
+      }),
+
+      activity: router({
+        list: read
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              objectType: z.enum(ACTIVITY_OBJECT_TYPES).optional(),
+              action: z.string().trim().min(1).max(64).optional(),
+              actorId: z.string().trim().min(1).max(128).optional(),
+              from: iso.optional(),
+              to: iso.optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+            }),
+          )
+          .query(({ ctx, input }) => wrapOps(async () => need().activity.list(await callerOf(ctx), input))),
+      }),
+
+      payouts: router({
+        list: read
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              status: z.enum(['pending', 'posted', 'paid_out', 'failed']).optional(),
+              assetId: assetIdIn.optional(),
+              from: iso.optional(),
+              to: iso.optional(),
+              search: z.string().trim().min(1).max(200).optional(),
+            }),
+          )
+          .query(({ ctx, input }) => wrapOps(async () => need().payouts.list(await callerOf(ctx), input))),
+      }),
+
+      webhooks: router({
+        list: read
+          .input(
+            z.object({
+              limit: limitInput,
+              cursor: cursorInput,
+              status: z.enum(['active', 'disabled']).optional(),
+              search: z.string().trim().min(1).max(500).optional(),
+            }),
+          )
+          .query(({ ctx, input }) => wrapOps(async () => need().webhooks.list(await callerOf(ctx), input))),
+        create: write
+          .input(z.object({ url: z.string().trim().min(1).max(2048) }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.create(await callerOf(ctx), input))),
+        update: write
+          .input(z.object({ endpointId: id, url: z.string().trim().min(1).max(2048) }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.update(await callerOf(ctx), input))),
+        disable: write
+          .input(z.object({ endpointId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.disable(await callerOf(ctx), input.endpointId))),
+        rotateSecret: write
+          .input(z.object({ endpointId: id, requestId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.rotateSecret(await callerOf(ctx), input))),
+        deliveries: router({
+          list: read
+            .input(
+              z.object({
+                limit: limitInput,
+                cursor: cursorInput,
+                endpointId: id.optional(),
+                status: z.enum(['pending', 'delivered', 'failed', 'dead']).optional(),
+                from: iso.optional(),
+                to: iso.optional(),
+              }),
+            )
+            .query(({ ctx, input }) => wrapOps(async () => need().webhooks.listDeliveries(await callerOf(ctx), input))),
+          retry: write
+            .input(z.object({ requestId: id, deliveryId: id }))
+            .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.retry(await callerOf(ctx), input))),
+        }),
+        health: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.health(await callerOf(ctx)))),
       }),
 
       notifications: router({
