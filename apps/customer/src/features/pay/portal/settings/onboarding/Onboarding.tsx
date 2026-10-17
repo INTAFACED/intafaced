@@ -52,7 +52,10 @@ export function Onboarding({
   starterFeeBps: number | null;
 }) {
   const id = merchant?.id ?? 'none';
-  const kyb = useResource((s) => (merchant ? portal.kybCurrent(s) : Promise.resolve({ ok: true as const, data: null })), `portal:kyb:${id}`);
+  const kyb = useResource(
+    (s) => (merchant ? portal.kybCurrent(s) : Promise.resolve({ ok: true as const, data: null })),
+    `portal:kyb:${id}`,
+  );
   const rails = useResource((s) => portal.rails(s), 'portal:rails');
   const progress = useResource(
     (s) => (merchant ? portal.onboardingProgress(merchant.id, s) : Promise.resolve({ ok: true as const, data: null })),
@@ -173,7 +176,10 @@ function Overview(props: OnboardingViewProps) {
   const left: string[] = [];
   if (!merchant) left.push(a('leftBusiness'));
   else {
-    if (progress && !progress.business.done) left.push(a('leftBusinessMissing', { fields: progress.business.missing.map((m) => a(`missing_${m}` as 'missing_legalName')).join(', ') }));
+    if (progress && !progress.business.done)
+      left.push(
+        a('leftBusinessMissing', { fields: progress.business.missing.map((m) => a(`missing_${m}` as 'missing_legalName')).join(', ') }),
+      );
     if (steps.kybStatus !== 'approved') left.push(steps.kybStatus === 'pending' ? a('leftVerifyWaiting') : a('leftVerify'));
     if (!steps.destination) left.push(a('leftDestination'));
     if (merchant.status !== 'active' || steps.kybStatus !== 'approved') left.push(a('leftLive'));
@@ -473,7 +479,12 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
                   items={rows.map((row) => ({
                     at: row.at,
                     title: t('kybFromTo', { from: kybWord(row.fromStatus, t), to: kybWord(row.toStatus, t) }),
-                    detail: row.decidedBy === 'merchant' ? (row.reason ? `${t('bySubmitter')} · ${row.reason}` : t('bySubmitter')) : t('byIntafaced'),
+                    detail:
+                      row.decidedBy === 'merchant'
+                        ? row.reason
+                          ? `${t('bySubmitter')} · ${row.reason}`
+                          : t('bySubmitter')
+                        : t('byIntafaced'),
                   }))}
                 />
                 {history.status === 'ready' && <MoreFooter state={history} onMore={loadMoreHistory} />}
@@ -540,7 +551,9 @@ function StepGoLive(props: OnboardingViewProps) {
                   label={`${t('fRail')} *`}
                   value={chosen.id}
                   onChange={setRailId}
-                  options={payoutRails.map((rail) => [rail.id, `${rail.id} · ${t(rail.mode === 'live' ? 'railLive' : 'railSandbox')}`] as const)}
+                  options={payoutRails.map(
+                    (rail) => [rail.id, `${rail.id} · ${t(rail.mode === 'live' ? 'railLive' : 'railSandbox')}`] as const,
+                  )}
                   hint={t('hRail')}
                 />
                 <Field
@@ -589,12 +602,15 @@ function StepGoLive(props: OnboardingViewProps) {
             [t('factVerification'), steps.kybStatus ? <Chip kind="kyb" value={steps.kybStatus} /> : t('notGiven')],
             [t('factDestination'), steps.destination ? a('destinationOnFile') : a('destinationMissing')],
             [t('factLive'), steps.kybStatus === 'approved' ? a('liveByIntafaced') : a('liveWaitingVerification')],
-            [t('factLimits'), <>
-              <TestTag />{' '}
-              <a className="text-link" href="/pay/limits">
-                {t('reviewLimits')}
-              </a>
-            </>],
+            [
+              t('factLimits'),
+              <>
+                <TestTag />{' '}
+                <a className="text-link" href="/pay/limits">
+                  {t('reviewLimits')}
+                </a>
+              </>,
+            ],
           ]}
         />
         {steps.kybStatus !== 'approved' && (

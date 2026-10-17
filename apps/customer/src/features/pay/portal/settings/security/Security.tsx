@@ -13,7 +13,9 @@ import { Blocker } from '../account/ui';
 export function Security() {
   const value = useMerchantAccess();
   const ready = readyAccess(value);
-  return <SecurityView role={ready?.role ?? null} interactive={ready?.sessionInteractive ?? null} verified={ready?.kybStatus === 'approved'} />;
+  return (
+    <SecurityView role={ready?.role ?? null} interactive={ready?.sessionInteractive ?? null} verified={ready?.kybStatus === 'approved'} />
+  );
 }
 
 export function SecurityView({ role, interactive, verified }: { role: string | null; interactive: boolean | null; verified: boolean }) {

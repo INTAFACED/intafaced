@@ -45,7 +45,9 @@ describe('account copy', () => {
     expect(offenders).toEqual([]);
   });
   it('shares no key with another catalog, so a word never reads two ways', () => {
-    const others = new Set([portalMessages, w3cMessages, extensionMessages, layoutMessages, settingsMessages].flatMap((m) => Object.keys(m)));
+    const others = new Set(
+      [portalMessages, w3cMessages, extensionMessages, layoutMessages, settingsMessages].flatMap((m) => Object.keys(m)),
+    );
     expect(Object.keys(accountMessages).filter((k) => others.has(k))).toEqual([]);
   });
   it('has no key that nothing refers to', () => {

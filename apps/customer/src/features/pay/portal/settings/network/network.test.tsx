@@ -34,7 +34,10 @@ const summary = (patch: Partial<SubSummary> = {}): SubSummary => ({
   displayName: 'TEST Child Alpha',
   legalName: null,
   volume: { window: { preset: 'rolling_30d' }, items: [{ assetCode: 'USDT', volume: '2480.5', count: 31 }] },
-  recentPayments: { items: [{ id: 'p1', status: 'captured', amount: '75', assetId: 'USDT', createdAt: '2026-10-16T00:00:00.000Z' }], nextCursor: null },
+  recentPayments: {
+    items: [{ id: 'p1', status: 'captured', amount: '75', assetId: 'USDT', createdAt: '2026-10-16T00:00:00.000Z' }],
+    nextCursor: null,
+  },
   grants: { items: [{ area: 'payment.refund', granteeMerchantId: B }] },
   ...patch,
 });
@@ -49,12 +52,21 @@ describe('network', () => {
     expect(isPlatformAccount('payfac')).toBe(true);
     expect(isPlatformAccount('gateway')).toBe(false);
     expect(isPlatformAccount(null)).toBe(false);
-    const platformOnly = groups.flatMap((g) => g.items).filter(([, , options]) => options?.when === 'payfac').map(([href]) => href);
+    const platformOnly = groups
+      .flatMap((g) => g.items)
+      .filter(([, , options]) => options?.when === 'payfac')
+      .map(([href]) => href);
     expect(platformOnly).toEqual(['/pay/network', '/pay/permissions']);
   });
   it('lists the businesses, each opening its own page, with the fee as a percent', () => {
     const out = renderToString(
-      <NetworkView portal={{} as PortalApi} merchantId="m" subs={ready([node(A), node(B, { feeBps: null, status: 'pending', kybStatus: 'none' })])} reload={noop} mayCreate />,
+      <NetworkView
+        portal={{} as PortalApi}
+        merchantId="m"
+        subs={ready([node(A), node(B, { feeBps: null, status: 'pending', kybStatus: 'none' })])}
+        reload={noop}
+        mayCreate
+      />,
     );
     expect(out).toContain(`href="/pay/network/${A}"`);
     expect(out).toContain('1.50%');
@@ -69,7 +81,9 @@ describe('network', () => {
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Add business<\/button>/);
   });
   it('names the blocker when the network read is not switched on', () => {
-    const out = renderToString(<NetworkView portal={{} as PortalApi} merchantId="m" subs={failed('pay.not_built', 501, 'not_supported')} reload={noop} mayCreate />);
+    const out = renderToString(
+      <NetworkView portal={{} as PortalApi} merchantId="m" subs={failed('pay.not_built', 501, 'not_supported')} reload={noop} mayCreate />,
+    );
     expect(out).toContain('the network pages aren’t connected yet');
     expect(out).not.toContain('Coming soon');
   });
@@ -99,20 +113,47 @@ describe('one business in the network', () => {
     plain(out);
   });
   it('says plainly when the person has no access to payments or grants', () => {
-    const out = renderToString(<NetworkChildView node={ready(node(A))} summary={ready(summary({ volume: null, recentPayments: null, grants: null }))} reload={noop} />);
+    const out = renderToString(
+      <NetworkChildView
+        node={ready(node(A))}
+        summary={ready(summary({ volume: null, recentPayments: null, grants: null }))}
+        reload={noop}
+      />,
+    );
     expect(out).toContain('You don’t have access to this business’s payments');
     expect(out).toContain('You don’t have access to see who holds permissions');
   });
   it('keeps the facts and names the blocker when the summary is not switched on', () => {
-    const out = renderToString(<NetworkChildView node={ready(node(A))} summary={failed('pay.not_built', 501, 'not_supported')} reload={noop} />);
+    const out = renderToString(
+      <NetworkChildView node={ready(node(A))} summary={failed('pay.not_built', 501, 'not_supported')} reload={noop} />,
+    );
     expect(out).toContain('Summary not connected yet');
     expect(out).toContain('1.50%');
   });
 });
 
 describe('permissions', () => {
-  const grant: Grant = { granteeMerchantId: B, subjectMerchantId: A, area: 'payment', reason: 'TEST reason', actorId: 'x', actorMerchantId: 'y', grantedAt: '2026-10-05T00:00:00.000Z' };
-  const event: PermissionEvent = { id: 'e1', seq: '1', granteeMerchantId: B, subjectMerchantId: A, area: 'payment', action: 'grant', reason: 'TEST reason', actorId: 'x', actorMerchantId: 'y', createdAt: '2026-10-05T00:00:00.000Z' };
+  const grant: Grant = {
+    granteeMerchantId: B,
+    subjectMerchantId: A,
+    area: 'payment',
+    reason: 'TEST reason',
+    actorId: 'x',
+    actorMerchantId: 'y',
+    grantedAt: '2026-10-05T00:00:00.000Z',
+  };
+  const event: PermissionEvent = {
+    id: 'e1',
+    seq: '1',
+    granteeMerchantId: B,
+    subjectMerchantId: A,
+    area: 'payment',
+    action: 'grant',
+    reason: 'TEST reason',
+    actorId: 'x',
+    actorMerchantId: 'y',
+    createdAt: '2026-10-05T00:00:00.000Z',
+  };
   const props = (extra: Partial<Parameters<typeof PermissionsView>[0]> = {}): Parameters<typeof PermissionsView>[0] => ({
     portal: {} as PortalApi,
     subs: ready([node(A, { id: A }), node(B)]),

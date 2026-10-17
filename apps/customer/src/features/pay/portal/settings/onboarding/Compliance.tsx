@@ -75,7 +75,9 @@ export function ComplianceView({
                 </div>
                 <div>
                   <dt>{c.t('verificationReference')}</dt>
-                  <dd>{record.kybRef ? <CopyReference value={record.kybRef} what={c.t('verificationReference')} /> : c.t('noReference')}</dd>
+                  <dd>
+                    {record.kybRef ? <CopyReference value={record.kybRef} what={c.t('verificationReference')} /> : c.t('noReference')}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t('compScreening')}</dt>

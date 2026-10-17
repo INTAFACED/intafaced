@@ -59,7 +59,11 @@ export function NetworkView({
   return (
     <div className="stack">
       <PaySection title={t('netListTitle')} description={t('netListBody')}>
-        <ReadGate resource={subs} retry={reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
+        <ReadGate
+          resource={subs}
+          retry={reload}
+          waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}
+        >
           {(rows) =>
             rows.length === 0 ? (
               <EmptyState title={t('netEmptyTitle')}>{t('netEmptyBody')}</EmptyState>

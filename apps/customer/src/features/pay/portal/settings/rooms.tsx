@@ -34,9 +34,7 @@ export const settingsRooms: RoomTable = {
   'settings-notifications': {
     header: () => settingsHeader('settings-notifications'),
     here: '/pay/settings/notifications',
-    render: (_route, { portal }) => (
-      <WithAccount>{() => <Notifications portal={portal} preferencesOnly />}</WithAccount>
-    ),
+    render: (_route, { portal }) => <WithAccount>{() => <Notifications portal={portal} preferencesOnly />}</WithAccount>,
   },
   'developer-keys': developer,
   'developer-signing': developer,

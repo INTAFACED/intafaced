@@ -119,8 +119,7 @@ const en = {
   needVerifiedSession: 'Sign in with two-step verification to change business details.',
   pendingTitle: 'A change is waiting.',
   pendingBody: '{n} change(s) to your details haven’t taken effect yet. See where each one stands below.',
-  profileEditBlocked:
-    'Editing business details isn’t open yet. You can see your name and status above. Nothing you need is lost.',
+  profileEditBlocked: 'Editing business details isn’t open yet. You can see your name and status above. Nothing you need is lost.',
   profileFormTitle: 'Business details',
   profileFormBody: 'Change what customers and INTAFACED see. Say why, then review before saving.',
   groupPublic: 'What customers see',

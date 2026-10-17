@@ -77,7 +77,12 @@ describe('setup overview', () => {
     expect(out).toContain('Your business details are missing: address.');
   });
   it('falls back to the account record when progress cannot be read', () => {
-    const states = stepStates({ merchant: { ...merchant, kybStatus: 'pending' }, kyb: ready({ kybStatus: 'pending', kybRef: 'r', mode: 'gateway' }), progress: failed('pay.not_built', 501, 'not_supported'), saved: null });
+    const states = stepStates({
+      merchant: { ...merchant, kybStatus: 'pending' },
+      kyb: ready({ kybStatus: 'pending', kybRef: 'r', mode: 'gateway' }),
+      progress: failed('pay.not_built', 501, 'not_supported'),
+      saved: null,
+    });
     expect(states.business).toBe('done');
     expect(states.verification).toBe('waiting');
     expect(states.destination).toBe(false);
@@ -86,7 +91,12 @@ describe('setup overview', () => {
     const states = stepStates({
       merchant,
       kyb: ready(null),
-      progress: ready(progress({ destination: { present: true, destinations: [{ railId: 'bank', kind: 'bank', destinationMasked: '••••1234' }] }, kybStatus: 'approved' })),
+      progress: ready(
+        progress({
+          destination: { present: true, destinations: [{ railId: 'bank', kind: 'bank', destinationMasked: '••••1234' }] },
+          kybStatus: 'approved',
+        }),
+      ),
       saved: null,
     });
     expect(states.destination).toBe(true);
@@ -153,7 +163,12 @@ describe('go-live step', () => {
   it('shows the saved destination masked, the live status and the terms blocker', () => {
     const out = html({
       ...live,
-      progress: ready(progress({ kybStatus: 'pending', destination: { present: true, destinations: [{ railId: 'bank-sandbox', kind: 'bank', destinationMasked: '••••4321' }] } })),
+      progress: ready(
+        progress({
+          kybStatus: 'pending',
+          destination: { present: true, destinations: [{ railId: 'bank-sandbox', kind: 'bank', destinationMasked: '••••4321' }] },
+        }),
+      ),
     });
     expect(out).toContain('••••4321');
     expect(out).toContain('Waiting for your verification to be approved');
@@ -175,7 +190,15 @@ describe('compliance', () => {
   const history = {
     status: 'ready' as const,
     items: [
-      { seq: '1', fromStatus: 'pending', toStatus: 'approved', kybRef: 'TEST', decidedBy: 'intafaced' as const, reason: 'INTERNAL NOTE MUST NOT DISPLAY', at: '2026-10-16T00:00:00Z' },
+      {
+        seq: '1',
+        fromStatus: 'pending',
+        toStatus: 'approved',
+        kybRef: 'TEST',
+        decidedBy: 'intafaced' as const,
+        reason: 'INTERNAL NOTE MUST NOT DISPLAY',
+        at: '2026-10-16T00:00:00Z',
+      },
     ],
     hasMore: true,
     more: 'idle' as const,
@@ -186,7 +209,12 @@ describe('compliance', () => {
   });
   it('keeps verification separate from screening, never shows screening data, and hides internal notes', () => {
     const out = renderToString(
-      <ComplianceView current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })} history={history} loadMore={noop} reload={noop} />,
+      <ComplianceView
+        current={ready({ kybStatus: 'approved', kybRef: 'TEST-reference', mode: 'gateway' })}
+        history={history}
+        loadMore={noop}
+        reload={noop}
+      />,
     );
     expect(out).toContain('Approved');
     expect(out).toContain('Verification is not a screening result');
@@ -198,7 +226,9 @@ describe('compliance', () => {
     expect(out).toContain('Load more');
   });
   it('has a useful empty history and a loading state', () => {
-    const out = renderToString(<ComplianceView current={{ status: 'loading' }} history={{ ...history, items: [], hasMore: false }} loadMore={noop} reload={noop} />);
+    const out = renderToString(
+      <ComplianceView current={{ status: 'loading' }} history={{ ...history, items: [], hasMore: false }} loadMore={noop} reload={noop} />,
+    );
     expect(out).toContain('aria-busy="true"');
     expect(out).toContain('No verification history yet');
     expect(out).toContain('/pay/onboarding/verification');

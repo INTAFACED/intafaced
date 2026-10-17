@@ -21,7 +21,16 @@ export function createAccountMock(ctx) {
     statementDescriptor: 'TEST SHOP',
     industry: 'Online retail',
   };
-  const emptySide = { displayName: null, legalName: null, address: null, website: null, supportEmail: null, supportPhone: null, statementDescriptor: null, industry: null };
+  const emptySide = {
+    displayName: null,
+    legalName: null,
+    address: null,
+    website: null,
+    supportEmail: null,
+    supportPhone: null,
+    statementDescriptor: null,
+    industry: null,
+  };
   state.profileHistory = [
     {
       requestId: REQ_PENDING,
@@ -73,24 +82,122 @@ export function createAccountMock(ctx) {
     },
   ].map((row) => (quiet ? { ...row, status: row.status === 'pending' ? 'applied' : row.status } : row));
   const children = [
-    { id: CHILD_A, userId: 'TEST-child-a', parentMerchantId: MERCHANT_ID, mode: 'payfac', status: 'active', kybStatus: 'approved', settlingParty: 'self', feeBps: 150, depth: 1, createdAt: iso(now - 60 * DAY) },
-    { id: CHILD_B, userId: 'TEST-child-b', parentMerchantId: MERCHANT_ID, mode: 'payfac', status: 'pending', kybStatus: 'none', settlingParty: 'self', feeBps: null, depth: 1, createdAt: iso(now - 3 * DAY) },
+    {
+      id: CHILD_A,
+      userId: 'TEST-child-a',
+      parentMerchantId: MERCHANT_ID,
+      mode: 'payfac',
+      status: 'active',
+      kybStatus: 'approved',
+      settlingParty: 'self',
+      feeBps: 150,
+      depth: 1,
+      createdAt: iso(now - 60 * DAY),
+    },
+    {
+      id: CHILD_B,
+      userId: 'TEST-child-b',
+      parentMerchantId: MERCHANT_ID,
+      mode: 'payfac',
+      status: 'pending',
+      kybStatus: 'none',
+      settlingParty: 'self',
+      feeBps: null,
+      depth: 1,
+      createdAt: iso(now - 3 * DAY),
+    },
   ];
   state.children = children;
   state.grants = [
-    { granteeMerchantId: CHILD_B, subjectMerchantId: CHILD_A, area: 'payment', reason: 'TEST: lets B see A payments', actorId: USER_ID, actorMerchantId: MERCHANT_ID, grantedAt: iso(now - 10 * DAY) },
+    {
+      granteeMerchantId: CHILD_B,
+      subjectMerchantId: CHILD_A,
+      area: 'payment',
+      reason: 'TEST: lets B see A payments',
+      actorId: USER_ID,
+      actorMerchantId: MERCHANT_ID,
+      grantedAt: iso(now - 10 * DAY),
+    },
   ];
   state.permEvents = [
-    { id: hex('e1', 1), seq: '1', granteeMerchantId: CHILD_B, subjectMerchantId: CHILD_A, area: 'payment', action: 'grant', reason: 'TEST: lets B see A payments', actorId: USER_ID, actorMerchantId: MERCHANT_ID, actorScope: 'pay:write', createdAt: iso(now - 10 * DAY) },
+    {
+      id: hex('e1', 1),
+      seq: '1',
+      granteeMerchantId: CHILD_B,
+      subjectMerchantId: CHILD_A,
+      area: 'payment',
+      action: 'grant',
+      reason: 'TEST: lets B see A payments',
+      actorId: USER_ID,
+      actorMerchantId: MERCHANT_ID,
+      actorScope: 'pay:write',
+      createdAt: iso(now - 10 * DAY),
+    },
   ];
   const activity = [
-    { id: 'a1', occurredAt: iso(now - 1 * 3600_000), actorId: USER_ID, action: 'role_changed', objectType: 'team', objectId: 'TEST-user-finance', detail: { role: 'finance' } },
-    { id: 'a2', occurredAt: iso(now - 2 * 3600_000), actorId: 'system', action: 'captured', objectType: 'payment', objectId: hex('b1', 1), detail: { amount: '120.50', asset: 'USDT' } },
-    { id: 'a3', occurredAt: iso(now - 5 * 3600_000), actorId: 'intafaced', action: 'approved', objectType: 'kyb', objectId: hex('b2', 1), detail: { fromStatus: 'pending', toStatus: 'approved' } },
-    { id: 'a4', occurredAt: iso(now - 8 * 3600_000), actorId: 'TEST-user-finance', action: 'payout_pending', objectType: 'approval', objectId: hex('b3', 1), detail: { status: 'pending', amount: '40', asset: 'USDT', destinationKind: 'bank', destinationMasked: '••••1234' } },
-    { id: 'a5', occurredAt: iso(now - 1 * DAY), actorId: 'system', action: 'delivery_failed', objectType: 'webhook', objectId: hex('b4', 1), detail: { status: 'failed', eventType: 'payment.captured', attempts: '3' } },
-    { id: 'a6', occurredAt: iso(now - 2 * DAY), actorId: 'TEST-user-dev', action: 'export_ready', objectType: 'export', objectId: hex('b5', 1), detail: { status: 'ready' } },
-    { id: 'a7', occurredAt: iso(now - 3 * DAY), actorId: USER_ID, action: 'responded', objectType: 'dispute', objectId: 'TEST-dispute-1', detail: { status: 'contested' } },
+    {
+      id: 'a1',
+      occurredAt: iso(now - 1 * 3600_000),
+      actorId: USER_ID,
+      action: 'role_changed',
+      objectType: 'team',
+      objectId: 'TEST-user-finance',
+      detail: { role: 'finance' },
+    },
+    {
+      id: 'a2',
+      occurredAt: iso(now - 2 * 3600_000),
+      actorId: 'system',
+      action: 'captured',
+      objectType: 'payment',
+      objectId: hex('b1', 1),
+      detail: { amount: '120.50', asset: 'USDT' },
+    },
+    {
+      id: 'a3',
+      occurredAt: iso(now - 5 * 3600_000),
+      actorId: 'intafaced',
+      action: 'approved',
+      objectType: 'kyb',
+      objectId: hex('b2', 1),
+      detail: { fromStatus: 'pending', toStatus: 'approved' },
+    },
+    {
+      id: 'a4',
+      occurredAt: iso(now - 8 * 3600_000),
+      actorId: 'TEST-user-finance',
+      action: 'payout_pending',
+      objectType: 'approval',
+      objectId: hex('b3', 1),
+      detail: { status: 'pending', amount: '40', asset: 'USDT', destinationKind: 'bank', destinationMasked: '••••1234' },
+    },
+    {
+      id: 'a5',
+      occurredAt: iso(now - 1 * DAY),
+      actorId: 'system',
+      action: 'delivery_failed',
+      objectType: 'webhook',
+      objectId: hex('b4', 1),
+      detail: { status: 'failed', eventType: 'payment.captured', attempts: '3' },
+    },
+    {
+      id: 'a6',
+      occurredAt: iso(now - 2 * DAY),
+      actorId: 'TEST-user-dev',
+      action: 'export_ready',
+      objectType: 'export',
+      objectId: hex('b5', 1),
+      detail: { status: 'ready' },
+    },
+    {
+      id: 'a7',
+      occurredAt: iso(now - 3 * DAY),
+      actorId: USER_ID,
+      action: 'responded',
+      objectType: 'dispute',
+      objectId: 'TEST-dispute-1',
+      detail: { status: 'contested' },
+    },
   ];
 
   return {
@@ -143,13 +250,24 @@ export function createAccountMock(ctx) {
             createdAt: iso(Date.now()),
             decidedAt: outcome === 'applied' ? iso(Date.now()) : null,
           });
-          return ok(route, { requestId, outcome, version: state.profile.version, changeHash: sensitive.length ? 'sha256:' + '12'.repeat(32) : null, profile: state.profile });
+          return ok(route, {
+            requestId,
+            outcome,
+            version: state.profile.version,
+            changeHash: sensitive.length ? 'sha256:' + '12'.repeat(32) : null,
+            profile: state.profile,
+          });
         }
         case 'merchant.businessProfile.confirm': {
           const row = state.profileHistory.find((r) => r.requestId === input.requestId);
           if (!row || row.status !== 'pending') return refuse(route, 409, 'pay.profile_change_not_pending');
           row.status = input.decision === 'confirm' ? 'pending_review' : 'rejected';
-          return ok(route, { requestId: row.requestId, outcome: input.decision === 'confirm' ? 'pending_review' : 'rejected', version: state.profile.version, profile: state.profile });
+          return ok(route, {
+            requestId: row.requestId,
+            outcome: input.decision === 'confirm' ? 'pending_review' : 'rejected',
+            version: state.profile.version,
+            profile: state.profile,
+          });
         }
         case 'merchant.businessProfile.setSecondApproval':
           return ok(route, { merchantId: MERCHANT_ID, enabled: input.enabled });
@@ -188,32 +306,85 @@ export function createAccountMock(ctx) {
             ...row,
             displayName: row.id === CHILD_A ? 'TEST Child Alpha' : null,
             legalName: row.id === CHILD_A ? 'TEST Child Alpha Ltd' : null,
-            volume: { window: { kind: 'preset', preset: 'rolling_30d' }, items: row.id === CHILD_A ? [{ assetCode: 'USDT', volume: '2480.5', count: 31 }] : [] },
+            volume: {
+              window: { kind: 'preset', preset: 'rolling_30d' },
+              items: row.id === CHILD_A ? [{ assetCode: 'USDT', volume: '2480.5', count: 31 }] : [],
+            },
             recentPayments: {
-              items: row.id === CHILD_A ? [{ id: hex('f1', 1), status: 'captured', amount: '75', assetId: 'USDT', createdAt: iso(now - 3600_000) }] : [],
+              items:
+                row.id === CHILD_A
+                  ? [{ id: hex('f1', 1), status: 'captured', amount: '75', assetId: 'USDT', createdAt: iso(now - 3600_000) }]
+                  : [],
               nextCursor: null,
             },
-            grants: { items: state.grants.filter((g) => g.subjectMerchantId === row.id).map((g) => ({ area: g.area, granteeMerchantId: g.granteeMerchantId })) },
+            grants: {
+              items: state.grants
+                .filter((g) => g.subjectMerchantId === row.id)
+                .map((g) => ({ area: g.area, granteeMerchantId: g.granteeMerchantId })),
+            },
           });
         }
         case 'submerchant.create': {
-          const row = { id: hex('c3', state.children.length + 1), userId: input.userId, parentMerchantId: input.parentMerchantId, mode: 'payfac', status: 'pending', kybStatus: 'none', settlingParty: 'self', feeBps: input.pricing.feeBps, depth: 1, createdAt: iso(Date.now()) };
+          const row = {
+            id: hex('c3', state.children.length + 1),
+            userId: input.userId,
+            parentMerchantId: input.parentMerchantId,
+            mode: 'payfac',
+            status: 'pending',
+            kybStatus: 'none',
+            settlingParty: 'self',
+            feeBps: input.pricing.feeBps,
+            depth: 1,
+            createdAt: iso(Date.now()),
+          };
           state.children.push(row);
           return ok(route, row);
         }
         case 'submerchantPermission.areas':
           return ok(route, ['merchant.profile', 'payment', 'payment.refund', 'settlement']);
         case 'submerchantPermission.list':
-          return ok(route, state.grants.filter((g) => g.subjectMerchantId === input.subjectMerchantId));
+          return ok(
+            route,
+            state.grants.filter((g) => g.subjectMerchantId === input.subjectMerchantId),
+          );
         case 'submerchantPermission.history':
-          return ok(route, state.permEvents.filter((g) => g.subjectMerchantId === input.subjectMerchantId));
+          return ok(
+            route,
+            state.permEvents.filter((g) => g.subjectMerchantId === input.subjectMerchantId),
+          );
         case 'submerchantPermission.grant':
         case 'submerchantPermission.revoke': {
           const grant = procedure.endsWith('grant');
-          const event = { id: hex('e1', state.permEvents.length + 1), seq: String(state.permEvents.length + 1), ...input, action: grant ? 'grant' : 'revoke', actorId: USER_ID, actorMerchantId: MERCHANT_ID, actorScope: 'pay:write', createdAt: iso(Date.now()) };
+          const event = {
+            id: hex('e1', state.permEvents.length + 1),
+            seq: String(state.permEvents.length + 1),
+            ...input,
+            action: grant ? 'grant' : 'revoke',
+            actorId: USER_ID,
+            actorMerchantId: MERCHANT_ID,
+            actorScope: 'pay:write',
+            createdAt: iso(Date.now()),
+          };
           state.permEvents.unshift(event);
-          if (grant) state.grants.push({ granteeMerchantId: input.granteeMerchantId, subjectMerchantId: input.subjectMerchantId, area: input.area, reason: input.reason, actorId: USER_ID, actorMerchantId: MERCHANT_ID, grantedAt: event.createdAt });
-          else state.grants = state.grants.filter((g) => !(g.granteeMerchantId === input.granteeMerchantId && g.subjectMerchantId === input.subjectMerchantId && g.area === input.area));
+          if (grant)
+            state.grants.push({
+              granteeMerchantId: input.granteeMerchantId,
+              subjectMerchantId: input.subjectMerchantId,
+              area: input.area,
+              reason: input.reason,
+              actorId: USER_ID,
+              actorMerchantId: MERCHANT_ID,
+              grantedAt: event.createdAt,
+            });
+          else
+            state.grants = state.grants.filter(
+              (g) =>
+                !(
+                  g.granteeMerchantId === input.granteeMerchantId &&
+                  g.subjectMerchantId === input.subjectMerchantId &&
+                  g.area === input.area
+                ),
+            );
           return ok(route, event);
         }
         default:

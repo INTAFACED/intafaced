@@ -33,10 +33,23 @@ export function NetworkChild({ portal, childId, mode }: { portal: PortalApi; chi
   );
 }
 
-export function NetworkChildView({ node, summary, reload }: { node: Resource<SubMerchant>; summary: Resource<SubSummary>; reload: () => void }) {
+export function NetworkChildView({
+  node,
+  summary,
+  reload,
+}: {
+  node: Resource<SubMerchant>;
+  summary: Resource<SubSummary>;
+  reload: () => void;
+}) {
   const { t } = accountCopy.useCopy();
   return (
-    <ReadGate resource={node} retry={reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.get' }} rows={4}>
+    <ReadGate
+      resource={node}
+      retry={reload}
+      waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.get' }}
+      rows={4}
+    >
       {(base) => {
         const named = summary.status === 'ready' ? summary.data : base;
         const name = nodeName(named, t('subWord'));
@@ -67,7 +80,11 @@ export function NetworkChildView({ node, summary, reload }: { node: Resource<Sub
                 ]}
               />
             </PaySection>
-            <ReadGate resource={summary} retry={reload} waiting={{ reason: t('waitSummary'), body: t('netSummaryBlocked'), needs: 'submerchant.summary' }}>
+            <ReadGate
+              resource={summary}
+              retry={reload}
+              waiting={{ reason: t('waitSummary'), body: t('netSummaryBlocked'), needs: 'submerchant.summary' }}
+            >
               {(data) => <Summary data={data} />}
             </ReadGate>
             <RelatedLinks

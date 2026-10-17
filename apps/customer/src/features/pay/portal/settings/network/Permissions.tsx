@@ -154,11 +154,21 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
           onChange={props.select}
           options={subs.map((s) => [s.id, nodeName(s, t('subWord'))] as const)}
         />
-        <Field label={`${t('fReason')} *`} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} hint={t('permReasonHint')} />
+        <Field
+          label={`${t('fReason')} *`}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          maxLength={500}
+          hint={t('permReasonHint')}
+        />
       </PaySection>
 
       <PaySection title={t('permGrantsTitle')} description={t('permGrantsBody')}>
-        <ReadGate resource={props.grants} retry={props.reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
+        <ReadGate
+          resource={props.grants}
+          retry={props.reload}
+          waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}
+        >
           {(grants) =>
             grants.length === 0 ? (
               <EmptyState title={t('permNoGrants')}>{t('permNoGrantsBody')}</EmptyState>
@@ -250,7 +260,11 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
       </PaySection>
 
       <PaySection title={t('permHistoryTitle')} description={t('permHistoryBody')}>
-        <ReadGate resource={props.history} retry={props.reload} waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}>
+        <ReadGate
+          resource={props.history}
+          retry={props.reload}
+          waiting={{ reason: notLive('reasonNetwork'), body: t('netWaitBody'), needs: 'submerchant.list' }}
+        >
           {(events) =>
             events.length === 0 ? (
               <EmptyState title={t('permNoHistory')}>{t('permNoHistoryBody')}</EmptyState>
@@ -259,7 +273,10 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
                 label={t('permHistoryTitle')}
                 items={events.map((e) => ({
                   at: e.createdAt,
-                  title: t(e.action === 'grant' ? 'permEvGrant' : 'permEvRevoke', { area: areaWords(e.area), who: label(e.granteeMerchantId) }),
+                  title: t(e.action === 'grant' ? 'permEvGrant' : 'permEvRevoke', {
+                    area: areaWords(e.area),
+                    who: label(e.granteeMerchantId),
+                  }),
                   detail: e.reason,
                 }))}
               />

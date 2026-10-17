@@ -19,7 +19,14 @@ import { isWaiting, profilePatch, sensitiveChanges, toForm, validateProfile, typ
 import type { BusinessProfile, ProfileChange, ProfileFields } from '../account/schemas';
 import { ReadGate } from '../account/ui';
 
-type Who = { merchantId: string; accountStatus: string; mode: string | null; kybStatus: string | null; displayName: string | null; legalName: string | null };
+type Who = {
+  merchantId: string;
+  accountStatus: string;
+  mode: string | null;
+  kybStatus: string | null;
+  displayName: string | null;
+  legalName: string | null;
+};
 
 /** `/pay/settings`: the business's own details, who changed them, and what is waiting for review. */
 export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
@@ -27,7 +34,11 @@ export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; me
   const { userId } = useSession();
   const names = useMemberNames(portal);
   const profile = useResource((s) => portal.profileGet(merchantId, s), `portal:profile:${merchantId}`);
-  const history = useCursorList((cursor, s) => portal.profileHistory(merchantId, cursor, s), `portal:profile-history:${merchantId}`, (c) => c.requestId);
+  const history = useCursorList(
+    (cursor, s) => portal.profileHistory(merchantId, cursor, s),
+    `portal:profile-history:${merchantId}`,
+    (c) => c.requestId,
+  );
   const ready = access.status === 'ready' ? access : null;
   const who: Who = {
     merchantId,
@@ -72,7 +83,8 @@ export function BusinessSettingsView(props: {
   const { t } = accountCopy.useCopy();
   const { who, profile, history } = props;
   const waiting = history.status === 'ready' ? history.items.filter((c) => isWaiting(c.status)) : [];
-  const lastApplied = history.status === 'ready' ? history.items.find((c) => c.status === 'applied' || c.status === 'applied_pre_kyb') : undefined;
+  const lastApplied =
+    history.status === 'ready' ? history.items.find((c) => c.status === 'applied' || c.status === 'applied_pre_kyb') : undefined;
   return (
     <div className="stack">
       <PaySection title={t('profileAccountTitle')}>
@@ -84,7 +96,9 @@ export function BusinessSettingsView(props: {
             [t('fAccountId'), <CopyReference value={who.merchantId} what={t('fAccountId')} />],
           ]}
         />
-        {lastApplied && <AuditPanel who={actorName(lastApplied.makerId, props.me, props.names)} at={lastApplied.decidedAt ?? lastApplied.createdAt} />}
+        {lastApplied && (
+          <AuditPanel who={actorName(lastApplied.makerId, props.me, props.names)} at={lastApplied.decidedAt ?? lastApplied.createdAt} />
+        )}
         <p className="muted">{props.mayEdit ? t('whoMayEdit') : t('whoMayEditNot')}</p>
       </PaySection>
 

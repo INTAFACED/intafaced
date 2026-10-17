@@ -42,7 +42,14 @@ const change = (patch: Partial<ProfileChange>): ProfileChange => ({
 });
 const base = {
   portal: {} as PortalApi,
-  who: { merchantId: profile.merchantId, accountStatus: 'active', mode: 'gateway', kybStatus: 'approved', displayName: 'TEST Shop', legalName: 'TEST Shop Ltd' },
+  who: {
+    merchantId: profile.merchantId,
+    accountStatus: 'active',
+    mode: 'gateway',
+    kybStatus: 'approved',
+    displayName: 'TEST Shop',
+    legalName: 'TEST Shop Ltd',
+  },
   profile: ready(profile),
   history: list([change({})]),
   me: 'TEST-owner',
@@ -78,7 +85,12 @@ describe('business details', () => {
   it('lists the change history with plain outcome words', () => {
     const out = html({
       history: list([
-        change({ status: 'pending', requestId: '44444444-4444-4444-8444-444444444444', makerId: 'TEST-finance', after: { statementDescriptor: 'X' } }),
+        change({
+          status: 'pending',
+          requestId: '44444444-4444-4444-8444-444444444444',
+          makerId: 'TEST-finance',
+          after: { statementDescriptor: 'X' },
+        }),
         change({ status: 'pending_review', requestId: '55555555-5555-4555-8555-555555555555', after: { legalName: 'Y' } }),
         change({ status: 'rejected', requestId: '66666666-6666-4666-8666-666666666666' }),
       ]),
@@ -129,7 +141,13 @@ describe('business details model', () => {
   it('validates web address, email, phone, country and half-filled addresses', () => {
     const form = { ...toForm(profile), website: 'http://x.test', supportEmail: 'nope', supportPhone: 'abc', country: 'gbr', line1: '' };
     const errors = validateProfile(form);
-    expect(errors).toMatchObject({ website: 'website', supportEmail: 'email', supportPhone: 'phone', country: 'country', line1: 'address' });
+    expect(errors).toMatchObject({
+      website: 'website',
+      supportEmail: 'email',
+      supportPhone: 'phone',
+      country: 'country',
+      line1: 'address',
+    });
     expect(validateProfile(toForm(profile))).toEqual({});
     const blank = { ...toForm(profile), line1: '', line2: '', city: '', region: '', postalCode: '', country: '' };
     expect(validateProfile(blank)).toEqual({});

@@ -68,7 +68,7 @@ export function ActivityView(props: {
 }) {
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
-  const typeLabel = (type: string) => (ACTIVITY_TYPES as readonly string[]).includes(type) ? t(`type_${type}` as 'type_payment') : type;
+  const typeLabel = (type: string) => ((ACTIVITY_TYPES as readonly string[]).includes(type) ? t(`type_${type}` as 'type_payment') : type);
   const who = (item: ActivityItem) => actorName(item.actorId, props.me, props.names);
   const title = (item: ActivityItem) => {
     if (item.objectType === 'kyb') {
@@ -128,11 +128,7 @@ export function ActivityView(props: {
           hasMore={props.state.status === 'ready' ? props.state.hasMore : false}
         />
         <p className="muted">{t('searchHint')}</p>
-        <ListShell
-          state={props.state}
-          retry={props.reload}
-          empty={{ title: t('activityEmpty'), body: t('activityEmptyBody') }}
-        >
+        <ListShell state={props.state} retry={props.reload} empty={{ title: t('activityEmpty'), body: t('activityEmptyBody') }}>
           {(rows) => (
             <>
               <EntityList
@@ -146,11 +142,15 @@ export function ActivityView(props: {
                   { header: t('colWhat'), cell: (r) => <strong>{title(r)}</strong> },
                   { header: t('colDetails'), cell: details },
                 ]}
-                card={(r) => ({ title: title(r), time: (
+                card={(r) => ({
+                  title: title(r),
+                  time: (
                     <>
                       {who(r)} · <DateTime value={r.occurredAt} />
                     </>
-                  ), amount: details(r) })}
+                  ),
+                  amount: details(r),
+                })}
               />
               {props.state.status === 'ready' && <MoreFooter state={props.state} onMore={props.loadMore} />}
             </>

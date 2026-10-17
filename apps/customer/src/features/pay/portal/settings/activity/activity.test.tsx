@@ -38,9 +38,23 @@ const filters: ListFilters = {
 };
 const rows = [
   item({}),
-  item({ id: 'a2', actorId: 'TEST-finance', action: 'captured', objectType: 'payment', objectId: 'pay-1', detail: { amount: '120.50', asset: 'USDT' } }),
+  item({
+    id: 'a2',
+    actorId: 'TEST-finance',
+    action: 'captured',
+    objectType: 'payment',
+    objectId: 'pay-1',
+    detail: { amount: '120.50', asset: 'USDT' },
+  }),
   item({ id: 'a3', actorId: 'intafaced', action: 'approved', objectType: 'kyb', objectId: 'k1', detail: { toStatus: 'approved' } }),
-  item({ id: 'a4', actorId: 'founder:7', action: 'payout_pending', objectType: 'approval', objectId: 'ap1', detail: { destinationKind: 'bank', destinationMasked: '••••1234' } }),
+  item({
+    id: 'a4',
+    actorId: 'founder:7',
+    action: 'payout_pending',
+    objectType: 'approval',
+    objectId: 'ap1',
+    detail: { destinationKind: 'bank', destinationMasked: '••••1234' },
+  }),
 ];
 const base = {
   filters,

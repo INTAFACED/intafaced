@@ -57,7 +57,9 @@ export const accountRooms: RoomTable = {
       title: accountCopy.t('businessTitle'),
       purpose: accountCopy.t('businessPurpose'),
     }),
-    render: (_route, { portal }) => <WithAccount>{({ merchantId }) => <BusinessSettings portal={portal} merchantId={merchantId} />}</WithAccount>,
+    render: (_route, { portal }) => (
+      <WithAccount>{({ merchantId }) => <BusinessSettings portal={portal} merchantId={merchantId} />}</WithAccount>
+    ),
   },
   'settings-security': {
     header: () => ({ title: settingsCopy.t('securityTitle'), purpose: settingsCopy.t('securityPurpose') }),
@@ -76,7 +78,13 @@ export const accountRooms: RoomTable = {
     render: (route, { portal, access, starterFeeBps }) => (
       <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
         {(record) => (
-          <Onboarding step={route.step} portal={portal} merchant={record} reloadMerchant={access.reloadMerchant} starterFeeBps={starterFeeBps} />
+          <Onboarding
+            step={route.step}
+            portal={portal}
+            merchant={record}
+            reloadMerchant={access.reloadMerchant}
+            starterFeeBps={starterFeeBps}
+          />
         )}
       </Gate>
     ),

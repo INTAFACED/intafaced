@@ -53,7 +53,8 @@ const props = (role: MemberRole, extra: Partial<Parameters<typeof TeamView>[0]> 
   refresh: noop,
   ...extra,
 });
-const html = (role: MemberRole, extra: Partial<Parameters<typeof TeamView>[0]> = {}) => renderToString(<TeamView {...props(role, extra)} />);
+const html = (role: MemberRole, extra: Partial<Parameters<typeof TeamView>[0]> = {}) =>
+  renderToString(<TeamView {...props(role, extra)} />);
 
 describe('team', () => {
   it('pins the owner first and sorts the others by role then name', () => {
@@ -97,7 +98,9 @@ describe('team', () => {
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Send invitation<\/button>/);
   });
   it('offers pending invitations to accept or decline', () => {
-    const out = html('viewer', { invitations: ready<Invitation[]>([{ memberId: 'i1', merchantId: 'm', role: 'developer', invitedAt: '2026-10-14T00:00:00.000Z' }]) });
+    const out = html('viewer', {
+      invitations: ready<Invitation[]>([{ memberId: 'i1', merchantId: 'm', role: 'developer', invitedAt: '2026-10-14T00:00:00.000Z' }]),
+    });
     expect(out).toContain('Invitation to join a team as Developer');
     expect(out).toContain('>Accept<');
     expect(out).toContain('>Decline<');
@@ -116,7 +119,9 @@ describe('team', () => {
         filters: { ...props('owner').filters, search: 'zzz' },
       }),
     ).toContain('No one matches these filters');
-    expect(html('owner', { members: { status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') } })).toContain('Try again');
+    expect(
+      html('owner', { members: { status: 'failed', failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable') } }),
+    ).toContain('Try again');
     expect(failed('x', 500).status).toBe('failed');
   });
   it('says how many rows are shown and whether more exist', () => {
