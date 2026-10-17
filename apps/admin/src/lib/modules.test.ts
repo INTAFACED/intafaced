@@ -74,6 +74,10 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/ledger-freeze')).toBe('ledger');
     expect(moduleForApi('/api/operator-tools')).toBe('tools');
     expect(moduleForApi('/api/analytics/warehouse')).toBe('tools');
+    expect(moduleForApi('/api/bank-ops')).toBe('bank-ops');
+    expect(moduleForApi('/api/p2p-ops')).toBe('p2p-ops');
+    expect(moduleForApi('/api/academy-ops')).toBe('academy-ops');
+    expect(moduleForApi('/api/more-ops')).toBe('more-ops');
     expect(moduleForApi('/api/session')).toBeNull();
     expect(moduleForApi('/api/session/passkey')).toBeNull();
   });

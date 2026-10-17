@@ -177,7 +177,7 @@ describe('ledger POST refuses before it sends anything', () => {
       expect(await res.json()).toMatchObject({ refusal: { code: 'admin.ledger_unconfigured', changed: 'no' } });
     }
     expect(fn).not.toHaveBeenCalled();
-    expect((await post({ step: 'reject', approvalId: 'appr_1' })).status).toBe(200);
+    expect((await post({ step: 'reject', request: freeze, approvalId: 'appr_1' })).status).toBe(200);
   });
 });
 

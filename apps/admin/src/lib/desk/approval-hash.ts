@@ -8,6 +8,8 @@ import type { DeskRequest } from './approval-packet';
  * byte for byte, what the target computes at consume time:
  *   - svc-edge   `edgeActionPayloadHash('edge.kill', { module, disabled: 'true'|'false', reason })`
  *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`
+ *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
+ *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` `{ userId }`
  * Both are `sha256(JSON.stringify({ actionType, ...fields }))` with fields in the order shown. Key order is part
  * of the hash, so do not reorder anything here. `approval-hash.test.ts` pins this against the services' own
  * functions so drift fails a test instead of silently making every approval unconsumable.
@@ -31,6 +33,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('ledger.freeze', { reason: request.reason });
     case 'ledger.unfreeze':
       return sha('ledger.unfreeze', {});
+    case 'market.vendor.vet':
+      return sha('market.vendor.vet', { vendorId: request.vendorId, decision: request.decision, reason: request.reason });
+    case 'academy.ambassador.freeze':
+      return sha('academy.ambassador.freeze', { userId: request.userId, reason: request.reason });
+    case 'academy.ambassador.unfreeze':
+      return sha('academy.ambassador.unfreeze', { userId: request.userId });
   }
 }
 
@@ -71,6 +79,27 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         targetService: 'svc-ledger',
         targetId: 'posting_unfreeze',
         expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // Market and Academy consume against their own verb as the target id, at version 1. Both are operator-level at
+    // identity (not money), so the console's founders qualify.
+    case 'market.vendor.vet':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-market',
+        targetId: request.kind,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    case 'academy.ambassador.freeze':
+    case 'academy.ambassador.unfreeze':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-academy',
+        targetId: request.kind,
+        expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',
       };

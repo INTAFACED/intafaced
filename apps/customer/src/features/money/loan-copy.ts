@@ -1,6 +1,13 @@
 import { defineCopy } from '../../shared/i18n';
 
 const messages = {
+  statusPending: 'Pending',
+  statusActive: 'Active',
+  statusMarginCall: 'Margin call',
+  statusLiquidating: 'Liquidation in progress',
+  statusRepaid: 'Repaid',
+  statusLiquidated: 'Liquidated',
+  statusUnavailable: 'Status unavailable',
   riskLabel: 'This loan LTV',
   riskFor: 'Risk for loan {loanId}',
   riskLoading: 'Checking loan risk…',
@@ -32,6 +39,13 @@ const messages = {
 } as const;
 
 const es = {
+  statusPending: 'Pendiente',
+  statusActive: 'Activo',
+  statusMarginCall: 'Llamada de margen',
+  statusLiquidating: 'Liquidación en curso',
+  statusRepaid: 'Pagado',
+  statusLiquidated: 'Liquidado',
+  statusUnavailable: 'Estado no disponible',
   riskLabel: 'LTV de este préstamo',
   riskFor: 'Riesgo del préstamo {loanId}',
   riskLoading: 'Comprobando el riesgo del préstamo…',
@@ -66,6 +80,13 @@ const es = {
     'Esta lista limitada no es un historial de pagos ni de eventos de garantía. Una solicitud original de resultado desconocido sigue protegida aunque un préstamo actualizado coincida.',
 } as const;
 const fr = {
+  statusPending: 'En attente',
+  statusActive: 'Actif',
+  statusMarginCall: 'Appel de marge',
+  statusLiquidating: 'Liquidation en cours',
+  statusRepaid: 'Remboursé',
+  statusLiquidated: 'Liquidé',
+  statusUnavailable: 'Statut indisponible',
   riskLabel: 'LTV de ce prêt',
   riskFor: 'Risque du prêt {loanId}',
   riskLoading: 'Vérification du risque du prêt…',
@@ -101,3 +122,23 @@ const fr = {
     'Cette liste limitée n’est pas un historique de remboursements ou d’événements de garantie. Une demande originale au résultat inconnu reste protégée même si un prêt actualisé correspond.',
 } as const;
 export const loanCopy = defineCopy('customer.money.loans', messages, { es, fr });
+
+/** Presentation only: raw statuses still govern service/action admission. */
+export function loanStatusLabel(status: string, copy: Pick<ReturnType<typeof loanCopy.forLocale>, 't'> = loanCopy): string {
+  switch (status) {
+    case 'pending':
+      return copy.t('statusPending');
+    case 'active':
+      return copy.t('statusActive');
+    case 'margin_call':
+      return copy.t('statusMarginCall');
+    case 'liquidating':
+      return copy.t('statusLiquidating');
+    case 'repaid':
+      return copy.t('statusRepaid');
+    case 'liquidated':
+      return copy.t('statusLiquidated');
+    default:
+      return copy.t('statusUnavailable');
+  }
+}
