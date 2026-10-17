@@ -274,14 +274,16 @@ found stranded money".
   total, so the order ids are gone before a caller sees them. Untriggered stops are included: they never appear in
   depth, and the caller is holding funds for them exactly as if they did.
 - **`POST /reconcile`** — the comparison. Give it your view, get the table above back.
-- **`GET /health`** carries `restingOrders`, and **boot logs a warning** when the engine replayed live orders,
-  naming both routes. "The engine came back up" and "the engine came back up still working N orders that may have
-  nothing funding them" read identically on every other field.
+- **`GET /health`** carries `restingOrders`, plus `admissionOpen` / `admissionReason` / `holdHalted`.
+  A book that replayed resting orders and could not read their ledger holds stays closed: `/ready` is 503 with the
+  reason, and submit refuses `hold_check_unreachable`. Liveness stays 200 so the blocker is visible.
 
-Boot **checks and warns; it does not repair and does not exit non-zero.** This service has no `DATABASE_URL`, so it
-cannot know whether anyone holds funds against these orders — comparing requires the counterpart's view. And an
-engine that replayed orders is the only thing that can cancel them; a process that dies on the way up cannot even
-be asked what it is holding.
+Boot reads each resting order's ledger hold (`LEDGER_URL`, `balances` on `order:<id>`, read-only) before it will
+match anything. A hold that is missing, smaller than the remaining size, or unreadable is cancelled with reason
+`hold_unconfirmed` through the normal cancel path. If that cancel cannot land, the market stays halted
+(`hold_unconfirmed`). If the ledger cannot be asked, the market does not open. This service still has no
+`DATABASE_URL`. A startup NATS publish that keeps timing out exits non-zero before listen, after a bounded retry
+of the same idempotency key. `POST /reconcile` remains the operator report; it is not this boot check.
 
 > **SOCKET §13 — the scheduled cross-service sweep.** `POST /reconcile` is reachable and authenticated, and the
 > engine half is done. The caller is not: **svc-trade owns the counterpart view** (`trade.orders` + ledger hold
