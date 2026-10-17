@@ -39,7 +39,7 @@ describe('OtcDeskService', () => {
     });
     const s = svc.deskStatus();
     expect(s.published).toBe(false);
-    expect(s.residual).toContain('DIRECTION §8');
+    expect(s.residual).toContain('not available yet');
     expect(s.makerRouting.socket).toBe('socket.otc-maker-routing');
     expect(s.makerRouting.published).toBe(false);
   });

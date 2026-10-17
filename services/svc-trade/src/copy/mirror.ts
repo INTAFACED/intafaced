@@ -7,6 +7,7 @@
  */
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { CopyError } from './errors.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import type { CopyFollow } from './follows.js';
@@ -213,8 +214,6 @@ export function presentMirrorPlan(plan: MirrorPlan): PresentMirrorPlan {
 
 /** Explicit ban — never rank leaders by returns (SPEC §4). */
 export function refuseCopyLeaderRanking(): never {
-  throw new CopyError(
-    'Returns-ranked leaderboards are forbidden under SPEC-SOVEREIGN §4 — searchable verified history only',
-    'trade.copy_ranking_forbidden',
-  );
+  logRefusalSpec('trade.copy_ranking_forbidden');
+  throw new CopyError('Copy trading does not rank leaders by returns. Search verified history instead.', 'trade.copy_ranking_forbidden');
 }
