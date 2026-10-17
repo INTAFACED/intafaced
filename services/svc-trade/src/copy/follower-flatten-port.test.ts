@@ -133,12 +133,16 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     side: 'buy' | 'sell';
     fillUserId?: string;
     planQty?: string;
+    feeAsset?: string;
+    feeAmount?: string;
   }): Promise<void> {
     const orderId = randomUUID();
     const fillId = randomUUID();
     const leaderFillId = `leader-${fillId}`;
     seq += 1;
     const fillUser = input.fillUserId ?? input.followerId;
+    const feeAsset = input.feeAsset ?? 'USDT';
+    const feeAmount = input.feeAmount ?? '0';
     await sql()`
       INSERT INTO trade.orders (
         id, user_id, market_id, side, type, price, qty, filled_qty, status, tif,
@@ -155,7 +159,7 @@ describe('copy.flatten follower port (TRD-0723)', () => {
         price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence
       ) VALUES (
         ${fillId}, ${orderId}, ${randomUUID()}, ${input.marketId}, ${fillUser}, ${input.side}, 'taker',
-        '100', ${input.fillQty}, '100', 'USDT', '0', 0, ${seq}
+        '100', ${input.fillQty}, '100', ${feeAsset}, ${feeAmount}, 0, ${seq}
       )
     `;
     await sql()`
@@ -591,5 +595,69 @@ describe('copy.flatten follower port (TRD-0723)', () => {
     expect(acked.orderIds).toEqual([]);
     expect(box.calls).toEqual([]);
     expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
+  });
+
+  async function buyWithFee(box: ReturnType<typeof harness>, leaderId: string, feeAsset: string, feeAmount: string) {
+    const follow = await open(box.copy, leaderId, ['BTC-USDT']);
+    await box.copy.grantSessionKey(principal(), { followId: follow.followId });
+    await insertMarket(BTC_ID, 'BTC-USDT', 'BTC');
+    await insertFilledMirror({
+      followId: follow.followId,
+      followerId: FOLLOWER,
+      leaderId,
+      marketId: BTC_ID,
+      symbol: 'BTC-USDT',
+      base: 'BTC',
+      fillQty: '3',
+      side: 'buy',
+      feeAsset,
+      feeAmount,
+    });
+    return follow;
+  }
+
+  it('sells exactly 2.994 after a base-asset buy fee when the deposit equals that net, then detaches', async () => {
+    const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
+    const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
+    const follow = await buyWithFee(box, nextLeader(), 'BTC', '0.006');
+    await deposit(box.ledger, 'BTC', '2.994');
+
+    const acked = await box.copy.flatten(principal(), { followId: follow.followId });
+    expect(box.calls).toHaveLength(1);
+    const sell = box.calls[0]!;
+    expect(sell.side).toBe('sell');
+    expect(sell.symbol).toBe('BTC-USDT');
+    expect(formatAmount(sell.qty)).toBe('2.994');
+    expect(formatAmount(sell.price)).toBe('98.5');
+    expect(acked.orderIds).toEqual([sell.orderId]);
+    expect(acked.relationshipState).toBe('DETACHED');
+    expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
+  });
+
+  it('sells exactly 2.994 after a base-asset buy fee when the follower also holds their own coin', async () => {
+    const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
+    const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
+    const follow = await buyWithFee(box, nextLeader(), 'BTC', '0.006');
+    await deposit(box.ledger, 'BTC', '10');
+
+    const acked = await box.copy.flatten(principal(), { followId: follow.followId });
+    expect(box.calls).toHaveLength(1);
+    expect(formatAmount(box.calls[0]!.qty)).toBe('2.994');
+    expect(formatAmount(box.calls[0]!.price)).toBe('98.5');
+    expect(acked.orderIds).toEqual([box.calls[0]!.orderId]);
+    expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('DETACHED');
+  });
+
+  it('refuses unavailable when a buy fee is nonzero in an asset that is neither base nor quote', async () => {
+    const btc = spot(BTC_ID, 'BTC-USDT', 'BTC');
+    const box = harness({ markets: [btc], bids: { [BTC_ID]: '100' }, slippageCapBps: 150 });
+    const follow = await buyWithFee(box, nextLeader(), 'ETH', '0.006');
+    await deposit(box.ledger, 'BTC', '10');
+
+    await expect(box.copy.flatten(principal(), { followId: follow.followId })).rejects.toMatchObject({
+      code: 'trade.copy_flatten_unavailable',
+    });
+    expect(box.calls).toEqual([]);
+    expect((await box.store.getFollow(follow.followId))?.relationshipState).toBe('ACTIVE');
   });
 });

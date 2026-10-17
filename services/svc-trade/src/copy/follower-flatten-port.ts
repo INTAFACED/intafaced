@@ -1,10 +1,11 @@
 /**
  * Follower flatten port (TRD-0723).
  *
- * Closes the follow's own mirrored spot longs. Quantity is the filled size of
- * this follow's mirror orders (`copy_placed_mirrors` joined to that follower's
- * fills), never the plan quantity on `copy_mirrored_fills`. Spot is long only:
- * a net at or below zero is nothing to close.
+ * Closes the follow's own mirrored spot longs. Quantity is the filled quantity
+ * net of base-asset buy fees on this follow's mirror orders
+ * (`copy_placed_mirrors` joined to that follower's fills), never the plan
+ * quantity on `copy_mirrored_fills`. Spot is long only: a net at or below
+ * zero is nothing to close.
  *
  * The sell is an ordinary limit at the DESKAPI floor `sellProtectionPriceFor`
  * (best bid minus `TRADE_MARKET_SLIPPAGE_CAP_BPS`). A missing floor, bid, or
@@ -54,8 +55,11 @@ export type FollowerFlattenPortDeps = {
 type MirrorFillRow = {
   symbol: string;
   base_asset: string;
+  quote_asset: string;
   side: string;
   qty: string;
+  fee_asset: string;
+  fee_amount: string;
 };
 
 type ExistingOrderRow = {
@@ -145,12 +149,14 @@ class Refuse {
 }
 
 /**
- * Net filled quantity per market for this follow's own mirror orders.
- * Buy fills add, sell fills subtract. Plan rows are not read.
+ * Net filled quantity per market for this follow's own mirror orders, net of
+ * base-asset buy fees. A buy adds the coin received. A sell subtracts gross
+ * qty (its fee is in quote). Plan rows are not read.
  */
 async function netMirroredLongs(sql: Sql, followId: string, followerId: string): Promise<Leg[] | Refuse> {
   const rows = await sql<MirrorFillRow[]>`
-    SELECT m.symbol, m.base_asset, f.side, f.qty::text AS qty
+    SELECT m.symbol, m.base_asset, m.quote_asset, f.side, f.qty::text AS qty,
+           f.fee_asset, f.fee_amount::text AS fee_amount
       FROM trade.copy_placed_mirrors p
       INNER JOIN trade.orders o ON o.id::text = p.order_id
       INNER JOIN trade.fills f ON f.order_id = o.id
@@ -164,7 +170,8 @@ async function netMirroredLongs(sql: Sql, followId: string, followerId: string):
   for (const row of rows) {
     if (row.side !== 'buy' && row.side !== 'sell') return new Refuse('unavailable');
     const qty = parseAmount(row.qty);
-    const signed = row.side === 'buy' ? qty : -qty;
+    const signed = row.side === 'buy' ? buyCoinReceived(row, qty) : -qty;
+    if (signed instanceof Refuse) return signed;
     const prior = nets.get(row.symbol);
     if (!prior) {
       nets.set(row.symbol, { baseAsset: row.base_asset, net: signed });
@@ -181,6 +188,19 @@ async function netMirroredLongs(sql: Sql, followId: string, followerId: string):
   }
   legs.sort((a, b) => (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
   return legs;
+}
+
+/**
+ * Coin a buy fill actually left the follower. A zero fee leaves qty. A fee in
+ * the base asset comes out of qty. A fee in the quote asset does not change
+ * the coin. Any other nonzero fee is not guessed.
+ */
+function buyCoinReceived(row: MirrorFillRow, qty: Amount): Amount | Refuse {
+  const fee = parseAmount(row.fee_amount);
+  if (fee === 0n) return qty;
+  if (row.fee_asset === row.base_asset) return qty - fee;
+  if (row.fee_asset === row.quote_asset) return qty;
+  return new Refuse('unavailable');
 }
 
 async function findFlattenOrder(sql: Sql, followerId: string, symbol: string, clientOrderId: string): Promise<string | null> {
