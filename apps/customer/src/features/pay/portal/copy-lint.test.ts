@@ -55,6 +55,10 @@ const banned: Array<[name: string, pattern: RegExp]> = [
   ],
   ['a promise of what the person will be able to do, or a request to come back', /you(?:’|')ll be able to|check back later/i],
   ['"soon" as a promise', /\b(?:available|here|open|live) soon\b/i],
+  [
+    'a setting described as a future ("has not set … yet", "not set up yet", "no tier yet"): say what is true now',
+    /\b(?:INTAFACED|we)\s+(?:has|have)\s+not\b[^.]*\byet\b|\bset(?!\s+aside)(?:\s+up)?\b[^.]*\byet\b|\bno tier yet\b|\b(?:switched on|published|configured)\b[^.]*\byet\b/i,
+  ],
   ['a snake_case word', /\b[a-z]+(?:_[a-z0-9]+)+\b/],
   ['a service code', /\bpay\.[a-z_]+/],
 ];
@@ -87,6 +91,11 @@ describe('merchant portal copy', () => {
       'We’ll try again soon',
       'You’ll be able to see it here',
       'Check back later.',
+      'INTAFACED has not set limits for your account yet.',
+      'Your checkout isn’t set up yet',
+      'Your account has no tier yet.',
+      'No pricing has been set for your account yet.',
+      'INTAFACED has not published any tiers to compare with yet.',
     ])
       expect(
         banned.some(([, pattern]) => pattern.test(promise)),
@@ -94,6 +103,8 @@ describe('merchant portal copy', () => {
       ).toBe(true);
     // a status is not a promise
     expect(banned.some(([, pattern]) => pattern.test('Not paid out yet'))).toBe(false);
+    expect(banned.some(([, pattern]) => pattern.test('No refunds yet'))).toBe(false);
+    expect(banned.some(([, pattern]) => pattern.test('No limits are set on your account.'))).toBe(false);
     expect(banned.some(([, pattern]) => pattern.test('Your payments are in the list'))).toBe(false);
   });
 });

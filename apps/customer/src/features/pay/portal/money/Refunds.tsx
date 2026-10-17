@@ -30,6 +30,7 @@ import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
 import { ExportButton, LinkButton, ListBody, localRefusal, shortDay, TestBanner, useListQuery, useTestMode } from './common';
 import { mc } from './copy';
+import { MoneyAction, useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount, refundRate } from './model';
 import { refundStatuses, type RefundItem } from './schemas';
 import type { z } from 'zod';
@@ -204,7 +205,11 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
         empty={{
           title: t('rfEmptyTitle'),
           body: t('rfEmptyBody'),
-          action: <LinkButton href="/pay/refunds/new">{t('rfIssue')}</LinkButton>,
+          action: (
+            <MoneyAction kind="refund">
+              <LinkButton href="/pay/refunds/new">{t('rfIssue')}</LinkButton>
+            </MoneyAction>
+          ),
         }}
         label={t('rfTable')}
         rowKey={(r) => r.id}
@@ -335,6 +340,7 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
   const [search, setSearch] = useState('');
   const [typed, setTyped] = useState('');
   const found = useResource((s) => portal.refundablePayments(merchantId, search, s), `money:refundable:${merchantId}:${search}`);
+  const off = useMoneyReason('refund');
   const refundable = (p: Payment) =>
     ['captured', 'settled', 'refunded'].includes(p.status) && refundableAmount(p.capturedAmount, p.refundedAmount) !== '0';
   return (
@@ -352,6 +358,11 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
           {t('rnFind')}
         </Button>
       </form>
+      {off && (
+        <p className="pp-callout pp-callout--warn" role="note">
+          {off}
+        </p>
+      )}
       {found.resource.status === 'loading' ? (
         <PortalLoading rows={3} />
       ) : found.resource.status === 'failed' ? (
@@ -375,7 +386,7 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
                 </small>
                 <DateTime value={p.createdAt} />
               </div>
-              <Button variant="secondary" onClick={() => onPick(p.id)}>
+              <Button variant="secondary" disabled={off !== null} onClick={() => onPick(p.id)}>
                 {t('rnChoose')}
               </Button>
             </li>

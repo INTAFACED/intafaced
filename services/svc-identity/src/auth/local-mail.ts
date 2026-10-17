@@ -43,14 +43,19 @@ export function localMailLine(message: {
   readonly email: string;
   readonly code: string;
   readonly expiresAt: Date;
-  readonly purpose?: 'password-reset' | 'email-confirm';
+  readonly purpose?: 'password-reset' | 'email-confirm' | 'email-change' | 'email-change-notice';
 }): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
+  if (purpose === 'email-change-notice') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
+  }
   const link =
     purpose === 'email-confirm'
       ? `confirmEmail?token=${encodeURIComponent(message.code)}`
-      : `completePasswordReset?code=${encodeURIComponent(message.code)}`;
+      : purpose === 'email-change'
+        ? `changeEmail?code=${encodeURIComponent(message.code)}`
+        : `completePasswordReset?code=${encodeURIComponent(message.code)}`;
   return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=${link}\n`;
 }
 

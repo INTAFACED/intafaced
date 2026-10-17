@@ -8,7 +8,7 @@ const messages = {
   'Sign in title': 'Sign in to see this',
   'Sign in body': 'Your futures records are private to your account.',
   'Sign in': 'Sign in',
-  'Nothing to show': 'Nothing to show yet',
+  'Nothing to show': 'Nothing to show',
   'Choose a contract': 'Choose a contract to see its funding rate.',
   'Region updated': 'Data',
   'Thing positions': 'positions',
@@ -41,10 +41,10 @@ const messages = {
   Exit: 'Exit price',
   'Realised PnL': 'Realised PnL',
   'Closed at': 'Opened',
-  'History empty title': 'No closed positions yet',
+  'History empty title': 'No closed positions',
   'History empty reason': 'Positions you close, or that are liquidated, appear here.',
   'History footer':
-    'The last 100 records the service holds. The time shown is when the position was opened: close time and exit price are not published yet. This is not a statement.',
+    'The last 100 records the service holds. The time shown is when the position was opened: close time and exit price are not published. This is not a statement.',
   'History export': 'Export what is on screen (CSV)',
   'History export file': 'futures-position-history.csv',
 
@@ -67,7 +67,7 @@ const messages = {
   'Funding estimates empty': 'You have no open position.',
   'Funding other contract': 'The rate shown is for another contract.',
   'Funding payments title': 'Funding payments you received or paid',
-  'Funding payments reason': 'The service does not list past funding payments per position yet.',
+  'Funding payments reason': 'The service does not list past funding payments per position.',
   Notional: 'Notional',
 
   // ADL
@@ -90,7 +90,7 @@ const messages = {
   'Liquidations table': 'Liquidated positions',
   'Liquidations empty': 'None of your positions has been liquidated in the last 100 records.',
   'Liquidations unavailable title': 'No liquidation list or ADL rank',
-  'Liquidations unavailable reason': 'The service does not publish a liquidation event list or an ADL queue rank for your account yet.',
+  'Liquidations unavailable reason': 'The service does not publish a liquidation event list or an ADL queue rank for your account.',
 
   // Margin calls
   'Calls heading': 'Margin calls',

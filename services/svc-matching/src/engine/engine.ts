@@ -35,6 +35,7 @@ import {
   replayDelistedMarkets,
   replayExpiredMarkets,
 } from './expire.js';
+import { maintenanceAmendResult, maintenanceSubmitResult, replayMaintenance, maintenanceRefuse } from './maintenance.js';
 import {
   inFlightAmendResult,
   inFlightCancelResult,
@@ -68,6 +69,8 @@ import type {
   EngineSurveillanceCase,
   Fill,
   MarketHaltResult,
+  MarketMaintenanceResult,
+  ExpirySweepResult,
   MarketId,
   MarketPostOnlyResult,
   MarketDelistResult,
@@ -155,6 +158,10 @@ export class MatchingEngine {
   private enabled: boolean;
   /** One-market operator halt. Not the process kill-switch. No duration. */
   private readonly halted = new Set<MarketId>();
+  /** One-market maintenance. Not halt. Customer cancels refuse. No duration. */
+  private readonly maintenance = new Set<MarketId>();
+  /** Books the expiry pass must not read. The resting order stays. */
+  private readonly unreadableBooks = new Map<MarketId, string>();
   /** Operator halt of every market. Distinct from one-market halt. No duration. */
   private venueHalted = false;
   /** One-market operator reduce-only. Not halt. No duration. */
@@ -207,6 +214,8 @@ export class MatchingEngine {
     const records: readonly JournalRecord[] = this.journal.read();
     this.books.clear();
     this.halted.clear();
+    this.maintenance.clear();
+    this.unreadableBooks.clear();
     this.admissionClosed = null;
     this.holdHalted.clear();
     this.announcing = true;
@@ -223,6 +232,7 @@ export class MatchingEngine {
     for (const [marketId, book] of replayed.books) this.books.set(marketId, book);
     this.venueHalted = replayVenueHalted(records);
     for (const marketId of replayHaltedMarkets(records)) this.halted.add(marketId);
+    for (const marketId of replayMaintenance(records)) this.maintenance.add(marketId);
     for (const marketId of replayReduceOnlyMarkets(records)) this.reduceOnlyMarkets.add(marketId);
     for (const marketId of replayPostOnlyMarkets(records)) this.postOnlyMarkets.add(marketId);
     for (const marketId of replayPrelaunchMarkets(records)) this.prelaunchMarkets.add(marketId);
@@ -246,6 +256,17 @@ export class MatchingEngine {
 
   get isEnabled(): boolean {
     return this.enabled;
+  }
+
+  isMaintenance(marketId: MarketId): boolean {
+    return this.maintenance.has(marketId);
+  }
+
+  /** The expiry pass skips this book and records the reason. The order stays. */
+  noteBookUnreadable(marketId: MarketId, reason: string): void {
+    const trimmed = reason.trim();
+    if (trimmed.length === 0) return;
+    this.unreadableBooks.set(marketId, trimmed);
   }
 
   isHalted(marketId: MarketId): boolean {
@@ -528,6 +549,10 @@ export class MatchingEngine {
           const result = venueHaltedSubmitResult(order.orderId);
           return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
         }
+        if (this.maintenance.has(marketId)) {
+          const result = maintenanceSubmitResult(marketId, order.orderId);
+          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        }
         if (this.halted.has(marketId)) {
           const result = haltedSubmitResult(marketId, order.orderId);
           return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
@@ -588,6 +613,16 @@ export class MatchingEngine {
 
   async cancel(marketId: MarketId, orderId: OrderId, reason: CancelReason = 'requested'): Promise<CancelResult> {
     return withEngineSpan('matching.cancel', { marketId, orderId }, async (): Promise<CancelResult & { fillCount: number }> => {
+      if (this.maintenance.has(marketId)) {
+        return {
+          cancelled: false,
+          orderId,
+          sequence: null,
+          cancellation: null,
+          rejected: maintenanceRefuse(marketId),
+          fillCount: 0,
+        };
+      }
       const inFlightCancel = this.refuseInFlightCancel(orderId);
       if (inFlightCancel) return { ...inFlightCancel, fillCount: 0 };
 
@@ -620,6 +655,15 @@ export class MatchingEngine {
     cmd: { readonly accountId: string; readonly sessionId?: string | null; readonly side?: OrderSide | null },
   ): Promise<MassCancelResult> {
     return withEngineSpan('matching.massCancel', { marketId }, async (): Promise<MassCancelResult & { fillCount: number }> => {
+      if (this.maintenance.has(marketId)) {
+        return {
+          accepted: false,
+          accountId: cmd.accountId,
+          cancellations: [],
+          rejected: maintenanceRefuse(marketId),
+          fillCount: 0,
+        };
+      }
       const sessionRefuse = massCancelSessionRefuse(readSessionId(cmd));
       if (sessionRefuse) {
         return {
@@ -678,7 +722,7 @@ export class MatchingEngine {
       const events: PendingEvent[] = [];
       for (const marketId of [...this.books.keys()].sort()) {
         const book = this.books.get(marketId);
-        if (!book) continue;
+        if (!book || this.maintenance.has(marketId)) continue;
         const pulled = book.cancelSession(sessionId);
         for (const cancellation of pulled) {
           cancellations.push(cancellation);
@@ -704,6 +748,7 @@ export class MatchingEngine {
       return holdUnconfirmedAmend(marketId, cmd.orderId, this.holdHalted.get(marketId) ?? 'matching.hold_unconfirmed');
     }
     if (this.venueHalted) return venueHaltedAmendResult(cmd.orderId);
+    if (this.maintenance.has(marketId)) return maintenanceAmendResult(marketId, cmd.orderId);
     if (this.halted.has(marketId)) return haltedAmendResult(marketId, cmd.orderId);
     if (this.expiredMarkets.has(marketId)) return expiredAmendResult(marketId, cmd.orderId);
     if (this.delistedMarkets.has(marketId)) return delistedAmendResult(marketId, cmd.orderId);
@@ -1190,6 +1235,113 @@ export class MatchingEngine {
       this.delistedMarkets.add(marketId);
       return { accepted: true, marketId, delisted: true, operatorId, confirmOperatorId };
     });
+  }
+
+  async enterMaintenance(
+    marketId: MarketId,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
+  ): Promise<MarketMaintenanceResult> {
+    return withEngineSpan('matching.maintenance', { marketId }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const refuse = dualControlRefuse(operatorId, confirmOperatorId);
+      if (refuse) {
+        return {
+          accepted: false,
+          marketId,
+          maintenance: this.maintenance.has(marketId),
+          operatorId,
+          confirmOperatorId,
+          rejected: refuse,
+        };
+      }
+      const at = this.clock().toISOString();
+      this.journal.append({
+        kind: 'maintenance',
+        marketId,
+        at,
+        operatorId: operatorId!,
+        ...(confirmOperatorId ? { confirmOperatorId } : {}),
+      });
+      this.maintenance.add(marketId);
+      return { accepted: true, marketId, maintenance: true, operatorId, confirmOperatorId };
+    });
+  }
+
+  async endMaintenance(
+    marketId: MarketId,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
+  ): Promise<MarketMaintenanceResult> {
+    return withEngineSpan('matching.end_maintenance', { marketId }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const refuse = dualControlRefuse(operatorId, confirmOperatorId);
+      if (refuse) {
+        return {
+          accepted: false,
+          marketId,
+          maintenance: this.maintenance.has(marketId),
+          operatorId,
+          confirmOperatorId,
+          rejected: refuse,
+        };
+      }
+      const at = this.clock().toISOString();
+      this.journal.append({
+        kind: 'end_maintenance',
+        marketId,
+        at,
+        operatorId: operatorId!,
+        ...(confirmOperatorId ? { confirmOperatorId } : {}),
+      });
+      this.maintenance.delete(marketId);
+      return { accepted: true, marketId, maintenance: false, operatorId, confirmOperatorId };
+    });
+  }
+
+  /**
+   * Cancel GTD/GTT rests that are already due, even when no later order arrives.
+   * A book that cannot be read is left in place and named on the miss.
+   */
+  async sweepExpiry(): Promise<ExpirySweepResult> {
+    if (this.expiryClock === null) {
+      return {
+        accepted: false,
+        cancelled: [],
+        misses: [],
+        rejected: {
+          code: 'engine_clock_missing',
+          message: 'GTD/GTT expires on the engine clock; refuse when that clock is missing',
+        },
+      };
+    }
+    const now = this.expiryClock();
+    const cancelled: CancelledRef[] = [];
+    const misses: ExpirySweepResult['misses'][number][] = [];
+    for (const marketId of [...this.books.keys()].sort()) {
+      const unread = this.unreadableBooks.get(marketId);
+      if (unread !== undefined) {
+        misses.push({ marketId, code: 'book_unreadable', reason: unread });
+        continue;
+      }
+      const book = this.books.get(marketId);
+      if (!book) {
+        misses.push({ marketId, code: 'book_unreadable', reason: 'book missing' });
+        continue;
+      }
+      let due: string[] = [];
+      try {
+        due = book.dueExpiry(now);
+      } catch {
+        misses.push({ marketId, code: 'book_unreadable', reason: 'book unreadable' });
+        continue;
+      }
+      for (const orderId of due) {
+        const result = await this.cancel(marketId, orderId, 'expired');
+        if (result.cancellation) cancelled.push(result.cancellation);
+      }
+    }
+    return { accepted: true, cancelled, misses };
   }
 
   private eventsForSubmit(marketId: MarketId, orderId: OrderId, result: SubmitResult, at: string): PendingEvent[] {

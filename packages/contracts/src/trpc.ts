@@ -101,11 +101,44 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
+const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
+
+/** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
+export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
+  if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
+  const raw = (cause as { blockers?: unknown }).blockers;
+  if (!Array.isArray(raw)) return undefined;
+  const blockers: { code: string }[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || !('code' in item)) return undefined;
+    const code = (item as { code?: unknown }).code;
+    if (typeof code !== 'string' || !BLOCKER_CODE.test(code)) return undefined;
+    blockers.push({ code });
+  }
+  return blockers.length > 0 ? blockers : undefined;
+}
+
+/** The current profile row on `identity.profile_version_conflict` only. */
+export function conflictProfile(
+  cause: unknown,
+): { displayName: string | null; locale: string; region: string | null; version: number } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'identity.profile_version_conflict') return undefined;
+  if (!('profile' in cause) || !cause.profile || typeof cause.profile !== 'object') return undefined;
+  const row = cause.profile as Record<string, unknown>;
+  const { displayName, locale, region, version } = row;
+  if (!(displayName === null || typeof displayName === 'string')) return undefined;
+  if (typeof locale !== 'string') return undefined;
+  if (!(region === null || typeof region === 'string')) return undefined;
+  if (typeof version !== 'number' || !Number.isInteger(version)) return undefined;
+  return { displayName, locale, region, version };
+}
+
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
     const code = causeCode(cause);
     const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
+    const blockers = errorBlockersOf(cause);
     return {
       ...shape,
       data: {
@@ -121,8 +154,12 @@ const t = initTRPC.context<Context>().create({
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
         ...(code ? { cause: { code } } : {}),
+        // Only on a stale profile.compare-and-set, so the client can show the row
+        // that won. No other error grows a profile field.
+        ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
         // Only on `auth.too_many_attempts`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        ...(blockers ? { blockers } : {}),
       },
     };
   },

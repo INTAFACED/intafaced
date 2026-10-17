@@ -112,7 +112,7 @@ export function ApprovalsPropose(props: { sessionUserId: string; userId: string;
             consequence={
               <>
                 Creates a request to <strong>{verb.toLowerCase()}</strong> for account <code className="if-num">{props.userId || '—'}</code>{' '}
-                at version <span className="if-num">{version || '—'}</span>. Nothing on the account changes yet. Give the approval id to the
+                at version <span className="if-num">{version || '—'}</span>. Nothing on the account changes. Give the approval id to the
                 second operator.
               </>
             }

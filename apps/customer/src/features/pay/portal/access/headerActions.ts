@@ -2,6 +2,7 @@ import type { BusinessPayApi } from '../../pay-api';
 import { chromeCopy } from '../chrome/copy';
 import type { PortalRoom } from '../routes';
 import type { Need } from './capabilities';
+import { isMoneyScope, moneyKindOf, moneyReason } from './money-step';
 import type { MerchantAccessValue } from './MerchantAccess';
 
 /**
@@ -13,6 +14,9 @@ type Gate = { scope: string } | { need: Need };
 const GATES: Partial<Record<PortalRoom, Gate>> = {
   refunds: { scope: 'pay:refund' },
   payouts: { scope: 'pay:payout' },
+  money: { scope: 'pay:payout' },
+  settlements: { scope: 'pay:payout' },
+  'payout-destinations': { scope: 'pay:payout' },
   payments: { scope: 'pay:write' },
   payment: { scope: 'pay:write' },
   links: { scope: 'pay:write' },
@@ -29,7 +33,7 @@ const GATES: Partial<Record<PortalRoom, Gate>> = {
 export function headerActionReason(
   room: PortalRoom,
   access: Pick<MerchantAccessValue, 'access' | 'can'>,
-  pay: Pick<BusinessPayApi, 'access'> | null,
+  pay: Pick<BusinessPayApi, 'access' | 'authority'> | null,
 ): string | null {
   const gate = GATES[room];
   if (!gate) return null;
@@ -37,5 +41,7 @@ export function headerActionReason(
   if ('need' in gate) return access.can(gate.need) ? null : chromeCopy.t('headerActionNoRole');
   const refusal = pay?.access(gate.scope) ?? null;
   if (pay && !refusal) return null;
+  // Refund and payout say the same thing everywhere: the session has no confirmed sign-in step (`money-step.ts`).
+  if (isMoneyScope(gate.scope)) return moneyReason(moneyKindOf(gate.scope), pay?.authority?.scopes);
   return refusal ? refusal.message : chromeCopy.t('headerActionNoRole');
 }

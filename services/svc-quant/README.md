@@ -9,20 +9,24 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 
 ## API
 
-| Procedure              | Access                                        | Input                                                            | Output                                            |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
-| `health`               | public                                        | —                                                                | `{ ok, service }` — liveness, not a custody claim |
-| `studio.save`          | session or allow-listed service               | `{ name, blocks, risk, cash, clientStrategyId, idempotencyKey }` | head plus version history                         |
-| `studio.list`          | session or allow-listed service               | `{ limit, cursor? }` — omit limit is refused                     | that account's live heads, `nextCursor`           |
-| `studio.get`           | session or allow-listed service               | `{ id }`                                                         | head plus every version, or not found             |
-| `studio.update`        | session or allow-listed service               | `{ id, name, blocks, risk, cash, idempotencyKey }`               | new version; older versions stay                  |
-| `studio.delete`        | session or allow-listed service               | `{ id, idempotencyKey }`                                         | soft delete (`deletedAt`); versions kept          |
-| `studio.clone`         | session or allow-listed service               | `{ id, clientStrategyId, idempotencyKey, name? }`                | new strategy on the same account                  |
-| `studio.run`           | session or allow-listed service               | `{ id }`                                                         | sandbox result of that account's source           |
-| `studio.operatorList`  | admin scope                                   | `{ limit }`                                                      | metadata only (no source, no blocks)              |
-| `backtest.run`         | session or allow-listed service               | strategy id, optional version, `idempotencyKey`                  | fill metrics plus `strategyVersion`               |
-| `sandbox.capabilities` | `publicJurisdictionProcedure('quant','fiat')` | —                                                                | sandbox isolate + Venue Vault (not the lake)      |
-| `sandbox.run`          | `publicJurisdictionProcedure('quant','fiat')` | `{ language, source, cash }`                                     | fills, cash, pnl (strings)                        |
+| Procedure              | Access                                        | Input                                                            | Output                                                          |
+| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `health`               | public                                        | —                                                                | `{ ok, service }` — liveness, not a custody claim               |
+| `studio.save`          | session or allow-listed service               | `{ name, blocks, risk, cash, clientStrategyId, idempotencyKey }` | head plus version history                                       |
+| `studio.list`          | session or allow-listed service               | `{ limit, cursor? }` — omit limit is refused                     | that account's live heads, `nextCursor`                         |
+| `studio.get`           | session or allow-listed service               | `{ id }`                                                         | head plus every version, or not found                           |
+| `studio.update`        | session or allow-listed service               | `{ id, name, blocks, risk, cash, idempotencyKey }`               | new version; older versions stay                                |
+| `studio.delete`        | session or allow-listed service               | `{ id, idempotencyKey }`                                         | soft delete (`deletedAt`); versions kept                        |
+| `studio.clone`         | session or allow-listed service               | `{ strategyId, clientStrategyId, idempotencyKey }`               | version 1, name suffixed ` copy`                                |
+| `studio.run`           | session or allow-listed service               | `{ id, idempotencyKey }`                                         | sandbox result of that account's source; one run row            |
+| `studio.operatorList`  | admin scope                                   | `{ limit }`                                                      | metadata only (no source, no blocks)                            |
+| `backtest.run`         | session or allow-listed service               | strategy id, `idempotencyKey`, windows, cost model               | fill metrics plus `strategyVersion`; one run row                |
+| `backtest.get`         | session or allow-listed service               | `{ runId }`                                                      | owner equity curve, trades, costs; other accounts are not found |
+| `sandbox.capabilities` | `publicJurisdictionProcedure('quant','fiat')` | —                                                                | sandbox isolate + Venue Vault (not the lake)                    |
+| `sandbox.run`          | `publicJurisdictionProcedure('quant','fiat')` | `{ language, source, cash, idempotencyKey }`                     | fills, cash, pnl (strings); one run row                         |
+| `marketplace.claim`    | session                                       | `{ runId, idempotencyKey }` — a client `pnl` is rejected         | stored simulated pnl and stamp; no listing                      |
+| `ops.runs`             | `admin:read`                                  | `{ limit, from?, to?, kind?, userId?, cursor? }`                 | kind, user, started, duration, outcome; no result               |
+| `ops.runCounts`        | `admin:read`                                  | `{ from, to }`                                                   | counts by kind and outcome, `asOf`                              |
 
 ## Per-account library (customer contract)
 
@@ -52,11 +56,29 @@ when a session is present.
   on the database path.
 - `backtest.run` loads the caller's strategy. Omit `strategyVersion` to run
   the head. A missing, foreign, or deleted strategy is `NOT_FOUND` /
-  `quant.studio_not_found`, the same message as a missing id. The result
-  includes `strategyVersion` and is stored for that idempotency key.
+  `quant.studio_not_found`, the same message as a missing id, and that
+  refusal is still one run row. The result includes `strategyVersion`.
+  `backtest.get({ runId })` returns the stored equity curve, trades, and
+  cost evidence to the owner. Another account's run is `quant.run_not_found`.
+  An absent cost model is `costs: null`, not zero. The result body is capped
+  at 262144 bytes.
+- `sandbox.run` and `studio.run` require `idempotencyKey`. A blank key is
+  `quant.idempotency_key_unset`. Replay returns the first result.
+- `marketplace.claim({ runId, idempotencyKey })` reads pnl from that run.
+  A client `pnl` is rejected by the schema. The run must be the caller's,
+  finished, and simulated. A repeat returns the first claim. No listing is
+  created.
+- `ops.runs` and `ops.runCounts` need `admin:read`. A session without it is
+  refused. Omit `limit` and `ops.runs` answers `quant.ops_runs_limit_unset`.
+  Omit `from` or `to` and `ops.runCounts` names that key. Neither returns
+  an equity curve or a trade.
+- `studio.clone({ strategyId, clientStrategyId, idempotencyKey })` copies
+  the caller's head as version 1 with the name suffixed ` copy`. The same
+  client id returns that clone. A deleted or foreign strategy is not found.
+  `id` is still accepted as the strategy id.
 - Storage is Postgres (`quant.strategies`, `quant.strategy_versions`,
-  `quant.write_receipts`, `quant.backtest_runs`) when `DATABASE_URL` and
-  `DATABASE_POOL_MAX` are both set. Neither has a default. If `DATABASE_URL`
+  `quant.write_receipts`, `quant.backtest_runs`, `quant.runs`,
+  `quant.claims`) when `DATABASE_URL` and `DATABASE_POOL_MAX` are both set. Neither has a default. If `DATABASE_URL`
   is unset the procedures refuse `quant.database_url_unset`. If the pool max
   is unset they refuse `quant.database_pool_max_unset`. Apply
   `drizzle/0000_quant_strategies.sql` with `pnpm db:migrate` before serving.

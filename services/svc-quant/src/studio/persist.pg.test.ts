@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
@@ -41,10 +41,63 @@ const draft = (name: string): StrategyDraft => ({
   simulated: true,
 });
 
+interface EsbuildResolveArgs {
+  path: string;
+  resolveDir: string;
+}
+
+interface EsbuildPluginBuild {
+  onResolve(options: { filter: RegExp }, callback: (args: EsbuildResolveArgs) => { path: string } | undefined): void;
+}
+
+/**
+ * One bundle for the whole file. `tsx` on every test paid ~200–400ms of cold
+ * start before any SQL (measured 2026-10-18, five samples: tsx cli 368–409ms,
+ * `node --import tsx` 173–234ms, this bundle 102–146ms). CI's 5s test budget
+ * is the same window a loaded runner spends booting tsx, so the compile happens
+ * here, once, and the test spawns plain node.
+ */
+async function bundleReopenProbe(outfile: string): Promise<void> {
+  const tsxPackage = createRequire(join(SERVICE, 'package.json')).resolve('tsx/package.json');
+  const esbuildPath = createRequire(tsxPackage).resolve('esbuild');
+  const { build } = (await import(esbuildPath)) as {
+    build: (options: {
+      entryPoints: string[];
+      bundle: true;
+      platform: 'node';
+      format: 'esm';
+      outfile: string;
+      plugins: Array<{ name: string; setup: (build: EsbuildPluginBuild) => void }>;
+    }) => Promise<unknown>;
+  };
+  await build({
+    entryPoints: [join(HERE, 'reopen-probe.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile,
+    plugins: [
+      {
+        name: 'js-to-ts',
+        setup(esbuild) {
+          esbuild.onResolve({ filter: /^\.{1,2}\/.*\.js$/ }, (args) => {
+            if (!args.resolveDir.startsWith(SERVICE)) return undefined;
+            const target = join(args.resolveDir, args.path.replace(/\.js$/, '.ts'));
+            if (!existsSync(target)) return undefined;
+            return { path: target };
+          });
+        },
+      },
+    ],
+  });
+}
+
 describe('paper strategies survive a new connection to the same database', () => {
   const url = testDatabaseUrl();
   const sql = postgres(url, { max: 2, onnotice: () => undefined });
   let repo: StrategyRepository;
+  let probeProgram = '';
+  let probeDir = '';
 
   beforeAll(async () => {
     const migration = readFileSync(join(SERVICE, 'drizzle/0000_quant_strategies.sql'), 'utf8')
@@ -53,11 +106,15 @@ describe('paper strategies survive a new connection to the same database', () =>
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
     await sql.unsafe(migration);
     repo = createPostgresStrategyRepository(sql, SCHEMA);
+    probeDir = mkdtempSync(join(tmpdir(), 'quant-reopen-'));
+    probeProgram = join(probeDir, 'reopen-probe.mjs');
+    await bundleReopenProbe(probeProgram);
   });
 
   afterAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    await sql.end({ timeout: 5 });
+    await sql.end({ timeout: 0 });
+    if (probeDir) rmSync(probeDir, { recursive: true, force: true });
   });
 
   it('keeps every version for the owner, hides a delete, and refuses another account', async () => {
@@ -114,13 +171,12 @@ describe('paper strategies survive a new connection to the same database', () =>
       expect(loaded?.cash).toBe('10000');
       expect(typeof loaded?.cash).toBe('string');
     } finally {
-      await reopened.end({ timeout: 5 });
+      await reopened.end({ timeout: 0 });
     }
 
-    // A second OS process, not a second pnpm. `pnpm test` already holds the
-    // workspace, and a nested `pnpm exec` on that runner exceeds the 5s default.
-    const tsxCli = createRequire(join(SERVICE, 'package.json')).resolve('tsx/cli');
-    const probe = spawnSync(process.execPath, [tsxCli, join(HERE, 'reopen-probe.ts')], {
+    // A second OS process on the bundle from beforeAll. tsx in this budget is
+    // what timed the test out at 5000ms on a loaded CI runner.
+    const probe = spawnSync(process.execPath, [probeProgram], {
       cwd: SERVICE,
       encoding: 'utf8',
       env: {

@@ -15,6 +15,8 @@ import {
   QuantError,
 } from '../errors.js';
 import { requireSimulatedStamp } from '../honesty.js';
+import { buildBacktestBody } from '../runs/detail.js';
+import type { RunResultBody } from '../runs/types.js';
 import type { BacktestLake, LakeFill } from './lake.js';
 
 export interface WalkForwardWindow {
@@ -35,6 +37,8 @@ export interface BacktestRunInput {
   readonly presentedAs?: string | null;
   /** Head or an older immutable version. Blank is refused, never assumed to be 1. */
   readonly strategyVersion?: number | null;
+  /** Strategy cash. Blank leaves the equity curve null — 10000 is not assumed. */
+  readonly cash?: string | null;
 }
 
 export interface FillWindowMetrics {
@@ -53,6 +57,13 @@ export type BacktestRunResult = SimulatedPerformanceStamp & {
   readonly outOfSampleLabel: string;
   readonly strategyVersion: number;
 };
+
+const recorded = new WeakMap<object, RunResultBody>();
+
+/** Body computed for this result or refusal. Null when the run stopped before fills. */
+export function backtestBodyOf(key: object): RunResultBody | null {
+  return recorded.get(key) ?? null;
+}
 
 function requireStrategyVersion(value: number | null | undefined): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
@@ -162,6 +173,13 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
   const outOfSample = metricsFromFills(outOfSampleFills);
 
   const strategyVersion = requireStrategyVersion(input.strategyVersion);
+  const traded = [...inSampleFills, ...outOfSampleFills];
+  const body = buildBacktestBody({
+    cash: input.cash,
+    fills: traded,
+    costModel: input.costModel,
+    stamp,
+  });
 
   const outOfSampleVerdict: OutOfSampleVerdict | null = input.outOfSampleStatus
     ? {
@@ -180,10 +198,12 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
     costModel: input.costModel,
   });
   if (!assessment.ok) {
-    throw new QuantError(QUANT_BACKTEST_SURFACE_REFUSED, `${assessment.refusal.code} — ${assessment.refusal.detail}`);
+    const refused = new QuantError(QUANT_BACKTEST_SURFACE_REFUSED, `${assessment.refusal.code} — ${assessment.refusal.detail}`);
+    recorded.set(refused, body);
+    throw refused;
   }
 
-  return {
+  const result: BacktestRunResult = {
     ok: true,
     ...stamp,
     runId: assessment.surface.runId,
@@ -195,4 +215,6 @@ export function runBacktest(input: BacktestRunInput, lake: BacktestLake): Backte
     outOfSampleLabel: assessment.surface.outOfSample.label,
     strategyVersion,
   };
+  recorded.set(result, body);
+  return result;
 }

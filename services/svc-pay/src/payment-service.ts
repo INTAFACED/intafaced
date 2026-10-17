@@ -1,4 +1,5 @@
 import { postPayLedger } from './ledger-receipt.js';
+import { MerchantStoredFeeError, normalizeStoredFeeBps } from './starter-fee.js';
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
 import {
   CaptureReconcileError,
@@ -6305,9 +6306,14 @@ function railPayload(result: RailResult): Record<string, unknown> {
 }
 
 function toMerchant(row: MerchantRow): MerchantRecord {
-  const feeBps = row.pricing?.feeBps;
-  if (feeBps !== undefined && (typeof feeBps !== 'number' || !Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000)) {
-    throw new PayError(`Merchant ${row.id} has malformed pricing`, 'pay.merchant_pricing_invalid', { pricing: row.pricing });
+  let feeBps: number | null;
+  try {
+    feeBps = normalizeStoredFeeBps(row.pricing);
+  } catch (err) {
+    if (err instanceof MerchantStoredFeeError) {
+      throw new PayError(`Merchant ${row.id} has malformed pricing`, 'pay.merchant_pricing_invalid', { pricing: row.pricing });
+    }
+    throw err;
   }
   return {
     id: row.id,
@@ -6317,7 +6323,7 @@ function toMerchant(row: MerchantRow): MerchantRecord {
     kybStatus: row.kyb_status,
     kybRef: row.kyb_ref ?? null,
     status: row.status,
-    pricing: { feeBps: typeof feeBps === 'number' ? feeBps : undefined },
+    pricing: { feeBps: feeBps ?? undefined },
     settlementPrefs: row.settlement_prefs ?? {},
   };
 }

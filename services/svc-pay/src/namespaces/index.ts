@@ -11,6 +11,7 @@ import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-polic
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { InvoiceLinkPort } from '../merchant-ops/invoices.js';
 import type { PayService } from '../payment-service.js';
+import type { MerchantStarterFee } from '../starter-fee.js';
 import { createFounderOpsRouter, createMerchantOpsRouter } from '../merchant-ops/index.js';
 import { createConversionRouter } from './conversion.js';
 import { createFounderAdminRouter, type FounderTreasuryDeps } from './founder-admin.js';
@@ -60,6 +61,8 @@ export function createPayNamespaces(deps: {
   disputes?: DisputeCaseStore;
   /** Payment, refund, settlement and link lists for founder drill-down. */
   pay?: PayService;
+  /** Published local-test starter fee, the same value `merchant.me` returns. Omitted means it is not set. */
+  starterFee?: MerchantStarterFee | null;
 }) {
   const opsDeps = {
     founderAuthority: deps.founderAuthority,
@@ -85,6 +88,7 @@ export function createPayNamespaces(deps: {
       sql: deps.sql,
       pay: deps.pay,
       disputes: deps.disputes,
+      starterFee: deps.starterFee,
     }),
     createConversionRouter(deps.conversion),
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),

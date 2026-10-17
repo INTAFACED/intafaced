@@ -343,8 +343,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
       // while the market-data socket stayed live (SOCKET §13 socket.ws-behind-the-edge).
       outsideTheDoor: honesty.outsideTheDoor,
       enforceableModules: honesty.enforceableModules,
-      // Process-local durability only. multiReplicaShared is always false until
-      // a shared store exists; never invent one on the status surface.
+      // File and memory stay process-local. multiReplicaShared is true only when
+      // a shared kill store is attached; status must not call a local file fleet-wide.
       killState: honesty.killState,
       // Live kill is the operator surface — not the drop-I `edge.gateway` flag
       // (still NOT_ENFORCED until a deliberate enforcement PR). Status must say

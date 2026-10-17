@@ -24,6 +24,13 @@ import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
+import {
+  conditionalTriggerScheduled,
+  createConditionalOrderService,
+  registerConditionalOrdersRest,
+  refuseFuturesRestingLimit,
+  startConditionalOrderJobs,
+} from './futures/conditional-orders/index.js';
 import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { registerPrivateRest } from './private-rest.js';
 import { attachExpireStash, bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -102,6 +109,7 @@ import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
+import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
@@ -236,6 +244,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
+const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -259,6 +268,7 @@ const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
+  disclosureLaw: copyDisclosureLaw,
   store: copyStore,
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
@@ -406,6 +416,25 @@ const positions = new PositionService(sql, ledger, {
       throw err;
     }
   },
+});
+const conditionalJobsConfig = {
+  enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
+  intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
+};
+const conditionalOrders = createConditionalOrderService({
+  sql,
+  triggerScheduled: conditionalTriggerScheduled(conditionalJobsConfig),
+  publishedMark: async (marketId, symbol) => {
+    const mark = await futuresJobs.publicMark(marketId, symbol);
+    return mark?.price ?? null;
+  },
+  closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
+  placeLimit: refuseFuturesRestingLimit,
+});
+const conditionalJobs = startConditionalOrderJobs({
+  config: conditionalJobsConfig,
+  evaluate: () => conditionalOrders.evaluate({ enabled: true }),
+  onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
 });
 const candleJobs = startCandleJobs({
   sql,
@@ -605,6 +634,11 @@ registerPublicRest(app, {
     fundingIntervalConfigured: env.TRADE_FUTURES_FUNDING_INTERVAL_MS != null,
     maxLeverage: maxLeverage == null ? null : formatAmount(maxLeverage),
   },
+});
+registerConditionalOrdersRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  serviceName: env.SERVICE_NAME,
+  orders: conditionalOrders,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -854,6 +888,7 @@ app.log.info(
     spotEnabled: env.TRADE_SPOT_ENABLED,
     futuresEnabled: env.TRADE_FUTURES_ENABLED,
     futuresJobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
+    conditionalJobsEnabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
     futuresJobs: futuresJobs.host.list(),
     venueMark: venueMarkConfigured ? { configured: true, symbolCount: venueMarkConfigured.symbolCount } : null,
     candleJobsEnabled: env.TRADE_CANDLE_JOBS_ENABLED,
@@ -876,6 +911,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       futuresJobs.stop();
+      conditionalJobs.stop();
       candleJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();

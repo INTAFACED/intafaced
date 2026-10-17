@@ -19,7 +19,7 @@ export type TimeInForce = z.infer<typeof timeInForceSchema>;
  * §5.1 lists limit / market / stop / post-only. `take_profit` exists in the
  * public contract but is a svc-trade concern: it is a stop with inverted
  * trigger semantics that the product layer maps down to `stop`/`stop_limit`
- * before it ever reaches the engine. The engine keeps one trigger rule.
+ * before it ever reaches the engine. `triggerRole` on that mapped stop tells a take-profit from a stop-loss.
  */
 export type EngineOrderType = Exclude<z.infer<typeof orderTypeSchema>, 'take_profit'>;
 
@@ -84,6 +84,23 @@ export interface EngineOrder {
    * Position is net fills. The engine does not invent a mark.
    */
   readonly reduceOnly?: boolean;
+  /**
+   * take-profit or stop-loss after the product maps the public type down.
+   * Absent is stop-loss. The engine does not invent a last price for the side check.
+   */
+  readonly triggerRole?: 'take_profit' | 'stop_loss' | null;
+  /**
+   * Price that fires this stop. Absent is last. Mark and index do not fire on a last print,
+   * and a missing or down feed is not retargeted onto last.
+   */
+  readonly triggerBy?: 'last' | 'mark' | 'index' | null;
+  /** Option instrument. Absent is not an option. Trigger types on option and option_combo refuse. */
+  readonly instrument?: 'option' | 'option_combo' | null;
+  /**
+   * Signed futures position for this account and market. Zero is flat.
+   * When set, reduce-only uses it instead of the book net. Absent keeps the fill net.
+   */
+  readonly positionQty?: Amount | null;
   /**
    * Visible peak for an iceberg. Required when `iceberg` is set.
    * The engine does not invent a display.
@@ -193,6 +210,10 @@ export const REJECT_CODES = [
   'already_expired',
   'would_increase_position',
   'position_flat',
+  'trigger_wrong_side',
+  'missing_last_price',
+  'option_trigger_unsupported',
+  'market_maintenance',
   'iceberg_display_missing',
   'iceberg_display_not_smaller',
   'missing_trail',
@@ -304,6 +325,7 @@ export const CANCEL_REASONS = [
   'oco_sibling_filled',
   'expired',
   'would_increase_position',
+  'reduce_only_displaced',
   'session_dead',
   /**
    * Pulled at replay because the ledger hold was missing, smaller than the
@@ -408,6 +430,24 @@ export interface SessionDeadResult {
   readonly cancellations: readonly CancelledRef[];
   /** Per-id cancel failures. Empty when none. A failure does not abort the rest. */
   readonly failed?: readonly MassCancelFailure[];
+  readonly rejected?: RejectReason;
+}
+
+/** Operator maintenance of one market. Not halt. Cancels refuse. Dual-control. No duration. */
+export interface MarketMaintenanceResult {
+  readonly accepted: boolean;
+  readonly marketId: MarketId;
+  readonly maintenance: boolean;
+  readonly operatorId: string | null;
+  readonly confirmOperatorId?: string | null;
+  readonly rejected?: RejectReason;
+}
+
+/** One quiet-book expiry pass. A miss leaves the order. */
+export interface ExpirySweepResult {
+  readonly accepted: boolean;
+  readonly cancelled: readonly CancelledRef[];
+  readonly misses: readonly { readonly marketId: MarketId; readonly code: 'book_unreadable'; readonly reason: string }[];
   readonly rejected?: RejectReason;
 }
 
@@ -609,6 +649,10 @@ export interface StopOrderState {
   /** Present only when the caller tagged a session. Never invented. */
   readonly sessionId?: string;
   readonly reduceOnly?: boolean;
+  /** Absent on a legacy stop. take_profit and stop_loss name the direction rule. */
+  readonly triggerRole?: 'take_profit' | 'stop_loss';
+  /** Present only when the trigger is mark or index. Absent is last. */
+  readonly triggerBy?: 'mark' | 'index';
   /** Minimum fill qty. Absent when not set. */
   readonly minQty?: string;
   /** Present only when the stop is all-or-none. */
@@ -643,6 +687,11 @@ export interface BookState {
    * Never a mark.
    */
   readonly positions?: readonly { readonly accountId: string; readonly qty: string }[];
+  /**
+   * Signed futures position used for reduce-only. Absent when the book net is the position.
+   * Zero is flat and is kept, unlike the fill net.
+   */
+  readonly futuresPositions?: readonly { readonly accountId: string; readonly qty: string }[];
   /**
    * Open STP (and later named abuse) cases. Absent when none.
    * Evidence only — never a fine, never auto-closed.

@@ -100,7 +100,7 @@ describe('new founder route inventory', () => {
     expect(html).toContain(s.title);
     if (WIRED.has(s.id)) {
       expect(html).not.toContain('Not connected');
-      expect(html).toContain('Not built yet');
+      expect(html).toContain('Not switched on here');
     } else if (CONTROL_WIRED.has(s.id)) {
       expect(html).not.toContain('Not connected');
       expect(html).toContain('Not switched on in this deployment');
@@ -128,7 +128,7 @@ describe('new founder route inventory', () => {
     expect(html).not.toContain('merchant drilldown procedure is still unimplemented');
     if (SCREEN_SECTIONS[section]) {
       // Reads are off in this stub, so every list says so by name instead of showing an empty table.
-      expect(html).toContain('Not built yet');
+      expect(html).toContain('Not switched on here');
       expect(html).toContain('founderAdmin.merchants.section');
     }
   });
