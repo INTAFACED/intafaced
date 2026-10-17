@@ -397,11 +397,6 @@ const ALLOWLIST = [
   // the tree; these rows exist only where the hit is upstream attribution that
   // is not shipped to customers and must not force a FE craft edit under the
   // nitro-frontend-all lane.
-  {
-    path: join('vendor', 'upstream-exchange', '04_Web_Admin', 'README.md'),
-    reason:
-      'upstream admin console attribution README; not the served product surface and not shipped to customers. Remove once the title is rebranded.',
-  },
 ];
 
 /** Only these extensions can carry shipped copy. */
