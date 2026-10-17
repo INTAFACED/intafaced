@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { SettingsBTools } from '../b-client';
 import { tolerantPage } from '../b-shared';
+import { pagedResult } from '../../ui/page';
 import * as s from './schemas';
 
 export const developersApi = ({ query, mutate, identityQuery, identityMutate }: SettingsBTools) => ({
@@ -15,24 +16,24 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
   ipsBind: (keyId: string, ips: string[]) => identityMutate('bindApiKeyIpAllowlist', { keyId, ips }, s.ipListSchema),
   ipsUnbind: (keyId: string, ip: string) => identityMutate('unbindApiKeyIpAllowlist', { keyId, ip }, s.ipListSchema),
   // ---- webhooks (merchantOps.webhooks.*) ----
-  endpointsList: (cursor: string | undefined, status: string, search: string, signal?: AbortSignal) =>
-    query(
+  endpointsList: async (cursor: string | undefined, status: string, search: string, signal?: AbortSignal) =>
+    pagedResult(await query(
       'merchantOps.webhooks.list',
       { limit: 25, ...(cursor ? { cursor } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) },
       tolerantPage(s.endpointSchema),
       signal,
-    ),
+    )),
   endpointCreate: (url: string) => mutate('merchantOps.webhooks.create', { url }, s.createdEndpointSchema),
   endpointUpdate: (endpointId: string, url: string) => mutate('merchantOps.webhooks.update', { endpointId, url }, s.endpointSchema),
   endpointDisable: (endpointId: string) => mutate('merchantOps.webhooks.disable', { endpointId }, s.endpointSchema),
   endpointRotate: (endpointId: string, requestId: string) =>
     mutate('merchantOps.webhooks.rotateSecret', { endpointId, requestId }, s.rotatedEndpointSchema),
-  deliveriesList: (
+  deliveriesList: async (
     cursor: string | undefined,
     filter: { endpointId?: string; status?: string; from?: string; to?: string },
     signal?: AbortSignal,
   ) =>
-    query(
+    pagedResult(await query(
       'merchantOps.webhooks.deliveries.list',
       {
         limit: 25,
@@ -44,7 +45,7 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
       },
       tolerantPage(s.deliverySchema),
       signal,
-    ),
+    )),
   deliveryRetry: (deliveryId: string, requestId: string) =>
     mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
   webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),

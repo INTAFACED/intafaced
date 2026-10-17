@@ -30,7 +30,7 @@ export const endpointSchema = z.object({
   id: z.string(),
   url: z.string(),
   status: z.enum(['active', 'disabled']),
-  disabledReason: z.string().nullable().default(null),
+  disabledReason: z.string().nullish(),
   consecutiveFailures: z.number().int().min(0),
   createdAt: stamp,
   updatedAt: stamp,
@@ -47,7 +47,7 @@ export const deliverySchema = z.object({
   status: z.enum(deliveryStatuses),
   attempts: z.number().int().min(0),
   lastStatusCode: z.number().int().nullable(),
-  latencyMs: z.number().nullable().default(null),
+  latencyMs: z.number().nullish(),
   createdAt: stamp,
   deliveredAt: stamp.nullable(),
 });

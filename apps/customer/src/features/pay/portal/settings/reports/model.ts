@@ -60,8 +60,8 @@ export function columnLabel(key: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export function formatBytes(raw: string | null): string {
-  if (raw === null || !/^\d+$/.test(raw)) return '—';
+export function formatBytes(raw: string | null | undefined): string {
+  if (raw == null || !/^\d+$/.test(raw)) return '—';
   const n = Number(raw);
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;

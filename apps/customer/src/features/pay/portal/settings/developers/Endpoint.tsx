@@ -153,8 +153,9 @@ export function EndpointView({
 
 function ChangeAddress({ api, endpoint, canManage, onDone }: { api: Pick<SettingsBApi, 'endpointUpdate'>; endpoint: EndpointRow; canManage: boolean; onDone: () => void }) {
   const { t } = c.useCopy();
-  const [url, setUrl] = useState(endpoint.url);
-  const problem = url.trim() && url.trim() !== endpoint.url ? webhookUrlProblem(url) : null;
+  // Starts empty on purpose: the saved address may hold a private token in its query string, which is never printed.
+  const [url, setUrl] = useState('');
+  const problem = url.trim() ? webhookUrlProblem(url) : null;
   const same = url.trim() === endpoint.url;
   return (
     <>

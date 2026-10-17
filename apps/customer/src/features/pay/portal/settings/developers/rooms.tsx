@@ -16,7 +16,7 @@ import { Sandbox } from './Sandbox';
 import { Signing } from './Signing';
 import { Webhooks } from './Webhooks';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'primary') => (
+const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
     {label}
   </Button>

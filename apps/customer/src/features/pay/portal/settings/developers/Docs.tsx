@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PaySection } from '../../../components';
-import { ComingSoonCard } from '../../chrome/ComingSoonCard';
+import { NotLiveCard } from '../../chrome/NotLiveCard';
+import { reason } from '../../chrome/copy';
 import { developersCopy as c } from './copy';
 import { CodeTabs } from './Signing';
 import { signingSnippets, verifySnippets, type SnippetLanguage } from './model';
@@ -58,7 +59,9 @@ export function Docs() {
         </a>
       </PaySection>
       <PaySection title={t('docsSdkTitle')}>
-        <ComingSoonCard title={t('docsSdkCardTitle')}>{t('docsSdkBody')}</ComingSoonCard>
+        <NotLiveCard reason={reason('reasonDocs')} title={t('docsSdkCardTitle')} needs="SDK publishing decision">
+          {t('docsSdkBody')}
+        </NotLiveCard>
       </PaySection>
     </div>
   );

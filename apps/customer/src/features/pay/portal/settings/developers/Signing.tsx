@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Button, Checkbox, EmptyState, Field } from '@intafaced/ui';
 import { PaySection } from '../../../components';
 import { Facts, Gate, SelectField } from '../../components';
-import { ComingSoonCard } from '../../chrome/ComingSoonCard';
+import { NotLiveCard } from '../../chrome/NotLiveCard';
+import { reason } from '../../chrome/copy';
 import { DateTime } from '../../ui/DateTime';
 import { PortalReview } from '../../ui/PortalReview';
 import { StatusChip } from '../../ui/StatusChip';
@@ -204,7 +205,6 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
         </label>
         <PortalReview
           title={t('ipsSave')}
-          variant="primary"
           description={t('ipsReview')}
           disabled={Boolean(bad)}
           disabledReason={t('errIpFix')}
@@ -280,7 +280,9 @@ export function Recipe() {
       </pre>
       <p className="muted">{t('recipeWindow')}</p>
       <CodeTabs lang={lang} setLang={setLang} snippets={signingSnippets} />
-      <ComingSoonCard title={t('testToolTitle')}>{t('testToolBody')}</ComingSoonCard>
+      <NotLiveCard reason={reason('reasonDeveloper')} title={t('testToolTitle')} needs="signature check endpoint">
+        {t('testToolBody')}
+      </NotLiveCard>
     </PaySection>
   );
 }

@@ -6,15 +6,15 @@ import { reportsCopy as c } from './copy';
 import { Exports } from './Exports';
 import { Reports } from './Reports';
 
-const link = (href: string, label: string) => (
-  <Button variant="primary" nativeButton={false} role="link" render={<a href={href} />}>
+const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
+  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
     {label}
   </Button>
 );
 
 export const reportsRooms: RoomTable = {
   reports: {
-    header: () => ({ title: c.t('reportsTitle'), purpose: c.t('reportsPurpose'), action: link('/pay/reports/exports#request', c.t('requestAction')) }),
+    header: () => ({ title: c.t('reportsTitle'), purpose: c.t('reportsPurpose'), action: link('/pay/reports/exports#request', c.t('requestAction'), 'primary') }),
     render: () => <WithAccount>{({ role }) => <ReportsRoom role={role} />}</WithAccount>,
   },
   'report-exports': {

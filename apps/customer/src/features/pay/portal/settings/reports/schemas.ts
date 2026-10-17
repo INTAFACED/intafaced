@@ -13,20 +13,20 @@ export const exportJobSchema = z.object({
   kind: z.string(),
   filters: z
     .object({ from: z.string().optional(), to: z.string().optional(), status: z.string().optional(), assetId: z.string().optional() })
-    .default({}),
-  columns: z.array(z.string()).default([]),
+    ,
+  columns: z.array(z.string()).optional(),
   status: z.enum(exportStatuses),
-  failureCode: z.string().nullable().default(null),
-  fileName: z.string().nullable().default(null),
-  sizeBytes: z.string().nullable().default(null),
-  rowCount: z.number().int().nullable().default(null),
-  sha256: z.string().nullable().default(null),
+  failureCode: z.string().nullish(),
+  fileName: z.string().nullish(),
+  sizeBytes: z.string().nullish(),
+  rowCount: z.number().int().nullish(),
+  sha256: z.string().nullish(),
   requestedBy: z.string(),
-  asOf: stamp.nullable().default(null),
-  generatedAt: stamp.nullable().default(null),
-  expiresAt: stamp.nullable().default(null),
+  asOf: stamp.nullish(),
+  generatedAt: stamp.nullish(),
+  expiresAt: stamp.nullish(),
   createdAt: stamp,
-  completedAt: stamp.nullable().default(null),
+  completedAt: stamp.nullish(),
 });
 export type ExportJob = z.infer<typeof exportJobSchema>;
 
@@ -38,4 +38,4 @@ export const exportDownloadSchema = z.object({
   rowCount: z.number().int(),
 });
 
-export const memberLabelSchema = z.object({ userId: z.string(), label: z.string().nullable().default(null), role: z.string().optional() });
+export const memberLabelSchema = z.object({ userId: z.string(), label: z.string().nullish(), role: z.string().optional() });

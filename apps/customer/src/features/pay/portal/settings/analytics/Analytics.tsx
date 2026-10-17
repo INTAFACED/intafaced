@@ -6,7 +6,7 @@ import { Freshness } from '../../ui/Freshness';
 import { KpiStrip } from '../../ui/Kpi';
 import { MoneyText } from '../../ui/MoneyText';
 import { EntityList } from '../../ui/EntityList';
-import { isComingSoon } from '../../refusal';
+import { isNotLive } from '../../refusal';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
 import type { SettingsBApi } from '../b-client';
@@ -27,7 +27,7 @@ export function Analytics({ api, merchantId, test = false, now = Date.now() }: {
     const read = await readAll((cursor) => api.analyticsVolume(q, cursor, signal));
     if (read.ok) return { ok: true, data: { points: read.data.items, complete: read.data.complete, freshness: read.data.freshness, source: 'analytics' } };
     // Where the fuller read is not switched on, the daily capture totals the account already has still answer.
-    if (!isComingSoon(read)) return read;
+    if (!isNotLive(read)) return read;
     const daily = await api.analyticsDailySeries(merchantId, w.from, w.to, signal);
     if (!daily.ok) return daily;
     const points = daily.data.points

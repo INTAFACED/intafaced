@@ -15,8 +15,11 @@ import { useResource } from '../../../../../shared/resource';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
 import { canRetry, shownEndpointUrl } from './model';
-import { deliveryStatuses, type Delivery } from './schemas';
+import { deliveryStatuses, type Delivery, type Endpoint } from './schemas';
+import type { ApiResult } from '../../../../../shared/api';
+import type { Page } from '../../schemas';
 
+const noEndpoints: ApiResult<Page<Endpoint>> = { ok: true, data: { items: [], nextCursor: null } };
 const tone: Record<Delivery['status'], StatusTone> = { delivered: 'done', pending: 'progress', failed: 'failed', dead: 'failed' };
 
 export function DeliveryChip({ status }: { status: Delivery['status'] }) {
@@ -35,7 +38,10 @@ export function DeliveryList({ api, canManage, endpointId, now = Date.now() }: {
   const [open, setOpen] = useUrlParam('delivery');
   const endpoint = endpointId ?? endpointParam;
   const range = dateRange(date as DatePreset, now, { from, to });
-  const endpoints = useResource((signal) => (endpointId ? Promise.resolve({ ok: true as const, data: { items: [], nextCursor: null } }) : api.endpointsList(undefined, '', '', signal)), `dev:deliveries:endpoints:${endpointId ?? ''}`);
+  const endpoints = useResource(
+    (signal) => (endpointId ? Promise.resolve(noEndpoints) : api.endpointsList(undefined, '', '', signal)),
+    `dev:deliveries:endpoints:${endpointId ?? ''}`,
+  );
   const list = useServerList<Delivery, Record<string, string>>(
     (f, cursor, signal) =>
       api.deliveriesList(cursor, { endpointId: f.endpoint || undefined, status: f.status || undefined, from: f.from || undefined, to: f.to || undefined }, signal),
@@ -186,7 +192,7 @@ export function DeliveryDetail({ delivery }: { delivery: Delivery }) {
           [t('colStatus'), <DeliveryChip key="s" status={delivery.status} />],
           [t('colAttempts'), String(delivery.attempts)],
           [t('colReply'), delivery.lastStatusCode === null ? t('noReply') : String(delivery.lastStatusCode)],
-          [t('colSpeed'), delivery.latencyMs === null ? '—' : t('milliseconds', { n: Math.round(delivery.latencyMs) })],
+          [t('colSpeed'), delivery.latencyMs == null ? '—' : t('milliseconds', { n: Math.round(delivery.latencyMs) })],
           [t('colReference'), <code key="r">{delivery.id}</code>],
         ]}
       />

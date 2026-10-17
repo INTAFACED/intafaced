@@ -1,12 +1,13 @@
 import { EmptyState } from '@intafaced/ui';
 import { PaySection } from '../../../components';
-import { ComingSoonCard } from '../../chrome/ComingSoonCard';
+import { NotLiveCard } from '../../chrome/NotLiveCard';
+import { reason } from '../../chrome/copy';
 import { PortalFailure, PortalLoading } from '../../components';
 import { EntityList } from '../../ui/EntityList';
 import { Freshness } from '../../ui/Freshness';
 import { KpiStrip } from '../../ui/Kpi';
 import { MoneyText } from '../../ui/MoneyText';
-import { isComingSoon } from '../../refusal';
+import { isNotLive, notLiveReason } from '../../refusal';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
 import type { SettingsBApi } from '../b-client';
@@ -61,10 +62,10 @@ export function FeesView({ state, resource, reload, test }: { state: AnalyticsSt
       ) : resource.status === 'loading' ? (
         <PortalLoading rows={4} />
       ) : resource.status === 'failed' ? (
-        isComingSoon(resource.failure) ? (
-          <ComingSoonCard variant="page" title={t('feesOffTitle')}>
+        isNotLive(resource.failure) ? (
+          <NotLiveCard variant="page" reason={notLiveReason(resource.failure)} title={t('feesOffTitle')} needs="merchantAnalytics.fees">
             {t('feesOffBody')}
-          </ComingSoonCard>
+          </NotLiveCard>
         ) : (
           <PortalFailure result={resource.failure} retry={reload} />
         )
@@ -119,7 +120,9 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
         {rate ? (
           <p>{t('rateIs', { rate })}</p>
         ) : (
-          <ComingSoonCard title={t('rateOffTitle')}>{t('rateOffBody')}</ComingSoonCard>
+          <NotLiveCard reason={reason('reasonDetail')} title={t('rateOffTitle')} needs="fee rule snapshots aggregated">
+            {t('rateOffBody')}
+          </NotLiveCard>
         )}
       </PaySection>
       <PaySection title={t('feesTableTitle')} description={t('feesTableBody')}>
