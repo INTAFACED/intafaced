@@ -7,6 +7,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus, type EventBus, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import { parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { LedgerService } from './service.js';
+import { truncateBook } from './db/journal-guards.testkit.js';
 
 /**
  * Crash after COMMIT used to lose `ledgerTxPosted`. The outbox row is the
@@ -107,7 +108,7 @@ describe('svc-ledger post outbox', () => {
 
   beforeEach(async () => {
     const opened = requireDb();
-    await opened.sql`TRUNCATE ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE`;
+    await truncateBook(opened.sql, 'ledger_tx_outbox, ledger_entries, ledger_tx, balance_snapshots, accounts RESTART IDENTITY CASCADE');
     await opened.sql`UPDATE chain_tip SET hash = NULL, seq = 0 WHERE id = true`;
     await opened.sql`UPDATE posting_freeze SET frozen = false, reason = NULL, actor = NULL WHERE id = true`;
   });

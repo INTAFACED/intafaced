@@ -10,6 +10,7 @@ import {
   subscribeRefusal,
   takerSideOf,
 } from './bybit-spot.js';
+import { bybitSymbolFilters, bybitTakerCommissionRate } from './bybit-spot-trade.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
 import { MaintainedBook } from '../book-feed.js';
 import { RateLimitGovernor } from '../rate-limit.js';
@@ -943,6 +944,78 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(http.posts[0]!.headers?.['X-BAPI-SIGN']).toMatch(/^[a-f0-9]{64}$/);
     expect(http.requests[0]).toContain('/v5/market/orderbook');
     expect(http.requests[1]).toContain('POST https://api.bybit.com/v5/order/create');
+    expect(http.posts[0]!.jsonBody).toMatchObject({ timeInForce: 'GTC' });
+  });
+
+  it('sends IOC, and a closed order that has left the realtime list is read from history', async () => {
+    const filled = {
+      ...openRow,
+      orderStatus: 'Filled',
+      cumExecQty: '1',
+      avgPrice: '1',
+      cumExecFee: '0.1',
+      cumFeeDetail: { USDT: '0.1' },
+    };
+    const http = new FakeHttp()
+      .queue(orderbook(1))
+      .queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'abc' } })
+      .queue(envelope([]))
+      .queue(envelope([filled]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1_700_000_000_000, snapshotLimit: 5 });
+    const placed = await trade.placeOrder({ ...order, timeInForce: 'IOC' });
+    expect(http.posts[0]!.jsonBody).toMatchObject({ timeInForce: 'IOC' });
+    expect(http.requests.some((url) => url.includes('/v5/order/history'))).toBe(true);
+    expect(placed.status).toBe('filled');
+    expect(formatAmount(placed.feePaid!)).toBe('0.1');
+    expect(placed.feeAsset).toBe('USDT');
+  });
+
+  it('finds a closed order older than 7 days when the history window is given', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const placedAt = 1_700_000_000_000 - 8 * day;
+    const now = placedAt + 8 * day;
+    const window = { startTimeMs: placedAt - 60_000, endTimeMs: placedAt + 10 * 60 * 1000 };
+    const old = {
+      ...openRow,
+      orderStatus: 'Filled',
+      cumExecQty: '1',
+      avgPrice: '1',
+      cumExecFee: '0',
+      createdTime: String(placedAt),
+    };
+    const http: HttpPort & { requests: string[] } = {
+      requests: [],
+      async get(url: string) {
+        this.requests.push(url);
+        const query = new URL(url).searchParams;
+        const hit = query.get('startTime') === String(window.startTimeMs) && query.get('endTime') === String(window.endTimeMs);
+        return { status: 200, body: envelope(hit ? [old] : []), header: () => null };
+      },
+      async post() {
+        throw new Error('history lookup is a GET');
+      },
+    };
+    const trade = new BybitSpotTrade(keys, { http, clock: () => now });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc')).resolves.toBeNull();
+    expect(http.requests[0]).toContain('/v5/order/history');
+    expect(http.requests[0]).not.toContain('startTime=');
+    const found = await trade.fetchClosedOrder('BTC/USDT', 'abc', window);
+    expect(found?.status).toBe('filled');
+    expect(found?.clientOrderId).toBe('abc');
+    expect(http.requests[1]).toContain(`startTime=${window.startTimeMs}`);
+    expect(http.requests[1]).toContain(`endTime=${window.endTimeMs}`);
+    expect(window.endTimeMs).toBeLessThan(now - 7 * day);
+  });
+
+  it('an empty history list is a miss, and a long client id never reaches HTTP', async () => {
+    const http = new FakeHttp().queue(envelope([]));
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1 });
+    await expect(trade.fetchClosedOrder('BTC/USDT', 'abc')).resolves.toBeNull();
+    expect(http.requests[0]).toContain('/v5/order/history');
+    const blocked = new FakeHttp();
+    const refused = new BybitSpotTrade(keys, { http: blocked, clock: () => 1, snapshotLimit: 5 });
+    await expect(refused.placeOrder({ ...order, clientOrderId: 'x'.repeat(37) })).rejects.toMatchObject({ sent: false });
+    expect(blocked.requests).toHaveLength(0);
   });
 
   it('retCode 10001 throws and does not return a rejected order', async () => {
@@ -1016,5 +1089,58 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(snapshot.venueId).toBe('bybit-spot');
     expect(snapshot.sequence).toBe(1);
     expect(snapshot.bids).not.toHaveLength(0);
+  });
+
+  it('reads one taker fee rate and refuses a list that is not exactly one row', async () => {
+    const row = { symbol: 'BTCUSDT', takerFeeRate: '0.001', makerFeeRate: '0.0005' };
+    expect(formatAmount(bybitTakerCommissionRate({ result: { list: [row] } })!)).toBe('0.001');
+    expect(bybitTakerCommissionRate({ result: { list: [row, row] } })).toBeNull();
+    expect(bybitTakerCommissionRate({ result: { list: [{}] } })).toBeNull();
+    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { list: [row] } });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    expect(formatAmount((await trade.commissionRate('BTC/USDT'))!)).toBe('0.001');
+    expect(http.requests[0]).toContain('/v5/account/fee-rate');
+    expect(http.requests[0]).toContain('category=spot');
+    expect(http.requests[0]).toContain('symbol=BTCUSDT');
+  });
+
+  it('reads tick, step and min notional from instruments-info', async () => {
+    const instrument = {
+      symbol: 'BTCUSDT',
+      status: 'Trading',
+      lotSizeFilter: { basePrecision: '0.000001', minOrderAmt: '5' },
+      priceFilter: { tickSize: '0.01' },
+    };
+    expect(formatAmount(bybitSymbolFilters(instrument)!.tickSize)).toBe('0.01');
+    expect(formatAmount(bybitSymbolFilters(instrument)!.stepSize)).toBe('0.000001');
+    expect(formatAmount(bybitSymbolFilters(instrument)!.minNotional)).toBe('5');
+    expect(bybitSymbolFilters({ ...instrument, status: 'PreLaunch' })).toBeNull();
+    const http = new FakeHttp().queue({ retCode: 0, retMsg: 'OK', result: { list: [instrument] } });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1 });
+    const filters = await trade.symbolFilters('BTC/USDT');
+    expect(formatAmount(filters!.minNotional)).toBe('5');
+    expect(http.requests[0]).toBe('https://rest.test/v5/market/instruments-info?category=spot&symbol=BTCUSDT');
+  });
+
+  it('names a definite rejection by its retCode', async () => {
+    const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 170131, retMsg: 'Insufficient balance', result: {} });
+    const trade = new BybitSpotTrade(keys, { http, restBase: 'https://rest.test', clock: () => 1, snapshotLimit: 5 });
+    await expect(trade.placeOrder(order)).rejects.toMatchObject({
+      sent: true,
+      reason: 'unreachable',
+      message: expect.stringMatching(/retCode 170131 \(Insufficient balance\)/),
+    });
+  });
+
+  it('tags a follow-up realtime read that the governor refuses as sent', async () => {
+    const http = new FakeHttp().queue(orderbook(1)).queue({ retCode: 0, retMsg: 'OK', result: { orderId: '9', orderLinkId: 'abc' } });
+    const governor = new RateLimitGovernor(
+      { venueId: 'bybit-spot', capacity: 1, windowMs: 60_000, reservedHeadroomBps: 0, burstBps: 10_000 },
+      1,
+    );
+    const trade = new BybitSpotTrade(keys, { http, clock: () => 1, snapshotLimit: 5, governor });
+    await expect(trade.placeOrder(order)).rejects.toMatchObject({ sent: true, reason: 'rate_limited' });
+    expect(http.requests.some((url) => url.includes('/v5/order/create'))).toBe(true);
+    expect(http.requests.some((url) => url.includes('/v5/order/realtime'))).toBe(false);
   });
 });

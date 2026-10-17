@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { burnAccount, houseFees, loanReserve, merchantClearing, railBoundary, rewardsEngine, userAvailable } from '../accounts.js';
+import {
+  burnAccount,
+  houseFees,
+  loanReserve,
+  merchantClearing,
+  merchantProceeds,
+  railBoundary,
+  rewardsEngine,
+  userAvailable,
+} from '../accounts.js';
 import { recipes } from './index.js';
 
 /**
@@ -133,10 +142,12 @@ describe('paymentRefundReverse', () => {
       source: 'settled' as const,
     };
     await ledger.post(recipes.paymentRefund(refundBody));
-    expect(formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('50');
+    expect(formatAmount((await ledger.balance(merchantProceeds(MERCHANT, 'USDT'))).amount)).toBe('50');
+    expect(formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
 
     await ledger.post(recipes.paymentRefundReverse(refundBody));
-    expect(formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('80');
+    expect(formatAmount((await ledger.balance(merchantProceeds(MERCHANT, 'USDT'))).amount)).toBe('80');
+    expect(formatAmount((await ledger.balance(userAvailable(MERCHANT_USER, 'USDT'))).amount)).toBe('0');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 

@@ -2,7 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, postgresAvailable, rewriteSchemaSql } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql } from '@intafaced/db';
+import { createTestDb } from '../fixture-truncate.testkit.js';
 import { MemoryWaitlistStore, SqlWaitlistStore, WaitlistStoreError } from './waitlist-store.js';
 
 describe('MemoryWaitlistStore', () => {
