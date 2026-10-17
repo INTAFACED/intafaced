@@ -2085,19 +2085,23 @@ code {
   .adm-nav-mobile {
     position: relative;
     display: block;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    min-width: 0;
     order: 1;
   }
+  /* A long module label ("Menu · Trade desk") shortens with an ellipsis instead of pushing the page wider than the phone. */
   .adm-nav-mobile > summary {
     cursor: pointer;
     min-height: 40px;
-    display: flex;
-    align-items: center;
+    box-sizing: border-box;
     padding: 8px 12px;
     border: 1px solid var(--if-border-strong);
     border-radius: var(--if-radius-md);
     font-size: 12px;
+    line-height: 22px;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .adm-nav-mobile > nav {
     position: absolute;
