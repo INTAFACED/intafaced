@@ -24,6 +24,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t open yet',
     body: 'Its fee share and country list haven’t been approved. Nothing was followed.',
   },
+  'trade.copy_unavailable': {
+    title: 'Copy trading isn’t available right now',
+    body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
