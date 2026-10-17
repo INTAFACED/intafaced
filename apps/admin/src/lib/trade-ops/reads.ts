@@ -46,9 +46,20 @@ function parseMarket(v: unknown): MarketRow | null {
   if (!(v.maxQty === null || dec(v.maxQty))) return null;
   if (typeof v.makerBps !== 'number' || typeof v.takerBps !== 'number' || !strOrNull(v.listedAt ?? null)) return null;
   return {
-    id: v.id, symbol: v.symbol, base: v.base, quote: v.quote, kind: v.kind as MarketRow['kind'], status: v.status as MarketRecordStatus,
-    tickSize: v.tickSize, lotSize: v.lotSize, minQty: v.minQty, maxQty: v.maxQty as string | null, minNotional: v.minNotional,
-    makerBps: v.makerBps, takerBps: v.takerBps, listedAt: (v.listedAt as string | null | undefined) ?? null,
+    id: v.id,
+    symbol: v.symbol,
+    base: v.base,
+    quote: v.quote,
+    kind: v.kind as MarketRow['kind'],
+    status: v.status as MarketRecordStatus,
+    tickSize: v.tickSize,
+    lotSize: v.lotSize,
+    minQty: v.minQty,
+    maxQty: v.maxQty as string | null,
+    minNotional: v.minNotional,
+    makerBps: v.makerBps,
+    takerBps: v.takerBps,
+    listedAt: (v.listedAt as string | null | undefined) ?? null,
   };
 }
 
@@ -67,8 +78,23 @@ export function readMarkets(ctx: TradeCtx, limit = 200): Promise<Outcome<readonl
 // ── Market lifecycle (authoritative status) ─────────────────────────────────
 
 export const LIFECYCLE_STATES = [
-  'DRAFT', 'REVIEW', 'APPROVED', 'PRELAUNCH', 'AUCTION', 'OPEN', 'POST_ONLY', 'CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED',
-  'EXPIRING', 'EXPIRED', 'SETTLING', 'SETTLED', 'DELISTING', 'REFUSED', 'ARCHIVED',
+  'DRAFT',
+  'REVIEW',
+  'APPROVED',
+  'PRELAUNCH',
+  'AUCTION',
+  'OPEN',
+  'POST_ONLY',
+  'CANCEL_ONLY',
+  'REDUCE_ONLY',
+  'HALTED',
+  'EXPIRING',
+  'EXPIRED',
+  'SETTLING',
+  'SETTLED',
+  'DELISTING',
+  'REFUSED',
+  'ARCHIVED',
 ] as const;
 export type LifecycleState = (typeof LIFECYCLE_STATES)[number];
 
@@ -90,13 +116,19 @@ export function readLifecycle(ctx: TradeCtx, symbol: string): Promise<Outcome<Li
     path: `/api/v1/market-lifecycle/${encodeURIComponent(symbol)}`,
     parse: (raw) => {
       if (!rec(raw) || !str(raw.state) || !(LIFECYCLE_STATES as readonly string[]).includes(raw.state)) return null;
-      if (!str(raw.reasonCategory) || !str(raw.reasonCode) || !str(raw.effectiveAt) || !str(raw.observedAt) || !str(raw.transitionId)) return null;
+      if (!str(raw.reasonCategory) || !str(raw.reasonCode) || !str(raw.effectiveAt) || !str(raw.observedAt) || !str(raw.transitionId))
+        return null;
       if (!Array.isArray(raw.allowedActions) || !raw.allowedActions.every(str)) return null;
       const last = raw.lastGoodState;
       if (!(last === null || (str(last) && (LIFECYCLE_STATES as readonly string[]).includes(last)))) return null;
       return {
-        state: raw.state as LifecycleState, reasonCategory: raw.reasonCategory, reasonCode: raw.reasonCode, effectiveAt: raw.effectiveAt,
-        observedAt: raw.observedAt, lastGoodState: last as LifecycleState | null, allowedActions: raw.allowedActions as string[],
+        state: raw.state as LifecycleState,
+        reasonCategory: raw.reasonCategory,
+        reasonCode: raw.reasonCode,
+        effectiveAt: raw.effectiveAt,
+        observedAt: raw.observedAt,
+        lastGoodState: last as LifecycleState | null,
+        allowedActions: raw.allowedActions as string[],
         transitionId: raw.transitionId,
       };
     },
@@ -134,12 +166,26 @@ function parseOrder(v: unknown): AdminOrderRow | null {
   if (v.side !== 'buy' && v.side !== 'sell') return null;
   if (!str(v.type) || !str(v.timeInForce) || !str(v.status) || typeof v.seeded !== 'boolean') return null;
   if (!['open', 'closed', 'canceled', 'expired', 'rejected'].includes(v.status)) return null;
-  if (!(v.price === null || dec(v.price)) || !dec(v.amount) || !dec(v.filled) || !dec(v.remaining) || !(v.cost === null || dec(v.cost))) return null;
+  if (!(v.price === null || dec(v.price)) || !dec(v.amount) || !dec(v.filled) || !dec(v.remaining) || !(v.cost === null || dec(v.cost)))
+    return null;
   return {
-    id: v.id, userId: v.userId, symbol: v.symbol, side: v.side, type: v.type, timeInForce: v.timeInForce, price: v.price as string | null,
-    amount: v.amount, filled: v.filled, remaining: v.remaining, cost: v.cost as string | null, status: v.status as OrderStatusWord,
-    held: v.recoveryRequired === true, recoveryReason: str(v.recoveryReason) ? v.recoveryReason : null,
-    reconciliationKey: str(v.reconciliationKey) ? v.reconciliationKey : null, seeded: v.seeded, datetime: v.datetime,
+    id: v.id,
+    userId: v.userId,
+    symbol: v.symbol,
+    side: v.side,
+    type: v.type,
+    timeInForce: v.timeInForce,
+    price: v.price as string | null,
+    amount: v.amount,
+    filled: v.filled,
+    remaining: v.remaining,
+    cost: v.cost as string | null,
+    status: v.status as OrderStatusWord,
+    held: v.recoveryRequired === true,
+    recoveryReason: str(v.recoveryReason) ? v.recoveryReason : null,
+    reconciliationKey: str(v.reconciliationKey) ? v.reconciliationKey : null,
+    seeded: v.seeded,
+    datetime: v.datetime,
     clientOrderId: str(v.clientOrderId) ? v.clientOrderId : null,
   };
 }

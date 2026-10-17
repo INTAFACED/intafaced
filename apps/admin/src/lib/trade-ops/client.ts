@@ -9,10 +9,23 @@ export async function tradeOpsAction<T = unknown>(room: string, body: unknown): 
   const asOf = new Date().toISOString();
   try {
     const headers = await founderMutationHeaders();
-    const res = await fetch(`/api/trade-ops/${room}`, { method: 'POST', headers, body: JSON.stringify(body), credentials: 'same-origin', cache: 'no-store' });
+    const res = await fetch(`/api/trade-ops/${room}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
     const json: unknown = await res.json().catch(() => null);
     if (json && typeof json === 'object' && 'kind' in json) return json as Outcome<T>;
-    return { kind: 'refused', code: `http.${res.status}`, message: 'The console answered without a result.', status: res.status, blocker: null, asOf };
+    return {
+      kind: 'refused',
+      code: `http.${res.status}`,
+      message: 'The console answered without a result.',
+      status: res.status,
+      blocker: null,
+      asOf,
+    };
   } catch (error) {
     return {
       kind: 'unknown',

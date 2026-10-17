@@ -38,7 +38,16 @@ export function errorParts(body: unknown, status: number): { code: string; messa
   const json = (err.json && typeof err.json === 'object' ? err.json : err) as Record<string, unknown>;
   const data = (json.data && typeof json.data === 'object' ? json.data : {}) as Record<string, unknown>;
   const pick = (...v: unknown[]) => v.find((x): x is string => typeof x === 'string' && x.length > 0);
-  const code = pick(root.intafacedCode, json.intafacedCode, root.code, json.code, data.appCode, data.code, typeof root.error === 'string' ? root.error : undefined) ?? `http.${status}`;
+  const code =
+    pick(
+      root.intafacedCode,
+      json.intafacedCode,
+      root.code,
+      json.code,
+      data.appCode,
+      data.code,
+      typeof root.error === 'string' ? root.error : undefined,
+    ) ?? `http.${status}`;
   const message = pick(root.message, json.message, root.detail, root.reason) ?? `The service answered ${status} (${code}).`;
   return { code, message };
 }
@@ -82,7 +91,13 @@ export async function edgeCall<T>(ctx: TradeCtx, spec: EdgeSpec<T>): Promise<Out
   if (res.ok) {
     const parsed = spec.parse(unwrapTrpc(body));
     return parsed === null
-      ? refused('trade_ops.unexpected_shape', 'The service answered with a shape this desk does not recognise, so nothing is shown rather than a guess.', 502, null, at())
+      ? refused(
+          'trade_ops.unexpected_shape',
+          'The service answered with a shape this desk does not recognise, so nothing is shown rather than a guess.',
+          502,
+          null,
+          at(),
+        )
       : ok(parsed, at());
   }
   if (res.status === 404 || res.status === 405) {
