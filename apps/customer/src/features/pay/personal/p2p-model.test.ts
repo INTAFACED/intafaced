@@ -3,6 +3,19 @@ import type { Offer, Trade } from '../schemas';
 import {
   checkOfferForm,
   checkTake,
+  feePercent,
+  isOwnOffer,
+  makerSummary,
+  quoteIsConsistent,
+  sameQuoteFigures,
+  sameTakeTerms,
+  splitDuration,
+  takeFailureKind,
+  takeRefusalIsDefinite,
+  takeRequest,
+  takerRole,
+  tradeMovedFromQuote,
+  tradeMatchesTake,
   disputeStages,
   emptyOffer,
   escrowView,
@@ -237,5 +250,148 @@ describe('offer form', () => {
       'methods',
       'terms',
     ]);
+  });
+});
+
+describe('taking an offer', () => {
+  const quote = {
+    amount: '100',
+    price: '0.92',
+    fiatAmount: '92',
+    feeBps: 30,
+    fee: '0.3',
+    netAmount: '99.7',
+    reservationExpiresAt: '2026-10-18T10:15:00.000Z',
+  };
+  const me = 'm0000000-0000-4000-8000-000000000003';
+
+  it('knows an offer is the signed-in person’s own, whatever the letter case', () => {
+    expect(isOwnOffer(offer({ makerId: SELLER }), SELLER)).toBe(true);
+    expect(isOwnOffer(offer({ makerId: SELLER.toUpperCase() }), SELLER)).toBe(true);
+    expect(isOwnOffer(offer({ makerId: SELLER }), BUYER)).toBe(false);
+    expect(isOwnOffer(offer({ makerId: SELLER }), null)).toBe(false);
+  });
+  it('puts the taker on the other side of the maker', () => {
+    expect(takerRole(offer({ side: 'sell' }))).toBe('buyer');
+    expect(takerRole(offer({ side: 'buy' }))).toBe('seller');
+  });
+  it('writes basis points as an exact percentage', () => {
+    expect(feePercent(0)).toBe('0');
+    expect(feePercent(30)).toBe('0.3');
+    expect(feePercent(125)).toBe('1.25');
+    expect(feePercent(5)).toBe('0.05');
+    expect(feePercent(100)).toBe('1');
+  });
+  it('builds one request only from an amount inside the offer’s limits and a method the offer lists', () => {
+    expect(takeRequest(offer(), '100', 'sepa')).toEqual({ ok: true, request: { offerId: 'o1', amount: '100', method: 'sepa' } });
+    expect(takeRequest(offer(), ' 100.50 ', 'wise')).toMatchObject({ ok: true, request: { amount: '100.5' } });
+    expect(takeRequest(offer(), '9.99', 'sepa')).toEqual({ ok: false, kind: 'belowMin' });
+    expect(takeRequest(offer(), '10', 'sepa')).toMatchObject({ ok: true });
+    expect(takeRequest(offer({ remainingAmount: '500' }), '500', 'sepa')).toMatchObject({ ok: true });
+    expect(takeRequest(offer({ remainingAmount: '900' }), '500.01', 'sepa')).toEqual({ ok: false, kind: 'aboveMax' });
+    expect(takeRequest(offer({ maxAmount: '500', remainingAmount: '50' }), '60', 'sepa')).toEqual({ ok: false, kind: 'aboveRemaining' });
+    expect(takeRequest(offer(), '', 'sepa')).toEqual({ ok: false, kind: 'empty' });
+    expect(takeRequest(offer(), '1e3', 'sepa')).toEqual({ ok: false, kind: 'invalid' });
+    expect(takeRequest(offer(), '100', '')).toEqual({ ok: false, kind: 'noMethod' });
+    expect(takeRequest(offer(), '100', 'paypal')).toEqual({ ok: false, kind: 'noMethod' });
+    expect(takeRequest(offer({ status: 'paused' }), '100', 'sepa')).toEqual({ ok: false, kind: 'inactive' });
+  });
+  it('accepts a quote only when it is for this request and adds up exactly', () => {
+    const request = { offerId: 'o1', amount: '100', method: 'sepa' };
+    expect(quoteIsConsistent(offer(), request, quote)).toBe(true);
+    expect(quoteIsConsistent(offer(), request, { ...quote, netAmount: '99.71' })).toBe(false);
+    expect(quoteIsConsistent(offer(), request, { ...quote, fee: '100.1', netAmount: '-0.1' })).toBe(false);
+    expect(quoteIsConsistent(offer(), request, { ...quote, amount: '100.000000000000000001' })).toBe(false);
+    expect(quoteIsConsistent(offer(), request, { ...quote, price: '0.93' })).toBe(false);
+    // A floating price is priced by the service, so its price is not compared with the offer's multiplier.
+    expect(quoteIsConsistent(offer({ priceType: 'float', price: '1.01' }), request, quote)).toBe(true);
+    expect(quoteIsConsistent(offer(), request, { ...quote, amount: '100.0', fee: '0.30', netAmount: '99.700' })).toBe(true);
+  });
+  it('compares quotes by value, not by when the reservation would end', () => {
+    expect(sameQuoteFigures(quote, { ...quote, reservationExpiresAt: '2026-10-18T10:16:00.000Z', fee: '0.30' })).toBe(true);
+    expect(sameQuoteFigures(quote, { ...quote, feeBps: 31 })).toBe(false);
+    expect(sameQuoteFigures(quote, { ...quote, fiatAmount: '92.01' })).toBe(false);
+  });
+  it('lets the remaining quantity move between review and confirm but nothing else', () => {
+    expect(sameTakeTerms(offer(), offer({ remainingAmount: '10' }))).toBe(true);
+    expect(sameTakeTerms(offer(), offer({ price: '0.93' }))).toBe(false);
+    expect(sameTakeTerms(offer(), offer({ minAmount: '11' }))).toBe(false);
+    expect(sameTakeTerms(offer(), offer({ status: 'paused' }))).toBe(false);
+    expect(sameTakeTerms(offer(), offer({ terms: 'changed' }))).toBe(false);
+    expect(sameTakeTerms(offer(), offer({ methods: ['sepa'] }))).toBe(false);
+  });
+  it('accepts a returned order only for this person, this offer and these terms', () => {
+    const o = offer({ makerId: SELLER, side: 'sell' });
+    const mine = trade({ id: 't9', buyerId: me, sellerId: SELLER });
+    expect(tradeMatchesTake(mine, o, me, { amount: '100', method: 'sepa' }, 'T9')).toBe(true);
+    expect(tradeMatchesTake(mine, o, me, null, 't9')).toBe(true);
+    expect(tradeMatchesTake(mine, o, BUYER, null, 't9')).toBe(false);
+    expect(tradeMatchesTake(mine, o, me, null, 't8')).toBe(false);
+    expect(tradeMatchesTake(mine, o, me, { amount: '101', method: 'sepa' }, 't9')).toBe(false);
+    expect(tradeMatchesTake(mine, o, me, { amount: '100', method: 'wise' }, 't9')).toBe(false);
+    expect(tradeMatchesTake({ ...mine, offerId: 'o2' }, o, me, null, 't9')).toBe(false);
+    // A maker who buys: the taker is the seller.
+    const buying = offer({ makerId: SELLER, side: 'buy' });
+    expect(tradeMatchesTake(trade({ id: 't9', sellerId: me, buyerId: SELLER }), buying, me, null, 't9')).toBe(true);
+    expect(tradeMatchesTake(trade({ id: 't9', sellerId: SELLER, buyerId: me }), buying, me, null, 't9')).toBe(false);
+  });
+  it('treats only named pre-lock refusals and plain request rejections as proof nothing was placed', () => {
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.amount_below_min', status: 400 })).toBe(true);
+    expect(takeRefusalIsDefinite({ reason: 'forbidden', code: 'p2p.blocked', status: 403 })).toBe(true);
+    expect(takeRefusalIsDefinite({ reason: 'error', status: 400 })).toBe(true);
+    expect(takeRefusalIsDefinite({ reason: 'unauthorized', status: 401 })).toBe(true);
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.trade_exists', status: 409 })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.escrow_lock_uncertain', status: 412 })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'error', status: 409 })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'error', status: 412 })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'uncertain', status: 503 })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'aborted' })).toBe(false);
+    expect(takeRefusalIsDefinite({ reason: 'error' })).toBe(false);
+  });
+  it('names each failure as one plain kind', () => {
+    expect(takeFailureKind({ reason: 'uncertain' })).toBe('unconfirmed');
+    expect(takeFailureKind({ reason: 'error', code: 'pay.operation_unresolved' })).toBe('unconfirmed');
+    expect(takeFailureKind({ reason: 'uncertain', code: 'pay.take_not_found' })).toBe('notFound');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'p2p.self_trade' })).toBe('ownOffer');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'p2p.blocked' })).toBe('blocked');
+    expect(takeFailureKind({ reason: 'error', code: 'p2p.take_refused' })).toBe('methodRefused');
+    expect(takeFailureKind({ reason: 'error', code: 'p2p.amount_above_max' })).toBe('outOfBounds');
+    expect(takeFailureKind({ reason: 'error', code: 'p2p.release_unpostable' })).toBe('tooSmall');
+    expect(takeFailureKind({ reason: 'invalid_response', code: 'pay.take_quote_changed' })).toBe('quoteChanged');
+    expect(takeFailureKind({ reason: 'not_supported', code: 'pay.recovery_journal_unavailable' })).toBe('noRecord');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.kyc_required', status: 403 })).toBe('verify');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.region_blocked', status: 403 })).toBe('region');
+    expect(takeFailureKind({ reason: 'forbidden', code: 'denied.region_unknown', status: 403 })).toBe('region');
+    expect(takeRefusalIsDefinite({ reason: 'forbidden', code: 'denied.kyc_required', status: 403 })).toBe(true);
+    expect(takeFailureKind({ reason: 'unauthorized' })).toBe('signIn');
+    expect(takeFailureKind({ reason: 'unreachable' })).toBe('noService');
+    expect(takeFailureKind({ reason: 'error', code: 'something.new' })).toBe('generic');
+  });
+});
+
+describe('an order priced differently from the review', () => {
+  it('notices a changed price or fiat total, and ignores formatting', () => {
+    expect(tradeMovedFromQuote({ price: '0.92', fiatAmount: '92' }, { price: '0.920', fiatAmount: '92.0' })).toBe(false);
+    expect(tradeMovedFromQuote({ price: '0.93', fiatAmount: '93' }, { price: '0.92', fiatAmount: '92' })).toBe(true);
+    expect(tradeMovedFromQuote({ price: '0.92', fiatAmount: '92.01' }, { price: '0.92', fiatAmount: '92' })).toBe(true);
+  });
+});
+
+describe('who is on the other side', () => {
+  it('summarises a maker only from the returned record', () => {
+    expect(makerSummary({ tradesTotal: 0, completed: 0, completionRate: 0, avgReleaseSecs: 0 })).toEqual({ kind: 'new' });
+    expect(makerSummary({ tradesTotal: 10, completed: 9, completionRate: 0.9, avgReleaseSecs: 120 })).toEqual({
+      kind: 'record',
+      orders: 10,
+      completionRate: 0.9,
+      releaseSecs: 120,
+    });
+    // Orders but none completed: there is no release time to average, so none is shown.
+    expect(makerSummary({ tradesTotal: 3, completed: 0, completionRate: 0, avgReleaseSecs: 0 })).toMatchObject({ releaseSecs: null });
+  });
+  it('splits a duration into its two largest units', () => {
+    expect(splitDuration(45)).toEqual({ unit: 'seconds', major: 45, minor: null });
+    expect(splitDuration(190)).toEqual({ unit: 'minutes', major: 3, minor: 10 });
+    expect(splitDuration(7500)).toEqual({ unit: 'hours', major: 2, minor: 5 });
   });
 });
