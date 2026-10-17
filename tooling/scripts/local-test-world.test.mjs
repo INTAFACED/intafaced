@@ -363,6 +363,7 @@ try {
   assert.equal(publishedStarterFeeBps({ PAY_DEFAULT_FEE_BPS: '150' }), null);
   assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: 'nope' }), null);
   assert.equal(isPayScopeRefusal('Scope "pay:read" is required [FORBIDDEN]'), true);
+  assert.equal(isPayScopeRefusal('Scope "pay:onboard" is required [FORBIDDEN]'), true);
   assert.equal(isPayScopeRefusal('starter fee is not configured'), false);
   assert.equal(merchantPaymentId(userId, 1), merchantPaymentId(userId, 1));
   assert.notEqual(merchantPaymentId(userId, 1), merchantPaymentId(userId, 2));
@@ -604,6 +605,15 @@ try {
   assert.match(confirmFn, /auth\.confirmEmail/);
   assert.equal(confirmFn.includes('email_verified_at'), false);
   assert.equal(confirmFn.includes('UPDATE'), false);
+  assert.equal(worldSrc.includes('grant law unpublished'), false);
+  const merchantFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(merchantFn.indexOf('confirmSeededOwnerEmail') < merchantFn.indexOf('resignInForMerchantScopes'));
+  assert.match(merchantFn, /pay:onboard/);
+  const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
+  assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
 
   console.log('local-test-world: all checks passed');
 } finally {
