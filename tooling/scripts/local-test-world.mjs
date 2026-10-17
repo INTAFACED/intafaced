@@ -2565,7 +2565,8 @@ async function runMerchantAction(ctx, action, merchantId) {
       const signed = await resignInForMerchantScopes(user, record, 'sign-in after KYB approval');
       return signed ? {} : { moneyClosed: true };
     }
-    if (!/kyb_operator_required/.test(stub.refusal)) {
+    // A pending owner holds pay:onboard only, so the sandbox stub (pay:write) is closed to it; the founder pair decides.
+    if (!/kyb_operator_required|"pay:write" is required/.test(stub.refusal)) {
       record('merchant', 'KYB decision', 'refused', stub.refusal);
       return {};
     }
