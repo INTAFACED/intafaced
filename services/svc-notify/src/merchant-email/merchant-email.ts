@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { createTranslator } from '@intafaced/i18n';
-import { isChannelMuted, type ChannelMutePrefs, type NotifySeverity } from '../preferences/mute.js';
-import type { NotifyStore } from '../store.js';
+import type { DeliveryReceipt, NotificationChannel, OutboundMessage, RefusalCode } from '../channels/channel.js';
+import type { CreateResult, NotifyService } from '../notify-service.js';
+import type { NotifySeverity } from '../preferences/mute.js';
 
 /**
  * Merchant email for events svc-pay already records. svc-pay publishes no bus
@@ -16,15 +17,17 @@ import type { NotifyStore } from '../store.js';
  *   dispute_due      — merchant notification kind for a response deadline
  *   invited          — pay.merchant_team_events.action
  *
- * Money events are severity critical. Channel mute does not silence critical
- * (preferences/mute.ts). A team invite is action, so an email mute skips it.
- * NOTIFY_TOPICS has no `pay`, so topic mute does not apply (same as
- * pay.request_created).
+ * Delivery is NotifyService.create plus the existing dispatcher. The mailbox
+ * is the user's confirmed email target. A payload that carries `email` is
+ * refused. Kill switches, MuteStore, and the per-channel claim live in the
+ * dispatcher. A closed invite, or one past expiresAt, is refused before create.
  *
- * No provider is named. A blank provider writes one inbox row whose title is
- * "email not set up yet" and whose params.code is notify.email_provider_unset.
- * Nothing is handed to a transport. The TEST file transport runs only when
- * NOTIFY_MERCHANT_EMAIL_TEST=1 and a directory is set.
+ * A blank email gateway is the registry's UnconfiguredChannel. The inbox row
+ * keeps the real notice. params.code is notify.email_provider_unset, and the
+ * read path adds that sentence under the notice. Nothing is handed to a transport.
+ *
+ * The TEST file channel is off unless NOTIFY_MERCHANT_EMAIL_TEST is exactly
+ * "1", a directory is set, and the email gateway URL and token are both blank.
  */
 
 export const MERCHANT_PAY_EVENT_NAMES = ['payment.refunded', 'rail_refused', 'dispute_due', 'invited'] as const;
@@ -46,11 +49,6 @@ const recipientSchema = z
   .regex(/^[A-Za-z0-9_.:-]+$/);
 const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const assetSchema = z.string().regex(/^[A-Z0-9]{2,16}$/);
-const emailSchema = z
-  .string()
-  .trim()
-  .max(320)
-  .regex(/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/);
 const instantSchema = z.string().datetime({ offset: true });
 
 const paymentRefunded = z
@@ -58,7 +56,6 @@ const paymentRefunded = z
     name: z.literal('payment.refunded'),
     eventId: idSchema,
     recipientUserId: recipientSchema,
-    email: emailSchema,
     paymentId: idSchema,
     amount: amountSchema,
     assetId: assetSchema,
@@ -71,7 +68,6 @@ const railRefused = z
     name: z.literal('rail_refused'),
     eventId: idSchema,
     recipientUserId: recipientSchema,
-    email: emailSchema,
     settlementId: idSchema,
     failureCode: z
       .string()
@@ -87,7 +83,6 @@ const disputeDue = z
     name: z.literal('dispute_due'),
     eventId: idSchema,
     recipientUserId: recipientSchema,
-    email: emailSchema,
     disputeId: idSchema,
     responseDueAt: instantSchema,
   })
@@ -98,7 +93,6 @@ const invited = z
     name: z.literal('invited'),
     eventId: idSchema,
     recipientUserId: recipientSchema,
-    email: emailSchema,
     role: z.enum(['admin', 'finance', 'developer', 'viewer']),
     expiresAt: instantSchema.nullable(),
     inviteOpen: z.boolean(),
@@ -138,10 +132,6 @@ export interface RenderedMerchantEmail {
   readonly text: string;
   readonly html: string;
   readonly href: string;
-}
-
-export interface MerchantEmailProvider {
-  send(input: { to: string; subject: string; text: string; html: string; idempotencyKey: string }): Promise<{ reference: string }>;
 }
 
 export function portalPath(event: MerchantPayEvent): string {
@@ -194,54 +184,58 @@ export function renderMerchantEmail(event: MerchantPayEvent): RenderedMerchantEm
   return { subject, text, html, href };
 }
 
-const TEST_FLAG = 'NOTIFY_MERCHANT_EMAIL_TEST';
-const TEST_DIR = 'NOTIFY_MERCHANT_EMAIL_TEST_DIR';
+/**
+ * TEST email file. `channelsFromEnv` selects it only when the flag is "1",
+ * a directory is set, and the email gateway URL and token are both blank.
+ */
+export class TestMerchantEmlChannel implements NotificationChannel {
+  readonly channel = 'email' as const;
+  readonly unavailableReason: RefusalCode | null = null;
 
-/** Blank unless the TEST flag is exactly "1" and a directory is set. Never picks a live provider. */
-export function merchantEmailProviderFromEnv(
-  env: Record<string, string | undefined>,
-  write: (file: string, body: string) => Promise<void> = async (file, body) => {
-    await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, body, { encoding: 'utf8', flag: 'wx' });
-  },
-): MerchantEmailProvider | null {
-  if (env[TEST_FLAG] !== '1') return null;
-  const dir = env[TEST_DIR]?.trim();
-  if (!dir) return null;
-  return {
-    async send(input) {
-      const name = createHash('sha256').update(input.idempotencyKey).digest('hex');
-      const file = join(dir, `${name}.eml`);
-      const boundary = `merch_${name.slice(0, 16)}`;
-      const eml = [
-        `To: ${input.to}`,
-        `Subject: ${input.subject}`,
-        'MIME-Version: 1.0',
-        `Content-Type: multipart/alternative; boundary="${boundary}"`,
-        '',
-        `--${boundary}`,
-        'Content-Type: text/plain; charset=utf-8',
-        '',
-        input.text,
-        `--${boundary}`,
-        'Content-Type: text/html; charset=utf-8',
-        '',
-        input.html,
-        `--${boundary}--`,
-        '',
-      ].join('\r\n');
-      await write(file, eml);
-      return { reference: file };
-    },
-  };
+  constructor(private readonly dir: string) {}
+
+  async deliver(message: OutboundMessage): Promise<DeliveryReceipt> {
+    const name = createHash('sha256').update(message.idempotencyKey).digest('hex');
+    const file = join(this.dir, `${name}.eml`);
+    const boundary = `merch_${name.slice(0, 12)}`;
+    const text = `${message.title}\n\n${message.body}\n\n${message.href ?? ''}\n`;
+    const html = `<p>${escapeHtml(message.title)}</p><p>${escapeHtml(message.body)}</p><p>${escapeHtml(message.href ?? '')}</p>`;
+    const eml = [
+      `To: ${message.address}`,
+      `Subject: ${message.title}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      text,
+      `--${boundary}`,
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      html,
+      `--${boundary}--`,
+      '',
+    ].join('\r\n');
+    await mkdir(this.dir, { recursive: true });
+    await writeFile(file, eml, { encoding: 'utf8', flag: 'wx' });
+    return { reference: file };
+  }
 }
 
 export type MerchantEmailResult =
-  | { readonly status: 'preference_off' }
   | { readonly status: 'expired' }
   | { readonly status: 'duplicate' }
+  | { readonly status: 'preference_off'; readonly notificationId: string }
   | { readonly status: 'recorded'; readonly code: typeof EMAIL_PROVIDER_UNSET; readonly notificationId: string }
-  | { readonly status: 'sent'; readonly notificationId: string; readonly reference: string };
+  | { readonly status: 'sent'; readonly notificationId: string }
+  | { readonly status: 'refused'; readonly code: RefusalCode; readonly notificationId: string | null }
+  | {
+      readonly status: 'failed';
+      readonly code: RefusalCode | null;
+      readonly detail: string | null;
+      readonly notificationId: string | null;
+    };
 
 function idempotencyKey(event: MerchantPayEvent): string {
   return `${event.name}:${event.eventId}:${event.recipientUserId}`;
@@ -255,53 +249,74 @@ function inviteExpired(event: MerchantPayEvent, now: Date): boolean {
   return Number.isFinite(at) && at <= now.getTime();
 }
 
+function emailUnconfigured(notify: NotifyService): boolean {
+  return notify.channelStatus().find((row) => row.channel === 'email')?.reason === 'channel.not_configured';
+}
+
+function fromCreate(created: CreateResult): MerchantEmailResult {
+  const notificationId = created.notification?.id ?? created.dispatch?.notificationId ?? null;
+  const email = created.dispatch?.outcomes.find((row) => row.channel === 'email');
+
+  if (!created.dispatch) {
+    return { status: 'refused', code: 'channel.disabled', notificationId };
+  }
+
+  if (email?.status === 'accepted') {
+    if (!notificationId) {
+      return { status: 'failed', code: null, detail: 'accepted email has no notification id', notificationId: null };
+    }
+    return { status: 'sent', notificationId };
+  }
+
+  // A redelivery that did not accept a new send is the original event again.
+  // A retryable failure still in flight is not that: the caller may be the
+  // recovery pass, or the other side of a race that has not finished.
+  if (!created.inserted) {
+    const stillTrying = email?.status === 'failed' && email.retryable;
+    if (!stillTrying) return { status: 'duplicate' };
+  }
+
+  if (email?.code === 'channel.muted' && notificationId) {
+    return { status: 'preference_off', notificationId };
+  }
+  if (email?.code === 'channel.not_configured' && notificationId) {
+    return { status: 'recorded', code: EMAIL_PROVIDER_UNSET, notificationId };
+  }
+  if (email?.status === 'failed') {
+    return { status: 'failed', code: email.code, detail: email.detail, notificationId };
+  }
+  if (email?.status === 'refused' || email?.status === 'abandoned') {
+    return { status: 'refused', code: email.code ?? 'channel.transport_rejected', notificationId };
+  }
+  if (!email) {
+    return { status: 'refused', code: 'channel.no_target', notificationId };
+  }
+  return { status: 'duplicate' };
+}
+
 export async function deliverMerchantEmail(
   deps: {
-    readonly store: NotifyStore;
-    readonly provider: MerchantEmailProvider | null;
+    readonly notify: NotifyService;
     readonly now?: () => Date;
-    readonly muteFor?: (userId: string) => ChannelMutePrefs;
   },
   raw: unknown,
 ): Promise<MerchantEmailResult> {
   const event = merchantPayEventSchema.parse(raw);
   const spec = COPY[event.name];
   const now = deps.now ?? (() => new Date());
-  const mute = deps.muteFor?.(event.recipientUserId) ?? { muted: new Set() };
-  if (isChannelMuted(mute, 'email', spec.severity)) return { status: 'preference_off' };
   if (inviteExpired(event, now())) return { status: 'expired' };
 
-  const key = idempotencyKey(event);
-  const existing = await deps.store.findBySource(event.recipientUserId, SOURCE_SUBJECT, key);
-  if (existing) return { status: 'duplicate' };
-
-  const rendered = renderMerchantEmail(event);
-  const provider = deps.provider;
-  const receipt = provider
-    ? await provider.send({
-        to: event.email,
-        subject: rendered.subject,
-        text: rendered.text,
-        html: rendered.html,
-        idempotencyKey: key,
-      })
-    : null;
-  const inserted = await deps.store.insert({
+  const unset = emailUnconfigured(deps.notify);
+  const created = await deps.notify.create({
     userId: event.recipientUserId,
     kind: event.name,
-    titleKey: provider ? spec.titleKey : 'notify.merchant.email_provider_unset.title',
-    bodyKey: provider ? spec.bodyKey : 'notify.merchant.email_provider_unset.body',
-    params: {
-      ...copyParams(event),
-      code: provider ? 'sent' : EMAIL_PROVIDER_UNSET,
-      event: event.name,
-    },
-    href: rendered.href,
+    titleKey: spec.titleKey,
+    bodyKey: spec.bodyKey,
+    params: unset ? { ...copyParams(event), code: EMAIL_PROVIDER_UNSET } : copyParams(event),
+    href: portalPath(event),
     severity: spec.severity,
     sourceSubject: SOURCE_SUBJECT,
-    sourceIdempotencyKey: key,
+    sourceIdempotencyKey: idempotencyKey(event),
   });
-  if (!inserted.inserted || !inserted.notification) return { status: 'duplicate' };
-  if (!receipt) return { status: 'recorded', code: EMAIL_PROVIDER_UNSET, notificationId: inserted.notification.id };
-  return { status: 'sent', notificationId: inserted.notification.id, reference: receipt.reference };
+  return fromCreate(created);
 }
