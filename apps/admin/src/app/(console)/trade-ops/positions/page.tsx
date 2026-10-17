@@ -6,7 +6,7 @@ import { PositionsBoard } from '@/components/trade-ops/positions-board';
 export const dynamic = 'force-dynamic';
 
 export default async function PositionsPage() {
-  // No operator read exists yet, so the session is only checked, not used for a call.
+  // No operator read exists, so the session is only checked, not used for a call.
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
   void ctx;

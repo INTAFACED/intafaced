@@ -21,13 +21,13 @@ export function Refusal({ words, onRetry, size = 'panel' }: { words: Words; onRe
   );
 }
 
-/** Freshness of a polled region. `asOf` null means no good answer yet (unknown), `refused` means the service said no. */
+/** Freshness of a polled region. `asOf` null means no good answer (unknown), `refused` means the service said no. */
 export function Freshness({ asOf, refused = false, now }: { asOf: number | null; refused?: boolean; now?: number }) {
   return <StatusChip asOf={asOf} refused={refused} staleAfterMs={STALE_AFTER_MS} now={now} showAsOf={asOf !== null} />;
 }
 
 export function asOfText(asOf: number | null): string {
-  return asOf === null ? 'not read yet' : (formatAsOf(asOf) ?? 'unknown');
+  return asOf === null ? 'not read' : (formatAsOf(asOf) ?? 'unknown');
 }
 
 /**

@@ -23,12 +23,12 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.futures_unconfigured': {
     title: 'Futures profit settlement is not set up',
-    body: 'The platform has not named where futures profit is paid from, so positions cannot open yet.',
+    body: 'The platform has not named where futures profit is paid from, so positions cannot open.',
     retryable: false,
   },
   'trade.profit_source_unconfigured': {
     title: 'Futures profit settlement is not set up',
-    body: 'The platform has not named where futures profit is paid from, so positions cannot open yet.',
+    body: 'The platform has not named where futures profit is paid from, so positions cannot open.',
     retryable: false,
   },
   'trade.profit_source_underfunded': {
@@ -42,7 +42,7 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.portfolio_margin_unset': {
     title: 'Portfolio margin is not offered',
-    body: 'Portfolio margin has no published rules yet, so it is switched off. Futures margin stays isolated.',
+    body: 'Portfolio margin has no published rules, so it is switched off. Futures margin stays isolated.',
     retryable: false,
   },
   'trade.margin_mode_unknown': {
@@ -66,7 +66,7 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.leverage_cap_unset': {
     title: 'This contract has no leverage cap set',
-    body: 'The platform has not published a leverage cap for this contract, so nothing can be opened on it yet.',
+    body: 'The platform has not published a leverage cap for this contract, so nothing can be opened on it.',
     retryable: false,
   },
   'trade.leverage_would_liquidate': {
@@ -184,7 +184,7 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'The review needs a current mark. None is available, so no figure is shown.',
   },
   'trade.position_preview_liquidation_unavailable': {
-    title: 'No liquidation price yet',
+    title: 'No liquidation price',
     body: 'The platform has not set how liquidation is priced for this contract, so the review shows none and opening is not allowed.',
     retryable: false,
   },

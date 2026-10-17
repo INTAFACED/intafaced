@@ -16,7 +16,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   return (
     <DeskPage
       title="Orders"
-      description="Open orders across all accounts. Closed orders cannot be read by operators yet."
+      description="Open orders across all accounts. Closed orders cannot be read by operators."
       asOf={orders.asOf}
       state={orders.kind === 'ok' ? 'live' : orders.kind === 'unknown' ? 'unknown' : 'refused'}
       stateReason={orders.kind === 'ok' ? undefined : orders.kind === 'unknown' ? orders.message : orders.code}
