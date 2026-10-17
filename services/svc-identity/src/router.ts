@@ -72,6 +72,7 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
+import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
 
 /**
@@ -484,6 +485,11 @@ export function createIdentityRouter(
      * replace it later.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
+    /**
+     * Live staff session required before unfreeze. Absent in light router
+     * tests; index.ts wires the session row check. A revoked row refuses.
+     */
+    assertStaffSessionLive?: (sessionId: string, userId: string) => Promise<void>;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -1715,7 +1721,19 @@ export function createIdentityRouter(
       unfreezeIdentity: protectedProcedure
         .input(identityRestoreInputSchema)
         .output(accountControlResultSchema)
-        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
+        .mutation(async ({ ctx, input }) => {
+          if (options.assertStaffSessionLive) {
+            try {
+              await options.assertStaffSessionLive(ctx.principal.sid, ctx.principal.userId);
+            } catch (err) {
+              if (err instanceof TradeIdentityAuthError) {
+                throw new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
+              }
+              throw err;
+            }
+          }
+          return callFounderControl(options.founderControls, ctx, input);
+        }),
     }),
 
     subAccounts: router({

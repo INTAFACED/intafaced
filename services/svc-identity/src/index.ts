@@ -22,6 +22,8 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
+import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
 import { createApiKeyIpRouter } from './api-key-ip-router.js';
 import { createApiKeyOriginRouter } from './api-key-origin-router.js';
 import { createApiKeyAccountRouter } from './api-key-account-router.js';
@@ -317,6 +319,11 @@ const actionApprovals = new ActionApprovalService(
     }),
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
+await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
@@ -337,6 +344,7 @@ export const appRouter = mergeRouters(
     actionApprovals,
     founderControls,
     privilegedUserIds: founderPair ?? [],
+    assertStaffSessionLive: (sessionId, userId) => assertStaffSessionLive(createSqlTradeIdentityStore(sql), sessionId, userId),
   }),
   createApiKeyIpRouter(sql, auth),
   createApiKeyRequestSignRouter(sql, signingEncKey),
@@ -382,6 +390,14 @@ export const appRouter = mergeRouters(
     },
   }),
   createStepUpRouter(customerStepUp),
+  createTradeIdentityAuthRouter(sql, {
+    tokens: {
+      secret: env.JWT_ACCESS_SECRET,
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
+      accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 
