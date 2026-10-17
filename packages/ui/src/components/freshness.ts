@@ -63,6 +63,23 @@ export function freshnessOf({ asOf, now, staleAfterMs, refused }: FreshnessInput
   return 'live';
 }
 
+/**
+ * Milliseconds from `now` until `freshnessOf` would answer differently for the same inputs, or null
+ * when nothing will change on its own (refused, no usable `asOf` or `staleAfterMs`, or already stale).
+ * Live turns stale at `asOf + staleAfterMs + 1`; a time too far in the future turns live when it comes
+ * within the skew tolerance. Pure: no clock read, so a component can schedule exactly one timer.
+ */
+export function msUntilFreshnessChange({ asOf, now, staleAfterMs, refused }: FreshnessInput): number | null {
+  if (refused) return null;
+  const at = parseAsOf(asOf);
+  if (at == null || !Number.isFinite(now)) return null;
+  if (staleAfterMs == null || !Number.isFinite(staleAfterMs) || staleAfterMs < 0) return null;
+  const age = now - at;
+  if (age > staleAfterMs) return null;
+  if (age < -CLOCK_SKEW_TOLERANCE_MS) return Math.ceil(-CLOCK_SKEW_TOLERANCE_MS - age);
+  return Math.ceil(staleAfterMs - age + 1);
+}
+
 export interface FormatAsOfOptions {
   /** IANA zone. Undefined = the viewer's zone; tests and the gallery pass 'UTC'. */
   timeZone?: string;

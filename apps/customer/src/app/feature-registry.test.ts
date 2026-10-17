@@ -20,12 +20,17 @@ describe('feature registry (UI-SPEC 3.4)', () => {
         expect(findRoom(sample), `${feature.id}: ${path}`).toBeDefined();
       }
   });
-  it('hides the dead ends and keeps live ones reachable', () => {
+  it('hides nothing: no row is hidden and every route-bearing row is live or blocked (founder order 2026-10-17)', () => {
+    for (const feature of features) expect(['live', 'blocked'], feature.id).toContain(feature.status);
+    for (const feature of features.filter((row) => row.paths.length > 0)) expect(feature.status === 'hidden', feature.id).toBe(false);
+  });
+  it('keeps the old dead ends and the live rooms reachable, never hidden', () => {
     for (const path of [
       '/uc/recharge',
       '/uc/withdraw',
       '/uc/withdraw/address',
       '/portfolio/BTC/repeat-buy',
+      '/bank',
       '/bank/earn',
       '/trade/margin',
       '/trade/copy',
@@ -40,9 +45,6 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/uc/promotion',
       '/notice/42',
       '/partner',
-    ])
-      expect(isHiddenPath(path), path).toBe(true);
-    for (const path of [
       '/home',
       '/money',
       '/money/activity',
@@ -72,12 +74,19 @@ describe('feature registry (UI-SPEC 3.4)', () => {
     ])
       expect(isHiddenPath(path), path).toBe(false);
   });
-  it('hides simulated markets by their query string', () => {
-    expect(hiddenFeatureFor('/trade', '?simulated=true')?.id).toBe('simulated-markets');
+  it('keeps the old dead ends marked blocked, so /dev/features still names the reason and the unlock', () => {
+    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'business-pay', 'more-rooms'])
+      expect(featureById(id)?.status, id).toBe('blocked');
+    expect(featureById('bank')?.paths).toContain('/bank');
+    expect(findRoom('/bank')?.alias, '/bank is its own page, not an alias of /money').toBeUndefined();
+  });
+  it('does not hide simulated markets by their query string either', () => {
+    expect(featureById('simulated-markets')?.status).toBe('blocked');
+    expect(hiddenFeatureFor('/trade', '?simulated=true')).toBeUndefined();
     expect(hiddenFeatureFor('/trade', '?simulated=false')).toBeUndefined();
     expect(hiddenFeatureFor('/trade', '')).toBeUndefined();
   });
-  it('sends a hidden path to its tab home, and none of those homes is hidden', () => {
+  it('names the landing page of each tab, and none of those homes is hidden', () => {
     expect(tabHome(featureById('deposit')!)).toBe('/money');
     expect(tabHome(featureById('margin-futures-options')!)).toBe('/trade');
     expect(tabHome(featureById('p2p')!)).toBe('/pay');
@@ -115,7 +124,7 @@ describe('path matching', () => {
   });
 });
 
-describe('top-bar menus list only live features', () => {
+describe('top-bar menus link rooms that open', () => {
   const titles = (door: string, mode: 'simple' | 'pro' = 'simple') =>
     tabSpecs(mode)
       .find((tab) => tab.door === door)!
@@ -125,15 +134,21 @@ describe('top-bar menus list only live features', () => {
     expect(titles('Money')).toEqual(['Portfolio', 'Activity']);
     // Buy and Convert are live with their M2 screens (B8, Opus money review PASS 2026-10-14).
     expect(titles('Trade')).toEqual(['Markets', 'Spot', 'Buy and sell', 'Convert']);
-    expect(titles('Pay')).toEqual(['Send', 'Receive']);
-    expect(titles('More')).toEqual(['Help', 'Settings']);
+    expect(titles('Pay')).toEqual(['Send', 'Receive', 'Merchant']);
+    expect(titles('More')).toEqual(['Academy', 'All rooms', 'Help', 'Settings']);
   });
-  it('links no hidden path and uses only plain words', () => {
+  it('links the Merchant home from Pay and Academy from More, and uses only plain words', () => {
     const { t } = shellCopy.forLocale('en');
+    expect(
+      tabSpecs('simple')
+        .find((tab) => tab.door === 'Pay')!
+        .items.map((item) => item.href),
+    ).toContain('/pay/merchant');
     for (const tab of tabSpecs('simple'))
       for (const item of tab.items) {
         expect(isHiddenPath(item.href.split('?')[0] ?? ''), item.href).toBe(false);
-        expect(`${t(item.title)} ${t(item.description)}`).not.toMatch(
+        // The "All rooms" row is named by the founder order (2026-10-17), so its title is the one place the word may appear.
+        expect(`${t(item.title).replace('All rooms', '')} ${t(item.description)}`).not.toMatch(
           /unavailable|not connected|restricted|fixture|lifecycle|room|door|ledger/i,
         );
       }
@@ -145,7 +160,7 @@ describe('top-bar menus list only live features', () => {
     for (const path of ['/help']) expect(findRoom(path)?.area).toBe('public');
     const signedIn = tabSpecs('simple', true).find((tab) => tab.door === 'More')!;
     expect(signedIn.href).toBe('/more');
-    expect(signedIn.items.map((item) => item.href)).toEqual(['/support', '/view']);
+    expect(signedIn.items.map((item) => item.href)).toEqual(['/academy', '/more', '/support', '/view']);
   });
   it('points the Trade tab at the markets list in Simple and the desk in Pro', () => {
     expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');

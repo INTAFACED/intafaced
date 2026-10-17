@@ -70,6 +70,47 @@ export type ChannelRow = z.infer<typeof channelsSchema>[number];
 export type MutePref = z.infer<typeof prefsSchema>[number];
 export type TargetRow = z.infer<typeof targetsSchema>[number];
 
+export const registerResultSchema = z
+  .object({ status: z.enum(['sent', 'refused', 'failed']), channel: outOfApp, code: z.string().min(1).nullable(), expiresAt: z.string() })
+  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
+export const verifyResultSchema = z
+  .object({ verified: z.boolean(), code: z.string().min(1).nullable() })
+  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
+export type RegisterResult = z.infer<typeof registerResultSchema>;
+export type VerifyResult = z.infer<typeof verifyResultSchema>;
+
+/** Save an address for a channel and ask the service to send it a six-digit code. A new request replaces the earlier code. */
+export function registerTarget(
+  api: ApiClient,
+  channel: 'email' | 'sms',
+  address: string,
+  locale: string,
+): Promise<ApiResult<RegisterResult>> {
+  return api.mutate(
+    'notify',
+    'notify.registerTarget',
+    { channel, address, locale },
+    registerResultSchema.refine((row) => row.channel === channel, 'Wrong registration channel'),
+  );
+}
+export const verifyTarget = (api: ApiClient, channel: OutOfAppChannel, code: string): Promise<ApiResult<VerifyResult>> =>
+  api.mutate('notify', 'notify.verifyTarget', { channel, code }, verifyResultSchema);
+export const removeTarget = (api: ApiClient, channel: OutOfAppChannel): Promise<ApiResult<{ removed: boolean }>> =>
+  api.mutate('notify', 'notify.removeTarget', { channel }, z.object({ removed: z.boolean() }));
+
+const deliverySchema = z.object({
+  channel: z.enum(['inapp', 'email', 'push', 'sms']),
+  status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
+  attempts: z.number().int().nonnegative(),
+  attemptedAt: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+export type Delivery = z.infer<typeof deliverySchema>;
+/** What happened to one of the signed-in person's notifications on each channel. An id that is not theirs returns an empty list. */
+export const deliveries = (api: ApiClient, notificationId: string, signal?: AbortSignal): Promise<ApiResult<Delivery[]>> =>
+  api.query('notify', 'notify.deliveries', { notificationId }, z.array(deliverySchema).max(8), { signal });
+
 export const channelStatus = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.channels', undefined, channelsSchema, { signal });
 export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>

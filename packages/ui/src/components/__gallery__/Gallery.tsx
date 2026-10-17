@@ -162,10 +162,10 @@ export function Gallery() {
     <TooltipProvider>
       <ToastProvider>
         <div className="if-app min-h-screen" data-up-color={redUp ? 'red' : undefined} id="gallery">
-          {/* Top bar mock: UI-SPEC 3.1 */}
-          <header className="sticky top-0 z-40 flex h-12 items-center gap-8 border-b border-line bg-bg px-6">
+          {/* Top bar mock: UI-SPEC 3.1. Desktop only: there is no phone navigation yet, so below md the mock shows just the name and the account menu rather than overflowing. */}
+          <header className="sticky top-0 z-40 flex h-12 items-center gap-8 border-b border-line bg-bg px-4 md:px-6">
             <span className="text-md font-bold">intafaced</span>
-            <NavigationMenu>
+            <NavigationMenu className="hidden md:flex">
               <NavigationMenuList>
                 <NavigationMenuItem>
                   <NavigationMenuLink
@@ -234,33 +234,37 @@ export function Gallery() {
               </NavigationMenuList>
             </NavigationMenu>
             <div className="ml-auto flex items-center gap-3">
-              <Autocomplete items={searchItems}>
-                <AutocompleteInput placeholder="Search markets" hint="⌘K" aria-label="Search markets" />
-                <AutocompleteContent>
-                  <AutocompleteEmpty>No results</AutocompleteEmpty>
-                  <AutocompleteList>
-                    {(group: { value: string; items: string[] }) => (
-                      <AutocompleteGroup key={group.value} items={group.items}>
-                        <AutocompleteGroupLabel>{group.value}</AutocompleteGroupLabel>
-                        {group.items.map((item) => (
-                          <AutocompleteItem key={item} value={item}>
-                            {item}
-                          </AutocompleteItem>
-                        ))}
-                      </AutocompleteGroup>
-                    )}
-                  </AutocompleteList>
-                </AutocompleteContent>
-              </Autocomplete>
-              <SegmentedControl
-                aria-label="Layout mode"
-                value={mode}
-                onValueChange={setMode}
-                items={[
-                  { value: 'simple', label: 'Simple' },
-                  { value: 'pro', label: 'Pro' },
-                ]}
-              />
+              <div className="hidden md:block">
+                <Autocomplete items={searchItems}>
+                  <AutocompleteInput placeholder="Search markets" hint="⌘K" aria-label="Search markets" />
+                  <AutocompleteContent>
+                    <AutocompleteEmpty>No results</AutocompleteEmpty>
+                    <AutocompleteList>
+                      {(group: { value: string; items: string[] }) => (
+                        <AutocompleteGroup key={group.value} items={group.items}>
+                          <AutocompleteGroupLabel>{group.value}</AutocompleteGroupLabel>
+                          {group.items.map((item) => (
+                            <AutocompleteItem key={item} value={item}>
+                              {item}
+                            </AutocompleteItem>
+                          ))}
+                        </AutocompleteGroup>
+                      )}
+                    </AutocompleteList>
+                  </AutocompleteContent>
+                </Autocomplete>
+              </div>
+              <div className="hidden md:block">
+                <SegmentedControl
+                  aria-label="Layout mode"
+                  value={mode}
+                  onValueChange={setMode}
+                  items={[
+                    { value: 'simple', label: 'Simple' },
+                    { value: 'pro', label: 'Pro' },
+                  ]}
+                />
+              </div>
               <Menu>
                 <MenuTrigger render={<Button variant="secondary" size={32} />}>Account</MenuTrigger>
                 <MenuContent>
@@ -507,7 +511,7 @@ export function Gallery() {
             </Section>
 
             <Section title="Standard states (UI-SPEC 4.3)">
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg bg-panel p-4">
                   <StateBlock kind="loading" rows={3} rowHeight={40} label="Loading" className="[&>[data-slot=skeleton]]:bg-field" />
                 </div>
@@ -601,7 +605,7 @@ export function Gallery() {
                 </label>
                 <Switch defaultChecked aria-label="Demo switch" />
               </Row>
-              <div className="mt-6 grid grid-cols-2 gap-8">
+              <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2">
                 <Collapsible className="rounded-lg bg-panel">
                   <CollapsibleTrigger className="flex h-14 w-full items-center justify-between px-4 text-md font-medium">
                     Small balances

@@ -25,9 +25,11 @@ const markets: Market[] = [
   { id: 'm6', pair: 'FFF/USDT', price: '1.000000000000000002', change: '−1.90%', volume: '7320.4' },
 ];
 
+// Wide enough for every digit of the 18-decimal TEST prices; a phone scrolls sideways instead of cutting digits.
+const MARKETS_MIN_WIDTH = 760;
 const marketColumns: TableColumn<Market>[] = [
   { id: 'pair', header: 'Market', value: (r) => r.pair, sortable: true, pin: 'start', width: 180 },
-  { id: 'price', header: 'Last price', value: (r) => r.price, numeric: true, sortable: true },
+  { id: 'price', header: 'Last price', value: (r) => r.price, numeric: true, sortable: true, width: 230 },
   {
     id: 'change',
     header: '24h change',
@@ -35,7 +37,7 @@ const marketColumns: TableColumn<Market>[] = [
     numeric: true,
     cell: (r) => (r.change === null ? null : <Pct value={r.change} />),
   },
-  { id: 'volume', header: 'Volume', value: (r) => r.volume, numeric: true, sortable: true },
+  { id: 'volume', header: 'Volume', value: (r) => r.volume, numeric: true, sortable: true, width: 200 },
 ];
 
 interface Order {
@@ -60,6 +62,10 @@ const orderColumns: TableColumn<Order>[] = [
   { id: 'size', header: 'Size', value: (r) => r.size, numeric: true, sortable: true },
   { id: 'status', header: 'Status', cell: (r) => <StatusTag status={r.status} />, width: 120 },
 ];
+
+// The main orders table gets real widths and a minimum width, so the 18-decimal size is never cut and a phone scrolls sideways.
+const ORDERS_MIN_WIDTH = 560;
+const wideOrderColumns = orderColumns.map((c) => (c.id === 'pair' ? { ...c, width: 130 } : c.id === 'size' ? { ...c, width: 190 } : c));
 
 interface Big {
   id: string;
@@ -96,9 +102,13 @@ export function TableSection() {
         Unknown values show a dash and always sort last.
       </p>
 
-      <Caption>Comfortable, sortable, pinned first column, single selection (click or Space on a row)</Caption>
+      <Caption>
+        Comfortable, sortable, pinned first column (stays put when the table scrolls sideways on a narrow screen), single selection (click
+        or Space on a row)
+      </Caption>
       <Table<Market>
         label="Markets, comfortable"
+        minWidth={MARKETS_MIN_WIDTH}
         columns={marketColumns}
         rows={sorted}
         getRowId={(r) => r.id}
@@ -113,7 +123,8 @@ export function TableSection() {
       <Table<Order>
         label="Open orders, dense"
         density="dense"
-        columns={orderColumns}
+        minWidth={ORDERS_MIN_WIDTH}
+        columns={wideOrderColumns}
         rows={orders}
         getRowId={(r) => r.id}
         selection="multiple"
@@ -122,7 +133,7 @@ export function TableSection() {
         onRowActivate={(r) => setOpened(r.id)}
       />
 
-      <div className="mt-6 grid grid-cols-3 gap-6">
+      <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
         <div>
           <Caption>Loading</Caption>
           <Table<Order>

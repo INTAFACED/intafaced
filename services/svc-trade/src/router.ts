@@ -162,7 +162,7 @@ const orderOutput = z.object({
   qty: decimal,
   filled: decimal,
   remaining: decimal,
-  status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired', 'recovery_required']),
+  status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired', 'recovery_required', 'hold_unknown']),
   timeInForce: timeInForceSchema,
   /** What is locked in the ledger for this order — the asset and the amount posted. */
   holdAsset: z.string(),

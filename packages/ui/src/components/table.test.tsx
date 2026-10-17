@@ -174,6 +174,14 @@ describe('Table virtualisation', () => {
     expect(out).toContain('max-height:300px');
   });
 
+  it('minWidth sets the table min-width and makes the sideways scroller a focusable region', () => {
+    const out = html({ minWidth: 640 });
+    expect(out).toContain('style="min-width:640px"');
+    expect(out).toContain('role="region"');
+    expect(out).toContain('tabindex="0"');
+    expect(html()).not.toContain('min-width');
+  });
+
   it('dense rows fit more rows in the same height', () => {
     const count = (density: 'dense' | 'comfortable') =>
       html({ rows: many, virtualize: true, maxHeight: 300, density }).match(/data-slot="table-row"/g)!.length;
