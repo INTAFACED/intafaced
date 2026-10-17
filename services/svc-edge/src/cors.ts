@@ -38,21 +38,14 @@ import { userCopy } from './user-copy.js';
  * one we were told about; there is no code path that emits `*`. See the
  * credentials note below for why `*` is not merely lazy here but wrong.
  *
- * **No `Access-Control-Allow-Credentials`, deliberately.** Our front-ends carry
- * no ambient credential to send. `apps/web/src/lib/providers.tsx` holds the
- * access token in memory — explicitly not `localStorage`, explicitly not a
- * cookie — and `edge-client.ts` attaches it as an `Authorization` header, which
- * a browser sends because the script asked it to and not because the origin
- * matched. There is no `credentials: 'include'` anywhere in `apps/`. Announcing
- * credentials support would be describing a mechanism we do not use, and it
- * would tie our hands: a response carrying `Allow-Credentials: true` may never
- * carry `Allow-Origin: *`, so the two mistakes reinforce each other. We make
- * neither.
- *
- * The day the §13 refresh-token socket lands — `providers.tsx` names it: a
- * refresh token in an httpOnly cookie set by a route handler — this decision has
- * to be re-taken HERE, by someone reading this paragraph, and not inherited by
- * accident. A cookie would make every request in this file credentialed.
+ * **`Access-Control-Allow-Credentials: true` only for an exact allowlisted origin.**
+ * The refresh token now rides in an httpOnly cookie. A cross-origin customer
+ * page on the allowlist must be allowed to send it (`credentials: 'include'`).
+ * The header is never paired with `Access-Control-Allow-Origin: *` — this file
+ * still has no path that emits `*`. A request with no `Origin` (the customer
+ * app behind nginx, curl, server-to-server) gets no CORS headers and no
+ * credentials announcement; the cookie is first-party there and does not need
+ * this header. A disallowed origin gets neither header.
  *
  * **`OPTIONS` is terminated at the edge and never proxied.** Not "handled before
  * the proxy" — never proxied, on any path, from any origin. A preflight is
@@ -440,6 +433,7 @@ export function registerCors(app: FastifyInstance, allowlist: OriginAllowlist): 
       return reply
         .code(204)
         .header('access-control-allow-origin', origin)
+        .header('access-control-allow-credentials', 'true')
         .header('access-control-allow-methods', ALLOWED_METHODS)
         .header('access-control-allow-headers', ALLOWED_REQUEST_HEADERS)
         .header('access-control-max-age', String(PREFLIGHT_MAX_AGE_SECONDS))
@@ -465,9 +459,9 @@ export function registerCors(app: FastifyInstance, allowlist: OriginAllowlist): 
      */
     if (!allowed.has(origin)) return;
 
-    // The exact origin we were configured with — echoed, never `*`, and never
-    // alongside `Access-Control-Allow-Credentials`, which this file does not emit
-    // anywhere. See the header for why both halves of that sentence are load-bearing.
+    // The exact origin we were configured with — echoed, never `*`. Credentials
+    // are announced only beside that exact origin. See the header.
     reply.header('access-control-allow-origin', origin);
+    reply.header('access-control-allow-credentials', 'true');
   });
 }

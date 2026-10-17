@@ -600,7 +600,8 @@ if (!available) {
       const session = await register();
       const refreshed = await auth.refresh(session.refreshToken);
 
-      // The stolen copy is presented after the legitimate holder already rotated.
+      // Outside the short two-tab grace window the stolen copy still burns every session.
+      await db.sql`UPDATE sessions SET rotated_at = now() - interval '2 minutes' WHERE id = ${session.sessionId}`;
       await expect(auth.refresh(session.refreshToken)).rejects.toMatchObject({ code: 'auth.session_reused' });
 
       // Everything burns, including the token the thief did not have.

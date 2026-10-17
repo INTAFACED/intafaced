@@ -232,6 +232,10 @@ const ALLOWLIST = [
     reason:
       'internal swarm FREEZE/report board; must list real shell paths so agents can claim work without paraphrasing territory. Not user-facing product copy. Remove once the vendor directory is renamed.',
   },
+  {
+    path: join('docs', 'archive'),
+    reason: 'historical documents fenced off from current instructions. Not shipped to users; old audits may still quote vendor paths.',
+  },
   // REMOVED 2026-08-05, both on the terms their own reasons set:
   //
   //   `tooling/scripts/swarm.mjs`      — existed because that file assembled the
@@ -318,11 +322,6 @@ const ALLOWLIST = [
   },
   { path: 'CLAUDE.md', reason: 'internal agent instructions' },
   { path: '.claude', reason: 'internal tooling config' },
-  {
-    path: join('tooling', 'ci', 'agent-autoload-scan.mjs'),
-    reason:
-      'internal CI guard that must name auto-load entry files including CLAUDE.md (itself allowlisted). Not user-facing product copy.',
-  },
   {
     path: join('docs', 'COORDINATION-TRUTH-LAYERS.md'),
     reason: 'internal multi-dev agent law; must name AGENTS.md/CLAUDE.md auto-load paths. Not shipped to users.',
@@ -450,6 +449,9 @@ function selfTest() {
   assert(isInternalPastePath('services/svc-pay/src/x.ts') === false, 'services not paste');
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
+  assert(isAllowlisted('docs/archive/README.md') === true, 'archive readme allowed');
+  assert(isAllowlisted('docs/archive/ops/old.md') === true, 'archive child allowed');
+  assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
   // The retired Vue customer site is walked only for the six files apps/invitation bundles.
