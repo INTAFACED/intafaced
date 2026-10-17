@@ -20,7 +20,7 @@ type Done = { kind: 'confirmed' | 'declined' | 'mismatch' | 'unverifiable' | 'co
 
 /**
  * Step 2 of two founders, on the SECOND founder's screen. They paste the request the first founder copied and
- * read it in words. Because the service has no read for a pending change yet, what they read here is the
+ * read it in words. Because the service has no read for a pending change, what they read here is the
  * pasted text, not a record from the service: the panel says so, and after a confirm it compares what the
  * service now holds with what was shown. The service itself refuses the founder who submitted.
  */
@@ -168,7 +168,7 @@ export function ConfirmChangeView({
       {parsed && !wrongMerchant ? (
         <div className="mp-review">
           <StateBlock kind="info" title="You are reading the pasted text, not a record from the service">
-            The service cannot show you a pending change yet. Confirm only if this matches what the other founder told you they are
+            The service has no read that shows a pending change. Confirm only if this matches what the other founder told you they are
             changing. After you confirm, this page checks what the service now holds against what you were shown, and says so loudly if they
             differ.
           </StateBlock>

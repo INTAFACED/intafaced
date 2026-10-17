@@ -290,13 +290,13 @@ export function RegistryForm({ kind, mode, initial, expectedVersion, lockedKeys 
               label="Mode"
               required
               error={errors.mode}
-              hint="Disabled is never used. Testnet moves no real money. Live is not allowed yet."
+              hint="Disabled is never used. Testnet moves no real money. Live is not allowed."
               k="mode"
             >
               <select className="mp-input" {...fieldProps('mode')} value={values.mode} onChange={(e) => set('mode', e.target.value)}>
                 <option value="disabled">Disabled</option>
                 <option value="testnet">Testnet</option>
-                <option value="live">Live (not allowed yet)</option>
+                <option value="live">Live (not allowed)</option>
               </select>
             </Field>
             <Field label="Priority" required error={errors.priority} hint="Lower numbers are tried first." k="priority">

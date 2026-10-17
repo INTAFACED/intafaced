@@ -234,7 +234,7 @@ export function statusChip(value: string): ChipSpec {
     STATUS[value] ?? {
       label: value.replace(/_/g, ' '),
       tone: 'neutral',
-      hint: `This service reported "${value}", which this console has no description for yet.`,
+      hint: `This service reported "${value}", which this console has no description for.`,
     }
   );
 }

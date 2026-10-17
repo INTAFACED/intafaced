@@ -11,6 +11,8 @@ import { CopyButton } from './copy-button';
 import { NotesPanel } from '@/components/founder-ops/notes-panel';
 import type { NotePage } from '@/lib/founder-ops/notes';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
+import { feeLines, FEE_ACCOUNT_RATE, FEE_NOT_CONFIGURED } from '@/lib/merchants/fee-story';
+import { Chip } from '@/components/chip';
 import { AutoTripCard, haltAppliesToMerchant, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Amounts, Card, FailureState, KpiTile, PageHead, shortId, StateBlock, UNNAMED_MERCHANT } from './ui';
 
@@ -93,6 +95,7 @@ export function MerchantDetailView({
   query = {},
   currentUserId,
   now = new Date(),
+  testData = false,
 }: {
   merchantId: string;
   data: MerchantDetailData;
@@ -107,6 +110,8 @@ export function MerchantDetailView({
   /** The signed-in founder, so rows they took part in say they cannot sign them. */
   currentUserId?: string | undefined;
   now?: Date;
+  /** True outside production. The fee shown is then a test value, whatever the rule says. */
+  testData?: boolean;
 }) {
   const href = (next: Partial<{ tab: DetailTab; window: MetricPreset; asset: string }>) => {
     const q = new URLSearchParams();
@@ -180,7 +185,9 @@ export function MerchantDetailView({
           </a>
         ))}
       </nav>
-      {tab === 'overview' ? <Overview data={data} asset={asset} today={today} here={here} assetHref={(a) => href({ asset: a })} /> : null}
+      {tab === 'overview' ? (
+        <Overview data={data} asset={asset} today={today} here={here} testData={testData} assetHref={(a) => href({ asset: a })} />
+      ) : null}
       {tab === 'payments' ? <Payments metrics={data.metrics} here={here} /> : null}
       {tab === 'settlements' ? <Settlements metrics={data.metrics} here={here} /> : null}
       {tab === 'notes' ? (
@@ -236,13 +243,59 @@ function UnreadableLimitAsks({ drilldown }: { drilldown: MerchantDetailData['dri
   );
 }
 
+/**
+ * The pricing rule in force, in percent. It is not the fee taken: that is the rate on the merchant's account (read by the
+ * portal, not by this console), and the rule only writes the snapshot kept with each payment.
+ */
+function FeeCard({ data, here, testData }: { data: MerchantDetailData; here: string; testData: boolean }) {
+  const { drilldown } = data;
+  return (
+    <Card
+      id="fee"
+      title="Pricing rule"
+      sub="The rule in force for this merchant, as a percent. Steps follow the merchant’s monthly volume."
+    >
+      {drilldown.kind !== 'ok' ? (
+        <FailureState failure={drilldown} what="The pricing rule" retryHref={here} />
+      ) : (
+        (() => {
+          const lines = feeLines(drilldown.data.control.pricing);
+          return (
+            <>
+              {lines.length === 0 ? (
+                <p className="mp-warn">{FEE_NOT_CONFIGURED}</p>
+              ) : (
+                <ul data-testid="fee-lines">
+                  {lines.map((line) => (
+                    <li key={line.assetCode}>
+                      <strong className="mp-num">{line.percent}</strong> on {line.assetCode} payments, from {line.layerWords}.{' '}
+                      {testData ? (
+                        <Chip tone="info" title="A test value in a non-production environment. It is not INTAFACED pricing.">
+                          TEST
+                        </Chip>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mp-muted">{FEE_ACCOUNT_RATE}</p>
+            </>
+          );
+        })()
+      )}
+    </Card>
+  );
+}
+
 function Overview({
   data,
   asset,
   today,
   here,
   assetHref,
+  testData = false,
 }: {
+  testData?: boolean;
   data: MerchantDetailData;
   asset?: string | undefined;
   today: string;
@@ -274,6 +327,8 @@ function Overview({
           </div>
         )}
       </MetricsGate>
+
+      <FeeCard data={data} here={here} testData={testData} />
 
       <Card
         id="series"
