@@ -1417,7 +1417,7 @@ async function populateP2pStep(ctx) {
   record(
     'p2p',
     'payment details for the TEST method',
-    instrument.ok ? 'created' : /already|exists|conflict/i.test(instrument.refusal) ? 'exists' : 'refused',
+    instrument.ok ? 'created' : /already have an active/.test(instrument.refusal) ? 'exists' : 'refused',
     instrument.ok ? `instrument ${instrument.data.id ?? instrument.data.instrumentId}` : instrument.refusal,
   );
   const offer = await call(user, 'm', 'p2p', 'offers.create', {
@@ -1508,7 +1508,7 @@ async function populateTradeStep(ctx) {
     clientOrderId,
   });
   // The id is fixed so a rerun never adds a second resting order; the venue answers a reused id at a new price
-  // with client_order_id_conflict, which means an earlier populate order is already there.
+  // with client_order_id_conflict, meaning an earlier populate order used it (it may since be cancelled or filled).
   const already = !out.ok && /client_order_id_conflict/.test(out.refusal);
   record(
     'trade',
