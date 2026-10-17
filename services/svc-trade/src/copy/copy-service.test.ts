@@ -80,10 +80,18 @@ describe('CopyService', () => {
     const s = svc.deskStatus();
     expect(s.feeSharePublished).toBe(false);
     expect(s.jurisdictionPublished).toBe(false);
-    expect(s.residual).toContain('leader fee share');
-    expect(s.residual).toContain('served regions');
-    expect(s.residuals.rates).toContain('leader fee share');
-    expect(s.residuals.jurisdiction).toContain('served regions');
+    expect(s.blockers.map((b) => b.code)).toEqual([
+      'trade.copy_fee_share_blank',
+      'trade.copy_jurisdiction_blank',
+      'trade.copy_place_disabled',
+    ]);
+    expect(s).not.toHaveProperty('residual');
+    expect(s).not.toHaveProperty('residuals');
+    expect(s).not.toHaveProperty('statusLine');
+    expect(svc.opsStatus().residual).toContain('leader fee share');
+    expect(svc.opsStatus().residual).toContain('served regions');
+    expect(svc.opsStatus().residuals.rates).toContain('leader fee share');
+    expect(svc.opsStatus().residuals.jurisdiction).toContain('served regions');
     expect(s.sovereign).toEqual({
       shape: 'sovereign',
       custody: false,

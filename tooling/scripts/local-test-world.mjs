@@ -1193,9 +1193,21 @@ export function planMerchantPayoutRequest({ settlements, approvals }) {
   return { target, existing };
 }
 
-/** The pay.fraud_open_dispute approval fields. Key order is part of the hash (`payActionPayloadHash`). */
-export function openDisputeApprovalFields({ disputeId, paymentId, merchantId, amount, assetId }) {
-  return { disputeId, paymentId, merchantId, amount, assetId };
+/**
+ * The pay.fraud_open_dispute approval fields, as svc-pay's fraudOpenDisputeFields (approval-bindings.ts) binds them since
+ * #5010: the reason (trimmed) and whether the payment is marked disputed are part of what both people approve. Key order
+ * is part of the hash (`payActionPayloadHash`).
+ */
+export function openDisputeApprovalFields({ disputeId, paymentId, merchantId, amount, assetId, reasonCode, markPaymentDisputed }) {
+  return {
+    disputeId,
+    paymentId,
+    merchantId,
+    amount,
+    assetId,
+    reasonCode: typeof reasonCode === 'string' ? reasonCode.trim() : '',
+    markPaymentDisputed: markPaymentDisputed === true ? 'true' : 'false',
+  };
 }
 
 export function openDisputeHashedBody(input) {
@@ -1239,13 +1251,8 @@ export function planMerchantDispute({ userId, merchantId, payments, existing }) 
   return {
     kind: 'open',
     disputeId,
-    fields: openDisputeApprovalFields({
-      disputeId,
-      paymentId,
-      merchantId,
-      amount: payment.capturedAmount,
-      assetId: MERCHANT_SETTLEMENT_ASSET,
-    }),
+    // The dispute's own fields; the reason and the disputed flag are added where they are both hashed and sent.
+    fields: { disputeId, paymentId, merchantId, amount: payment.capturedAmount, assetId: MERCHANT_SETTLEMENT_ASSET },
   };
 }
 
@@ -2571,7 +2578,9 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
     return { ok: false, refusal: `dispute not opened: the approver session could not be used (${oneLine(err.message)})` };
   }
 
-  const payloadHash = openDisputePayloadHash(fields);
+  // One object is both hashed and sent, so the approved fields and the request can never differ.
+  const bound = { ...fields, reasonCode, markPaymentDisputed: true };
+  const payloadHash = openDisputePayloadHash(bound);
   let open = [];
   try {
     open = psql(gctx.secrets, 'svc_identity', openDisputeApprovalSql(payloadHash)).map(
@@ -2624,7 +2633,7 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
   const opened = await gctx.edge.mutate(
     'pay',
     'fraud.openDispute',
-    { ...fields, reasonCode, markPaymentDisputed: true, approvalId: approval.approvalId, operationId: approval.operationId },
+    { ...bound, approvalId: approval.approvalId, operationId: approval.operationId },
     treasury,
   );
   const data = trpcData(opened);

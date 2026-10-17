@@ -191,7 +191,7 @@ export class Exchange {
       delayPlace: 0, // ms the order's answer is held back
       previewError: false,
       fail: {}, // { orderbook: 500, ohlcv: 500, ... } answers that read with a server error
-      hideOrders: false, // the order lists come back empty (an order the service took is not found yet)
+      hideOrders: false, // the order lists come back empty (an order the service took is not found)
     };
   }
 

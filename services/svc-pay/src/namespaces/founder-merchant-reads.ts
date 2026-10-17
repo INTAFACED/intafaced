@@ -26,7 +26,8 @@ import { TeamService } from '../merchant-ops/team.js';
 import { WebhookOps } from '../merchant-ops/webhooks.js';
 import { merchantNotFound } from '../metrics/errors.js';
 import { resolveWindow } from '../metrics/window.js';
-import type { PayService } from '../payment-service.js';
+import { PayError, type PayService } from '../payment-service.js';
+import { merchantFeeView, MerchantStoredFeeError, type MerchantStarterFee } from '../starter-fee.js';
 import type { StoredPricingSnapshot } from '../control/snapshots.js';
 import { SubscriptionService } from '../subscriptions/subscription-service.js';
 
@@ -93,9 +94,16 @@ function amountText(value: string | null): string | null {
   return formatAmount(parseAmount(value));
 }
 
-export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; disputes?: DisputeCaseStore }) {
+export function createFounderMerchantReads(deps: {
+  sql: Sql;
+  pay?: PayService;
+  disputes?: DisputeCaseStore;
+  /** Published local-test starter fee. Omitted or null means it is not set. */
+  starterFee?: MerchantStarterFee | null;
+}) {
   const sql = deps.sql;
   const pay = deps.pay;
+  const starterFee = deps.starterFee ?? null;
   const callerFor = founderReadCaller;
   const disputes = new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore);
   const payouts = new PayoutList(sql);
@@ -439,8 +447,16 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
         }
         case 'profile': {
           const [names, current, history] = await Promise.all([
-            sql<Array<{ display_name: string | null; legal_name: string | null; status: 'pending' | 'active' | 'suspended' | 'closed' }>>`
-              SELECT display_name, legal_name, status::text AS status FROM pay.merchants WHERE id = ${input.merchantId}::uuid`,
+            sql<
+              Array<{
+                display_name: string | null;
+                legal_name: string | null;
+                status: 'pending' | 'active' | 'suspended' | 'closed';
+                pricing: unknown;
+              }>
+            >`
+              SELECT display_name, legal_name, status::text AS status, pricing
+                FROM pay.merchants WHERE id = ${input.merchantId}::uuid`,
             kyb.current(caller),
             kyb.history(caller, { limit, cursor }),
           ]);
@@ -455,6 +471,15 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
           ) {
             throw badStatus();
           }
+          let fee: ReturnType<typeof merchantFeeView>;
+          try {
+            fee = merchantFeeView(row.pricing, starterFee);
+          } catch (err) {
+            if (err instanceof MerchantStoredFeeError) {
+              throw new PayError(`Merchant ${input.merchantId} has malformed pricing`, 'pay.merchant_pricing_invalid');
+            }
+            throw err;
+          }
           return {
             section: 'profile',
             current: {
@@ -465,6 +490,8 @@ export function createFounderMerchantReads(deps: { sql: Sql; pay?: PayService; d
               mode: current.mode,
               kybStatus: current.kybStatus,
               kybRef: current.kybRef,
+              feeBps: fee.feeBps,
+              starterFee: fee.starterFee,
             },
             items: history.items.map((item) => ({
               seq: item.seq,

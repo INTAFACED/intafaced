@@ -459,7 +459,7 @@ test('past 50 rows only the visible rows are drawn, and scrolling reaches the la
   await expect(page.locator('[role="row"][data-symbol]').last()).toBeVisible();
   const last = await page.locator('[role="row"][data-symbol]').evaluateAll((nodes) => nodes.at(-1).dataset.symbol);
   expect(await rowSymbols(page)).toContain(last);
-  // Keyboard: End on a focused link reaches the true last row even though it is not drawn yet.
+  // Keyboard: End on a focused link reaches the true last row even though it is not drawn.
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.locator('[role="row"][data-symbol] [data-row-link]').first().focus();
   await page.keyboard.press('End');
@@ -487,7 +487,7 @@ test('responsive: no horizontal page scroll at 1280x800 and below', async ({ pag
     );
     expect(overflow, `${size.width}px, too wide: ${wide.join(' | ')}`).toBeLessThanOrEqual(0);
     if (size.width === 390) {
-      // Phone is not designed yet; it must not break: name, price and change stay, and the row is still a link.
+      // Phone is not designed; it must not break: name, price and change stay, and the row is still a link.
       await expect(page.locator('[data-symbol="BTC/USDT"] [data-row-link]')).toBeVisible();
       await expect(page.locator('[data-symbol="BTC/USDT"] [data-slot="pct"]')).toBeVisible();
     }

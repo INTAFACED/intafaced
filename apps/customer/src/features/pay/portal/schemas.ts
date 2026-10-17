@@ -264,6 +264,7 @@ export const notificationKinds = [
   'operator_pause',
   'export_ready',
   'team_change',
+  'payout_destination',
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationSchema = z.object({

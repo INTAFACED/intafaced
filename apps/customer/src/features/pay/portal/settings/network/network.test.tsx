@@ -70,7 +70,7 @@ describe('network', () => {
     );
     expect(out).toContain(`href="/pay/network/${A}"`);
     expect(out).toContain('1.50%');
-    expect(out).toContain('Not set up yet');
+    expect(out).toContain('Not set up');
     expect(out).toContain('Add a business');
     plain(out);
   });

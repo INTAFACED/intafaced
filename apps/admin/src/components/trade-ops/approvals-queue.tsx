@@ -180,7 +180,7 @@ export function ApprovalsQueue({ sessionUserId }: { sessionUserId: string }) {
           rows={log}
           getRowId={(r) => `${r.at}-${r.verb}-${r.approvalId ?? ''}`}
           maxHeight={240}
-          emptyState={<p className="p-4 text-sm text-fg-2">Nothing yet this session.</p>}
+          emptyState={<p className="p-4 text-sm text-fg-2">Nothing this session.</p>}
         />
       </div>
     </div>

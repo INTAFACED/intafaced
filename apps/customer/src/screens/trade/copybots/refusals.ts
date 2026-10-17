@@ -9,7 +9,7 @@ type Words = { title: string; body: string };
 
 const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_jurisdiction_blank': {
-    title: 'Copy trading isn’t open for your country yet',
+    title: 'Copy trading isn’t open for your country',
     body: 'The list of countries where it can be offered hasn’t been approved. Nothing was followed and no money moved.',
   },
   'trade.copy_jurisdiction_blocked': {
@@ -17,11 +17,11 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Nothing was followed and no money moved.',
   },
   'trade.copy_fee_share_blank': {
-    title: 'Leader fees aren’t approved yet',
+    title: 'Leader fees aren’t approved',
     body: 'Copy trading stays closed until the share a leader earns from the trading fee is approved. Nothing was followed.',
   },
   'trade.copy_law_blank': {
-    title: 'Copy trading isn’t open yet',
+    title: 'Copy trading isn’t open',
     body: 'Its fee share and country list haven’t been approved. Nothing was followed.',
   },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
@@ -42,11 +42,11 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_leader_fill_not_found': { title: 'That leader trade wasn’t found', body: 'It may be too old, or it isn’t one you can copy.' },
   'trade.copy_auto_mirror_place_socket': {
     title: 'Automatic copying is switched off',
-    body: 'Copied orders aren’t placed for you yet. Your limits and permission are kept.',
+    body: 'Copied orders aren’t placed for you. Your limits and permission are kept.',
   },
   'trade.copy_place_disabled': {
     title: 'Automatic copying is switched off',
-    body: 'Copied orders aren’t placed for you yet. Your limits and permission are kept.',
+    body: 'Copied orders aren’t placed for you. Your limits and permission are kept.',
   },
   'trade.copy_paper_live_forbidden': {
     title: 'Paper and live can’t be mixed',
@@ -60,7 +60,7 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_leader_resume_forbidden': { title: 'Only you can resume this', body: 'A leader can’t restart your copying.' },
   'trade.copy_state_invalid': { title: 'That isn’t possible in this state', body: 'Refresh the list and check the follow’s state.' },
   'trade.copy_flatten_refused': {
-    title: 'Closing copied positions isn’t available yet',
+    title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
   },
   'trade.copy_flatten_drift': {
@@ -72,7 +72,7 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
   },
   'trade.copy_flatten_unavailable': {
-    title: 'Closing copied positions isn’t available yet',
+    title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
   },
 };

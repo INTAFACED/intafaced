@@ -122,7 +122,7 @@ export function useCancelFlow(onDone: () => void) {
       writer.resolve(id);
       setNote(isTerminalOrder(result.data) ? t('Checked: that order is closed') : t('Checked: that order is still open'));
       onDone();
-    } else setNote(t('Could not check yet, try again'));
+    } else setNote(t('Could not check, try again'));
   }
 
   return {

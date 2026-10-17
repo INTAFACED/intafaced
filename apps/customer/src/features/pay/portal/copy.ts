@@ -43,14 +43,12 @@ const en = {
   // dashboard
   accountStatus: 'Account status',
   feeNotPublished: 'Not published',
-  testFeeNotPricing: 'Test fee — not INTAFACED pricing ({bps} bps)',
-  feeBps: '{bps} basis points',
   modeGateway: 'Gateway',
   modePsp: 'Payment service provider',
   modePayfac: 'Payment facilitator',
   volumeBody: 'Totals are per asset and are never added across assets. Days are UTC days.',
   periodLabel: 'Period',
-  periodToday: 'Today',
+  periodToday: 'Today (UTC)',
   period7d: 'Last 7 days',
   period30d: 'Last 30 days',
   kpiGroup: 'Totals for {period}',
@@ -344,10 +342,10 @@ const en = {
   rApprovalMfa:
     'Deciding a payout needs a session verified with two-step sign-in. Sign in again with your passkey or code, then try again.',
   rApprovalState: 'That request is no longer in a state where it can be decided. Refresh the page.',
-  rPricingUnconfigured: 'No price is set for that asset on your account yet, so no fee can be worked out.',
+  rPricingUnconfigured: 'No price is set for that asset on your account, so no fee can be worked out.',
   rControlInvalid: 'Those numbers cannot be priced. Check the amount and try again.',
   rControlUnavailable: 'We can’t show your limits and prices right now. Try again shortly.',
-  rTierUnassigned: 'Your account has no tier yet, so no limits apply and none are shown.',
+  rTierUnassigned: 'Your account has no tier, so no limits apply and none are shown.',
   rApprovalVoidedResult:
     'The request was voided because the payout changed, so your decision did not count. Nothing was approved or rejected. Refresh the page and ask again if you still need it.',
   rPayoutNotFound: 'We could not find that payout.',
