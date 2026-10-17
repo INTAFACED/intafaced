@@ -465,3 +465,146 @@ describe('TRD-0516 a scheduled expiry pass cancels a quiet GTD', () => {
     expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.orderId).toBe(GTD);
   });
 });
+
+function orderId(n: number): string {
+  return `aaaaaaaa-aaaa-4aaa-8aaa-${n.toString(16).padStart(12, '0')}`;
+}
+
+describe('legacy stops fire the way main does', () => {
+  it('fires every legacy stop in a 70-deep cascade and prints down to 29', () => {
+    const book = new OrderBook(MARKET);
+    book.submit(limit({ id: orderId(1), account: 'seed-ask', side: 'sell', qty: '1', price: '100' }));
+    book.submit(limit({ id: orderId(2), account: 'seed-bid', side: 'buy', qty: '1', price: '100' }));
+    expect(formatAmount(book.lastPrice!)).toBe('100');
+
+    for (let price = 99; price >= 29; price -= 1) {
+      const rested = book.submit(
+        limit({ id: orderId(1_000 + price), account: `bid-${price}`, side: 'buy', qty: '1', price: String(price) }),
+      );
+      expect(rested.accepted).toBe(true);
+    }
+
+    const stopIds: string[] = [];
+    for (let price = 99; price >= 30; price -= 1) {
+      const id = orderId(2_000 + price);
+      stopIds.push(id);
+      const parked = book.submit({
+        orderId: id,
+        accountId: `stop-${price}`,
+        type: 'stop',
+        side: 'sell',
+        qty: A('1'),
+        price: null,
+        stopPrice: A(String(price)),
+        tif: 'GTC',
+      });
+      expect(parked.accepted).toBe(true);
+      expect(parked.resting?.kind).toBe('stop');
+    }
+
+    const print = book.submit(limit({ id: orderId(3), account: 'taker', side: 'sell', qty: '1', price: '99' }));
+    expect(print.accepted).toBe(true);
+    expect(book.toState().stops.map((stop) => stop.stopPrice)).toEqual([]);
+    expect(print.triggered.map((row) => row.orderId)).toEqual(stopIds);
+    expect(formatAmount(book.lastPrice!)).toBe('29');
+  });
+
+  it('triggers legacy stops in insertion order across a cascade', () => {
+    const book = new OrderBook(MARKET);
+    book.submit(limit({ id: orderId(1), account: 'seed-ask', side: 'sell', qty: '1', price: '100' }));
+    book.submit(limit({ id: orderId(2), account: 'seed-bid', side: 'buy', qty: '1', price: '100' }));
+
+    book.submit(limit({ id: orderId(95), account: 'bid-95', side: 'buy', qty: '1', price: '95' }));
+    book.submit(limit({ id: orderId(89), account: 'bid-89', side: 'buy', qty: '1', price: '89' }));
+    book.submit(limit({ id: orderId(88), account: 'bid-88', side: 'buy', qty: '1', price: '88' }));
+    book.submit(limit({ id: orderId(87), account: 'bid-87', side: 'buy', qty: '1', price: '87' }));
+
+    const s1 = orderId(11);
+    const s2 = orderId(12);
+    const s3 = orderId(13);
+    for (const [id, account, stopPrice] of [
+      [s1, 'stop-s1', '95'],
+      [s2, 'stop-s2', '90'],
+      [s3, 'stop-s3', '96'],
+    ] as const) {
+      const parked = book.submit({
+        orderId: id,
+        accountId: account,
+        type: 'stop',
+        side: 'sell',
+        qty: A('1'),
+        price: null,
+        stopPrice: A(stopPrice),
+        tif: 'GTC',
+      });
+      expect(parked.accepted).toBe(true);
+    }
+
+    const print = book.submit(limit({ id: orderId(3), account: 'taker', side: 'sell', qty: '1', price: '95' }));
+    expect(print.triggered.map((row) => row.orderId)).toEqual([s1, s2, s3]);
+  });
+});
+
+describe('a priceless reduce-only order does not cancel a protective stop', () => {
+  it('refuses a reduce-only market sell and leaves the stop armed when the bid side is empty', () => {
+    const book = new OrderBook(MARKET);
+    book.submit(limit({ id: OTHER, account: 'mm', side: 'sell', qty: '1', price: '100' }));
+    book.submit(limit({ id: TAKER, account: 'desk', side: 'buy', qty: '1', price: '100' }));
+    const stop = book.submit({
+      orderId: SL,
+      accountId: 'desk',
+      type: 'stop',
+      side: 'sell',
+      qty: A('1'),
+      price: null,
+      stopPrice: A('90'),
+      tif: 'GTC',
+      reduceOnly: true,
+    });
+    expect(stop.accepted).toBe(true);
+    expect(book.toState().bids).toEqual([]);
+
+    const close = book.submit({
+      orderId: RO,
+      accountId: 'desk',
+      type: 'market',
+      side: 'sell',
+      qty: A('1'),
+      price: null,
+      stopPrice: null,
+      tif: 'IOC',
+      reduceOnly: true,
+    });
+    expect(close.rejected?.code).toBe('would_increase_position');
+    expect(close.cancellations.some((row) => row.reason === 'reduce_only_displaced')).toBe(false);
+    expect(book.toState().stops.map((row) => row.orderId)).toEqual([SL]);
+  });
+
+  it('closePosition leaves the protective stop when the close cannot fill', async () => {
+    const { engine } = build();
+    await engine.submit(MARKET, limit({ id: OTHER, account: 'mm', side: 'sell', qty: '1', price: '100' }));
+    await engine.submit(MARKET, limit({ id: TAKER, account: 'desk', side: 'buy', qty: '1', price: '100' }));
+    const stop = await engine.submit(MARKET, {
+      orderId: SL,
+      accountId: 'desk',
+      type: 'stop',
+      side: 'sell',
+      qty: A('1'),
+      price: null,
+      stopPrice: A('90'),
+      tif: 'GTC',
+      reduceOnly: true,
+    });
+    expect(stop.accepted).toBe(true);
+
+    const closed = await engine.closePosition(MARKET, { orderId: RO, accountId: 'desk' });
+    expect(closed.rejected?.code).toBe('would_increase_position');
+    expect(closed.cancellations.some((row) => row.reason === 'reduce_only_displaced')).toBe(false);
+    expect(
+      engine
+        .existingBook(MARKET)!
+        .toState()
+        .stops.map((row) => row.orderId),
+    ).toEqual([SL]);
+  });
+});

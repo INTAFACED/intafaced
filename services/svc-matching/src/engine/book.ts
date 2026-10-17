@@ -159,13 +159,13 @@ function stopView(order: EngineOrder): {
   };
 }
 
+/** Limit price only. A market or stop-market has no price and must not outrank a resting row. */
 function incomingPrice(order: EngineOrder): Amount | null {
-  return order.price ?? order.stopPrice;
+  return order.price;
 }
 
 function moreAggressive(side: OrderSide, next: Amount | null, prior: Amount | null): boolean {
-  if (next === null) return prior !== null;
-  if (prior === null) return false;
+  if (next === null || prior === null) return false;
   return side === 'sell' ? next < prior : next > prior;
 }
 
@@ -1211,15 +1211,35 @@ export class OrderBook {
     return stop.side === 'buy' ? last >= stop.stopPrice : last <= stop.stopPrice;
   }
 
+  /** Main's level test. A legacy sell fires when last is at or through the stop; a buy does the same upward. */
+  private legacyLevelTriggered(stop: StopOrder): boolean {
+    if (stop.triggerRole !== 'legacy' || stop.triggerBy !== 'last' || this.lastTradePrice === null) return false;
+    return stop.side === 'buy' ? this.lastTradePrice >= stop.stopPrice : this.lastTradePrice <= stop.stopPrice;
+  }
+
+  /**
+   * Legacy stops (no role tag) re-scan from index 0 after every activation.
+   * The level test uses lastTradePrice, so a stop the price already passed still fires when lastMove is null.
+   */
+  private drainLegacyStops(outcomes: TriggerOutcome[]): void {
+    for (;;) {
+      const at = this.stops.findIndex((stop) => this.legacyLevelTriggered(stop));
+      if (at === -1) break;
+      const stop = this.stops.splice(at, 1)[0]!;
+      outcomes.push(this.activate(stop));
+    }
+  }
+
   private drainStops(): TriggerOutcome[] {
     const outcomes: TriggerOutcome[] = [];
-    let guard = 0;
-    while (this.lastMove && guard++ < 64) {
+    this.drainLegacyStops(outcomes);
+    while (this.lastMove) {
       const move = this.lastMove;
       const batch: StopOrder[] = [];
       for (let index = this.stops.length - 1; index >= 0; index -= 1) {
         const stop = this.stops[index]!;
         if (stop.triggerBy !== 'last') continue;
+        if (stop.triggerRole !== 'take_profit' && stop.triggerRole !== 'stop_loss') continue;
         if (!movedThrough(stop.side, stop.stopPrice, stop.triggerRole, move.previous, move.next)) continue;
         batch.push(this.stops.splice(index, 1)[0]!);
       }
@@ -1227,6 +1247,7 @@ export class OrderBook {
       batch.reverse();
       for (const stop of batch) outcomes.push(this.activate(stop));
       if (this.lastMove === move) break;
+      this.drainLegacyStops(outcomes);
     }
     return outcomes;
   }
@@ -1469,12 +1490,15 @@ export class OrderBook {
     return open > reserved ? open - reserved : ZERO;
   }
 
-  /** Own size must fit the futures position (or the fill net). Less-aggressive reduce-only can be displaced. */
+  /**
+   * Own size must fit the open qty after reduce-only rows that stay.
+   * An untriggered stop always blocks. A market or stop-market (no limit price) blocks on every same-side row.
+   */
   private incomingReduceOnlyRefused(order: EngineOrder): boolean {
     const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
     if (order.qty > open) return true;
     const blocking = this.reduceOnlyRows(order.accountId, order.side, order.orderId).filter(
-      (row) => !moreAggressive(order.side, incomingPrice(order), row.price),
+      (row) => row.kind === 'stop' || !moreAggressive(order.side, incomingPrice(order), row.price),
     );
     let reserved = ZERO;
     for (const row of blocking) reserved += row.qty;
@@ -1482,11 +1506,11 @@ export class OrderBook {
   }
 
   private displaceReduceOnly(order: EngineOrder): CancelledRef[] {
-    if (order.reduceOnly !== true) return [];
+    if (order.reduceOnly !== true || order.price === null) return [];
     const open = this.openQty(this.signedPosition(order.accountId, order.positionQty), order.side);
     if (order.qty > open) return [];
     const rows = this.reduceOnlyRows(order.accountId, order.side, order.orderId);
-    const less = rows.filter((row) => moreAggressive(order.side, incomingPrice(order), row.price));
+    const less = rows.filter((row) => row.kind !== 'stop' && moreAggressive(order.side, incomingPrice(order), row.price));
     less.sort((a, b) => compareLeastAggressive(order.side, a, b));
     let reserved = ZERO;
     for (const row of rows) reserved += row.qty;
