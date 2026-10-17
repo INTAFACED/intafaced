@@ -38,9 +38,9 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     next: 'If it was approved, run it. Otherwise start a new request.',
   },
   'action_approval.not_approved': {
-    title: 'The second founder has not approved this yet',
-    body: 'Identity will not let this run until a different founder has approved exactly this request. Nothing was changed.',
-    next: 'Ask the other founder to approve the request packet, then run it.',
+    title: 'The second approver has not approved this yet',
+    body: 'Identity will not let this run until a different approver has approved exactly this request: another operator for a module kill or re-enable, another founder for a ledger unfreeze. Nothing was changed.',
+    next: 'Ask the second approver to approve the request packet, then run it.',
   },
   'action_approval.expired': {
     title: 'This approval expired',
@@ -136,7 +136,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   'admin.kill_self_lockout': {
     title: 'This console will not kill identity',
     body: 'Identity carries founder sign-in and the approvals this console needs, so killing it would stop you from re-enabling it.',
-    next: 'Use Account controls to freeze accounts, or have engineering restart the edge. Nothing was changed.',
+    next: 'Use Account controls to freeze accounts. If the edge is stuck, have engineering fix the kill-state file: an unreadable kill-state halts every module on boot. Nothing was changed.',
   },
   'admin.kill_not_enforceable': {
     title: 'The edge cannot halt this module',
