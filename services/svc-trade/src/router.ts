@@ -1192,8 +1192,8 @@ export function createTradeRouter(
         ),
 
       ops: router({
-        /** Same permission as GET /api/v1/admin/orders/open (`admin:read`). */
-        upsertListing: scopedProcedure('admin:read', { module: 'trade' })
+        /** Operator writes need `admin:write`, the trade operator desk's write scope. */
+        upsertListing: scopedProcedure('admin:write', { module: 'trade' })
           .input(
             z.object({
               clientRequestId: z.string().min(1).max(200),
@@ -1220,7 +1220,7 @@ export function createTradeRouter(
             }),
           ),
 
-        setLeaderState: scopedProcedure('admin:read', { module: 'trade' })
+        setLeaderState: scopedProcedure('admin:write', { module: 'trade' })
           .input(
             z.object({
               leaderRef: z.string().min(1).max(80),

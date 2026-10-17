@@ -8,7 +8,7 @@
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
-import type { CopyLeaderCustomerStatus } from './leader-listing.js';
+import { customerStatus, type CopyLeaderCustomerStatus, type CopyLeaderListingState } from './leader-listing.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import type { CopyJurisdictionLaw } from './fee-share-law.js';
@@ -47,7 +47,10 @@ export interface CopyFollow {
 export interface PresentCopyFollow {
   readonly followId: string;
   readonly followerId: string;
-  readonly leaderId: string;
+  /** Leader user id when no listing row exists. Null when any listing row exists. */
+  readonly leaderId: string | null;
+  /** Listing ref when a listing row exists. Null when the leader has no row. */
+  readonly leaderRef: string | null;
   readonly permittedMarkets: readonly string[];
   readonly maxNotionalPerOrder: string;
   readonly maxAggregateExposure: string;
@@ -156,13 +159,14 @@ export function assertCopyRegionAllowed(law: CopyJurisdictionLaw, region: string
 export function presentCopyFollow(
   follow: CopyFollow,
   currentExposure: Amount = 0n,
-  leaderStatus: CopyLeaderCustomerStatus = 'unknown',
+  listing: { readonly leaderRef: string; readonly state: CopyLeaderListingState } | null = null,
 ): PresentCopyFollow {
   const remaining = follow.envelope.maxAggregateExposure > currentExposure ? follow.envelope.maxAggregateExposure - currentExposure : 0n;
   return {
     followId: follow.followId,
     followerId: follow.followerId,
-    leaderId: follow.leaderId,
+    leaderId: listing ? null : follow.leaderId,
+    leaderRef: listing ? listing.leaderRef : null,
     permittedMarkets: follow.envelope.permittedMarkets,
     maxNotionalPerOrder: formatAmount(follow.envelope.maxNotionalPerOrder),
     maxAggregateExposure: formatAmount(follow.envelope.maxAggregateExposure),
@@ -177,7 +181,7 @@ export function presentCopyFollow(
     sessionKeyRevoked: follow.sessionKeyRevoked === true,
     relationshipState: followRelationshipState(follow),
     newIntentFenced: copyNewIntentFenced(followRelationshipState(follow)),
-    leaderStatus,
+    leaderStatus: customerStatus(listing?.state),
     ...(follow.sessionKeyPrefix ? { sessionKeyPrefix: follow.sessionKeyPrefix, sessionKeyId: follow.sessionKeyPrefix } : {}),
   };
 }

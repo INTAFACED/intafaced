@@ -260,7 +260,7 @@ export class CopyService {
   }
 
   private async presentFollow(follow: CopyFollow, currentExposure: Amount = 0n) {
-    return presentCopyFollow(follow, currentExposure, await this.directory.leaderStatus(follow.leaderId));
+    return presentCopyFollow(follow, currentExposure, await this.directory.listingIdentity(follow.leaderId));
   }
 
   private deskFacts(): CopyDeskFacts {

@@ -45,7 +45,7 @@ const publishedFee: CopyFeeShareLaw = {
 
 const publishedJur: CopyJurisdictionLaw = { published: true, allowedRegions: ['SG'] };
 
-const operator = () => principalFor(OP, ['admin:read']);
+const operator = () => principalFor(OP, ['admin:write']);
 const follower = (id: string) => principalFor(id, ['trade:read', 'trade:write']);
 
 function openDb(): string {
@@ -235,7 +235,9 @@ describe('copy leader directory and events', () => {
     expect(body).not.toContain(F2);
     expect(body).not.toContain(FIXTURE_PNL);
     expect(body).not.toContain(SECRET_REASON);
-    expect(followed.leaderId).toBe(LEADER_A);
+    expect(followed.leaderId).toBeNull();
+    expect(followed.leaderRef).toBe(rowA.leaderRef);
+    expect(JSON.stringify(followed)).not.toContain(LEADER_A);
 
     const closed = sqlLeaderDirectory(db!.sql, { now: () => new Date(), feeShareLaw: { published: false } });
     const unpublishedShare = await closed.listLeaders({ limit: 10 });
@@ -312,6 +314,32 @@ describe('copy leader directory and events', () => {
     expect(await counts()).toMatchObject({ audits: 1, listings: 1 });
   });
 
+  it('refuses admin:read and admin:compliance on listing writes', async () => {
+    const { copy } = harness();
+    const before = await counts();
+    for (const scopes of [['admin:read'], ['admin:compliance']] as const) {
+      const principal = principalFor(OP, [...scopes]);
+      await expect(
+        copy.upsertListing(principal, {
+          clientRequestId: `read-${scopes[0]}`,
+          leaderUserId: LEADER_A,
+          displayName: 'Nope',
+          recordKind: 'paper',
+          state: 'listed',
+        }),
+      ).rejects.toMatchObject({ code: 'scope.denied' });
+      await expect(
+        copy.setLeaderState(principal, {
+          leaderRef: 'not-listed',
+          state: 'suspended',
+          reason: 'nope',
+          clientRequestId: `state-${scopes[0]}`,
+        }),
+      ).rejects.toMatchObject({ code: 'scope.denied' });
+    }
+    expect(await counts()).toEqual(before);
+  });
+
   it('follows by leaderRef the same leader as by leaderId, and refuses a bad ref', async () => {
     const { copy } = harness();
     const listed = await copy.upsertListing(operator(), {
@@ -329,8 +357,21 @@ describe('copy leader directory and events', () => {
     });
     const byRef = await copy.follow(follower(F1), followInput({ leaderRef: listed.leaderRef }));
     const byId = await copy.follow(follower(F2), followInput({ leaderId: LEADER_A }));
-    expect(byRef.leaderId).toBe(LEADER_A);
-    expect(byId.leaderId).toBe(byRef.leaderId);
+    expect(byRef.leaderRef).toBe(listed.leaderRef);
+    expect(byId.leaderRef).toBe(byRef.leaderRef);
+    const stored = await db!.sql<Array<{ leader_id: string }>>`
+      SELECT leader_id FROM trade.copy_follows
+       WHERE follow_id = ${byRef.followId} OR follow_id = ${byId.followId}
+    `;
+    expect(stored).toHaveLength(2);
+    expect(stored.every((row) => row.leader_id === LEADER_A)).toBe(true);
+    const mine = await copy.listMyFollows(follower(F1), 10);
+    const detail = mine.find((row) => row.followId === byRef.followId);
+    const paused = await copy.pause(follower(F1), { followId: byRef.followId });
+    for (const body of [byRef, mine, detail, paused]) {
+      expect(JSON.stringify(body)).not.toContain(LEADER_A);
+    }
+    expect(detail?.leaderRef).toBe(listed.leaderRef);
     await expect(copy.follow(follower(F3), followInput({ leaderRef: unlisted.leaderRef }))).rejects.toMatchObject({
       code: 'trade.copy_leader_not_found',
     });
@@ -437,8 +478,12 @@ describe('copy leader directory and events', () => {
     const { copy } = harness();
     const follow = await copy.follow(follower(F1), followInput({ leaderId: LEADER_A }));
     expect(follow.leaderStatus).toBe('unknown');
+    expect(follow.leaderId).toBe(LEADER_A);
+    expect(follow.leaderRef).toBeNull();
     const listed = await copy.listMyFollows(follower(F1), 10);
     expect(listed[0]?.leaderStatus).toBe('unknown');
+    expect(listed[0]?.leaderId).toBe(LEADER_A);
+    expect(listed[0]?.leaderRef).toBeNull();
   });
 
   it('refuses the next follow when capacity is reached and records one event', async () => {

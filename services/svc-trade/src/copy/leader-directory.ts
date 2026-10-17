@@ -10,7 +10,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import type { Sql } from 'postgres';
-import { requireOperator } from '../admin/common.js';
+import { requireOperatorWrite } from '../admin/common.js';
 import { CopyError } from './errors.js';
 import { isPgUniqueViolation, SqlCopyFollowStore, type CopyFollowStore } from './follow-store.js';
 import type { CopyFollow } from './follows.js';
@@ -232,9 +232,15 @@ export class LeaderDirectory {
     return row.leaderUserId;
   }
 
-  async leaderStatus(leaderUserId: string): Promise<CopyLeaderCustomerStatus> {
+  /** One query. The listing ref and state for a leader user id, or null when no row exists. */
+  async listingIdentity(leaderUserId: string): Promise<{ readonly leaderRef: string; readonly state: CopyLeaderListingState } | null> {
     const row = await this.backend.getByUser(leaderUserId, false);
-    return customerStatus(row?.state);
+    if (!row) return null;
+    return { leaderRef: row.leaderRef, state: row.state };
+  }
+
+  async leaderStatus(leaderUserId: string): Promise<CopyLeaderCustomerStatus> {
+    return customerStatus((await this.listingIdentity(leaderUserId))?.state);
   }
 
   async refuseNewMirror(leaderUserId: string): Promise<void> {
@@ -305,7 +311,7 @@ export class LeaderDirectory {
   }
 
   async upsertListing(principal: Principal, input: UpsertLeaderListingInput): Promise<OperatorListingResult> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const clientRequestId = requireClientRequestId(input.clientRequestId);
     const write = normaliseListingWrite(input);
     const kind = 'upsert_listing';
@@ -348,7 +354,7 @@ export class LeaderDirectory {
   }
 
   async setLeaderState(principal: Principal, input: SetLeaderStateInput): Promise<OperatorListingResult> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const clientRequestId = requireClientRequestId(input.clientRequestId);
     const leaderRef = input.leaderRef?.trim() ?? '';
     if (!leaderRef) throw new CopyError('leaderRef is blank', 'trade.copy_leader_record_blank');

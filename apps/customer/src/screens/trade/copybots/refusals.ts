@@ -75,18 +75,6 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Only some positions were closed',
     body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
   },
-  'trade.copy_disclosure_unpublished': {
-    title: 'This leader can’t be followed right now',
-    body: 'The leader’s risk disclosure hasn’t been published, so following is refused. Nothing was followed and no money moved. Choose another leader.',
-  },
-  'trade.copy_disclosure_required': {
-    title: 'Read the leader’s risk disclosure first',
-    body: 'Following needs your acceptance of this leader’s risk disclosure. Nothing was followed and no money moved.',
-  },
-  'trade.copy_disclosure_version_stale': {
-    title: 'The risk disclosure has changed',
-    body: 'The leader’s disclosure was updated after you accepted it. Read and accept the new version, then follow again.',
-  },
   'trade.copy_flatten_unavailable': {
     title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
