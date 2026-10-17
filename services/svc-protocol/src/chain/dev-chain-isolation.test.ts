@@ -78,7 +78,7 @@ describe('every on-chain suite sends from an account no other suite sends from',
     }
     expect(devAccount(0).address).toBe(PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS);
     expect(PREFUNDED.has(devAccount(0).address.toLowerCase())).toBe(true);
-  });
+  }, 30_000);
 
   it('leaves no suite picking an anvil index by hand', () => {
     // The thing that actually drifted. `devChainClients(url, id, N)` is for

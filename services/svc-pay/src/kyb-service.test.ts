@@ -6,6 +6,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { KybError, KybService } from './kyb-service.js';
+import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 
 function at<T>(rows: readonly T[], index: number, what: string): T {
   const row = rows[index];
@@ -120,6 +121,12 @@ describe('svc-pay digital KYB PG-hard', () => {
     return row.id;
   }
 
+  async function identityHashOf(merchantId: string): Promise<string> {
+    const binding = await loadKybDecisionBinding(sql, merchantId);
+    if (!binding) throw new Error(`merchant ${merchantId} has no KYB binding`);
+    return binding.identityHash;
+  }
+
   describe('why was this merchant approved', () => {
     it('IS ANSWERABLE FROM THE DATABASE after operator decide', async () => {
       const id = await merchant();
@@ -135,6 +142,7 @@ describe('svc-pay digital KYB PG-hard', () => {
         reason: 'incorporation + UBO match; no sanctions hit',
         actorId: OPERATOR,
         actorScope: 'admin:compliance',
+        identityHash: await identityHashOf(id),
       });
 
       const event = at(await kyb.history(id, 50), 0, 'history');
@@ -156,6 +164,7 @@ describe('svc-pay digital KYB PG-hard', () => {
         reason: 'missing beneficial owner affidavit',
         actorId: OPERATOR,
         actorScope: 'admin:compliance',
+        identityHash: await identityHashOf(id),
       });
       expect((await kyb.currentStatus(id)).kybStatus).toBe('rejected');
 
@@ -179,7 +188,14 @@ describe('svc-pay digital KYB PG-hard', () => {
       const id = await merchant();
       await kyb.submit({ merchantId: id, kybRef: 'd1', actorId: MERCHANT_USER, actorScope: 'pay:write' });
       const err = await rejection(
-        kyb.decide({ merchantId: id, decision: 'approved', reason: '   ', actorId: OPERATOR, actorScope: 'admin:compliance' }),
+        kyb.decide({
+          merchantId: id,
+          decision: 'approved',
+          reason: '   ',
+          actorId: OPERATOR,
+          actorScope: 'admin:compliance',
+          identityHash: await identityHashOf(id),
+        }),
         KybError,
       );
       expect(err.code).toBe('pay.kyb_reason_required');
@@ -188,10 +204,40 @@ describe('svc-pay digital KYB PG-hard', () => {
     it('decide when not pending', async () => {
       const id = await merchant();
       const err = await rejection(
-        kyb.decide({ merchantId: id, decision: 'approved', reason: 'too early', actorId: OPERATOR, actorScope: 'admin:compliance' }),
+        kyb.decide({
+          merchantId: id,
+          decision: 'approved',
+          reason: 'too early',
+          actorId: OPERATOR,
+          actorScope: 'admin:compliance',
+          identityHash: await identityHashOf(id),
+        }),
         KybError,
       );
       expect(err.code).toBe('pay.kyb_invalid');
+    });
+
+    it('refuses a different identity before any side effect and leaves the dossier pending', async () => {
+      const id = await merchant();
+      await kyb.submit({ merchantId: id, kybRef: 'd1', actorId: MERCHANT_USER, actorScope: 'pay:write' });
+      let ran = 0;
+      const err = await rejection(
+        kyb.decide({
+          merchantId: id,
+          decision: 'approved',
+          reason: 'wrong identity',
+          actorId: OPERATOR,
+          actorScope: 'admin:compliance',
+          identityHash: `sha256:${'ab'.repeat(32)}`,
+          beforeWrite: async () => {
+            ran += 1;
+          },
+        }),
+        KybError,
+      );
+      expect(err.code).toBe('pay.kyb_identity_changed');
+      expect(ran).toBe(0);
+      expect((await kyb.currentStatus(id)).kybStatus).toBe('pending');
     });
 
     it('double submit while pending', async () => {

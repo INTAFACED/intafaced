@@ -14,6 +14,7 @@ import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.j
 import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
 import { callerIpFromUpgrade } from './caller-ip.js';
 import { requestOriginFromUpgrade } from './key-origin.js';
+import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from './key-account.js';
 
 /**
@@ -109,6 +110,12 @@ export interface PrivateWebSocketGatewayOptions {
   readonly liveCredential?: LiveCredentialPort | null;
   /** Mandatory positive authority for every private seat; missing refuses upgrades. */
   readonly authority?: CurrentAuthorityPort | null;
+  /**
+   * Customer page origins (`EDGE_ALLOWED_ORIGINS`). Undefined disables the
+   * check so older tests keep their shape. An empty list still refuses a
+   * foreign Origin. Missing Origin and a same-host Origin stay allowed.
+   */
+  readonly customerOrigins?: readonly string[];
 }
 
 export interface PrivateWebSocketGateway {
@@ -351,6 +358,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     scheduleCod = defaultCodSchedule,
     liveCredential = null,
     authority = null,
+    customerOrigins,
   } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
@@ -406,6 +414,10 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         return;
       }
       if (url.pathname !== PRIVATE_STREAM_PATH) return;
+      if (foreignUpgradeOrigin(req, customerOrigins)) {
+        reject(socket, 403, 'Forbidden');
+        return;
+      }
       const feedRefuse = marketDataFeedRefuse(url.searchParams);
       if (feedRefuse) {
         writeMarketDataFeedRefuse(socket, feedRefuse);

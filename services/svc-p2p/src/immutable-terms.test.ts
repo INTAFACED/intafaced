@@ -339,22 +339,28 @@ describe('native P2P original terms and decisions', () => {
         if (held === 'error_body') headersSeen?.();
         return response;
       });
-      const service = new P2pService(
-        db.sql,
-        createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
-        bus,
-        {
-          instruments: new InstrumentService(db.sql),
-          feeBps: 100,
-          deadlines: {
-            escrowSeconds: 120,
-            paymentSeconds: 900,
-            releaseSeconds: 1800,
-            disputeSeconds: 604800,
-            escalationRecheckSeconds: 3600,
+      const serviceWith = (timeoutMs: number) =>
+        new P2pService(
+          db.sql,
+          createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs }),
+          bus,
+          {
+            instruments: new InstrumentService(db.sql),
+            feeBps: 100,
+            deadlines: {
+              escrowSeconds: 120,
+              paymentSeconds: 900,
+              releaseSeconds: 1800,
+              disputeSeconds: 604800,
+              escalationRecheckSeconds: 3600,
+            },
           },
-        },
-      );
+        );
+      // Cancel keeps the 100ms budget. The first abort fires only after the fixture posts, so a slow
+      // CI loop cannot abort before the ledger lock. The refund replay is not that abort, so it gets
+      // a budget a loaded runner can meet.
+      const service = serviceWith(100);
+      const patient = serviceWith(10_000);
       try {
         const pending = service.cancelTrade(TRADE, SELLER);
         await committed;
@@ -383,10 +389,12 @@ describe('native P2P original terms and decisions', () => {
         await db.sql.begin(async (tx) => {
           await tx`SELECT id FROM p2p.p2p_trades WHERE id = ${TRADE} FOR UPDATE NOWAIT`;
         });
+        // Immediate, not waited for: the lock must already have committed at the ledger while the response was still held
+        // (the gate is not released yet), which is what proves the abort came after the post, not before it.
         expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('100');
         release();
         await db.sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${TRADE}`;
-        expect((await service.sweepDeadlines(undefined, 100)).failed).toBe(0);
+        expect((await patient.sweepDeadlines(undefined, 100)).failed).toBe(0);
         expect((await service.getTrade(TRADE)).resolution).toBe('refunded');
         expect(keys).toEqual([`p2p.escrow.lock:${TRADE}`, `p2p.escrow.lock:${TRADE}`, `p2p.escrow.refund:${TRADE}`]);
         expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${TRADE}`)).toHaveLength(1);
@@ -404,6 +412,7 @@ describe('native P2P original terms and decisions', () => {
         });
       }
     },
+    60_000,
   );
 
   it.each([
@@ -854,11 +863,13 @@ describe('native P2P original terms and decisions', () => {
     });
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    // The first call must time out because the handler is held at the gate; any budget shorter than the gate does that.
+    // 100 ms also made the LATER calls (balance, refund) flake on a loaded runner, so it is 2 s: the meaning is unchanged.
     const bus = new MemoryEventBus('svc-p2p');
     const publish = vi.spyOn(bus, 'publish');
     const service = new P2pService(
       db.sql,
-      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 2_000 }),
       bus,
       {
         instruments: new InstrumentService(db.sql),
@@ -919,7 +930,7 @@ describe('native P2P original terms and decisions', () => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     }
-  });
+  }, 60_000);
 
   it('persists a committed claim even when its SQL acknowledgement is lost, before any remote effect', async () => {
     await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;

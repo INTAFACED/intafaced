@@ -67,11 +67,10 @@
  * is judged at package level only. A test whose name embeds something that changes every run (a timestamp, a random id) never
  * matches main and blocks. If main's latest "Tests (full)" run happens to be green, the job is not excused at all, flaky or not.
  *
- * Docs-only PRs: ci.yml has a path filter, so a PR that only touches docs/**, *.md, NOTICE or LICENSE gets no CI run at
- * all. That is accepted when, and only when, the changed files are all excluded by that filter and every check that DID
- * report (the two required ones, and Docs format when it ran) passed. Agent-rule files (AGENTS.md, CLAUDE.md,
- * AGENT_PROTOCOL.md, SKILL.md, tooling/agent-protocol/**, .agents/**, .cursor/rules/**) are never docs-only: they need the
- * full CI, which includes the autoload scan, and ci.yml's path filter lists them for that reason.
+ * Docs-only PRs run ci.yml. "Doctrine gates" is a required check, so a docs-only PR with no CI run does not pass.
+ * Agent-rule files (AGENTS.md, CLAUDE.md, AGENT_PROTOCOL.md, SKILL.md, tooling/agent-protocol/**, .agents/**,
+ * .cursor/rules/**) are never treated as an exception to that: ci.yml lists them, and ciWouldRun forces them on even if
+ * the mirrored filter drifts. Test shards still skip docs and markdown via ci-affected.mjs.
  *
  * RUN IT FROM AN UP-TO-DATE origin/main CHECKOUT. A PR can edit this very file; the gate refuses to run unless
  * `git diff origin/main -- tooling/scripts tooling/ci` is empty (after fetching), so it is always main's copy that judges.
@@ -128,7 +127,7 @@ export const LOG_RATCHETS = {
 };
 
 /**
- * Files whose change must run the full CI (including the agent-autoload scan) even though they are markdown.
+ * Files whose change must run CI even though they are markdown.
  * ci.yml's `on.pull_request.paths` lists the same patterns after its markdown exclusion; merge-gate.test.mjs fails on drift.
  */
 export const AGENT_RULE_PATTERNS = [
@@ -142,7 +141,7 @@ export const AGENT_RULE_PATTERNS = [
 ];
 
 /** Mirror of `on.pull_request.paths` in .github/workflows/ci.yml (merge-gate.test.mjs fails if they drift). */
-export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE', 'INTAFACED_DEFINITIVE_BUILD.md', ...AGENT_RULE_PATTERNS];
+export const CI_PR_PATHS = ['**', 'INTAFACED_DEFINITIVE_BUILD.md', ...AGENT_RULE_PATTERNS];
 
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
 

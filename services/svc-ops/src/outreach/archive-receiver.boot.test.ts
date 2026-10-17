@@ -16,6 +16,8 @@ const fixtureEnvironment = (url: string, port: number) => ({
   OPS_ERASURE_ARCHIVE_TLS_INGRESS: 'trusted_loopback',
   OPS_ERASURE_ARCHIVE_PORT: String(port),
 });
+// A compiled child can take well over 12 s to boot on a CPU-starved CI runner.
+const CHILD_KILL_MS = 30_000;
 function child(environment: NodeJS.ProcessEnv) {
   const process = spawn(globalThis.process.execPath, [entry], { env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '',
@@ -26,7 +28,7 @@ function child(environment: NodeJS.ProcessEnv) {
   process.stdout.on('data', (chunk) => {
     stdout += String(chunk);
   });
-  const timeout = setTimeout(() => process.kill('SIGKILL'), 12000);
+  const timeout = setTimeout(() => process.kill('SIGKILL'), CHILD_KILL_MS);
   timeout.unref();
   const done = once(process, 'exit')
     .then(([code, signal]) => ({ code, signal, stderr, stdout }))
@@ -37,8 +39,8 @@ it('compiled configuration failure emits only a fixed code', async () => {
   const run = child({ OPS_ERASURE_ARCHIVE_URL: 'redaction-fixture-private-input' });
   const result = await run.done;
   expect(result).toEqual({ code: 1, signal: null, stderr: 'ops.crm.archive_startup_failed\n', stdout: '' });
-}, 15000);
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receiver owned boot boundary', () => {
+}, 45_000);
+describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receiver owned boot boundary', { timeout: 60_000 }, () => {
   let db: TestDatabase;
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'ops' });
@@ -77,8 +79,11 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
     try {
       let live = false;
       let lastStatus: number | null = null;
-      const deadline = Date.now() + 11_000;
-      while (!live && Date.now() < deadline && run.process.exitCode === null) {
+      // Poll until the process is live, has exited, or its own kill is about to fire.
+      // A fixed 10s or 11s cap ended while a starved CI boot was still starting.
+      const deadline = Date.now() + CHILD_KILL_MS - 1_000;
+      const childAlive = () => run.process.exitCode === null && run.process.signalCode === null;
+      while (!live && Date.now() < deadline && childAlive()) {
         try {
           const response = await fetch(url, {
             method: 'POST',
@@ -90,7 +95,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
         } catch {
           /* Wait for this owned process only. */
         }
-        if (!live && run.process.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 25));
+        if (!live && childAlive()) await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(live, `archive receiver not live (status ${String(lastStatus)}, exit ${String(run.process.exitCode)})`).toBe(true);
       run.process.kill('SIGTERM');
@@ -102,5 +107,5 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
         await run.done;
       }
     }
-  }, 15_000);
+  }, 45_000);
 });
