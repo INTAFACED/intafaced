@@ -4,6 +4,7 @@ import {
   PAY_CAP_KINDS,
   PAY_HALT_ERROR_CODES,
   PAY_HALT_SCOPES,
+  conversionLateFillBookProposeInputSchema,
   conversionLateFillProposeInputSchema,
   conversionQuoteInputSchema,
   conversionResolveConfirmInputSchema,
@@ -13,6 +14,7 @@ import {
   founderControlAuditListInputSchema,
   founderPendingChangeSchema,
   founderMerchantDrilldownSchema,
+  kybDecisionBindingSchema,
   founderMerchantListInputSchema,
   founderMerchantListSchema,
   founderMerchantRowSchema,
@@ -27,6 +29,7 @@ import {
   merchantControlChangeInputSchema,
   merchantMetricsInputSchema,
   payAmountStringSchema,
+  payStatementLineSchema,
   payCapSchema,
   payHaltSetInputSchema,
   payHaltStatusSchema,
@@ -70,6 +73,10 @@ describe('pay contracts: money and ids', () => {
     expect(conversionLateFillProposeInputSchema.safeParse(lateFill).success).toBe(true);
     expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, filled: '1' }).success).toBe(false);
     expect(conversionLateFillProposeInputSchema.safeParse({ ...lateFill, settlement: '   ' }).success).toBe(false);
+    const lateFillBook = { requestId: randomUUID(), auditId: randomUUID(), reason: 'book the venue fill' };
+    expect(conversionLateFillBookProposeInputSchema.safeParse(lateFillBook).success).toBe(true);
+    expect(conversionLateFillBookProposeInputSchema.safeParse({ ...lateFillBook, filled: '1' }).success).toBe(false);
+    expect(conversionLateFillBookProposeInputSchema.safeParse({ ...lateFillBook, fromAmount: '100' }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'daily_intake', assetCode: 'USD', limit: 1000 }).success).toBe(false);
     expect(payCapSchema.safeParse({ kind: 'beneficiaries_per_day', limit: 5 }).success).toBe(true);
   });
@@ -505,5 +512,63 @@ describe('pay contracts: founder cursors and destination reveal', () => {
       }).success,
     ).toBe(true);
     expect(founderApprovalDestinationSchema.safeParse({ ...approval, destinationRef: ref }).success).toBe(false);
+  });
+
+  it('a KYB decision binding is the identity fields and the hash', () => {
+    const row = {
+      merchantId,
+      legalName: 'Shop Ltd',
+      address: null,
+      statementDescriptor: 'SHOP',
+      industry: 'Retail',
+      identityHash: `sha256:${'ab'.repeat(32)}`,
+    };
+    expect(kybDecisionBindingSchema.parse(row)).toEqual(row);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, profileVersion: '1' }).success).toBe(false);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, website: 'https://shop.example' }).success).toBe(false);
+    expect(kybDecisionBindingSchema.safeParse({ ...row, identityHash: 'not-a-hash' }).success).toBe(false);
+  });
+});
+
+describe('statement lines', () => {
+  const line = {
+    id: randomUUID(),
+    merchantId,
+    at: '2026-06-15T12:00:00.000Z',
+    assetId: 'USDT',
+    kind: 'payout' as const,
+    amount: '9.75',
+    account: 'proceeds' as const,
+    direction: 'credit' as const,
+    runningClearing: null,
+    runningProceeds: null,
+    windowNet: '-9.75',
+    runningOrder: 'clear' as const,
+    runningReason: 'no_opening' as const,
+    paymentId: null,
+    settlementId: randomUUID(),
+    ledgerTxId: randomUUID(),
+  };
+
+  it('accepts a signed window net and the three running reasons', () => {
+    expect(payStatementLineSchema.safeParse(line).success).toBe(true);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: '0', runningReason: 'no_opening' }).success).toBe(true);
+    expect(
+      payStatementLineSchema.safeParse({
+        ...line,
+        windowNet: null,
+        runningReason: null,
+        runningOrder: 'clear',
+        runningClearing: '6',
+        runningProceeds: '0',
+      }).success,
+    ).toBe(true);
+    expect(
+      payStatementLineSchema.safeParse({ ...line, windowNet: null, runningReason: 'order_ambiguous', runningOrder: 'order_ambiguous' })
+        .success,
+    ).toBe(true);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: '-1e2' }).success).toBe(false);
+    expect(payStatementLineSchema.safeParse({ ...line, windowNet: -9.75 }).success).toBe(false);
+    expect(payStatementLineSchema.safeParse({ ...line, runningReason: 'negative' }).success).toBe(false);
   });
 });

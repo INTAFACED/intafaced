@@ -251,6 +251,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
         rowCount: 312,
         sha256: 'cd'.repeat(32),
         requestedBy: USER_ID,
+        columns: ['payment_id', 'amount'],
+        generatedAt: iso(now - 3590_000),
         asOf: iso(now - 3600_000),
         expiresAt: null,
         createdAt: iso(now - 3600_000),
@@ -267,6 +269,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
         rowCount: null,
         sha256: null,
         requestedBy: USER_ID,
+        columns: ['settlement_id', 'net'],
+        generatedAt: null,
         asOf: null,
         expiresAt: null,
         createdAt: iso(now - 2 * DAY),
@@ -729,7 +733,13 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
         return q ? ok(route, q) : refuse(route, 412, 'pay.pricing_unconfigured');
       }
       case 'merchantControl.approvals.list':
-        return ok(route, approvals.filter((a) => !input.status || a.status === input.status).slice(0, input.limit ?? 50));
+        return ok(
+          route,
+          page(
+            approvals.filter((a) => !input.status || a.status === input.status),
+            input,
+          ),
+        );
       case 'merchantControl.approvals.decide': {
         const a = approvals.find((x) => x.approvalId === input.approvalId);
         if (!a) return refuse(route, 404, 'pay.approval_not_found');
@@ -970,6 +980,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
           rowCount: null,
           sha256: null,
           requestedBy: USER_ID,
+          columns: [],
+          generatedAt: null,
           asOf: null,
           expiresAt: null,
           createdAt: iso(Date.now()),
@@ -984,6 +996,7 @@ export function createPortalMock(scenario = 'active', { now = Date.now() } = {})
               sizeBytes: '1024',
               rowCount: 12,
               sha256: 'ef'.repeat(32),
+              generatedAt: iso(Date.now()),
               asOf: iso(Date.now()),
               completedAt: iso(Date.now()),
             }),

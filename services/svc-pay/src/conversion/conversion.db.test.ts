@@ -33,6 +33,14 @@ import {
 import { ConversionError } from './errors.js';
 import { PayHaltStore } from '../halts/store.js';
 import { createMemoryConversionVenue, type ConversionVenue, type MemoryFill } from './venue.js';
+import {
+  CONVERSION_LATE_FILL_HORIZON_MS,
+  CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK,
+  HOLD_SWEEP_LOCK_A,
+  HOLD_SWEEP_LOCK_B,
+  LATE_FILL_SWEEP_LOCK_A,
+  LATE_FILL_SWEEP_LOCK_B,
+} from './late-fill-schedule.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -79,6 +87,7 @@ describe('W6 USD to USDT conversion', () => {
 
   afterEach(async () => {
     await db.sql`UPDATE pay.halts SET halted = false WHERE halted`;
+    await db.sql`DELETE FROM pay.conversion_late_fill_books`;
     await db.sql`DELETE FROM pay.conversion_late_fill_acks`;
     await db.sql`DELETE FROM pay.conversion_resolve_proposals`;
     await db.sql`DELETE FROM pay.conversion_audit`;
@@ -1075,8 +1084,8 @@ describe('W6 USD to USDT conversion', () => {
     venue.refuseNext(new Error('venue timeout'));
     await expect(svc.execute(who.caller, { requestId: randomUUID(), quoteId: live.quoteId })).rejects.toThrow(/venue timeout/);
     const sweeper = randomUUID();
-    expect(await svc.sweepOrphanHolds(sweeper)).toEqual({ released: 2, failures: [] });
-    expect(await svc.sweepOrphanHolds(sweeper)).toEqual({ released: 0, failures: [] });
+    expect(await svc.sweepOrphanHolds(sweeper)).toEqual({ released: 2, failures: [], busy: false });
+    expect(await svc.sweepOrphanHolds(sweeper)).toEqual({ released: 0, failures: [], busy: false });
     const actors = await db.sql<Array<{ actor_id: string }>>`
       SELECT actor_id FROM pay.conversion_audit WHERE action = 'hold_swept'
     `;
@@ -1761,9 +1770,399 @@ describe('W6 USD to USDT conversion', () => {
     const sweeper = randomUUID();
     const result = await svc.sweepOrphanHolds(sweeper);
     expect(result.released).toBe(1);
+    expect(result.busy).toBe(false);
     expect(result.failures).toEqual([{ conversionId: stuck, code: 'ledger.idempotency_conflict' }]);
     const actors = await db.sql<Array<{ actor_id: string }>>`SELECT actor_id FROM pay.conversion_audit WHERE action = 'hold_swept'`;
     expect(actors.map((entry) => entry.actor_id)).toEqual([sweeper]);
     await expect(svc.sweepOrphanHolds('   ')).rejects.toMatchObject({ code: 'pay.conversion_unauthenticated' });
+  });
+
+  async function absentResolved(): Promise<{
+    who: { userId: string; merchantId: string; settlementId: string; caller: Principal };
+    ledger: MemoryLedger;
+    svc: ConversionService;
+    orderId: string;
+    clientOrderId: string;
+    claimMs: number;
+    setNow: (ms: number) => void;
+    nowMs: () => number;
+    calls: { n: number };
+    plant: (order: VenueOrder | null) => void;
+  }> {
+    const who = await merchant();
+    const ledger = new MemoryLedger();
+    await fund(ledger, who.merchantId);
+    const venue = memory(() => full);
+    let nowMs = Date.now();
+    let planted: VenueOrder | null = null;
+    const calls = { n: 0 };
+    const innerOrder = venue.fetchOrder.bind(venue);
+    const innerClosed = venue.fetchClosedOrder.bind(venue);
+    venue.fetchOrder = async (symbol, clientOrderId) => {
+      calls.n += 1;
+      return planted ? null : innerOrder(symbol, clientOrderId);
+    };
+    venue.fetchClosedOrder = async (symbol, clientOrderId, window) => {
+      calls.n += 1;
+      if (planted) return planted;
+      return innerClosed(symbol, clientOrderId, window);
+    };
+    const svc = service(venue, { ledger, placingMaxAgeMs: 60_000, now: () => new Date(nowMs) });
+    const quote = await svc.quote(who.caller, bodyOf(who, '100'));
+    venue.refuseNext(new Error('venue timeout'));
+    const requestId = randomUUID();
+    await expect(svc.execute(who.caller, { requestId, quoteId: quote.quoteId })).rejects.toThrow(/venue timeout/);
+    const claimed = await db.sql<Array<{ id: string; placing_at: Date; client_order_id: string }>>`
+      SELECT id, placing_at, client_order_id FROM pay.conversion_orders WHERE request_id = ${requestId}
+    `;
+    const claimMs = new Date(claimed[0]!.placing_at).getTime();
+    nowMs = claimMs + 20 * 60 * 1000;
+    const proposal = await svc.proposeResolve(randomUUID(), {
+      requestId: randomUUID(),
+      conversionId: claimed[0]!.id,
+      reason: 'no order',
+    });
+    nowMs = claimMs + 26 * 60 * 1000;
+    const released = await svc.confirmResolve(randomUUID(), {
+      requestId: proposal.requestId,
+      decision: 'confirm',
+      reason: 'second miss',
+      expectedChangeHash: proposal.changeHash!,
+    });
+    expect(released.order?.failureCode).toBe('pay.conversion_resolve_absent');
+    calls.n = 0;
+    return {
+      who,
+      ledger,
+      svc,
+      orderId: claimed[0]!.id,
+      clientOrderId: claimed[0]!.client_order_id,
+      claimMs,
+      setNow: (ms) => {
+        nowMs = ms;
+      },
+      nowMs: () => nowMs,
+      calls,
+      plant: (order) => {
+        planted = order;
+      },
+    };
+  }
+
+  function plantedFill(clientOrderId: string, claimMs: number, filled: Amount = HUNDRED): VenueOrder {
+    return {
+      venueId: 'binance-spot',
+      venueOrderId: 'late-book',
+      clientOrderId,
+      symbol: 'USD/USDT',
+      side: 'sell',
+      type: 'limit',
+      price: RATE,
+      amount: HUNDRED,
+      filled,
+      remaining: 0n,
+      averagePrice: RATE,
+      status: 'filled',
+      feePaid: 0n,
+      feeAsset: null,
+      createdAt: new Date(claimMs),
+      observedAt: new Date(claimMs),
+    };
+  }
+
+  it('bounds late-fill rechecks: lock, backoff, tick cap, and the 7-day horizon', async () => {
+    const absent = await absentResolved();
+    const held = await db.sql.reserve();
+    try {
+      await held`SELECT pg_advisory_lock(${LATE_FILL_SWEEP_LOCK_A}, ${LATE_FILL_SWEEP_LOCK_B})`;
+      expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ checked: 0, found: 0, busy: true });
+      expect(absent.calls.n).toBe(0);
+    } finally {
+      await held`SELECT pg_advisory_unlock(${LATE_FILL_SWEEP_LOCK_A}, ${LATE_FILL_SWEEP_LOCK_B})`;
+      held.release();
+    }
+    expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ checked: 1, found: 0, busy: false, finalized: 0 });
+    expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ checked: 0, found: 0, busy: false });
+    absent.setNow(absent.nowMs() + 61_000);
+    expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ checked: 1, found: 0 });
+    absent.setNow(absent.nowMs() + 61_000);
+    expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ checked: 0, found: 0 });
+
+    const quote = await db.sql<Array<{ quote_id: string }>>`SELECT quote_id FROM pay.conversion_orders WHERE id = ${absent.orderId}`;
+    for (let i = 0; i < CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK + 1; i++) {
+      const quoteId = randomUUID();
+      const orderId = randomUUID();
+      const attempt = i + 2;
+      await db.sql`
+        INSERT INTO pay.conversion_quotes (
+          id, merchant_id, settlement_id, from_asset, to_asset, from_amount, rate, fee_amount, spread_amount,
+          minimum_output, expected_output, gross_output, commission_rate, venue_id, symbol, expires_at
+        )
+        SELECT ${quoteId}, merchant_id, settlement_id, from_asset, to_asset, from_amount, rate, fee_amount, spread_amount,
+               minimum_output, expected_output, gross_output, commission_rate, venue_id, symbol, expires_at
+          FROM pay.conversion_quotes WHERE id = ${quote[0]!.quote_id}
+      `;
+      await db.sql`
+        INSERT INTO pay.conversion_orders (
+          id, request_id, quote_id, merchant_id, settlement_id, attempt, client_order_id, venue_id, symbol,
+          status, from_asset, to_asset, from_amount, filled_from_amount, filled_to_amount,
+          fee_amount, spread_amount, minimum_output, failure_code, placing_at
+        )
+        SELECT ${orderId}, ${randomUUID()}, ${quoteId}, merchant_id, settlement_id, ${attempt},
+               ${conversionClientOrderId(absent.who.settlementId, attempt)}, venue_id, symbol,
+               status, from_asset, to_asset, from_amount, 0, 0,
+               fee_amount, spread_amount, minimum_output, failure_code, placing_at
+          FROM pay.conversion_orders WHERE id = ${absent.orderId}
+      `;
+    }
+    const capped = await absent.svc.sweepLateFills('late-fill-sweep', { force: true });
+    expect(capped.checked).toBe(CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK);
+    const unchecked = await db.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.conversion_orders
+       WHERE failure_code = 'pay.conversion_resolve_absent' AND last_checked_at IS NULL
+    `;
+    expect(unchecked[0]!.n).toBeGreaterThan(0);
+
+    const resolved = await db.sql<Array<{ decided_at: Date }>>`
+      SELECT decided_at FROM pay.conversion_resolve_proposals
+       WHERE conversion_id = ${absent.orderId} AND status = 'confirmed' AND venue_lookup = 'absent'
+    `;
+    const resolvedAt = new Date(resolved[0]!.decided_at).getTime();
+    const staleClaim = new Date(resolvedAt - 8 * 24 * 60 * 60 * 1000);
+    const copy = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_orders
+       WHERE failure_code = 'pay.conversion_resolve_absent' AND id <> ${absent.orderId}
+       LIMIT 1
+    `;
+    await db.sql`
+      UPDATE pay.conversion_orders SET placing_at = ${staleClaim}
+       WHERE id IN (${absent.orderId}, ${copy[0]!.id})
+    `;
+    absent.setNow(resolvedAt + 60_000);
+    await absent.svc.sweepLateFills('late-fill-sweep', { force: true });
+    const openOriginal = await db.sql<Array<{ late_fill_check_final_at: Date | null }>>`
+      SELECT late_fill_check_final_at FROM pay.conversion_orders WHERE id = ${absent.orderId}
+    `;
+    const closedCopy = await db.sql<Array<{ late_fill_check_final_at: Date | null }>>`
+      SELECT late_fill_check_final_at FROM pay.conversion_orders WHERE id = ${copy[0]!.id}
+    `;
+    expect(openOriginal[0]!.late_fill_check_final_at).toBeNull();
+    expect(closedCopy[0]!.late_fill_check_final_at).not.toBeNull();
+
+    absent.setNow(Math.max(absent.claimMs, resolvedAt) + CONVERSION_LATE_FILL_HORIZON_MS + 1_000);
+    const closed = await absent.svc.sweepLateFills('late-fill-sweep', { force: true });
+    expect(closed.checked).toBe(0);
+    expect(closed.finalized).toBeGreaterThan(0);
+    const finals = await db.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.conversion_orders
+       WHERE failure_code = 'pay.conversion_resolve_absent' AND late_fill_check_final_at IS NOT NULL
+    `;
+    expect(finals[0]!.n).toBe(CONVERSION_LATE_FILL_VENUE_CALLS_PER_TICK + 2);
+    const callsAfterHorizon = absent.calls.n;
+    expect(await absent.svc.sweepLateFills(randomUUID(), { force: true })).toMatchObject({ checked: 0, finalized: 0 });
+    expect(absent.calls.n).toBe(callsAfterHorizon);
+
+    const holdLock = await db.sql.reserve();
+    try {
+      await holdLock`SELECT pg_advisory_lock(${HOLD_SWEEP_LOCK_A}, ${HOLD_SWEEP_LOCK_B})`;
+      expect(await absent.svc.sweepOrphanHolds(randomUUID())).toEqual({ released: 0, failures: [], busy: true });
+    } finally {
+      await holdLock`SELECT pg_advisory_unlock(${HOLD_SWEEP_LOCK_A}, ${HOLD_SWEEP_LOCK_B})`;
+      holdLock.release();
+    }
+  });
+
+  it('books a late fill from venue evidence, and inventory when clearing cannot cover', async () => {
+    const absent = await absentResolved();
+    absent.plant(plantedFill(absent.clientOrderId, absent.claimMs));
+    expect(await absent.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ found: 1 });
+    const audit = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_audit WHERE conversion_id = ${absent.orderId} AND action = 'pay.conversion_late_fill'
+    `;
+    const founderA = randomUUID();
+    const founderB = randomUUID();
+    await db.sql`UPDATE pay.conversion_orders SET fee_amount = 2, spread_amount = 1, minimum_output = 90 WHERE id = ${absent.orderId}`;
+    const proposed = await absent.svc.proposeLateFillBook(founderA, {
+      requestId: randomUUID(),
+      auditId: audit[0]!.id,
+      reason: 'venue filled after the release',
+    });
+    expect(proposed.status).toBe('pending');
+    await expect(
+      absent.svc.confirmLateFillBook(founderA, {
+        requestId: proposed.requestId,
+        decision: 'confirm',
+        reason: 'same person',
+        expectedChangeHash: proposed.changeHash!,
+      }),
+    ).resolves.toMatchObject({ status: 'same_founder' });
+    await expect(
+      absent.svc.confirmLateFillBook(founderB, {
+        requestId: proposed.requestId,
+        decision: 'confirm',
+        reason: 'wrong hash',
+        expectedChangeHash: `sha256:${'ab'.repeat(32)}`,
+      }),
+    ).resolves.toMatchObject({ status: 'hash_mismatch' });
+    absent.plant(plantedFill(absent.clientOrderId, absent.claimMs, parseAmount('50')));
+    await expect(
+      absent.svc.confirmLateFillBook(founderB, {
+        requestId: proposed.requestId,
+        decision: 'confirm',
+        reason: 'evidence moved',
+        expectedChangeHash: proposed.changeHash!,
+      }),
+    ).resolves.toMatchObject({ status: 'evidence_changed', order: null });
+    expect((await absent.ledger.balance(merchantClearing(absent.who.merchantId, 'USD'))).amount).toBe(HUNDRED);
+    expect((await absent.ledger.balance(userAvailable(absent.who.userId, 'USDT'))).amount).toBe(0n);
+
+    absent.plant(plantedFill(absent.clientOrderId, absent.claimMs));
+    const booked = await absent.svc.confirmLateFillBook(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'second founder',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(booked).toMatchObject({ status: 'confirmed', funding: 'merchant' });
+    expect(booked.order?.status).toBe('filled');
+    expect((await absent.ledger.balance(merchantClearing(absent.who.merchantId, 'USD'))).amount).toBe(0n);
+    expect((await absent.ledger.balance(userAvailable(absent.who.userId, 'USDT'))).amount).toBe(parseAmount('97'));
+    expect((await absent.ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(parseAmount('3'));
+    expect((await absent.ledger.balance(conversionInventory('USD'))).amount).toBe(0n);
+    expect(absent.ledger.reconcile()).toEqual({ ok: true });
+    const again = await absent.svc.confirmLateFillBook(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'retry',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(again.status).toBe('confirmed');
+    expect((await absent.ledger.balance(userAvailable(absent.who.userId, 'USDT'))).amount).toBe(parseAmount('97'));
+    expect(
+      await absent.svc.proposeLateFillBook(founderA, { requestId: randomUUID(), auditId: audit[0]!.id, reason: 'again' }),
+    ).toMatchObject({ status: 'already_booked' });
+    const bookedSentence = `booked via late-fill book ${proposed.requestId}`;
+    const acked = await db.sql<Array<{ settlement: string; status: string; proposed_by: string; confirmed_by: string }>>`
+      SELECT settlement, status, proposed_by, confirmed_by
+        FROM pay.conversion_late_fill_acks
+       WHERE audit_id = ${audit[0]!.id}
+    `;
+    expect(acked).toEqual([{ settlement: bookedSentence, status: 'confirmed', proposed_by: founderA, confirmed_by: founderB }]);
+    const noted = await db.sql<Array<{ detail: { settlement?: string } }>>`
+      SELECT detail FROM pay.conversion_audit
+       WHERE conversion_id = ${absent.orderId} AND action = 'pay.conversion_late_fill_acknowledged'
+    `;
+    expect(noted[0]?.detail.settlement).toBe(bookedSentence);
+    expect(await absent.svc.quote(absent.who.caller, bodyOf(absent.who, '1'))).toMatchObject({ quoteId: expect.any(String) });
+    expect(
+      await absent.svc.proposeLateFillAck(founderA, {
+        requestId: randomUUID(),
+        auditId: audit[0]!.id,
+        settlement: bookedSentence,
+        reason: 'already booked',
+      }),
+    ).toMatchObject({ status: 'already_acked' });
+
+    const short = await absentResolved();
+    short.plant(plantedFill(short.clientOrderId, short.claimMs));
+    expect(await short.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ found: 1 });
+    await short.ledger.post(
+      recipes.fxConversionHold({
+        conversionId: randomUUID(),
+        merchantId: short.who.merchantId,
+        fromAsset: 'USD',
+        amount: parseAmount('60'),
+      }),
+    );
+    expect((await short.ledger.balance(merchantClearing(short.who.merchantId, 'USD'))).amount).toBe(parseAmount('40'));
+    const shortAudit = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_audit WHERE conversion_id = ${short.orderId} AND action = 'pay.conversion_late_fill'
+    `;
+    const shortProposal = await short.svc.proposeLateFillBook(founderA, {
+      requestId: randomUUID(),
+      auditId: shortAudit[0]!.id,
+      reason: 'clearing was spent',
+    });
+    const covered = await short.svc.confirmLateFillBook(founderB, {
+      requestId: shortProposal.requestId,
+      decision: 'confirm',
+      reason: 'inventory covers',
+      expectedChangeHash: shortProposal.changeHash!,
+    });
+    expect(covered).toMatchObject({ status: 'confirmed', funding: 'inventory' });
+    expect((await short.ledger.balance(merchantClearing(short.who.merchantId, 'USD'))).amount).toBe(parseAmount('40'));
+    expect((await short.ledger.balance(userAvailable(short.who.userId, 'USDT'))).amount).toBe(0n);
+    expect((await short.ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(0n);
+    expect((await short.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
+    expect((await short.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
+    const shortfall = await db.sql<Array<{ detail: { fromAmount?: string; clearingAmount?: string } }>>`
+      SELECT detail FROM pay.conversion_audit
+       WHERE conversion_id = ${short.orderId} AND action = 'pay.conversion_late_fill_shortfall'
+    `;
+    expect(shortfall).toHaveLength(1);
+    expect(shortfall[0]!.detail.fromAmount).toBe('100');
+    expect(shortfall[0]!.detail.clearingAmount).toBe('40');
+    await short.svc.confirmLateFillBook(founderB, {
+      requestId: shortProposal.requestId,
+      decision: 'confirm',
+      reason: 'retry',
+      expectedChangeHash: shortProposal.changeHash!,
+    });
+    expect((await short.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
+    expect((await short.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
+    expect((await short.ledger.balance(userAvailable(short.who.userId, 'USDT'))).amount).toBe(0n);
+    expect(short.ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('books a below-minimum late fill onto inventory and leaves the merchant USD', async () => {
+    const under = await absentResolved();
+    under.plant(plantedFill(under.clientOrderId, under.claimMs));
+    expect(await under.svc.sweepLateFills('late-fill-sweep')).toMatchObject({ found: 1 });
+    await db.sql`
+      UPDATE pay.conversion_orders
+         SET fee_amount = 2, spread_amount = 1, minimum_output = 1000
+       WHERE id = ${under.orderId}
+    `;
+    const founderA = randomUUID();
+    const founderB = randomUUID();
+    const audit = await db.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.conversion_audit WHERE conversion_id = ${under.orderId} AND action = 'pay.conversion_late_fill'
+    `;
+    const prior = await under.svc.proposeLateFillAck(founderA, {
+      requestId: randomUUID(),
+      auditId: audit[0]!.id,
+      settlement: 'sentence before the book',
+      reason: 'started an acknowledgement',
+    });
+    expect(prior.status).toBe('pending');
+    const proposed = await under.svc.proposeLateFillBook(founderA, {
+      requestId: randomUUID(),
+      auditId: audit[0]!.id,
+      reason: 'fill is under the floor',
+    });
+    expect(proposed.status).toBe('pending');
+    const booked = await under.svc.confirmLateFillBook(founderB, {
+      requestId: proposed.requestId,
+      decision: 'confirm',
+      reason: 'inventory takes the venue position',
+      expectedChangeHash: proposed.changeHash!,
+    });
+    expect(booked).toMatchObject({ status: 'confirmed', funding: 'inventory' });
+    expect((await under.ledger.balance(merchantClearing(under.who.merchantId, 'USD'))).amount).toBe(HUNDRED);
+    expect((await under.ledger.balance(userAvailable(under.who.userId, 'USDT'))).amount).toBe(0n);
+    expect((await under.ledger.balance(houseFees('pay', 'USDT'))).amount).toBe(0n);
+    expect((await under.ledger.balance(conversionInventory('USD'))).amount).toBe(-HUNDRED);
+    expect((await under.ledger.balance(conversionInventory('USDT'))).amount).toBe(HUNDRED);
+    expect(under.ledger.reconcile()).toEqual({ ok: true });
+    const sentence = `booked via late-fill book ${proposed.requestId}`;
+    const acks = await db.sql<Array<{ request_id: string; settlement: string; status: string }>>`
+      SELECT request_id, settlement, status FROM pay.conversion_late_fill_acks
+       WHERE audit_id = ${audit[0]!.id}
+       ORDER BY status
+    `;
+    expect(acks).toEqual([
+      { request_id: expect.any(String), settlement: sentence, status: 'confirmed' },
+      { request_id: prior.requestId, settlement: 'sentence before the book', status: 'rejected' },
+    ]);
   });
 });

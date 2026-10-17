@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  aliases,
   colors,
   controlHeights,
   cssValue,
@@ -100,6 +101,11 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
     ['on-up', 'up'],
     ['fg', 'down'],
     ['lime', 'bg'],
+    ['error-text', 'bg'],
+    ['error-text', 'panel'],
+    ['error-text', 'field'],
+    ['fg-2', 'field'],
+    ['warn-text', 'bg'],
   ] as const)('%s on %s is at least 4.5:1', (fg, bg) => {
     expect(contrast(colors[fg], colors[bg])).toBeGreaterThanOrEqual(4.5);
   });
@@ -114,6 +120,47 @@ describe('contrast (WCAG 2.2 AA) on the surfaces the tokens sit on', () => {
 
   it('only overrides tokens that exist', () => {
     for (const key of Object.keys(redUpOverrides)) expect(key in colors).toBe(true);
+  });
+});
+
+describe('kit additions (feat/ui-kit-core)', () => {
+  it('adds the table and control sizes without changing an existing one', () => {
+    expect(sizes['ctl-h']).toBe('44px');
+    expect(sizes['ctl-h-dense']).toBe('32px');
+    expect(sizes['table-row-h']).toBe('44px');
+    expect(sizes['table-row-h-dense']).toBe('32px');
+    expect(sizes['table-head-h']).toBe('39px');
+    expect(sizes['table-head-h-dense']).toBe('28px');
+    expect(sizes['row-h']).toBe('60px');
+    expect(sizes['book-row-h']).toBe('22px');
+  });
+
+  it('keeps --if-base as an alias of --if-bg, never a second value', () => {
+    expect(aliases.base).toBe('var(--if-bg)');
+    expect(css).toContain('--if-base: var(--if-bg);');
+  });
+
+  it('names the error pair so it cannot collide with the legacy --if-danger', () => {
+    expect(colors.error).toBe('#FF5D73');
+    expect(colors['error-text']).toBe('#F57A8A');
+    expect(css).not.toContain('--if-danger');
+  });
+
+  it('only --if-font-mono and --if-warn (plus the base/bg alias pair) differ from the legacy admin stylesheet', () => {
+    const legacy = readFileSync(join(here, '../tokens.css'), 'utf8');
+    const decls = (text: string) =>
+      new Map([...text.matchAll(/^\s*(--if-[a-z0-9-]+)\s*:\s*([^;]+);/gm)].map((m) => [m[1]!, m[2]!.trim().toLowerCase()]));
+    const mine = decls(css);
+    const theirs = decls(legacy);
+    const different = [...mine.keys()].filter((k) => theirs.has(k) && theirs.get(k) !== mine.get(k)).sort();
+    // --if-base and --if-bg differ only in spelling (each file points one at the other, both resolve to black).
+    // A new name in this list means two stylesheets disagree: rename the new token or alias it, do not add it here.
+    expect(different).toEqual(['--if-base', '--if-bg', '--if-font-mono', '--if-warn']);
+  });
+
+  it('maps the error colours into Tailwind', () => {
+    expect(themeCss).toContain('--color-error: var(--if-error);');
+    expect(themeCss).toContain('--color-error-text: var(--if-error-text);');
   });
 });
 

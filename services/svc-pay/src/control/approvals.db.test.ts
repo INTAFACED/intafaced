@@ -285,7 +285,9 @@ describe('payout maker-checker', () => {
     await expect(late.payoutSettlement({ settlementId: s.id, railId: 'crypto-native', destination: DEST_A })).rejects.toMatchObject({
       code: 'pay.approval_required',
     });
-    expect((await approvals.list(maker(), { merchantId, limit: 10, status: 'expired' })).map((a) => a.approvalId)).toContain(r3.approvalId);
+    expect((await approvals.list(maker(), { merchantId, limit: 10, status: 'expired' })).items.map((a) => a.approvalId)).toContain(
+      r3.approvalId,
+    );
   });
 
   it('above the founder threshold the merchant checker is not enough: two distinct founders must also sign', async () => {
@@ -350,7 +352,7 @@ describe('payout maker-checker', () => {
     const after = (await approvals.founderQueue({ limit: 50 })).approvals.find((a) => a.approvalId === req.approvalId);
     expect(after?.founderFirstUserId).toBe(FOUNDER_1);
 
-    const listed = (await approvals.list(maker(), { merchantId, limit: 50 })).find((a) => a.approvalId === req.approvalId)!;
+    const listed = (await approvals.list(maker(), { merchantId, limit: 50 })).items.find((a) => a.approvalId === req.approvalId)!;
     const merchantWire = toContractApproval(listed);
     expect(merchantWire).not.toHaveProperty('founderFirstUserId');
     expect(JSON.stringify(merchantWire)).not.toContain(DEST_A.ref);

@@ -9,6 +9,8 @@ import { useAcademyAction, type AcademyAction } from './academy-action';
 import { AcademyGrantRecords } from './AcademyGrantRecords';
 import { AcademyRooms } from './AcademyRooms';
 import { AcademyProgrammes } from './AcademyProgrammes';
+import { AcademyVideos } from './AcademyVideos';
+import { CertificateShelf } from './AcademyCertificates';
 import {
   AcademyLearning,
   certificateDefinitions,
@@ -18,12 +20,11 @@ import {
   rememberCertificate,
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
+import { tabForSection } from './academy-lms';
 export function Academy({ slug, initialPath }: { slug?: string; initialPath?: string }) {
   const { userId } = useSession(),
     action = useAcademyAction();
-  const [tab, setTab] = useState(
-    new URLSearchParams(window.location.search).get('section') === 'certificates' ? 'Certificates' : 'Learning',
-  );
+  const [tab, setTab] = useState(tabForSection(new URLSearchParams(window.location.search).get('section')));
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
   const selected = selection.owner === userId ? selection.id : selectedCertificate(userId);
   useEffect(() => {
@@ -59,7 +60,7 @@ export function Academy({ slug, initialPath }: { slug?: string; initialPath?: st
       ) : tab === 'Rooms' ? (
         <AcademyRooms action={action} />
       ) : tab === 'Videos' ? (
-        <Videos />
+        <AcademyVideos />
       ) : (
         <AcademyProgrammes action={action} />
       )}
@@ -148,6 +149,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
   );
   return (
     <div className="academy-grant-certificates">
+      <CertificateShelf />
       <AcademyGrantRecords
         action={action}
         titles={new Map(definitions.resource.status === 'ready' ? definitions.resource.data.map((row) => [row.id, row.title]) : [])}
@@ -354,70 +356,6 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
           )}
         </Panel>
       </div>
-    </div>
-  );
-}
-function Videos() {
-  const api = useApi(),
-    { userId } = useSession();
-  const [selected, setSelected] = useState('');
-  const list = useResource(
-      (signal) =>
-        api.query('academy', 'videos', undefined, z.array(z.object({ slug: z.string(), title: z.string(), path: z.string() })), { signal }),
-      `videos:${userId}`,
-    ),
-    playback = useResource(
-      (signal) =>
-        selected
-          ? api.query(
-              'academy',
-              'videoPlayback',
-              { slug: selected },
-              z.object({ slug: z.string(), playbackUrl: z.string().url(), expiresAt: z.string(), grant: z.string() }),
-              { signal },
-            )
-          : Promise.resolve({ ok: true as const, data: null }),
-      `video:${userId}:${selected}`,
-    );
-  return (
-    <div className="more-columns">
-      <Panel title={copyText('academy.video.library')}>
-        <Read resource={list.resource} retry={list.reload} empty={copyText('academy.no.videos.are.available')}>
-          {(rows) => (
-            <ul>
-              {rows.map((v) => (
-                <li key={v.slug}>
-                  <Button variant="ghost" onClick={() => setSelected(v.slug)}>
-                    {v.title}
-                  </Button>{' '}
-                  · {v.path}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Read>
-      </Panel>
-      <Panel title={copyText('academy.playback')}>
-        <Read resource={playback.resource} retry={playback.reload} empty={copyText('academy.choose.a.video')}>
-          {(p) =>
-            p ? (
-              Date.parse(p.expiresAt) > Date.now() && p.playbackUrl.startsWith('https:') ? (
-                <>
-                  <video controls style={{ width: '100%' }} src={p.playbackUrl} />
-                  <p className="muted">
-                    <Text k="academy.playback.grant.expires" />
-                    {p.expiresAt}.
-                  </p>
-                </>
-              ) : (
-                <p>
-                  <Text k="academy.the.playback.grant.is.expired.or.cannot" />
-                </p>
-              )
-            ) : null
-          }
-        </Read>
-      </Panel>
     </div>
   );
 }

@@ -49,6 +49,12 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'payHalts.operatorStatus': { founder: true, input: {} },
   'founderAdmin.merchants.list': { founder: true, input: { limit: 10 } },
   'founderAdmin.merchants.drilldown': { founder: true, input: { merchantId, window } },
+  'founderAdmin.merchants.section': { founder: true, input: { merchantId, section: 'profile', limit: 10 } },
+  'founderAdmin.merchants.recent': { founder: true, input: { limit: 10 } },
+  'founderAdmin.payouts.list': { founder: true, input: { limit: 10 } },
+  'founderAdmin.disputes.list': { founder: true, input: { limit: 10 } },
+  'founderAdmin.live.summary': { founder: true, input: {} },
+  'founderAdmin.risk.summary': { founder: true, input: { topN: 5 } },
   'founderAdmin.metrics.global': { founder: true, input: { window } },
   'founderAdmin.metrics.merchant': { founder: true, input: { merchantId, window } },
   'founderAdmin.metrics.merchantSeries': {
@@ -91,6 +97,14 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
   },
   'founderAdmin.conversion.lateFill.sweep': { founder: true, input: {} },
+  'founderAdmin.conversion.lateFill.book.propose': {
+    founder: true,
+    input: { requestId: id(), auditId: id(), reason: 'drill' },
+  },
+  'founderAdmin.conversion.lateFill.book.confirm': {
+    founder: true,
+    input: { requestId: id(), decision: 'reject', reason: 'drill', expectedChangeHash: hash },
+  },
 };
 
 const userId = id();

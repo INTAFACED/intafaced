@@ -470,7 +470,8 @@ test('ordinary banner names missing deployment facts without claiming usable mod
         { exact: true },
       ),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Freeze ledger', exact: true })).toBeDisabled();
+  // The freeze request is disabled until svc-ledger's read returns its version (admin-BACKEND-NEEDS.md #1).
+  await expect(page.getByRole('button', { name: /Ask a second founder to approve the freeze/ })).toBeDisabled();
 });
 
 for (const width of [1440, 390])
@@ -483,7 +484,7 @@ for (const width of [1440, 390])
     await expect(navigation.getByRole('link')).toHaveCount(6);
     const room = page.locator('.mi-room-intro');
     await expect(room).toHaveText(
-      'Inspect the selected module’s current edge state and historical audit. Module writes remain unavailable.',
+      'Inspect the selected module’s current edge state and historical audit, and ask for a kill or re-enable. Two different operators must agree; this console admits only founders.',
     );
     await expect(room).not.toContainText('§11');
     const registry = page.locator('.mi-registry');
@@ -589,5 +590,6 @@ test('expanded registry preserves the ledger inspection link and refuses an oper
   await expect(link).toHaveAttribute('href', '/ledger');
   await link.click();
   await expect(page.getByRole('heading', { name: 'Ledger operations', level: 1, exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Freeze ledger', exact: true })).toBeDisabled();
+  // The freeze request is disabled until svc-ledger's read returns its version (admin-BACKEND-NEEDS.md #1).
+  await expect(page.getByRole('button', { name: /Ask a second founder to approve the freeze/ })).toBeDisabled();
 });

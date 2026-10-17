@@ -78,6 +78,8 @@ const CREDIT_KEYS = ['TRADE_MAX_ORDER', 'TRADE_MAX_POSITION', 'TRADE_MAX_LOSS'] 
 
 /** Owner-published F5 fixtures — test labels only, never product law. Never copy into jobs/index. */
 const OWNER_PUBLISHED_F5 = { maxOrder: '3', maxPosition: '5', maxLoss: '8' } as const;
+/** Whole quote units (#4725 compares them): roomy enough for a 1 BTC open at 50,000. */
+const ROOMY_F5 = { maxOrder: '1000000', maxPosition: '5000000', maxLoss: '100000' } as const;
 
 function clearCreditEnv(): void {
   for (const key of CREDIT_KEYS) delete process.env[key];
@@ -94,7 +96,9 @@ installPreTradeCredit();
 
 describe('pre-trade credit hitch (source) — no invented caps, no flatten', () => {
   it('pretrade-credit.ts has no default numbers and does not flatten', () => {
-    const mill = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
+    const wrappers = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
+    // The published-integer check moved to pretrade-limits.ts (#4725); the wrappers stay here.
+    const mill = wrappers + readFileSync(join(here, 'pretrade-limits.ts'), 'utf8');
     expect(mill).toMatch(/checkPreTradeCreditDimensions/);
     expect(mill).toMatch(/origPlace\.call/);
     expect(mill).toMatch(/origOpen\.call/);
@@ -109,14 +113,14 @@ describe('pre-trade credit hitch (source) — no invented caps, no flatten', () 
     expect(mill).not.toMatch(/\?\?\s*0/);
     expect(mill).not.toMatch(/n\s*<=\s*0/);
     expect(mill).not.toMatch(/TRADE_MAX_ORDER.{0,80}default/i);
-    const placeStart = mill.indexOf('export function installPreTradeCreditPlace');
-    const openStart = mill.indexOf('export function installPreTradeCreditOpen');
+    const placeStart = wrappers.indexOf('export function installPreTradeCreditPlace');
+    const openStart = wrappers.indexOf('export function installPreTradeCreditOpen');
     expect(placeStart).toBeGreaterThan(-1);
     expect(openStart).toBeGreaterThan(placeStart);
-    const placeFn = mill.slice(placeStart, openStart);
+    const placeFn = wrappers.slice(placeStart, openStart);
     expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
     expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('origPlace.call'));
-    const openFn = mill.slice(openStart);
+    const openFn = wrappers.slice(openStart);
     expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
     expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('origOpen.call'));
   });
@@ -360,7 +364,7 @@ describe('svc-trade pretrade-credit (H8a PG-hard)', () => {
     });
 
     it('published owner integers (test fixtures) admit open — no flatten', async () => {
-      setCreditEnv(OWNER_PUBLISHED_F5);
+      setCreditEnv(ROOMY_F5);
       const pos = await open('f5-published-admit');
       expect(pos.contracts).toBe('1');
       expect(pos.side).toBe('long');

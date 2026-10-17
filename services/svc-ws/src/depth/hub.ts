@@ -734,6 +734,51 @@ export class DepthHub {
     return this.#books.get(marketId);
   }
 
+  /**
+   * A client asked for a fresh snapshot (the multiplexed door's `resync` verb).
+   * It rides the same repair the lag sweep uses — a full `snapshot` of the
+   * hub's CURRENT book — so it cannot disagree with the deltas that follow it:
+   * both are written synchronously from the same book, and the next delta's
+   * `fromSequence` is that snapshot's `sequence`.
+   *
+   *   · `pending`  the connect snapshot has not been written yet; it is the repair.
+   *   · `deferred` the socket is over the high-water mark; the lag sweep repairs
+   *                it on the first tick it has drained (a snapshot queued behind
+   *                an unread backlog would make the backlog worse).
+   *   · `absent`   no proven book. Nothing is invented; the client already knows.
+   */
+  resync(sink: DepthSink): 'sent' | 'pending' | 'deferred' | 'absent' | 'not_subscribed' {
+    let sub: Subscription | undefined;
+    for (const candidate of this.#subscriptions) {
+      if (!candidate.closed && candidate.sink === sink) {
+        sub = candidate;
+        break;
+      }
+    }
+    if (!sub) return 'not_subscribed';
+    if (sub.pending !== null) return 'pending';
+    if (this.isEngineUnavailable(sub.marketId)) {
+      this.#write(sub, depthEngineUnavailableFrame(sub.marketId));
+      return 'sent';
+    }
+    const trading = this.#trading.get(sub.marketId);
+    if (trading !== undefined) {
+      this.#write(sub, depthMatchingTradingFrame(sub.marketId, trading));
+      return 'sent';
+    }
+    const book = this.#books.get(sub.marketId);
+    if (!book || !bookHasRestingDepth(book)) return 'absent';
+    if (isPublishedHighWaterBytes(this.#options.highWaterBytes) && sub.sink.bufferedBytes > this.#options.highWaterBytes) {
+      sub.lagging = true;
+      return 'deferred';
+    }
+    sub.lagging = false;
+    sub.lagTicks = 0;
+    this.#repairs += 1;
+    this.#write(sub, JSON.stringify(toSnapshot(book)));
+    return 'sent';
+  }
+
   /** Matching answered (including 404 no-book). Clears engine-down for this id. */
   noteMatchingReachable(marketId: string): void {
     this.#noteEngineUp(marketId);

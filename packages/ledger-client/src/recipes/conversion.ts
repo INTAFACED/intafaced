@@ -154,6 +154,81 @@ export function fxConversionHold(input: FxConversionHoldInput): PostRequest {
   };
 }
 
+export interface FxConversionLateFillInput extends FxConversionInput {
+  /** The late-fill audit row. The idempotency key. Not an operator amount. */
+  auditId: string;
+  /**
+   * `merchant`: USD leaves the clearing pot the absent-resolve restored, and
+   * the merchant receives the net USDT.
+   * `inventory`: clearing cannot cover, or the fill is under the original
+   * minimum. The merchant keeps the USD already restored. House fx-inventory
+   * takes the venue position. The merchant is not credited, and no fee is taken.
+   */
+  funding: 'merchant' | 'inventory';
+}
+
+/**
+ * Book a late fill the venue had, after the hold was already released.
+ *
+ * `merchant` matches `fxConversion` except the USD source. That hold is gone:
+ * the resolve put the USD back in clearing. This post spends clearing, credits
+ * the merchant the net to-asset, and sends fee and spread to house revenue.
+ *
+ * `inventory` is the uncovered case and the below-minimum case. The merchant
+ * already has the USD back. Crediting them USDT as well would pay them twice.
+ * The venue legs are booked the same way the order books them, and both sides
+ * land on fx-inventory: USD goes short by the filled from-amount, USDT is the
+ * gross the venue delivered. No merchant leg. No fee leg.
+ *
+ * One key per audit row. A retry of the same audit is the same post. A second
+ * body under that key conflicts.
+ */
+export function fxConversionLateFill(input: FxConversionLateFillInput): PostRequest {
+  assertInput(input);
+  if (!input.auditId.trim()) throw new InvalidEntryError('auditId is required');
+  if (input.funding !== 'merchant' && input.funding !== 'inventory') {
+    throw new InvalidEntryError('late fill funding must be merchant or inventory');
+  }
+  const grossTo = input.toAmount + input.feeAmount + input.spreadAmount;
+  const meta = {
+    auditId: input.auditId.trim(),
+    conversionId: input.conversionId,
+    merchantId: input.merchantId,
+    venueId: input.venueId,
+    funding: input.funding,
+    fromAsset: input.fromAsset,
+    toAsset: input.toAsset,
+  };
+  if (input.funding === 'inventory') {
+    return {
+      idempotencyKey: `pay.conversion.late:${input.auditId.trim()}`,
+      module: 'pay',
+      reason: 'pay.conversion.late_shortfall',
+      meta,
+      entries: [
+        credit(conversionInventory(input.fromAsset), input.fromAmount),
+        debit(venueBoundary(input.venueId, input.fromAsset), input.fromAmount),
+        credit(venueBoundary(input.venueId, input.toAsset), grossTo),
+        debit(conversionInventory(input.toAsset), grossTo),
+      ],
+    };
+  }
+  return {
+    idempotencyKey: `pay.conversion.late:${input.auditId.trim()}`,
+    module: 'pay',
+    reason: 'pay.conversion.late_booked',
+    meta,
+    entries: [
+      credit(merchantClearing(input.merchantId, input.fromAsset), input.fromAmount),
+      debit(venueBoundary(input.venueId, input.fromAsset), input.fromAmount),
+      credit(venueBoundary(input.venueId, input.toAsset), grossTo),
+      debit(userAvailable(input.merchantUserId, input.toAsset), input.toAmount),
+      ...(input.feeAmount > 0n ? [debit(houseFees('pay', input.toAsset), input.feeAmount)] : []),
+      ...(input.spreadAmount > 0n ? [debit(houseFees('pay', input.toAsset), input.spreadAmount)] : []),
+    ],
+  };
+}
+
 /**
  * Return reserved clearing that the venue did not fill.
  * `sequence` separates a full release from a partial remainder. A retry of the

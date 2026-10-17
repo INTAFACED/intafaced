@@ -17,7 +17,7 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
-import { fxConversion, fxConversionHold, fxConversionRelease, fxConversionReverse } from './conversion.js';
+import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -1174,10 +1174,12 @@ export {
 export {
   fxConversion,
   fxConversionHold,
+  fxConversionLateFill,
   fxConversionRelease,
   fxConversionReverse,
   type FxConversionHoldInput,
   type FxConversionInput,
+  type FxConversionLateFillInput,
 } from './conversion.js';
 
 export const recipes = {
@@ -1259,6 +1261,9 @@ export const recipes = {
   fxConversionHold,
   fxConversionRelease,
   fxConversionReverse,
+  // Late fill after the hold was released. Clearing pays the merchant when it can cover.
+  // Inventory takes the venue position only: no second credit to the merchant.
+  fxConversionLateFill,
 } as const;
 
 export type RecipeName = keyof typeof recipes;

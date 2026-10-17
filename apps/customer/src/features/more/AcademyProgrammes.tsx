@@ -5,6 +5,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, TextArea, type ActionControls } from './common';
+import { AcademyProgrammeOverview } from './AcademyProgrammeOverview';
 const uuid = z.string().uuid(),
   residency = z.object({
     id: uuid,
@@ -69,6 +70,7 @@ export function AcademyProgrammes({ action }: { action: ActionControls }) {
   return (
     <div className="more-columns">
       <div>
+        <AcademyProgrammeOverview action={action} />
         <Panel title={copyText('academyprogrammes.your.residency.applications')}>
           <Read resource={mine.resource} retry={mine.reload} empty={copyText('academyprogrammes.you.have.no.residency.applications')}>
             {(rows) => (
