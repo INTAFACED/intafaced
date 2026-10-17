@@ -18,6 +18,7 @@ import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
 import { createActivityRouter } from './activity/activity.router.js';
+import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import {
   addMemberBinding,
@@ -3913,6 +3914,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     analytics,
     portfolio,
     activity: createActivityRouter(bank),
+    bills: createBillsRouter(bank, stepUp),
+    global: createGlobalRouter(bank, stepUp),
     ops,
   });
 }

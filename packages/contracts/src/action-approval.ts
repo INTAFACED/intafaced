@@ -51,6 +51,9 @@ export const SAME_PERSON_ACTION_TYPES = [
   // trade:withdraw bearer until a bank change reads the approval (one service per PR).
   'bank.step_up.ramps.offramp',
   'bank.step_up.ramps.setWithdrawDestination',
+  'bank.step_up.bills.pay',
+  'bank.step_up.bills.recurring',
+  'bank.step_up.global.send',
 ] as const;
 export type SamePersonActionType = (typeof SAME_PERSON_ACTION_TYPES)[number];
 
