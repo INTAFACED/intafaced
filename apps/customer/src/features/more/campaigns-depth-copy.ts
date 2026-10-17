@@ -15,7 +15,7 @@ const en = {
   openPublic: 'Open public campaigns',
   detailTitle: 'Campaign detail',
   detailBody:
-    'A campaign’s page would show its rules, tasks, dates, eligibility and reward terms. Select a campaign from the catalogue to open it; none can be selected yet.',
+    'A campaign’s page would show its rules, tasks, dates, eligibility and reward terms. Select a campaign from the catalogue to open it; none can be selected.',
   journeyTitle: 'How a campaign runs',
   journeyLabel: 'Campaign steps',
   stateBlocked: 'Blocked',
@@ -79,7 +79,7 @@ const es = {
   openPublic: 'Abrir campañas públicas',
   detailTitle: 'Detalle de la campaña',
   detailBody:
-    'La página de una campaña mostraría sus reglas, tareas, fechas, requisitos y condiciones de recompensa. Selecciona una campaña del catálogo para abrirla; todavía no se puede seleccionar ninguna.',
+    'La página de una campaña mostraría sus reglas, tareas, fechas, requisitos y condiciones de recompensa. Selecciona una campaña del catálogo para abrirla; no se puede seleccionar ninguna.',
   journeyTitle: 'Cómo se desarrolla una campaña',
   journeyLabel: 'Pasos de la campaña',
   stateBlocked: 'Bloqueado',
@@ -146,7 +146,7 @@ const fr = {
   openPublic: 'Ouvrir les campagnes publiques',
   detailTitle: 'Détail de la campagne',
   detailBody:
-    'La page d’une campagne afficherait ses règles, tâches, dates, conditions d’éligibilité et récompenses. Sélectionne une campagne du catalogue pour l’ouvrir ; aucune ne peut encore l’être.',
+    'La page d’une campagne afficherait ses règles, tâches, dates, conditions d’éligibilité et récompenses. Sélectionne une campagne du catalogue pour l’ouvrir ; aucune ne peut l’être.',
   journeyTitle: 'Comment se déroule une campagne',
   journeyLabel: 'Étapes de la campagne',
   stateBlocked: 'Bloqué',

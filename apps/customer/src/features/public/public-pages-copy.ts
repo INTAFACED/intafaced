@@ -10,7 +10,7 @@ export const pagesCopy = defineCopy('public-pages', {
     'The enquiry form is on our invitation site. Choose Partner there, tell us about your business and what you want to build with us.',
   partnerOpenForm: 'Open the partner enquiry form',
   partnerNoFormBody:
-    'The enquiry form is on our invitation site, and this app has not been given that address yet. Email us instead and say what you have in mind.',
+    'The enquiry form is on our invitation site, and this app has not been given that address. Email us instead and say what you have in mind.',
   partnerEmail: 'Email a partnership enquiry',
   partnerMailSubject: 'Partnership enquiry',
   partnerMailBody: 'About my business:\n\nWhat I would like to do with Intafaced:\n\nWhere we operate:\n',
@@ -39,7 +39,7 @@ export const pagesCopy = defineCopy('public-pages', {
   noticeBack: 'Back to notices',
   // App
   appTitle: 'Get the app',
-  appNoneTitle: 'There is no store app yet',
+  appNoneTitle: 'There is no store app',
   appNoneBody: 'No App Store or Google Play release has been published. The web app works in your phone browser and uses the same account.',
   appHomeTitle: 'Put it on your home screen',
   appIphone: 'iPhone or iPad: open this site in Safari, tap Share, then Add to Home Screen.',

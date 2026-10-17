@@ -38,7 +38,7 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('instant buy paused links to Spot for the pair', () => {
     expect(refusalCopy('trade.convert_spread_unset', { pair: 'BTC-USDT' })).toEqual({
       title: 'Instant buy is paused',
-      body: "Prices for instant buys aren't set up yet.",
+      body: "Prices for instant buys aren't set up.",
       action: { label: 'Use Spot', href: '/trade/spot/BTC-USDT' },
     });
     expect(refusalCopy('trade.convert_spread_unset').action?.href).toBe('/trade');
@@ -82,7 +82,7 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
       body: 'Check the handle and try again.',
     });
     expect(refusalCopy('bank.dest_user_missing', { recipient: '@sam', asset: 'USDT' })).toEqual({
-      title: "@sam can't receive USDT yet",
+      title: "@sam can't receive USDT",
       body: 'Ask them to open INTAFACED once, then try again.',
     });
   });
@@ -104,7 +104,7 @@ describe('order refusals the pro desk shows by their registered words (TRD-0521)
     });
     expect(refusalCopy('fok_unfillable').title).toBe('Fill-or-kill order not placed');
     expect(refusalCopy('trade.order_type_unsupported')).toEqual({
-      title: "That order type isn't offered yet",
+      title: "That order type isn't offered",
       body: 'This market takes limit and market orders only.',
     });
     expect(refusalCopy('trade.below_min_notional')).toEqual({ title: 'Amount is too small', body: 'Enter a larger amount to continue.' });

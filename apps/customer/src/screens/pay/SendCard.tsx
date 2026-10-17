@@ -226,7 +226,7 @@ function SendForm({
         // The server cannot do handles yet: switch to the Account ID input and say why.
         setFallback(true);
         setTo('');
-        setNote(payCopy.t('Handles not on yet'));
+        setNote(payCopy.t('Handles not on'));
         return setRecipient({ kind: 'idle' });
       case 'failed':
         return setRecipient({ kind: 'problem', text: payCopy.t('Lookup failed'), retry: true });
@@ -298,7 +298,7 @@ function SendForm({
     } else {
       setTo('');
       setRecipient({ kind: 'idle' });
-      setNote(payCopy.t('Handles not on yet'));
+      setNote(payCopy.t('Handles not on'));
     }
     const applied = applyPrefill(prefill, sources);
     if (applied.sourceId) setSourceId(applied.sourceId);

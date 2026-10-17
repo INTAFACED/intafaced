@@ -19,9 +19,9 @@ describe('channel card', () => {
   it('switches the pause switch and the add button off, with the reason, when the platform cannot send email', () => {
     const channels = buildChannels([{ channel: 'email', configured: false, available: false }], [{ channel: 'email', muted: false }], []);
     const page = html(<ChannelCard channel="email" view={channels.email} onMute={mute} onChanged={() => undefined} />);
-    expect(page).toContain('Not switched on for this platform yet');
-    expect(page).toContain('Switched off: this way of reaching you is not set up on the platform yet.');
-    expect(page).toContain('Switched off: this channel is not set up on the platform yet, so a code cannot be sent.');
+    expect(page).toContain('Not switched on for this platform');
+    expect(page).toContain('Switched off: this way of reaching you is not set up on the platform.');
+    expect(page).toContain('Switched off: this channel is not set up on the platform, so a code cannot be sent.');
     const buttons = page.match(/<button\b[^>]*>/g) ?? [];
     expect(buttons.length).toBeGreaterThan(0);
     for (const button of buttons) expect(button).toContain('disabled');
@@ -49,7 +49,7 @@ describe('channel card', () => {
   it('explains why a phone cannot be added from the web', () => {
     const channels = buildChannels([{ channel: 'push', configured: true, available: true }], [{ channel: 'push', muted: false }], []);
     const page = html(<ChannelCard channel="push" view={channels.push} onMute={mute} onChanged={() => undefined} />);
-    expect(page).toContain('Registering one is not available from the web app yet');
+    expect(page).toContain('Registering one is not available from the web app');
   });
 });
 
@@ -59,6 +59,6 @@ describe('topic table', () => {
     const page = html(<TopicTable channels={channels} />);
     for (const topic of ['Trading', 'P2P', 'Account', 'Money', 'Token', 'Agents']) expect(page).toContain(topic);
     expect(page).toContain('Not set up');
-    expect(page).toContain('Switched off: choosing by topic is not available yet.');
+    expect(page).toContain('Switched off: this screen doesn’t offer choosing by topic.');
   });
 });

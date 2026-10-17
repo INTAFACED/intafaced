@@ -482,9 +482,9 @@ export const rooms: readonly Room[] = [
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
   ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
-    { path: `/${slug}`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const },
+    { path: `/${slug}`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const },
     // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
-    { path: `/${slug}/*`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const, hidden: true },
+    { path: `/${slug}/*`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const, hidden: true },
   ]),
 ];
 

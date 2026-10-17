@@ -8,9 +8,10 @@ const en = {
   businessNote: 'Price alerts belong to your personal account. Switch to your personal account to use them.',
   // What the platform can do right now
   evalReady: 'Price checks are connected. An alert triggers once, the first time the price reaches your level.',
-  evalDark: 'Price checks are not connected on this platform yet. You can save an alert, but none will trigger until they are.',
+  evalDark:
+    'Price checks are not connected on this platform. You can save an alert, but none can trigger while price checks are not connected.',
   evalNoDelivery:
-    'Price checks are connected, but alerts cannot be delivered yet. You can save an alert, but none will trigger until they can.',
+    'Price checks are connected, but alerts cannot be delivered. You can save an alert, but none can trigger while alerts cannot be delivered.',
   // New alert
   newTitle: 'New alert',
   marketLabel: 'Market',
@@ -26,7 +27,7 @@ const en = {
   review: 'Review alert',
   reasonMarketsLoading: 'Switched off: the list of markets is still loading.',
   reasonMarketsFailed: 'Switched off: the list of markets could not be loaded. Reload the page to try again.',
-  reasonNoMarkets: 'Switched off: there are no markets to watch yet.',
+  reasonNoMarkets: 'Switched off: there are no markets to watch.',
   reasonListLoading: 'Switched off: your alerts are still loading.',
   reasonListFailed: 'Switched off: your alerts could not be loaded, so we cannot check for an alert like this one. Try again below.',
   reasonBusy: 'Switched off: another change is being sent. Wait for it to finish.',
@@ -38,7 +39,7 @@ const en = {
   reviewPrice: 'Price',
   reviewOnce: 'It triggers once and then stops. It does not place an order.',
   reviewDuplicate: 'You already have an active alert for this market, side and price. Saving again creates a second one.',
-  reviewAck: 'I understand this alert will be saved but cannot trigger yet.',
+  reviewAck: 'I understand this alert will be saved but cannot trigger.',
   back: 'Back',
   save: 'Save alert',
   saving: 'Saving…',
@@ -52,7 +53,7 @@ const en = {
   // Refusals (nothing was changed)
   refusedSignedOut: 'Your session ended. Sign in again to continue. Nothing was changed.',
   refusedNotAllowed: 'This session is not allowed to change alerts. Nothing was changed.',
-  refusedNotOn: 'Price alerts are not switched on for this platform yet. Nothing was changed.',
+  refusedNotOn: 'Price alerts are not switched on for this platform. Nothing was changed.',
   refusedPriceMissing: 'A price is needed. Enter one and review again. Nothing was changed.',
   refusedBadRequest: 'The market or the price was not accepted. Check them and try again. Nothing was changed.',
   refusedTooMany: 'Too many tries. Wait a minute, then try again. Nothing was changed.',
@@ -107,9 +108,9 @@ const es = {
   businessNote: 'Las alertas de precio pertenecen a tu cuenta personal. Cambia a tu cuenta personal para usarlas.',
   evalReady: 'Las comprobaciones de precio están conectadas. Una alerta se activa una vez, la primera vez que el precio llegue a tu nivel.',
   evalDark:
-    'Las comprobaciones de precio aún no están conectadas en esta plataforma. Puedes guardar una alerta, pero ninguna se activará hasta que lo estén.',
+    'Las comprobaciones de precio no están conectadas en esta plataforma. Puedes guardar una alerta, pero ninguna puede activarse mientras las comprobaciones de precio no estén conectadas.',
   evalNoDelivery:
-    'Las comprobaciones de precio están conectadas, pero aún no se pueden entregar alertas. Puedes guardar una alerta, pero ninguna se activará hasta que se puedan entregar.',
+    'Las comprobaciones de precio están conectadas, pero no se pueden entregar alertas. Puedes guardar una alerta, pero ninguna puede activarse mientras no se puedan entregar alertas.',
   newTitle: 'Nueva alerta',
   marketLabel: 'Mercado',
   marketPlaceholder: 'Elige un mercado',
@@ -124,7 +125,7 @@ const es = {
   review: 'Revisar alerta',
   reasonMarketsLoading: 'Desactivado: la lista de mercados aún se está cargando.',
   reasonMarketsFailed: 'Desactivado: no se pudo cargar la lista de mercados. Recarga la página para intentarlo de nuevo.',
-  reasonNoMarkets: 'Desactivado: todavía no hay mercados que vigilar.',
+  reasonNoMarkets: 'Desactivado: no hay mercados que vigilar.',
   reasonListLoading: 'Desactivado: tus alertas aún se están cargando.',
   reasonListFailed:
     'Desactivado: no se pudieron cargar tus alertas, así que no podemos comprobar si ya existe una igual. Inténtalo de nuevo más abajo.',
@@ -136,7 +137,7 @@ const es = {
   reviewPrice: 'Precio',
   reviewOnce: 'Se activa una vez y luego se detiene. No crea ninguna orden.',
   reviewDuplicate: 'Ya tienes una alerta activa para este mercado, lado y precio. Guardar de nuevo crea una segunda.',
-  reviewAck: 'Entiendo que esta alerta se guardará pero aún no puede activarse.',
+  reviewAck: 'Entiendo que esta alerta se guardará pero no puede activarse.',
   back: 'Atrás',
   save: 'Guardar alerta',
   saving: 'Guardando…',
@@ -148,7 +149,7 @@ const es = {
   cancelNotFound: 'No encontramos esta alerta. Puede que ya no exista. Hemos actualizado tu lista.',
   refusedSignedOut: 'Tu sesión terminó. Inicia sesión de nuevo para continuar. No se cambió nada.',
   refusedNotAllowed: 'Esta sesión no tiene permiso para cambiar alertas. No se cambió nada.',
-  refusedNotOn: 'Las alertas de precio aún no están activadas en esta plataforma. No se cambió nada.',
+  refusedNotOn: 'Las alertas de precio no están activadas en esta plataforma. No se cambió nada.',
   refusedPriceMissing: 'Hace falta un precio. Introduce uno y revisa de nuevo. No se cambió nada.',
   refusedBadRequest: 'No se aceptó el mercado o el precio. Compruébalos e inténtalo de nuevo. No se cambió nada.',
   refusedTooMany: 'Demasiados intentos. Espera un minuto e inténtalo de nuevo. No se cambió nada.',
@@ -202,9 +203,9 @@ const fr = {
   businessNote: 'Les alertes de prix appartiennent à votre compte personnel. Passez à votre compte personnel pour les utiliser.',
   evalReady: 'Les contrôles de prix sont connectés. Une alerte se déclenche une fois, la première fois que le prix atteint votre niveau.',
   evalDark:
-    'Les contrôles de prix ne sont pas encore connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne se déclenchera avant.',
+    'Les contrôles de prix ne sont pas connectés sur cette plateforme. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher, car les contrôles de prix ne sont pas connectés.',
   evalNoDelivery:
-    'Les contrôles de prix sont connectés, mais les alertes ne peuvent pas encore être livrées. Vous pouvez enregistrer une alerte, mais aucune ne se déclenchera avant.',
+    'Les contrôles de prix sont connectés, mais les alertes ne peuvent pas être livrées. Vous pouvez enregistrer une alerte, mais aucune ne peut se déclencher tant que les alertes ne peuvent pas être livrées.',
   newTitle: 'Nouvelle alerte',
   marketLabel: 'Marché',
   marketPlaceholder: 'Choisissez un marché',
@@ -219,7 +220,7 @@ const fr = {
   review: 'Vérifier l’alerte',
   reasonMarketsLoading: 'Désactivé : la liste des marchés est encore en cours de chargement.',
   reasonMarketsFailed: 'Désactivé : la liste des marchés n’a pas pu être chargée. Rechargez la page pour réessayer.',
-  reasonNoMarkets: 'Désactivé : il n’y a pas encore de marché à surveiller.',
+  reasonNoMarkets: 'Désactivé : il n’y a aucun marché à surveiller.',
   reasonListLoading: 'Désactivé : vos alertes sont encore en cours de chargement.',
   reasonListFailed:
     'Désactivé : vos alertes n’ont pas pu être chargées, donc nous ne pouvons pas vérifier s’il en existe une identique. Réessayez plus bas.',
@@ -231,7 +232,7 @@ const fr = {
   reviewPrice: 'Prix',
   reviewOnce: 'Elle se déclenche une fois, puis s’arrête. Elle ne passe aucun ordre.',
   reviewDuplicate: 'Vous avez déjà une alerte active pour ce marché, ce sens et ce prix. En enregistrer une autre en crée une deuxième.',
-  reviewAck: 'Je comprends que cette alerte sera enregistrée mais ne peut pas encore se déclencher.',
+  reviewAck: 'Je comprends que cette alerte sera enregistrée mais ne peut pas se déclencher.',
   back: 'Retour',
   save: 'Enregistrer l’alerte',
   saving: 'Enregistrement…',
@@ -243,7 +244,7 @@ const fr = {
   cancelNotFound: 'Nous n’avons pas trouvé cette alerte. Elle a peut-être déjà disparu. Votre liste a été actualisée.',
   refusedSignedOut: 'Votre session a pris fin. Reconnectez-vous pour continuer. Rien n’a été modifié.',
   refusedNotAllowed: 'Cette session n’est pas autorisée à modifier les alertes. Rien n’a été modifié.',
-  refusedNotOn: 'Les alertes de prix ne sont pas encore activées sur cette plateforme. Rien n’a été modifié.',
+  refusedNotOn: 'Les alertes de prix ne sont pas activées sur cette plateforme. Rien n’a été modifié.',
   refusedPriceMissing: 'Un prix est nécessaire. Saisissez-en un et vérifiez à nouveau. Rien n’a été modifié.',
   refusedBadRequest: 'Le marché ou le prix n’a pas été accepté. Vérifiez-les et réessayez. Rien n’a été modifié.',
   refusedTooMany: 'Trop d’essais. Attendez une minute, puis réessayez. Rien n’a été modifié.',

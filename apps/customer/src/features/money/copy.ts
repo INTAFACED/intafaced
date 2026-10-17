@@ -141,7 +141,7 @@ const messages = {
   'index.movement.by.asset.and.date': 'Movement by asset and date',
   'index.sign.in.to.see.your.money': 'Sign in to see your Money.',
   'index.a.verified.company.ledger.owner.and.company':
-    'A verified company account and company balances are not connected yet. Personal amounts can’t be shown as company money.',
+    'A verified company account and company balances are not connected. Personal amounts can’t be shown as company money.',
   'index.available.projection.only': 'Available balance only',
   'index.user.ledger.quantity': 'Account quantity',
   'index.amounts.hidden': 'Amounts hidden',
@@ -492,7 +492,7 @@ const messages = {
   'rooms.a.live.card.requires.a.connected.issuer': 'A live card requires a connected issuer programme. There is no card to activate.',
   'rooms.issuer.programme.confirmed.by.the.service': 'Issuer programme confirmed by the service.',
   'rooms.new.card.issuance.is.unavailable.until.live':
-    'New card issuance is unavailable until live issuer products and applicable limits are supplied. No cashback or authorization limit is invented.',
+    'New card issuance is unavailable because no live issuer products or applicable limits are supplied. No cashback or authorization limit is invented.',
   'rooms.your.card.records': 'Your card records',
   'rooms.simulation.record': 'Simulation record',
   'rooms.card': 'Card',
@@ -584,9 +584,9 @@ const messages = {
   'rooms.company.money': 'Company money',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Company balance and write authority are unavailable',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Company accounts are not connected yet, so payments here come from your personal space. Personal amounts can’t be labelled as company funds.',
+    'Company accounts are not connected, so payments here come from your personal space. Personal amounts can’t be labelled as company funds.',
   'rooms.creating.a.company.bank.record.adding.members':
-    'Creating a company bank record, adding members, proposing transfers, approval decisions and payroll stay unavailable until those dependencies are connected.',
+    'Creating a company bank record, adding members, proposing transfers, approval decisions and payroll are unavailable because those dependencies are not connected.',
   'rooms.account.identity.and.verification': 'Account identity and verification ↗',
   'rooms.bank.policy.records': 'Bank policy records',
   'rooms.policy.record': 'Policy record',
@@ -658,7 +658,6 @@ const messages = {
   'rooms.none.supplied': 'None supplied',
   'rooms.not.supplied': 'Not supplied',
   'rooms.not.connected': 'Not connected',
-  'rooms.not.yet.checked': 'Not yet checked',
   'rooms.no.reservation.supplied': 'No reservation supplied',
   'components.unavailable': 'Unavailable',
   'components.confirm': 'Confirm',
@@ -817,7 +816,7 @@ const es = {
   'index.movement.by.asset.and.date': 'Movimientos por activo y fecha',
   'index.sign.in.to.see.your.money': 'Inicia sesión para consultar tu dinero.',
   'index.a.verified.company.ledger.owner.and.company':
-    'Aún no hay una cuenta de empresa verificada ni saldos de empresa conectados. Los importes personales no pueden mostrarse como dinero de la empresa.',
+    'No hay una cuenta de empresa verificada ni saldos de empresa conectados. Los importes personales no pueden mostrarse como dinero de la empresa.',
   'index.available.projection.only': 'Solo saldo disponible',
   'index.user.ledger.quantity': 'Cantidad en la cuenta',
   'index.amounts.hidden': 'Importes ocultos',
@@ -1183,7 +1182,7 @@ const es = {
     'Una tarjeta real requiere un programa de emisor conectado. No hay ninguna tarjeta que activar.',
   'rooms.issuer.programme.confirmed.by.the.service': 'El servicio ha confirmado el programa del emisor.',
   'rooms.new.card.issuance.is.unavailable.until.live':
-    'La emisión de nuevas tarjetas no está disponible hasta que se proporcionen productos de emisor reales y los límites aplicables. No se inventan recompensas por compras ni límites de autorización.',
+    'La emisión de nuevas tarjetas no está disponible porque no se proporcionan productos de emisor reales ni límites aplicables. No se inventan recompensas por compras ni límites de autorización.',
   'rooms.your.card.records': 'Tus registros de tarjetas',
   'rooms.simulation.record': 'Registro de simulación',
   'rooms.card': 'Tarjeta',
@@ -1278,9 +1277,9 @@ const es = {
   'rooms.company.money': 'Dinero de la empresa',
   'rooms.company.balance.and.write.authority.are.unavailable': 'El saldo empresarial y la autoridad de escritura no están disponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Las cuentas de empresa aún no están conectadas, así que los pagos de aquí salen de tu espacio personal. Los importes personales no pueden etiquetarse como fondos de la empresa.',
+    'Las cuentas de empresa no están conectadas, así que los pagos de aquí salen de tu espacio personal. Los importes personales no pueden etiquetarse como fondos de la empresa.',
   'rooms.creating.a.company.bank.record.adding.members':
-    'La creación de registros bancarios empresariales, la incorporación de miembros, las propuestas de transferencia, las decisiones de aprobación y las nóminas siguen sin estar disponibles hasta que se conecten esas dependencias.',
+    'La creación de registros bancarios empresariales, la incorporación de miembros, las propuestas de transferencia, las decisiones de aprobación y las nóminas no están disponibles porque esas dependencias no están conectadas.',
   'rooms.account.identity.and.verification': 'Identidad y verificación de la cuenta ↗',
   'rooms.bank.policy.records': 'Registros de política bancaria',
   'rooms.policy.record': 'Registro de política',
@@ -1352,7 +1351,6 @@ const es = {
   'rooms.none.supplied': 'Ninguno proporcionado',
   'rooms.not.supplied': 'No proporcionado',
   'rooms.not.connected': 'No conectado',
-  'rooms.not.yet.checked': 'Aún no comprobado',
   'rooms.no.reservation.supplied': 'No se ha proporcionado reserva',
   'components.unavailable': 'No disponible',
   'components.confirm': 'Confirmar',
@@ -1511,7 +1509,7 @@ const fr = {
   'index.movement.by.asset.and.date': 'Mouvements par actif et date',
   'index.sign.in.to.see.your.money': 'Connecte-toi pour consulter ton argent.',
   'index.a.verified.company.ledger.owner.and.company':
-    'Un compte d’entreprise vérifié et des soldes d’entreprise ne sont pas encore connectés. Les montants personnels ne peuvent pas être affichés comme de l’argent de l’entreprise.',
+    'Un compte d’entreprise vérifié et des soldes d’entreprise ne sont pas connectés. Les montants personnels ne peuvent pas être affichés comme de l’argent de l’entreprise.',
   'index.available.projection.only': 'Solde disponible uniquement',
   'index.user.ledger.quantity': 'Quantité du compte',
   'index.amounts.hidden': 'Montants masqués',
@@ -1877,7 +1875,7 @@ const fr = {
     'Une carte réelle nécessite un programme d’émetteur connecté. Il n’y a aucune carte à activer.',
   'rooms.issuer.programme.confirmed.by.the.service': 'Le programme de l’émetteur a été confirmé par le service.',
   'rooms.new.card.issuance.is.unavailable.until.live':
-    'L’émission de nouvelles cartes est indisponible tant que des produits d’émetteur réels et les limites applicables ne sont pas fournis. Aucun cashback ni plafond d’autorisation n’est inventé.',
+    'L’émission de nouvelles cartes est indisponible car aucun produit d’émetteur réel ni limite applicable n’est fourni. Aucun cashback ni plafond d’autorisation n’est inventé.',
   'rooms.your.card.records': 'Tes enregistrements de cartes',
   'rooms.simulation.record': 'Enregistrement de simulation',
   'rooms.card': 'Carte',
@@ -1973,9 +1971,9 @@ const fr = {
   'rooms.company.money': 'Argent de l’entreprise',
   'rooms.company.balance.and.write.authority.are.unavailable': 'Le solde de l’entreprise et l’autorité d’écriture sont indisponibles',
   'rooms.the.connected.bank.contract.does.not.supply':
-    'Les comptes d’entreprise ne sont pas encore connectés : les paiements ici sont prélevés sur ton espace personnel. Les montants personnels ne peuvent pas être présentés comme des fonds d’entreprise.',
+    'Les comptes d’entreprise ne sont pas connectés : les paiements ici sont prélevés sur ton espace personnel. Les montants personnels ne peuvent pas être présentés comme des fonds d’entreprise.',
   'rooms.creating.a.company.bank.record.adding.members':
-    'La création d’enregistrements bancaires d’entreprise, l’ajout de membres, les propositions de virement, les décisions d’approbation et la paie restent indisponibles jusqu’à la connexion de ces dépendances.',
+    'La création d’enregistrements bancaires d’entreprise, l’ajout de membres, les propositions de virement, les décisions d’approbation et la paie sont indisponibles car ces dépendances ne sont pas connectées.',
   'rooms.account.identity.and.verification': 'Identité et vérification du compte ↗',
   'rooms.bank.policy.records': 'Enregistrements de politique bancaire',
   'rooms.policy.record': 'Enregistrement de politique',
@@ -2048,7 +2046,6 @@ const fr = {
   'rooms.none.supplied': 'Aucun fourni',
   'rooms.not.supplied': 'Non fourni',
   'rooms.not.connected': 'Non connecté',
-  'rooms.not.yet.checked': 'Pas encore vérifié',
   'rooms.no.reservation.supplied': 'Aucune réservation fournie',
   'components.unavailable': 'Indisponible',
   'components.confirm': 'Confirmer',

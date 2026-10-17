@@ -50,7 +50,7 @@ describe('/uc/paydividends room', () => {
   it('explains what dividends are here and what is needed', () => {
     expect(html).toContain('What dividends are here');
     expect(html).toContain('What is needed');
-    expect(html).toContain('not switched on yet');
+    expect(html).toContain('not switched on');
     expect(html).toContain('not a statement that you were paid nothing');
   });
 
