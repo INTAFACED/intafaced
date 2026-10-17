@@ -79,7 +79,6 @@ const en = {
   cancelSubscription: 'Cancel subscription',
   projectedEnd: 'Projected resumed end',
   openEnded: 'Open ended',
-  rate: 'Exchange rate',
   fee: 'Fee',
   cadence: 'Billing cadence',
   arrives: 'Not available yet',

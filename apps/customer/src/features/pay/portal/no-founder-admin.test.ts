@@ -31,7 +31,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
     const procedures = [
       ...text.matchAll(
-        /'((?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|railHealth)[A-Za-z.]*)'/g,
+        /'((?:merchant|merchantOps|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion|railHealth)[A-Za-z.]*)'/g,
       ),
     ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);
@@ -42,9 +42,11 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
             '^(merchantOps\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|payoutDestinations\\.list|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
-            'settlement\\.(list|get|lines|lifecycle)$',
+            'settlement\\.(list|get|lines|lifecycle|payout)$',
             'payHalts\\.status$',
-            'merchantControl\\.(get|usage|pricing\\.preview|approvals\\.(list|decide|cancel))$)',
+            // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
+            'merchantControl\\.(get|usage|pricing\\.(preview|history)|tiers\\.list|limits\\.(open|requestIncrease|withdraw)|approvals\\.(list|request|decide|cancel))$',
+            'conversion\\.(quote|execute|get|list)$)',
           ].join('|'),
         ),
       );

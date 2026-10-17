@@ -9,6 +9,7 @@ import { layoutMessages } from './home-layout/copy';
 import { moneyMessages } from './money/copy';
 import { paymentsMessages } from './payments/copy';
 import { settingsMessages } from './settings/copy';
+import { accountMessages } from './settings/account/copy';
 import { uiMessages } from './ui/copy';
 import { w3cMessages } from './w3c-copy';
 
@@ -26,6 +27,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.money': moneyMessages,
   'pay.portal.payments': paymentsMessages,
   'pay.portal.settings': settingsMessages,
+  'pay.portal.settings.account': accountMessages,
 };
 
 const banned: Array<[name: string, pattern: RegExp]> = [

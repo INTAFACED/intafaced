@@ -23,7 +23,7 @@ describe.skipIf(!existsSync(source))('the copied role table matches services/svc
       for (const permission of real.MERCHANT_PERMISSIONS)
         expect(ROLE_CAPABILITIES[role].has(permission as never), `${role} ${permission}`).toBe(real.roleHasPermission(role, permission));
   }, 30_000);
-  it('holds no permission that main does not have, apart from the profile ones that are not on main yet', async () => {
+  it('holds no permission that main does not have', async () => {
     const real = (await import(/* @vite-ignore */ source)) as { MERCHANT_PERMISSIONS: readonly string[] };
     for (const role of roles)
       for (const held of ROLE_CAPABILITIES[role]) expect(real.MERCHANT_PERMISSIONS, `${role} ${held}`).toContain(held);

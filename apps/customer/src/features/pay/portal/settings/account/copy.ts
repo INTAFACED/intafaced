@@ -74,9 +74,9 @@ const en = {
   docsHeading: 'Documents',
   docsBlocked:
     'Uploading documents isn’t open yet. The document check isn’t set up, so nothing is asked for here, and a missing document never counts as passed.',
-  waitTerms: 'Terms not set up yet: there is no terms version to accept',
+  waitTerms: 'Terms acceptance not connected yet',
   termsTitle: 'Terms of service',
-  termsBlocked: 'There is no terms version to accept yet. You will be asked to accept them here before going live.',
+  termsBlocked: 'Accepting the terms of service (version 1) is not connected yet. You will be asked to accept them here before going live.',
   businessEditElsewhere: 'Business details can be edited on the Business page. Legal details are reviewed by INTAFACED.',
   editBusiness: 'Edit business details',
   sensitiveReviewed: 'Changes to legal name, address, descriptor and industry are reviewed by INTAFACED.',

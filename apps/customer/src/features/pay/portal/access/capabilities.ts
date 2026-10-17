@@ -32,7 +32,7 @@ export type Need = Capability | 'owner';
 /**
  * A copy of `ROLE_PERMISSIONS` in services/svc-pay/src/merchant-ops/roles.ts on main. It is used only when the
  * service cannot say what a team member may do (`merchant.myAccess` is not live). `roles.pin.test.ts` fails if the
- * two ever differ. The profile permissions are not on main, so they read as false here.
+ * two ever differ.
  */
 const READS: readonly Capability[] = [
   'team.read',
@@ -40,6 +40,7 @@ const READS: readonly Capability[] = [
   'invoices.read',
   'customers.read',
   'kyb.read',
+  'profile.read',
   'exports.read',
   'notifications.read',
   'payments.read',
@@ -48,10 +49,9 @@ const READS: readonly Capability[] = [
   'activity.read',
   'payouts.read',
 ];
-const ALL_ON_MAIN = CAPABILITIES.filter((c) => c !== 'profile.read' && c !== 'profile.manage');
 export const ROLE_CAPABILITIES: Record<MemberRole, ReadonlySet<Capability>> = {
-  owner: new Set(ALL_ON_MAIN),
-  admin: new Set(ALL_ON_MAIN),
+  owner: new Set(CAPABILITIES),
+  admin: new Set(CAPABILITIES),
   finance: new Set<Capability>([
     ...READS,
     'disputes.respond',

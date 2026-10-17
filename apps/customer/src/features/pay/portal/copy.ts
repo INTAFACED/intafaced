@@ -283,9 +283,7 @@ const en = {
   chipSettlement_failed: 'Failed',
   tipSettlement_failed: 'This settlement did not complete. Open it to see where it stands.',
 
-  statementTitle: 'Statement',
   reserveTitle: 'Reserve',
-  reserveNone: 'No reserve is set up on your account, so nothing is held back from this statement.',
   reserveDays: 'It is held for {days} days.',
   chipPayout_not_ready: 'Not payable yet',
   tipPayout_not_ready: 'The settlement is not final, so it cannot be paid out yet.',
@@ -304,7 +302,6 @@ const en = {
   chipPayout_failed: 'Failed',
   tipPayout_failed: 'The payout did not complete. Open it to see where it stands.',
 
-  openStatement: 'Open the statement',
   cancelTitle: 'Take the request back',
   chipApproval_pending: 'Waiting',
   tipApproval_pending: 'Waiting for a second person on your team to decide.',

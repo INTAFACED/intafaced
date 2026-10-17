@@ -11,7 +11,7 @@ export const settingsContract: ContractPart = {
     { method: 'teamHistory', run: (p) => p.teamHistory(undefined) },
     { method: 'myInvitations', run: (p) => p.myInvitations() },
     { method: 'exportsList', run: (p) => p.exportsList(undefined, '', '') },
-    { method: 'exportDownload', run: (p) => p.exportDownload('f0000001-0000-4000-8000-000000000001') },
+    { method: 'exportDownload', run: (p) => p.exportDownload('f1000000-0000-4000-8000-000000000001') },
   ],
   notMocked: {
     ...accountContract.notMocked,
