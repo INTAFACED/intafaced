@@ -1,7 +1,7 @@
 import type { TreasuryData } from '@/lib/merchants/loaders';
 import { formatAmount } from '@/lib/merchants/money';
 import { describeFreshness } from '@/lib/merchants/time';
-import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsGap } from './halts-panels';
+import { AutoTripCard, HaltHistoryTable, HaltStatesTable, PendingClearsPanel } from './halts-panels';
 import { AsOf, Card, FailureState, KpiTile, PageHead, StateBlock } from './ui';
 
 export function TreasuryView({
@@ -176,7 +176,7 @@ export function TreasuryView({
         title="Halt clears waiting for a second founder"
         sub="A halt only comes off when two different founders agree."
       >
-        <PendingClearsGap />
+        <PendingClearsPanel result={data.pending} currentUserId={currentUserId} retryHref={here} />
       </Card>
 
       <Card
