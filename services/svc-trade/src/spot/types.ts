@@ -20,15 +20,7 @@ export type MarketStatus = 'pending' | 'active' | 'halted' | 'delisted';
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
-export type OrderStatus =
-  | 'pending'
-  | 'open'
-  | 'filled'
-  | 'cancelled'
-  | 'rejected'
-  | 'expired'
-  | 'recovery_required'
-  | 'hold_unknown';
+export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required' | 'hold_unknown';
 export type RecoveryReason = 'SUBMIT_UNKNOWN' | 'CANCEL_UNKNOWN' | 'AMEND_UNKNOWN' | 'RECONCILIATION_REQUIRED';
 export type AmendPriority = 'retained' | 'lost';
 export type Liquidity = 'maker' | 'taker';
