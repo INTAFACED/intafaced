@@ -31,6 +31,8 @@ const ONE_BOOK_TABLES = new Set([
   'ledger_freeze_outbox',
   // Append-only idempotency claim (idempotency_key, tx_id). Not a second balance store.
   'ledger_posted_keys',
+  // One row per reconciliation attempt (ok / mismatch / incomplete) with the tip it covered. Proof history, holds no balance.
+  'reconcile_runs',
 ]);
 
 const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; readonly why: string }[] = [
