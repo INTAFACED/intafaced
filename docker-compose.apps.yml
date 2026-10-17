@@ -696,6 +696,10 @@ services:
       # Host `.env` can pin cadence. No invented market list.
       TRADE_RECONCILE_JOBS_ENABLED: ${TRADE_RECONCILE_JOBS_ENABLED:-false}
       TRADE_RECONCILE_JOBS_INTERVAL_MS: ${TRADE_RECONCILE_JOBS_INTERVAL_MS:-60000}
+      # Lost order.hold reply (TRD-0540). Default ON. Reads order.hold:<orderId>
+      # for rows left in hold_unknown. Does not release a hold it has not seen.
+      TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
+      TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4004']
     healthcheck: *healthcheck

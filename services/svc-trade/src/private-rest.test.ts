@@ -71,6 +71,7 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(toCcxtOrderStatus('rejected')).toBe('rejected');
     expect(toCcxtOrderStatus('expired')).toBe('expired');
     expect(toCcxtOrderStatus('recovery_required')).toBe('open');
+    expect(toCcxtOrderStatus('hold_unknown')).toBe('open');
   });
 
   it('projects unresolved execution separately from ordinary open/rejected', () => {

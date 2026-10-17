@@ -82,6 +82,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
+import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -447,6 +448,27 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
 });
+const holdUnknownSweep = startHoldUnknownSweepJobs({
+  trade,
+  config: {
+    enabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
+  },
+  onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onResult: (r) => {
+    if (r.alerts.length === 0) return;
+    app.log.error(
+      {
+        examined: r.examined,
+        booked: r.booked,
+        absent: r.absent,
+        stillUnknown: r.stillUnknown,
+        alerts: r.alerts,
+      },
+      'hold-unknown sweep — order.hold reply was lost',
+    );
+  },
+});
 const reconcileJobs = startEngineLedgerReconcileJobs({
   sql,
   ledger,
@@ -779,6 +801,8 @@ app.log.info(
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
     reconcileJobs: reconcileJobs.host.list(),
+    holdUnknownSweepEnabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    holdUnknownSweep: holdUnknownSweep.host.list(),
     trpc: true,
   },
   'svc-trade ready',
@@ -792,6 +816,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       algoJobs.stop();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
+      holdUnknownSweep.stop();
       await Promise.all([...venueMaintainedBooks.values()].map((b) => b.close()));
       await app.close();
       for (const subscription of subscriptions) await subscription.unsubscribe();

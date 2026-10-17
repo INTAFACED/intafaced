@@ -45,6 +45,7 @@ import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
+import { classifyHoldPostError, orderHoldIdempotencyKey, type HoldRead, type HoldUnknownAlert, type HoldUnknownSweepResult } from './hold-outcome.js';
 import { toFill, toMarket, toOrder, type FillRow, type MarketRow, type OrderRow } from './rows.js';
 import type { RankPerksSource } from './rank-perks.js';
 import { fireAffiliateAccrue, affiliateLegsAfterFill, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
@@ -280,6 +281,12 @@ export interface TradeServiceOptions {
    * Failures must not unwind the ledger settle.
    */
   dropCopyIngest?: DropCopyIngestPort;
+  /**
+   * Fired when an `order.hold` reply stays unknown, and when the sweep
+   * resolves a `hold_unknown` row. A throwing sink does not change the money
+   * decision.
+   */
+  onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
 }
 
 export interface ConvertQuoteRequest {
@@ -644,6 +651,7 @@ export class TradeService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   /** Best-effort FIX drop-copy hitch after settle (never fails the fill). */
   private readonly dropCopyIngest: DropCopyIngestPort;
+  private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
 
   constructor(
     private readonly sql: Sql,
@@ -677,6 +685,7 @@ export class TradeService {
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.dropCopyIngest = options.dropCopyIngest ?? new NoopDropCopyIngest();
+    this.onHoldUnknownAlert = options.onHoldUnknownAlert;
     this.algo = new TwapEngine(
       {
         now: () => this.now(),
@@ -724,7 +733,7 @@ export class TradeService {
           const row = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId} LIMIT 1`;
           if (!row[0]) return;
           // Already terminal — nothing to cancel; silent success is honest.
-          if (row[0].status !== 'open' && row[0].status !== 'pending' && row[0].status !== 'recovery_required') return;
+          if (row[0].status !== 'open' && row[0].status !== 'pending' && row[0].status !== 'recovery_required' && row[0].status !== 'hold_unknown') return;
           // A cancel that does not cancel is worse than a refused cancel.
           // Open child without the live caller's principal must THROW so the
           // parent stays non-cancelled (engine cancel collects failures first).
@@ -1268,7 +1277,7 @@ export class TradeService {
         // represent RECOVERY_REQUIRED, so unresolved snapshots are exposed via
         // the REST/private projections below and are deliberately not emitted
         // as a misleading OPEN/REJECTED event.
-        if (order.status !== 'recovery_required') await this.publishOrderUpdated(order);
+        if (order.status !== 'recovery_required' && order.status !== 'hold_unknown') await this.publishOrderUpdated(order);
         return order;
       },
     );
@@ -1326,7 +1335,13 @@ export class TradeService {
     const expectedSeeded = market.paper ? false : seeded;
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);
-    if (existing) return assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+    if (existing) {
+      assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
+      // A lost hold reply left this row. The same key resolves it; it does not
+      // open a second hold and it does not return the stuck row as placed.
+      if (existing.status === 'hold_unknown') return this.resumeHoldUnknown(existing);
+      return existing;
+    }
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
@@ -1598,38 +1613,37 @@ export class TradeService {
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      // Insufficient funds, a frozen module, a ledger outage — whatever it was,
-      // no value moved and no engine has seen this order. Remove the intent row
-      // so the failure leaves nothing behind at all.
-      //
-      // Guarded on `status = 'pending'`: if a concurrent path has already
-      // funded and opened this order, this delete must not touch it.
-      await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-      throw err;
+      if (classifyHoldPostError(err) === 'refused') {
+        // The ledger named a refusal. The post did not commit. Guarded on
+        // pending so a concurrent open is left alone.
+        await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+        throw err;
+      }
+      // UNKNOWN. A timeout can land after the hold is booked. Keep the row
+      // and read `order.hold:<orderId>` before deleting anything.
+      await this.sql`
+        UPDATE trade.orders SET status = 'hold_unknown', updated_at = now()
+         WHERE id = ${orderId} AND status = 'pending'
+      `;
+      const read = await this.readHoldByKey(orderId);
+      if (read === 'absent') {
+        await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'hold_unknown'`;
+        throw new TradeError(`order ${orderId} hold was not booked`, 'trade.hold_not_booked');
+      }
+      if (read === 'unknown') {
+        this.noteHoldUnknown({
+          orderId,
+          resolution: 'still_unknown',
+          detail: 'order.hold post outcome unknown and getTxByKey did not answer; row kept',
+        });
+        throw new TradeError(
+          `order ${orderId} hold outcome is unknown; the order is kept for recovery`,
+          'trade.hold_unknown',
+        );
+      }
     }
 
-    // The order is now funded. From here on the hold exists, so every exit path
-    // below must end in either a fill or a release — never in silence.
-    await this.sql`UPDATE trade.orders SET status = 'open', updated_at = now() WHERE id = ${orderId} AND status = 'pending'`;
-
-    // ── 4 · THE ENGINE ──────────────────────────────────────────────────────
-    let result: EngineSubmitResult;
-    try {
-      result = await this.matching.submit(market.id, engineRequest);
-    } catch (err) {
-      // INDETERMINATE. The request failed at the transport, so the engine may
-      // or may not hold this order. Persist the frozen spine's
-      // OUTCOME_UNKNOWN/SUBMIT_UNKNOWN evidence before returning the failure;
-      // the hold stays encumbered and the retry fence now returns this row.
-      await this.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
-      throw err;
-    }
-
-    await this.applySubmitResult(market, orderId, result);
-
-    const settled = await this.findOrder(orderId);
-    if (!settled) throw new TradeError(`order ${orderId} vanished during settlement`, 'trade.order_not_found');
-    return settled;
+    return this.openAndSubmit(market, orderId, engineRequest);
   }
 
   /**
@@ -1720,7 +1734,32 @@ export class TradeService {
         // not confirm the existence of another account's order.
         throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
       }
-      if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') {
+      if (order.status === 'hold_unknown') {
+        const read = await this.readHoldByKey(order.id);
+        if (read === 'unknown') {
+          this.noteHoldUnknown({
+            orderId,
+            resolution: 'still_unknown',
+            detail: 'cancel refused until order.hold can be read back',
+          });
+          throw new TradeError(`order ${orderId} hold outcome is still unknown`, 'trade.hold_unknown');
+        }
+        if (read === 'absent') {
+          await this.sql`
+            UPDATE trade.orders SET status = 'cancelled', updated_at = now()
+             WHERE id = ${orderId} AND status = 'hold_unknown'
+          `;
+          const settled = await this.findOrder(orderId);
+          if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
+          return settled;
+        }
+        // Hold is booked and the engine was never given this order. Move it to
+        // open so the release path below can run. Do not submit it first.
+        await this.sql`
+          UPDATE trade.orders SET status = 'open', updated_at = now()
+           WHERE id = ${orderId} AND status = 'hold_unknown'
+        `;
+      } else if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') {
         throw new TradeError(`order ${orderId} is ${order.status} and cannot be cancelled`, 'trade.order_not_open');
       }
 
@@ -2264,12 +2303,12 @@ export class TradeService {
     const rows = marketId
       ? await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required') AND market_id = ${marketId}
+           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
            ORDER BY created_at DESC
         `
       : await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required')
+           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
            ORDER BY created_at DESC
         `;
     const open = rows.map(toOrder);
@@ -3197,6 +3236,204 @@ export class TradeService {
     }
   }
 
+  private noteHoldUnknown(alert: HoldUnknownAlert): void {
+    try {
+      this.onHoldUnknownAlert?.(alert);
+    } catch {
+      // The alert is a signal. A broken sink must not change the money decision.
+    }
+  }
+
+  /** `null` from getTxByKey means the hold was not booked. A throw means we still do not know. */
+  private async readHoldByKey(orderId: string): Promise<HoldRead> {
+    try {
+      const tx = await this.ledger.getTxByKey(orderHoldIdempotencyKey(orderId));
+      return tx ? 'present' : 'absent';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /**
+   * The hold is known to exist (the post returned, or getTxByKey found it).
+   * Claim `open` once, then submit. A lost submit stays `recovery_required`
+   * with the hold encumbered — that path is unchanged.
+   */
+  private async openAndSubmit(market: Market, orderId: string, request: EngineSubmitRequest): Promise<OrderRecord> {
+    const opened = await this.sql<Array<{ id: string }>>`
+      UPDATE trade.orders SET status = 'open', updated_at = now()
+       WHERE id = ${orderId} AND status IN ('pending', 'hold_unknown')
+       RETURNING id
+    `;
+    if (opened.length === 0) {
+      const current = await this.findOrder(orderId);
+      if (current && current.status !== 'pending' && current.status !== 'hold_unknown') return current;
+      throw new TradeError(`order ${orderId} vanished during hold resolution`, 'trade.order_not_found');
+    }
+
+    let result: EngineSubmitResult;
+    try {
+      result = await this.matching.submit(market.id, request);
+    } catch (err) {
+      // INDETERMINATE. The request failed at the transport, so the engine may
+      // or may not hold this order. Persist the frozen spine's
+      // OUTCOME_UNKNOWN/SUBMIT_UNKNOWN evidence before returning the failure;
+      // the hold stays encumbered and the retry fence now returns this row.
+      await this.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+      throw err;
+    }
+
+    await this.applySubmitResult(market, orderId, result);
+    const settled = await this.findOrder(orderId);
+    if (!settled) throw new TradeError(`order ${orderId} vanished during settlement`, 'trade.order_not_found');
+    return settled;
+  }
+
+  /**
+   * Same clientOrderId, row still `hold_unknown`. Read the hold key again.
+   * Booked → submit. Absent → delete so the caller can place again. Still
+   * unknown → keep the row and alert.
+   */
+  private async resumeHoldUnknown(order: OrderRecord): Promise<OrderRecord> {
+    const read = await this.readHoldByKey(order.id);
+    if (read === 'unknown') {
+      this.noteHoldUnknown({
+        orderId: order.id,
+        resolution: 'still_unknown',
+        detail: 'retry read of order.hold did not answer; row kept',
+      });
+      throw new TradeError(`order ${order.id} hold outcome is still unknown`, 'trade.hold_unknown');
+    }
+    if (read === 'absent') {
+      const deleted = await this.sql<Array<{ id: string }>>`
+        DELETE FROM trade.orders WHERE id = ${order.id} AND status = 'hold_unknown' RETURNING id
+      `;
+      if (deleted.length === 0) {
+        const current = await this.findOrder(order.id);
+        if (current) return current;
+      }
+      throw new TradeError(`order ${order.id} hold was not booked`, 'trade.hold_not_booked');
+    }
+    if (!order.lifecycleProof) {
+      this.noteHoldUnknown({
+        orderId: order.id,
+        resolution: 'still_unknown',
+        detail: 'hold is booked but the stored lifecycle proof is missing; not submitting',
+      });
+      throw new TradeError(`order ${order.id} hold is booked but cannot be submitted`, 'trade.hold_unknown');
+    }
+    const market = await this.marketById(order.marketId);
+    if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
+    const request = this.toEngineRequest(
+      order.id,
+      order.userId,
+      {
+        marketId: order.marketId,
+        side: order.side,
+        type: order.type,
+        qty: order.qty,
+        price: order.price,
+        tif: order.tif,
+        clientOrderId: order.clientOrderId ?? undefined,
+        subAccountId: order.subAccountId ?? undefined,
+      },
+      order.type,
+      order.tif,
+      order.protectionPrice,
+      order.lifecycleProof,
+    );
+    return this.openAndSubmit(market, order.id, request);
+  }
+
+  /**
+   * Orders stuck in `hold_unknown`. Each one is read by its own
+   * `order.hold:<orderId>` key. Booked orders are submitted. Absent holds are
+   * deleted with no release. A failed read leaves the row and alerts.
+   */
+  async sweepHoldUnknown(limit = 50): Promise<HoldUnknownSweepResult> {
+    const capped = Math.min(Math.max(Math.floor(limit), 1), 100);
+    const rows = await this.sql<Array<{ id: string }>>`
+      SELECT id FROM trade.orders
+       WHERE status = 'hold_unknown'
+       ORDER BY created_at ASC
+       LIMIT ${capped}
+    `;
+    const booked: string[] = [];
+    const absent: string[] = [];
+    const stillUnknown: string[] = [];
+    const alerts: HoldUnknownAlert[] = [];
+    const alert = (item: HoldUnknownAlert) => {
+      alerts.push(item);
+      this.noteHoldUnknown(item);
+    };
+
+    for (const row of rows) {
+      const order = await this.findOrder(row.id);
+      if (!order || order.status !== 'hold_unknown') continue;
+      const read = await this.readHoldByKey(order.id);
+      if (read === 'unknown') {
+        stillUnknown.push(order.id);
+        alert({
+          orderId: order.id,
+          resolution: 'still_unknown',
+          detail: 'sweep could not read order.hold; row kept',
+        });
+        continue;
+      }
+      if (read === 'absent') {
+        const deleted = await this.sql<Array<{ id: string }>>`
+          DELETE FROM trade.orders WHERE id = ${order.id} AND status = 'hold_unknown' RETURNING id
+        `;
+        if (deleted.length > 0) {
+          absent.push(order.id);
+          alert({
+            orderId: order.id,
+            resolution: 'absent',
+            detail: 'sweep read order.hold as absent; unfunded intent deleted, no release posted',
+          });
+        }
+        continue;
+      }
+      try {
+        await this.resumeHoldUnknown(order);
+        booked.push(order.id);
+        alert({
+          orderId: order.id,
+          resolution: 'booked',
+          detail: 'sweep found the hold and submitted the order',
+        });
+      } catch (err) {
+        const current = await this.findOrder(order.id);
+        if (!current) {
+          absent.push(order.id);
+          alert({
+            orderId: order.id,
+            resolution: 'absent',
+            detail: 'sweep removed the unfunded intent while resolving the hold',
+          });
+          continue;
+        }
+        if (current.status !== 'hold_unknown') {
+          booked.push(order.id);
+          alert({
+            orderId: order.id,
+            resolution: 'booked',
+            detail: `sweep found the hold; submit ended status=${current.status}`,
+          });
+        } else {
+          stillUnknown.push(order.id);
+          alert({
+            orderId: order.id,
+            resolution: 'still_unknown',
+            detail: err instanceof Error ? err.message : 'sweep could not open the booked hold',
+          });
+        }
+      }
+    }
+
+    return { examined: rows.length, booked, absent, stillUnknown, alerts };
+  }
+
   /**
    * Persist an unresolved command without touching the ledger. The
    * reconciliation key is deterministic per order/reason, so restart/replay
@@ -3262,7 +3499,7 @@ export class TradeService {
     // The v1 event catalog predates RECOVERY_REQUIRED. Never downgrade this
     // state to OPEN/REJECTED on the bus; REST projections carry the additive
     // recovery evidence until the catalog version is extended.
-    if (order.status === 'recovery_required') return;
+    if (order.status === 'recovery_required' || order.status === 'hold_unknown') return;
     await this.bus.publish(
       'orderUpdated',
       {
@@ -3385,13 +3622,13 @@ export class TradeService {
     const rows = marketId
       ? await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required') AND market_id = ${marketId}
+           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
            ORDER BY created_at DESC
            LIMIT ${capped}
         `
       : await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required')
+           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
            ORDER BY created_at DESC
            LIMIT ${capped}
         `;
@@ -3411,7 +3648,7 @@ export class TradeService {
     const capped = publishedAdminOpenOrdersLimit(limit);
     const rows = await this.sql<OrderRow[]>`
       SELECT * FROM trade.orders
-       WHERE status IN ('pending', 'open', 'recovery_required')
+       WHERE status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
        ORDER BY created_at DESC
        LIMIT ${capped}
     `;

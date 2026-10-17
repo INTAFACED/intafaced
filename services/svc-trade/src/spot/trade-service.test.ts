@@ -18,11 +18,15 @@ import {
   recipes,
   userAvailable,
   orderHoldAccount,
+  type LedgerClient,
+  type LedgerTx,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { AUTH_ATTRIBUTION_MISSING } from './auth-attribution.js';
 import { DROP_COPY_SOURCE_REST, type DropCopyFillWire } from './drop-copy-ingest.js';
 
 import { TradeError, type Market } from './types.js';
+import type { HoldUnknownAlert } from './hold-outcome.js';
 import { HOUSE_MM_USER_UUID, mmSeedOrderIdFor, orderIdFor } from './ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';
 import { looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -1126,5 +1130,271 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     });
   });
 
-  // ── Retries ───────────────────────────────────────────────
+  // ── TRD-0540: lost order.hold reply ───────────────────────────────────────
+
+  describe('lost order.hold reply', () => {
+    function lostConnection(): Error {
+      return Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' });
+    }
+
+    function holdLedger(
+      inner: MemoryLedger,
+      hooks: {
+        onHoldPost?: (booked: () => Promise<LedgerTx>) => Promise<LedgerTx>;
+        onReadKey?: (key: string) => Promise<LedgerTx | null>;
+      },
+    ): LedgerClient {
+      return {
+        post: (req: PostRequest) => {
+          if (req.reason === 'order.hold' && hooks.onHoldPost) return hooks.onHoldPost(() => inner.post(req));
+          return inner.post(req);
+        },
+        balance: (ref) => inner.balance(ref),
+        balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+        getTx: (id) => inner.getTx(id),
+        getTxByKey: (key) => (hooks.onReadKey ? hooks.onReadKey(key) : inner.getTxByKey(key)),
+      };
+    }
+
+    function serviceFor(client: LedgerClient, alerts: HoldUnknownAlert[]) {
+      return new TradeService(sql, client, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        onHoldUnknownAlert: (alert) => alerts.push(alert),
+      });
+    }
+
+    async function fundInner(inner: MemoryLedger, amount = '5000') {
+      await inner.post(
+        recipes.deposit({
+          userId: ALICE,
+          assetId: 'USDT',
+          amount: amt(amount),
+          rail: 'test',
+          railRef: `hold-unknown:${amount}:${Math.random()}`,
+        }),
+      );
+    }
+
+    it('timeout after the hold is booked keeps the funds and opens the order', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      const order = await svc.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('0.1'),
+        price: amt('100'),
+        clientOrderId: 'timeout-after',
+      });
+
+      expect(order.status).toBe('open');
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${order.id}`).toEqual([{ status: 'open' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', order.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+      expect(alerts).toEqual([]);
+    });
+
+    it('timeout before the hold is booked removes the intent and posts nothing', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+        }),
+        alerts,
+      );
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'timeout-before',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_not_booked' });
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(formatAmount((await inner.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('5000');
+    });
+
+    it('a definite refusal still deletes the pending row', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner, '1');
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(holdLedger(inner, {}), alerts);
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('2'),
+          price: amt('100'),
+          clientOrderId: 'refused',
+        }),
+      ).rejects.toBeInstanceOf(InsufficientFundsError);
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(await sql`SELECT id FROM trade.orders WHERE status = 'hold_unknown'`).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(alerts).toEqual([]);
+    });
+
+    it('retries the same clientOrderId once the hold key can be read', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) throw lostConnection();
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'same-key',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM trade.orders WHERE client_order_id = 'same-key'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', stuck[0]!.id))).amount)).toBe('10');
+      expect(matching.submitted).toHaveLength(0);
+
+      const retried = await svc.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('0.1'),
+        price: amt('100'),
+        clientOrderId: 'same-key',
+      });
+
+      expect(retried.id).toBe(stuck[0]!.id);
+      expect(retried.status).toBe('open');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+      expect(alerts.some((alert) => alert.resolution === 'still_unknown' && alert.orderId === retried.id)).toBe(true);
+    });
+
+    it('sweep recovers a booked hold and deletes an unfunded intent', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) throw lostConnection();
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'sweep-booked',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      matching.script1((req, next) => restsInFull(req, next()));
+      const recovered = await svc.sweepHoldUnknown();
+      expect(recovered.booked).toHaveLength(1);
+      expect(recovered.stillUnknown).toEqual([]);
+      expect(recovered.alerts.some((alert) => alert.resolution === 'booked')).toBe(true);
+      const open = await sql<Array<{ status: string }>>`SELECT status FROM trade.orders WHERE client_order_id = 'sweep-booked'`;
+      expect(open).toEqual([{ status: 'open' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+
+      const absentInner = new MemoryLedger();
+      await fundInner(absentInner);
+      let absentReads = 0;
+      const absentAlerts: HoldUnknownAlert[] = [];
+      const absentSvc = serviceFor(
+        holdLedger(absentInner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            absentReads += 1;
+            if (absentReads === 1) throw lostConnection();
+            return absentInner.getTxByKey(key);
+          },
+        }),
+        absentAlerts,
+      );
+      await expect(
+        absentSvc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'sweep-absent',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      const swept = await absentSvc.sweepHoldUnknown();
+      expect(swept.absent).toEqual(expect.any(Array));
+      expect(swept.absent).toHaveLength(1);
+      expect(swept.alerts.some((alert) => alert.resolution === 'absent')).toBe(true);
+      expect(await sql`SELECT id FROM trade.orders WHERE client_order_id = 'sweep-absent'`).toHaveLength(0);
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+    });
+  });
 });

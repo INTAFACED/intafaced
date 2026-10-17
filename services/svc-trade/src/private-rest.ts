@@ -340,6 +340,10 @@ export function toCcxtOrderStatus(status: OrderStatus): 'open' | 'closed' | 'can
       // authoritative and prevents clients from treating this as ordinary
       // OPEN; retaining the vocabulary keeps older adapters parseable.
       return 'open';
+    case 'hold_unknown':
+      // Same constraint: no CCXT slot for "hold reply lost". Not canceled
+      // and not rejected — the order row is still hold_unknown.
+      return 'open';
     case 'filled':
       return 'closed';
     case 'cancelled':
@@ -427,6 +431,7 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
           }
         : null,
     recoveryRequired: order.status === 'recovery_required',
+    holdUnknown: order.status === 'hold_unknown',
     lifecycleState: order.status === 'recovery_required' ? ('RECOVERY_REQUIRED' as const) : null,
     fee: null as { cost: string; currency: string } | null,
     trades: [] as [],
