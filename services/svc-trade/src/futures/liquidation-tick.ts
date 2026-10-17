@@ -313,6 +313,48 @@ export interface LiquidationTickDeps {
    * and the reducer never runs. Owner maxReduceBps is never invented here.
    */
   adl?: LiquidationAdlDeps;
+  /**
+   * Resting orders that would grow the position. Cancelled after a liquidation
+   * rung is planned and before it posts. Omitted: the tick does not invent a
+   * book. A timeout leaves the rung unposted.
+   */
+  increasingOrders?: IncreasingOrderBook;
+}
+
+export interface RestingIncreaseOrder {
+  readonly orderId: string;
+  readonly side: 'buy' | 'sell';
+  readonly reduceOnly?: boolean;
+}
+
+export interface IncreasingOrderBook {
+  list(marketId: string, accountId: string): Promise<readonly RestingIncreaseOrder[]>;
+  /** Cancel the order and release its hold. `timeout` means the book did not confirm. */
+  cancelAndRelease(marketId: string, orderId: string): Promise<'released' | 'timeout'>;
+}
+
+/** A reduce-only order never increases. A long grows on a buy; a short grows on a sell. */
+export function orderIncreasesPosition(
+  positionSide: 'long' | 'short',
+  order: { readonly side: 'buy' | 'sell'; readonly reduceOnly?: boolean },
+): boolean {
+  if (order.reduceOnly === true) return false;
+  return positionSide === 'long' ? order.side === 'buy' : order.side === 'sell';
+}
+
+export async function cancelIncreasingOrdersBeforeRung(
+  book: IncreasingOrderBook,
+  row: { readonly marketId: string; readonly userId: string; readonly side: 'long' | 'short' },
+): Promise<{ readonly ok: true; readonly released: readonly string[] } | { readonly ok: false; readonly reason: 'timeout' }> {
+  const resting = await book.list(row.marketId, row.userId);
+  const released: string[] = [];
+  for (const order of resting) {
+    if (!orderIncreasesPosition(row.side, order)) continue;
+    const result = await book.cancelAndRelease(row.marketId, order.orderId);
+    if (result === 'timeout') return { ok: false, reason: 'timeout' };
+    released.push(order.orderId);
+  }
+  return { ok: true, released };
 }
 
 /** `skipped_already` reason: the position's latest rung is abandoned (see `LiquidationRungStore.isParked`). */
@@ -764,6 +806,18 @@ async function planAndDrive(
           ? 'invalid'
           : 'skipped_healthy';
     return { positionId: row.positionId, outcome, reason: decision.reason, summary: summarizeLadder(decision) };
+  }
+
+  if (deps.increasingOrders) {
+    const pulled = await cancelIncreasingOrdersBeforeRung(deps.increasingOrders, row);
+    if (!pulled.ok) {
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_increasing_cancel_timeout',
+        summary: `${row.marketId}: a resting order that increases the position did not cancel; the rung was not posted`,
+      };
+    }
   }
 
   /**

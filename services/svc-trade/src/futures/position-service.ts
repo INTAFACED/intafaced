@@ -58,6 +58,7 @@ import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-ma
 import { TradeError } from '../spot/types.js';
 import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
+import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
 
 /**
  * How long one close waits for another close of the SAME position.
@@ -77,6 +78,12 @@ const PG_LOCK_NOT_AVAILABLE = '55P03';
 
 function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === PG_LOCK_NOT_AVAILABLE;
+}
+
+/** Same truthy set as env.ts. Unset, blank, and "false" stay off. */
+function publishedFlagOn(raw: string | undefined): boolean {
+  if (raw == null) return false;
+  return ['1', 'true', 'on', 'yes'].includes(raw.trim().toLowerCase());
 }
 
 /**
@@ -326,6 +333,86 @@ export class PositionService {
       throw new FuturesError('listing leverage cap is unset — refusing to invent a production leverage limit', LEVERAGE_CAP_UNSET, 503);
     }
     return this.maxLeverage;
+  }
+
+  /**
+   * New exposure needs both switches. Trading on with the liquidation job off
+   * would open positions nothing is scheduled to close. Reduce and close do
+   * not call this. A replay of an already-admitted open returns before it.
+   */
+  private refuseIfFuturesExposureOff(): void {
+    const off: string[] = [];
+    if (!publishedFlagOn(process.env.TRADE_FUTURES_ENABLED)) off.push('TRADE_FUTURES_ENABLED');
+    if (!publishedFlagOn(process.env.TRADE_FUTURES_JOBS_ENABLED)) off.push('TRADE_FUTURES_JOBS_ENABLED');
+    if (off.length === 0) return;
+    const verb = off.length === 1 ? 'is' : 'are';
+    throw new FuturesError(`futures exposure cannot increase while ${off.join(' and ')} ${verb} off`, 'trade.futures_disabled', 403);
+  }
+
+  /**
+   * credit(available + Σ margin_current) must cover Σ margin_initial + the new
+   * requirement. One read of each. A shortfall or a failed read refuses and
+   * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
+   * delta when setLeverage is raising margin.
+   */
+  private async assertAggregateHaircutCredit(input: {
+    userId: string;
+    asset: string;
+    additionalInitialMargin: Amount;
+    available?: Amount;
+  }): Promise<void> {
+    let haircutBps: number;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut';
+      throw new FuturesError(message, HAIRCUT_UNSET, 400);
+    }
+
+    let rows: ReadonlyArray<{ margin_initial: string; margin_current: string | null }>;
+    try {
+      rows = await this.sql<{ margin_initial: string; margin_current: string | null }[]>`
+        SELECT margin_initial, margin_current
+        FROM trade.positions
+        WHERE user_id = ${input.userId}
+          AND margin_asset = ${input.asset}
+          AND status IN ('open', 'closing')
+      `;
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    let available = input.available;
+    if (available === undefined) {
+      try {
+        available = (await this.ledger.balance(userAvailable(input.userId, input.asset))).amount;
+      } catch (err) {
+        if (err instanceof FuturesError) throw err;
+        throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+      }
+    }
+
+    let sumCurrent = 0n;
+    let sumInitial = 0n;
+    try {
+      for (const row of rows) {
+        const initial = parseAmount(String(row.margin_initial));
+        const current = parseAmount(String(row.margin_current ?? row.margin_initial));
+        sumInitial += initial;
+        if (current > 0n) sumCurrent += current;
+      }
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    const decision = decideOpenCredit({
+      postedCash: (available + sumCurrent) as Amount,
+      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
+      haircutBps,
+    });
+    if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
   }
 
   /**
@@ -817,6 +904,8 @@ export class PositionService {
       return this.executeAdmittedPosition(input, evidence);
     }
 
+    this.refuseIfFuturesExposureOff();
+
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
     }
@@ -904,6 +993,11 @@ export class PositionService {
       size: input.size,
       entryPrice,
       leverage,
+    });
+    await this.assertAggregateHaircutCredit({
+      userId: input.userId,
+      asset: m.quote_asset,
+      additionalInitialMargin: margin,
     });
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
@@ -1189,14 +1283,27 @@ export class PositionService {
         const seq = (Number.isFinite(prevSeq) && prevSeq >= 1 ? prevSeq : 1) + 1;
 
         if (delta > 0n) {
-          const available = await this.ledger.balance(userAvailable(input.userId, row.margin_asset));
-          if (available.amount < delta) {
+          this.refuseIfFuturesExposureOff();
+          let availableAmount: Amount;
+          try {
+            availableAmount = (await this.ledger.balance(userAvailable(input.userId, row.margin_asset))).amount;
+          } catch (err) {
+            if (err instanceof FuturesError) throw err;
+            throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+          }
+          if (availableAmount < delta) {
             throw new FuturesError(
-              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(available.amount)}`,
+              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(availableAmount)}`,
               LEVERAGE_INSUFFICIENT_MARGIN,
               400,
             );
           }
+          await this.assertAggregateHaircutCredit({
+            userId: input.userId,
+            asset: row.margin_asset,
+            additionalInitialMargin: delta,
+            available: availableAmount,
+          });
           ledgerAttempted = true;
           await this.ledger.post(
             recipes.futuresMarginAdd({
@@ -1954,4 +2061,44 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
     marginMode: row.margin_mode,
     percentage: null,
   };
+}
+
+/**
+ * Stored futures entry is the size-weighted average of opening fills.
+ * A reducing fill leaves that price. A caller-supplied price is not stored.
+ */
+export function storedEntryAfterFill(
+  position: { readonly size: Amount; readonly entryPrice: Amount },
+  fill: { readonly effect: 'open' | 'reduce'; readonly qty: Amount; readonly price: Amount },
+): { size: Amount; entryPrice: Amount } {
+  if (fill.qty <= 0n) {
+    throw new FuturesError(`fill qty must be greater than zero, got ${formatAmount(fill.qty)}`, 'trade.size_invalid', 400);
+  }
+  if (fill.effect === 'reduce') {
+    if (fill.qty > position.size) {
+      throw new FuturesError('a reducing fill is larger than the position', 'trade.size_invalid', 400);
+    }
+    return { size: (position.size - fill.qty) as Amount, entryPrice: position.entryPrice };
+  }
+  if (fill.price <= 0n) {
+    throw new FuturesError('an opening fill needs a positive price', 'trade.invalid_price', 400);
+  }
+  const newSize = (position.size + fill.qty) as Amount;
+  if (position.size === 0n) return { size: newSize, entryPrice: fill.price };
+  const entry = ((position.size * position.entryPrice + fill.qty * fill.price) / newSize) as Amount;
+  return { size: newSize, entryPrice: entry };
+}
+
+export function entryFromOpeningFills(
+  fills: readonly { readonly qty: Amount; readonly price: Amount }[],
+  callerPrice?: Amount,
+): { size: Amount; entryPrice: Amount } {
+  if (callerPrice != null && fills.length === 0) {
+    throw new FuturesError('a caller-supplied price is not stored as the entry', 'trade.invalid_price', 400);
+  }
+  let position: { size: Amount; entryPrice: Amount } = { size: 0n as Amount, entryPrice: 0n as Amount };
+  for (const fill of fills) {
+    position = storedEntryAfterFill(position, { effect: 'open', qty: fill.qty, price: fill.price });
+  }
+  return position;
 }

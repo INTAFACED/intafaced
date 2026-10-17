@@ -141,11 +141,12 @@ describe('collateral haircut mill (hermetic)', () => {
     });
   });
 
-  it('unset/invalid haircut refuses; cash without a supplied haircut does not invent 0', () => {
-    expect(checkPostedMarginCollateral({ haircutBps: '' })).toMatchObject({ ok: true, haircutBps: null });
+  it('blank haircut refuses and does not invent 0 or 10; a published 0 is the owner zero', () => {
+    delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
+    expect(checkPostedMarginCollateral({ haircutBps: '' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
     expect(checkPostedMarginCollateral({ haircutBps: 'abc' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
     expect(checkPostedMarginCollateral({ haircutBps: '-1' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
-    expect(checkPostedMarginCollateral({ collateralClass: 'cash' })).toMatchObject({ ok: true, haircutBps: null });
+    expect(checkPostedMarginCollateral({ collateralClass: 'cash' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
     expect(checkPostedMarginCollateral({ haircutBps: '0' })).toMatchObject({ ok: true, haircutBps: 0 });
   });
 });
@@ -256,14 +257,16 @@ describe('svc-trade collateral haircut F8 money', () => {
     expect(lockPosts()).toHaveLength(0);
   });
 
-  it('invalid haircut refuses; cash without invented haircut admits', async () => {
+  it('invalid or blank haircut refuses before futuresMarginLock', async () => {
     await expect(open({ clientOpenId: 'f8-bad-cut', haircutBps: 'nope' })).rejects.toMatchObject({
       name: 'FuturesError',
       code: HAIRCUT_UNSET,
     });
+    await expect(open({ clientOpenId: 'f8-blank', collateralClass: 'cash' })).rejects.toMatchObject({
+      name: 'FuturesError',
+      code: HAIRCUT_UNSET,
+    });
     expect(lockPosts()).toHaveLength(0);
-    const pos = await open({ clientOpenId: 'f8-cash', collateralClass: 'cash' });
-    expect(pos.side).toBe('long');
-    expect(lockPosts()).toHaveLength(1);
+    expect(await sql`SELECT id FROM trade.positions`).toHaveLength(0);
   });
 });
