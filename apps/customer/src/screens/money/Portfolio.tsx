@@ -156,7 +156,7 @@ function Colgroup({ pro }: { pro: boolean }) {
     <colgroup>
       <col className="money-col--coin" />
       <col className="money-col--amount" />
-      <col className="money-col--value" />
+      <col className="money-col--value money-cell--value" />
       <col className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
       {pro ? <col className="money-col--used money-cell--pro" /> : null}
@@ -246,8 +246,12 @@ function CoinRow({
       </td>
       <td className="money-num">
         <Amount value={`${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`} hidden={hidden} />
+        {/* On a phone the Value column folds under the Amount so the two never run into each other. */}
+        <span className="money-num__value">
+          <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
+        </span>
       </td>
-      <td className="money-num">
+      <td className="money-num money-cell--value">
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--today">
@@ -289,8 +293,9 @@ function CoinTable({
             <th scope="col">{t('Coin')}</th>
             <th scope="col" className="money-num">
               {t('Amount')}
+              <span className="money-num__value"> · {t('Value')}</span>
             </th>
-            <th scope="col" className="money-num">
+            <th scope="col" className="money-num money-cell--value">
               {t('Value')}
             </th>
             <th scope="col" className="money-num money-cell--today">

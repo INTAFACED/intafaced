@@ -40,8 +40,8 @@ export function IdentitySessions() {
   );
   const [showOlder, setShowOlder] = useState(false);
   const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
-  // "Older than 24 hours" is measured when the list arrives, so a row never jumps sections while it is being read.
-  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice, Date.now()) : null), [seats, thisDevice]);
+  // The newest five stay in view; the rest fold behind "Show N more". This device is always in view.
+  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice) : null), [seats, thisDevice]);
   const [review, setReview] = useState<Review | null>(null),
     [busy, setBusy] = useState(false),
     [response, setResponse] = useState<Response | null>(null),
