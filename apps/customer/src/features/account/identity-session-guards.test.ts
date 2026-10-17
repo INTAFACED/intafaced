@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RECENT_SESSION_MS, sessionIdFromToken, splitSessions } from './identity-session-guards';
+import { sessionIdFromToken, splitSessions } from './identity-session-guards';
 
 const SID = '22222222-2222-4222-8222-222222222222';
 const b64 = (value: object) => btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -23,20 +23,27 @@ describe('splitSessions', () => {
   const at = (hoursAgo: number) => new Date(now - hoursAgo * 3_600_000).toISOString();
   const seats = [
     { id: 'a', createdAt: at(1) },
-    { id: 'b', createdAt: at(23.9) },
-    { id: 'c', createdAt: at(25) },
+    { id: 'b', createdAt: at(2) },
+    { id: 'c', createdAt: at(3) },
+    { id: 'd', createdAt: at(4) },
+    { id: 'e', createdAt: at(5) },
+    { id: 'f', createdAt: at(6) },
     { id: SID, createdAt: at(72) },
-    { id: 'd', createdAt: 'not a date' },
+    { id: 'g', createdAt: 'not a date' },
   ];
-  it('folds sessions older than 24 hours and keeps this device in view whatever its age', () => {
-    const { recent, older } = splitSessions(seats, SID, now);
-    expect(recent.map((seat) => seat.id)).toEqual(['a', 'b', SID]);
-    expect(older.map((seat) => seat.id)).toEqual(['c', 'd']);
+  it('keeps the newest five in view, folds the rest, and always keeps this device in view', () => {
+    const { recent, older } = splitSessions(seats, SID);
+    expect(recent.map((seat) => seat.id)).toEqual(['a', 'b', 'c', 'd', 'e', SID]);
+    expect(older.map((seat) => seat.id)).toEqual(['f', 'g']);
+  });
+  it('picks the newest by start time even when the list is not in order', () => {
+    const shuffled = [...seats].reverse();
+    expect(splitSessions(shuffled, null).recent.map((seat) => seat.id)).toEqual(['e', 'd', 'c', 'b', 'a']);
   });
   it('without a known current session, the old one folds too', () => {
-    expect(splitSessions(seats, null, now).older.map((seat) => seat.id)).toEqual(['c', SID, 'd']);
+    expect(splitSessions(seats, null).older.map((seat) => seat.id)).toEqual(['f', SID, 'g']);
   });
-  it('exactly 24 hours is still recent', () => {
-    expect(splitSessions([{ id: 'x', createdAt: new Date(now - RECENT_SESSION_MS).toISOString() }], null, now).recent).toHaveLength(1);
+  it('folds nothing when there are five or fewer', () => {
+    expect(splitSessions(seats.slice(0, 5), null).older).toHaveLength(0);
   });
 });

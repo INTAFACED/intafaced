@@ -1,3 +1,4 @@
+import { SubNav } from '@intafaced/ui';
 import { copy, t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -263,17 +264,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
   const validPeriod = /^[1-9]\d*$/.test(period) && Number.isSafeInteger(Number(period));
   return (
     <div className="more-grid">
-      <nav className="more-toolbar market-catalogue-navigation" aria-label={copyText('market.catalogue')}>
-        <a className="text-link" href="/market" aria-current={!mine && !strategy ? 'page' : undefined}>
-          <Text k="market.catalogue" />
-        </a>
-        <a className="text-link" href="/market/mine" aria-current={mine && !strategy ? 'page' : undefined}>
-          <Text k="market.my.listings" />
-        </a>
-        <a className="text-link" href="/market/strategy" aria-current={strategy ? 'page' : undefined}>
-          <Text k="market.publish.a.strategy.subscription" />
-        </a>
-      </nav>
+      <SubNav
+        aria-label={copyText('market.catalogue')}
+        active={strategy ? 'strategy' : mine ? 'mine' : 'catalogue'}
+        className="px-0"
+        items={[
+          { id: 'catalogue', label: copyText('market.catalogue'), href: '/market' },
+          { id: 'mine', label: copyText('market.my.listings'), href: '/market/mine' },
+          { id: 'strategy', label: copyText('market.publish.a.strategy.subscription'), href: '/market/strategy' },
+        ]}
+      />
       <Read resource={programme.resource} retry={programme.reload}>
         {(p) => (
           <p className="muted">

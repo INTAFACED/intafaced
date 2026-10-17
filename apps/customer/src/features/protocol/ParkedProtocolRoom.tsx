@@ -43,7 +43,9 @@ function toSource<T>(value: Resource<T>): Source<T> {
 /**
  * Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails.
  * With a `shell`, a failed answer keeps the table's column headers and says why the table is empty.
- * A gateway 502, 503 or 504 means the Protocol service itself is not running here: a second attempt cannot change that, so no Retry.
+ * The gateway's "not connected" answer (edge.upstream_unwired) hides Try again, because a second attempt cannot change it.
+ * A plain 502 (edge.upstream_unavailable) only says the service did not answer, which may be a crash or a restart, so it
+ * is worded that way and keeps Try again; it is never dressed up as "not connected".
  */
 export function Answer<T>({
   value,
@@ -66,9 +68,18 @@ export function Answer<T>({
   if (resource.status === 'failed') {
     const notConnected = isServiceNotConnected(resource.failure.code);
     const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
+    const noAnswer = !notConnected && resource.failure.code === 'edge.upstream_unavailable';
     const reason = notConnected ? (
       <div className="failure" role="status">
         <p>{words}</p>
+      </div>
+    ) : noAnswer ? (
+      <div className="failure" role="status">
+        <h3>{t('serviceNoAnswer', { service: service ?? t('svc_protocol') })}</h3>
+        <p>{t('serviceNoAnswerBody')}</p>
+        <Button variant="secondary" onClick={reload}>
+          {t('tryAgain')}
+        </Button>
       </div>
     ) : (
       <Failure result={resource.failure} retry={reload} />
