@@ -6,8 +6,9 @@
 --
 -- A control request is dual control for closing the account or changing the
 -- spend threshold. The first administrator records it. A different administrator
--- confirms the same id and the same terms. One pending request per kind.
--- These rows are instructions. They are not balances.
+-- confirms the same id and the same terms. Any administrator, including the
+-- proposer, may withdraw a pending request (status cancelled). One pending
+-- request per kind. These rows are instructions. They are not balances.
 --
 -- Reversal: 0034_business_team_controls.down.sql
 
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS "bank"."business_control_requests" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "decided_at" timestamptz,
   CONSTRAINT "business_control_kind_ck" CHECK ("kind" IN ('set_threshold', 'close')),
-  CONSTRAINT "business_control_status_ck" CHECK ("status" IN ('pending', 'applied')),
+  CONSTRAINT "business_control_status_ck" CHECK ("status" IN ('pending', 'applied', 'cancelled')),
   CONSTRAINT "business_control_threshold_ck" CHECK (
     ("kind" = 'set_threshold' AND "spend_threshold" IS NOT NULL AND "spend_threshold" > 0)
     OR ("kind" = 'close' AND "spend_threshold" IS NULL)
@@ -52,6 +53,11 @@ CREATE TABLE IF NOT EXISTS "bank"."business_control_requests" (
       AND "confirmed_by" IS NOT NULL
       AND "decided_at" IS NOT NULL
       AND "confirmed_by" <> "proposed_by"
+    )
+    OR (
+      "status" = 'cancelled'
+      AND "confirmed_by" IS NOT NULL
+      AND "decided_at" IS NOT NULL
     )
   )
 );

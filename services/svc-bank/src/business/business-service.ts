@@ -136,7 +136,7 @@ interface ControlRow {
   spend_threshold: string | null;
   proposed_by: string;
   confirmed_by: string | null;
-  status: 'pending' | 'applied';
+  status: 'pending' | 'applied' | 'cancelled';
   created_at: Date;
   decided_at: Date | null;
 }
@@ -298,7 +298,7 @@ export interface BusinessApprovalView {
 }
 
 export type BusinessControlResult = {
-  status: 'pending' | 'applied';
+  status: 'pending' | 'applied' | 'cancelled';
   requestId: string;
   account: BusinessAccount;
 };
@@ -534,28 +534,22 @@ export class BusinessService {
   }
 
   /**
-   * Maker cancels their pending proposal, or an admin cancels any pending one.
-   * Hold returns to the debit pot.
+   * The maker cancels their own pending proposal without a current membership,
+   * so removing them cannot strand the hold. An admin cancels anyone else's.
+   * A repeat on an already cancelled or rejected row releases the hold again.
    */
   async cancel(input: { approvalId: string; actorUserId: string }): Promise<void> {
     const approval = await this.approval(input.approvalId);
+    const own = approval.makerUserId === input.actorUserId;
     if (approval.status === 'cancelled' || approval.status === 'rejected') {
-      if (approval.makerUserId === input.actorUserId) {
-        await this.assertMember(approval.accountId, input.actorUserId);
-      } else {
-        await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
-      }
+      if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
       await this.releaseHold(approval);
       return;
     }
     if (approval.status !== 'pending') {
       throw new BankError(`Approval ${approval.id} is ${approval.status}`, 'bank.business_approval_inactive');
     }
-    if (approval.makerUserId === input.actorUserId) {
-      await this.assertMember(approval.accountId, input.actorUserId);
-    } else {
-      await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
-    }
+    if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
     await this.claimAndRelease(approval, {
       actorUserId: input.actorUserId,
       status: 'cancelled',
@@ -642,6 +636,19 @@ export class BusinessService {
       if (!target) throw new BankError('Not a member of this business account', 'bank.business_not_member');
       if (target.role === 'admin' && members.filter((row) => row.role === 'admin').length < 2) {
         throw new BankError('The last administrator cannot be removed (bank.business_last_admin)', 'bank.business_last_admin');
+      }
+      const waiting = await tx<Array<{ id: string }>>`
+        SELECT id FROM bank.business_approvals
+         WHERE account_id = ${input.accountId}::uuid
+           AND maker_user_id = ${input.userId}
+           AND status = 'pending'
+         LIMIT 1
+      `;
+      if (waiting[0]) {
+        throw new BankError(
+          'This person still has a payment waiting. Decide or cancel those payments before removing them (bank.business_member_has_pending)',
+          'bank.business_member_has_pending',
+        );
       }
       const inserted = await tx<Array<{ id: string }>>`
         INSERT INTO bank.business_member_commands (id, account_id, actor_user_id, target_user_id, action, role)
@@ -811,7 +818,7 @@ export class BusinessService {
     actorUserId: string;
     spendThreshold: Amount;
     requestId: string;
-  }): Promise<BusinessControlResult> {
+  }): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
     this.requireRequestId(input.requestId);
     if (input.spendThreshold <= 0n) {
       throw new BankError('Business spend threshold must be positive', 'bank.business_invalid_threshold');
@@ -824,12 +831,52 @@ export class BusinessService {
   }
 
   /** First administrator records the close. A different administrator confirms it. */
-  async closeAccount(input: { accountId: string; actorUserId: string; requestId: string }): Promise<BusinessControlResult> {
+  async closeAccount(input: {
+    accountId: string;
+    actorUserId: string;
+    requestId: string;
+  }): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
     this.requireRequestId(input.requestId);
     return this.control(input.accountId, input.actorUserId, {
       requestId: input.requestId,
       kind: 'close',
       spendThreshold: null,
+    });
+  }
+
+  /**
+   * Any administrator, including the proposer, withdraws a pending control.
+   * A repeat returns the same cancelled result. An applied control stays applied.
+   */
+  async cancelControl(input: {
+    accountId: string;
+    actorUserId: string;
+    requestId: string;
+  }): Promise<{ status: 'cancelled'; requestId: string; account: BusinessAccount }> {
+    this.requireRequestId(input.requestId);
+    return transaction(this.sql, async (tx) => {
+      const existing = await this.controlRow(tx, input.requestId, true);
+      if (!existing || existing.account_id !== input.accountId) {
+        throw new BankError(`Business control ${input.requestId} not found`, 'bank.business_not_found');
+      }
+      this.assertAdminLocked(await this.lockMembers(tx, input.accountId), input.actorUserId);
+      if (existing.status === 'applied') {
+        throw new BankError(`Request ${input.requestId} is already applied`, 'bank.business_approval_inactive');
+      }
+      if (existing.status === 'pending') {
+        const updated = await tx<Array<{ id: string }>>`
+          UPDATE bank.business_control_requests
+             SET status = 'cancelled', confirmed_by = ${input.actorUserId}, decided_at = now()
+           WHERE id = ${input.requestId}::uuid AND status = 'pending'
+          RETURNING id
+        `;
+        if (!updated[0]) throw new BankError(`Request ${input.requestId} is no longer waiting`, 'bank.business_approval_inactive');
+      }
+      return {
+        status: 'cancelled' as const,
+        requestId: input.requestId,
+        account: await this.accountIn(tx, input.accountId),
+      };
     });
   }
 
@@ -1407,13 +1454,19 @@ export class BusinessService {
     accountId: string,
     actorUserId: string,
     change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
-  ): Promise<BusinessControlResult> {
+  ): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
     await this.assertRole(accountId, actorUserId, ['admin']);
     const account = await this.account(accountId);
     return transaction(this.sql, async (tx) => {
       const existing = await this.controlRow(tx, change.requestId, true);
       if (existing) {
         this.assertControlTerms(existing, accountId, change);
+        if (existing.status === 'cancelled') {
+          throw new BankError(
+            `Request ${change.requestId} was withdrawn (bank.business_approval_inactive)`,
+            'bank.business_approval_inactive',
+          );
+        }
         if (existing.status === 'applied')
           return { status: 'applied', requestId: change.requestId, account: await this.accountIn(tx, accountId) };
         if (existing.proposed_by === actorUserId) {
@@ -1459,6 +1512,12 @@ export class BusinessService {
           const raced = await this.controlRow(tx, change.requestId, true);
           if (!raced) throw err;
           this.assertControlTerms(raced, accountId, change);
+          if (raced.status === 'cancelled') {
+            throw new BankError(
+              `Request ${change.requestId} was withdrawn (bank.business_approval_inactive)`,
+              'bank.business_approval_inactive',
+            );
+          }
           return { status: raced.status, requestId: change.requestId, account };
         }
         throw err;

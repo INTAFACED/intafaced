@@ -407,4 +407,70 @@ describe('business team, history and dual control', () => {
     });
     expect(formatAmount((await ledger.balance(userAvailable(MAKER, 'USDT'))).amount)).toBe('400');
   });
+
+  it('refuses to remove a maker who still holds their own payment, and that maker can cancel after the membership row is gone', async () => {
+    const account = await openTeam();
+    const from = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const to = await bank.spaces.ensurePrimary(PAYEE, 'USDT');
+    await ledger.post(recipes.deposit({ userId: MAKER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }));
+    const pending = await caller(bank, MAKER).business.proposeTransfer({
+      accountId: account.id,
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: '100',
+      clientId: randomUUID(),
+    });
+    expect(pending.kind).toBe('pending');
+    if (pending.kind !== 'pending') throw new Error('proposal must wait');
+    await expect(
+      caller(bank, ADMIN).business.removeMember({ accountId: account.id, userId: MAKER, requestId: randomUUID() }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'bank.business_member_has_pending' },
+    });
+    const listed = await caller(bank, ADMIN).business.members({ accountId: account.id });
+    expect(listed.members.map((row) => row.userId)).toContain(MAKER);
+    await sql`
+      DELETE FROM bank.business_members
+       WHERE account_id = ${account.id}::uuid AND user_id = ${MAKER}
+    `;
+    await caller(bank, MAKER).business.cancel({ approvalId: pending.approval.id });
+    expect(formatAmount((await ledger.balance(userAvailable(MAKER, 'USDT'))).amount)).toBe('500');
+  });
+
+  it('lets an administrator withdraw a pending threshold so another proposal can start', async () => {
+    const account = await openTeam();
+    const requestId = randomUUID();
+    const first = await caller(bank, ADMIN).business.setThreshold({ accountId: account.id, spendThreshold: '40', requestId });
+    expect(first).toMatchObject({ status: 'pending', account: { spendThreshold: '100' } });
+    await expect(
+      caller(bank, SECOND).business.setThreshold({ accountId: account.id, spendThreshold: '80', requestId: randomUUID() }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      cause: { code: 'bank.business_change_pending' },
+    });
+    const cancelled = await caller(bank, ADMIN).business.cancelControl({ accountId: account.id, requestId });
+    expect(cancelled).toMatchObject({ status: 'cancelled', requestId, account: { spendThreshold: '100' } });
+    expect(await caller(bank, ADMIN).business.cancelControl({ accountId: account.id, requestId })).toMatchObject({
+      status: 'cancelled',
+      requestId,
+    });
+    await expect(
+      caller(bank, SECOND).business.setThreshold({ accountId: account.id, spendThreshold: '40', requestId }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      cause: { code: 'bank.business_approval_inactive' },
+    });
+    const still = await caller(bank, ADMIN).business.list({ limit: 20 });
+    expect(still.find((row) => row.id === account.id)?.spendThreshold).toBe('100');
+    const nextId = randomUUID();
+    const next = await caller(bank, SECOND).business.setThreshold({
+      accountId: account.id,
+      spendThreshold: '80',
+      requestId: nextId,
+    });
+    expect(next).toMatchObject({ status: 'pending', requestId: nextId, account: { spendThreshold: '100' } });
+    const team = await caller(bank, ADMIN).business.members({ accountId: account.id });
+    expect(team.pendingControls.map((row) => row.requestId)).toEqual([nextId]);
+  });
 });

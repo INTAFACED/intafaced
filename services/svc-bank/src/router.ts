@@ -361,6 +361,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_directory_incomplete':
       case 'bank.business_last_admin':
       case 'bank.business_close_blocked':
+      case 'bank.business_member_has_pending':
       // The client must run its step-up sheet (passkey or TOTP) and retry with `stepUpApprovalId`.
       case 'bank.step_up_required':
       case 'bank.step_up_mismatch':
@@ -3447,6 +3448,37 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const result = await bank.business.closeAccount({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
+        }),
+      ),
+
+    cancelControl: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .output(
+        z.object({
+          status: z.enum(['cancelled']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.cancelControl({
             accountId: input.accountId,
             actorUserId: ctx.principal.userId,
             requestId: input.requestId,

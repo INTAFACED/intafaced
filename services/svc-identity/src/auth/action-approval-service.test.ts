@@ -136,6 +136,37 @@ describe('ActionApprovalService', () => {
   });
 });
 
+describe('S10 matching.open is two people (TRD-0003)', () => {
+  const openBook = {
+    actionType: 'matching.open',
+    targetService: 'svc-matching',
+    targetId: 'open:BTC-USDT',
+    expectedVersion: '1',
+    payloadHash: 'sha256:matching-open',
+    policyVersion: 'v1',
+  };
+
+  it('refuses when the proposer then approves their own matching.open', async () => {
+    const { service } = svc();
+    const pending = await service.propose(A, openBook);
+    await expect(service.approve(A, pending.approvalId, openBook.payloadHash)).rejects.toMatchObject({
+      code: 'action_approval.same_person',
+    });
+    expect(pending.status).toBe('PENDING');
+  });
+
+  it('lets a different founder approve, and refuses a second approval of that proposal', async () => {
+    const { service } = svc();
+    const pending = await service.propose(A, openBook);
+    const approved = await service.approve(B, pending.approvalId, openBook.payloadHash);
+    expect(approved.status).toBe('APPROVED');
+    expect(approved.approverId).toBe(B);
+    await expect(service.approve(B, pending.approvalId, openBook.payloadHash)).rejects.toMatchObject({
+      code: 'action_approval.not_pending',
+    });
+  });
+});
+
 describe('action-approval source pins', () => {
   it('router does not accept confirmActorId on approve and is mounted', () => {
     const routerSrc = readFileSync(join(HERE, '../action-approval-router.ts'), 'utf8');

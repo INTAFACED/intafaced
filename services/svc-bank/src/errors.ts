@@ -435,6 +435,8 @@ export type BankErrorCode =
   | 'bank.business_change_pending'
   /** Close while a payment is still waiting for a decision. */
   | 'bank.business_close_blocked'
+  /** This teammate still has a payment waiting as its maker. Decide or cancel it before removal. */
+  | 'bank.business_member_has_pending'
   /** business.approvals cursor could not be read. */
   | 'bank.business_cursor_invalid'
   /** ramps.onramps page size unpublished. Blank is not 50 — never dump every on-ramp. */

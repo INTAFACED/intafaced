@@ -1,0 +1,10 @@
+/*
+ * Gallery entry CSS. Same order as apps/customer/src/app/redesign.css: Tailwind 4 WITHOUT preflight,
+ * then the kit tokens, theme and base.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import '../src/theme/tokens.css';
+@import '../src/theme/theme.css';
+@import '../src/theme/base.css';
+@import 'tailwindcss/utilities.css' layer(utilities);
