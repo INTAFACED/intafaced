@@ -179,7 +179,7 @@
     },
     "/payment-links": {
       "get": {
-        "description": "Same room as tRPC `merchant.listLinks`. Tokens are never re-disclosed — only the stored prefix.",
+        "description": "Same room as tRPC `merchant.listLinks`. Each item includes the checkout credential when it was stored. A link minted before that has a null token and a null checkoutUrl.",
         "parameters": [
           {
             "in": "query",
@@ -273,6 +273,10 @@
                             "description": "Decimal string, or null for an open-amount link.",
                             "type": ["string", "null"]
                           },
+                          "checkoutUrl": {
+                            "description": "Checkout path, or null if the credential was not stored.",
+                            "type": ["string", "null"]
+                          },
                           "createdAt": {
                             "format": "date-time",
                             "type": "string"
@@ -297,11 +301,28 @@
                           "prefix": {
                             "type": "string"
                           },
+                          "token": {
+                            "description": "Checkout credential, or null if it was not stored.",
+                            "type": ["string", "null"]
+                          },
                           "uses": {
                             "type": "integer"
                           }
                         },
-                        "required": ["id", "prefix", "label", "amount", "currency", "active", "expiresAt", "maxUses", "uses", "createdAt"],
+                        "required": [
+                          "id",
+                          "prefix",
+                          "label",
+                          "amount",
+                          "currency",
+                          "active",
+                          "expiresAt",
+                          "maxUses",
+                          "uses",
+                          "createdAt",
+                          "token",
+                          "checkoutUrl"
+                        ],
                         "type": "object"
                       },
                       "type": "array"
@@ -412,7 +433,7 @@
         "tags": ["payment-links"]
       },
       "post": {
-        "description": "Requires `Idempotency-Key`. Calls the same `PayService.createPaymentLink` the tRPC `merchant.createLink` room uses. The token is a capability URL — returned once. Omit `expiresAt` for the service default; `null` is refused (`pay.link_expiry_invalid`). Does not move value and does not name a rail.",
+        "description": "Requires `Idempotency-Key`. Calls the same `PayService.createPaymentLink` the tRPC `merchant.createLink` room uses. The header is that create key: the same key and body return the original link, including its checkout token. Omit `expiresAt` for the service default; `null` is refused (`pay.link_expiry_invalid`). Does not move value and does not name a rail.",
         "parameters": [
           {
             "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
@@ -476,6 +497,10 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "checkoutUrl": {
+                      "description": "Checkout path carrying the token. No host is invented.",
+                      "type": "string"
+                    },
                     "expiresAt": {
                       "description": "Always a date. The service defaults and caps it; it is never null.",
                       "format": "date-time",
@@ -495,11 +520,11 @@
                       "type": "string"
                     },
                     "token": {
-                      "description": "Capability token — returned ONLY on create. Store it; we will not show it again.",
+                      "description": "Checkout credential. Returned on create and on a later read by a caller who can see the link.",
                       "type": "string"
                     }
                   },
-                  "required": ["id", "token", "prefix", "label", "expiresAt", "maxUses"],
+                  "required": ["id", "token", "prefix", "label", "expiresAt", "maxUses", "checkoutUrl"],
                   "type": "object"
                 }
               }
@@ -793,6 +818,191 @@
           }
         },
         "summary": "Deactivate a payment link",
+        "tags": ["payment-links"]
+      },
+      "get": {
+        "description": "Same room as tRPC `merchant.getLink`. A link that belongs to another merchant is not found. Does not move value.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "amount": {
+                      "description": "Decimal string, or null for an open-amount link.",
+                      "type": ["string", "null"]
+                    },
+                    "checkoutUrl": {
+                      "description": "Checkout path, or null if the credential was not stored.",
+                      "type": ["string", "null"]
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": ["string", "null"]
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": ["string", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "maxUses": {
+                      "type": ["integer", "null"]
+                    },
+                    "prefix": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "description": "Checkout credential, or null if it was not stored.",
+                      "type": ["string", "null"]
+                    },
+                    "uses": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "prefix",
+                    "label",
+                    "amount",
+                    "currency",
+                    "active",
+                    "expiresAt",
+                    "maxUses",
+                    "uses",
+                    "createdAt",
+                    "token",
+                    "checkoutUrl"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Read one payment link, including its checkout path when stored",
         "tags": ["payment-links"]
       }
     },
