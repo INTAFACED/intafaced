@@ -1,0 +1,290 @@
+import { useId, useRef, useState, type ReactNode } from 'react';
+import { useResource, type Resource } from '../../shared/resource';
+import { Button } from '../../shared/ui';
+import { useApi, useSession } from '../session/session';
+import { Details, Select, type useAction } from './common';
+import { deskCopy } from './support-desk-copy';
+import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, ticketReference, type ActionReason } from './support-desk';
+import { fileSizeLabel, readAttachment } from './support-attach';
+import { attachFile, closeRequest, rateRequest, readRating } from './support-calls';
+import type { Ticket } from './support-schemas';
+import type { ratingSchema } from './support-calls';
+import type { z } from 'zod';
+
+const SCORE_KEY = {
+  5: 'rateScoreOption5',
+  4: 'rateScoreOption4',
+  3: 'rateScoreOption3',
+  2: 'rateScoreOption2',
+  1: 'rateScoreOption1',
+} as const;
+const REASON_KEY = {
+  closeAlreadyClosed: 'closeAlreadyClosed',
+  rateNotYet: 'rateNotYet',
+  attachClosed: 'attachClosed',
+} as const satisfies Partial<Record<ActionReason, 'closeAlreadyClosed' | 'rateNotYet' | 'attachClosed'>>;
+type State = ReturnType<typeof requestActionStates>[keyof ReturnType<typeof requestActionStates>];
+/** The line beside a control: what it does when it works, why it is off when it is not. */
+function line(state: State, help: 'closeHelp' | 'rateHelp' | 'attachHelp'): string {
+  if (state.available) return deskCopy.t(help);
+  const key = REASON_KEY[state.reason as keyof typeof REASON_KEY];
+  return key ? deskCopy.t(key) : deskCopy.t(help);
+}
+
+/**
+ * Close, rate and attach, each wired to the support service. Every send goes through the shared review step (so it cannot
+ * be sent twice) and carries its own request id, so a repeat of the same send is answered with the first result instead of
+ * doing it again. A control that does not apply to this status stays on the page, switched off, with the reason beside it.
+ */
+export function SupportRequestActions({
+  ticket,
+  action,
+  onChanged,
+}: {
+  ticket: Ticket;
+  action: ReturnType<typeof useAction>;
+  onChanged: () => void;
+}) {
+  const copy = deskCopy.useCopy();
+  const api = useApi(),
+    { userId } = useSession();
+  const id = ticket.id;
+  const rating = useResource((signal) => readRating(api, id, userId, signal), `support-rating:${userId}:${id}`);
+  const rated = rating.resource.status === 'ready' ? rating.resource.data !== null : false;
+  const states = requestActionStates(ticket.status, rated);
+  const base = useId();
+  return (
+    <div className="support-actions">
+      <h3>{copy.t('actionsHeading')}</h3>
+      <ul>
+        <li>
+          <CloseControl ticket={ticket} action={action} state={states.close} describedBy={`${base}-close`} onChanged={onChanged} />
+        </li>
+        <li>
+          <RateControl
+            ticket={ticket}
+            action={action}
+            state={states.rate}
+            describedBy={`${base}-rate`}
+            rating={rating}
+            onChanged={() => {
+              rating.reload();
+              onChanged();
+            }}
+          />
+        </li>
+        <li>
+          <AttachControl ticket={ticket} action={action} state={states.attach} describedBy={`${base}-attach`} />
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+type ControlProps = {
+  ticket: Ticket;
+  action: ReturnType<typeof useAction>;
+  state: State;
+  describedBy: string;
+};
+
+function Reason({ id, children }: { id: string; children: string }) {
+  return (
+    <small id={id} className="muted">
+      {children}
+    </small>
+  );
+}
+
+function CloseControl({ ticket, action, state, describedBy, onChanged }: ControlProps & { onChanged: () => void }) {
+  const copy = deskCopy.useCopy();
+  const api = useApi(),
+    { userId } = useSession();
+  const id = ticket.id;
+  return (
+    <>
+      <Button
+        variant="secondary"
+        disabled={!state.available || action.disabled}
+        aria-describedby={describedBy}
+        onClick={() => {
+          // One id per decision to close: the service answers a repeat of this id with the first result.
+          const clientRequestId = `close:${crypto.randomUUID()}`;
+          action.stage({
+            title: () => deskCopy.t('closeTitle'),
+            reference: id,
+            confirm: () => deskCopy.t('closeConfirm'),
+            success: () => deskCopy.t('closeDone'),
+            content: () => (
+              <Details
+                items={[
+                  [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
+                  [deskCopy.t('subjectField'), <span lang="und">{ticket.subject}</span>],
+                ]}
+              />
+            ),
+            run: () => closeRequest(api, { ticketId: id, userId, clientRequestId }),
+            done: onChanged,
+          });
+        }}
+      >
+        {copy.t('closeLabel')}
+      </Button>
+      <Reason id={describedBy}>{line(state, 'closeHelp')}</Reason>
+    </>
+  );
+}
+
+function RateControl({
+  ticket,
+  action,
+  state,
+  describedBy,
+  rating,
+  onChanged,
+}: ControlProps & { rating: { resource: Resource<z.infer<typeof ratingSchema> | null>; reload: () => void }; onChanged: () => void }) {
+  const copy = deskCopy.useCopy();
+  const api = useApi(),
+    { userId } = useSession();
+  const id = ticket.id;
+  const [score, setScore] = useState('5'),
+    [note, setNote] = useState('');
+  const noteId = useId();
+  const existing = rating.resource.status === 'ready' ? rating.resource.data : null;
+  if (existing)
+    return (
+      <p role="status" id={describedBy}>
+        {copy.t('rateDone', { score: existing.score })}
+      </p>
+    );
+  return (
+    <div className="support-rate">
+      <>
+        <Select
+          label={copy.t('rateScoreLabel')}
+          value={score}
+          onChange={setScore}
+          options={RATING_SCORES.map((value) => ({ value: String(value), label: copy.t(SCORE_KEY[value]) }))}
+        />
+        <label className="field" htmlFor={noteId}>
+          <span>{copy.t('rateNoteLabel')}</span>
+          <textarea
+            id={noteId}
+            lang="und"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            maxLength={RATING_NOTE_MAX}
+            rows={3}
+          />
+          <small>{copy.t('rateNoteHint')}</small>
+        </label>
+        <Button
+          variant="secondary"
+          disabled={!state.available || action.disabled}
+          aria-describedby={describedBy}
+          onClick={() => {
+            const clientRequestId = `rate:${crypto.randomUUID()}`;
+            const sent = { score: Number(score), note: note.trim() };
+            action.stage({
+              title: () => deskCopy.t('rateTitle'),
+              reference: id,
+              confirm: () => deskCopy.t('rateConfirm'),
+              success: () => deskCopy.t('rateSent'),
+              content: () => (
+                <Details
+                  items={[
+                    [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
+                    [deskCopy.t('rateScoreRow'), <span lang="zxx">{sent.score} / 5</span>],
+                    ...(sent.note ? ([[deskCopy.t('rateNoteRow'), <span lang="und">{sent.note}</span>]] as [string, ReactNode][]) : []),
+                  ]}
+                />
+              ),
+              run: () => rateRequest(api, { ticketId: id, userId, score: sent.score, note: sent.note, clientRequestId }),
+              done: () => {
+                setNote('');
+                onChanged();
+              },
+            });
+          }}
+        >
+          {copy.t('reviewRate')}
+        </Button>
+        <Reason id={describedBy}>{line(state, 'rateHelp')}</Reason>
+      </>
+    </div>
+  );
+}
+
+function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
+  const copy = deskCopy.useCopy();
+  const api = useApi(),
+    { userId } = useSession();
+  const id = ticket.id;
+  const input = useRef<HTMLInputElement>(null);
+  const fileId = useId();
+  const [problem, setProblem] = useState<'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | null>(null),
+    [attached, setAttached] = useState<{ id: string; contentType: string; byteLength: number }[]>([]);
+  return (
+    <>
+      <label className="field" htmlFor={fileId}>
+        <span>{copy.t('attachFileLabel')}</span>
+        <input id={fileId} ref={input} type="file" disabled={!state.available || action.disabled} onChange={() => setProblem(null)} />
+      </label>
+      <Button
+        variant="secondary"
+        disabled={!state.available || action.disabled}
+        aria-describedby={describedBy}
+        onClick={async () => {
+          const file = input.current?.files?.[0];
+          if (!file) return setProblem('attachNoFile');
+          const read = await readAttachment(file);
+          if (!read.ok) return setProblem(read.reason === 'empty' ? 'attachEmpty' : 'attachUnreadable');
+          setProblem(null);
+          const clientRequestId = `attach:${crypto.randomUUID()}`;
+          action.stage({
+            title: () => deskCopy.t('attachTitle'),
+            reference: id,
+            confirm: () => deskCopy.t('attachConfirm'),
+            success: () => deskCopy.t('attachDone'),
+            content: () => (
+              <Details
+                items={[
+                  [deskCopy.t('reference'), <span lang="zxx">{ticketReference(id)}</span>],
+                  [deskCopy.t('attachRowType'), <span lang="zxx">{read.contentType}</span>],
+                  [deskCopy.t('attachRowSize'), <span lang="zxx">{fileSizeLabel(read.byteLength)}</span>],
+                ]}
+              />
+            ),
+            run: () => attachFile(api, { ticketId: id, userId, ...read, clientRequestId }),
+            done: () => {
+              if (input.current) input.current.value = '';
+              setAttached((rows) => [...rows, { id: clientRequestId, contentType: read.contentType, byteLength: read.byteLength }]);
+            },
+          });
+        }}
+      >
+        {copy.t('reviewAttach')}
+      </Button>
+      <Reason id={describedBy}>{line(state, 'attachHelp')}</Reason>
+      {problem && (
+        <p className="support-warning" role="alert">
+          {copy.t(problem)}
+        </p>
+      )}
+      {attached.length > 0 && (
+        <div>
+          <small>{copy.t('attachedHeading')}</small>
+          <ul>
+            {attached.map((row) => (
+              <li key={row.id}>
+                <span lang="zxx">
+                  {row.contentType} · {fileSizeLabel(row.byteLength)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}

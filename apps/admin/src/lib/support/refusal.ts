@@ -1,0 +1,136 @@
+import type { FounderCallFailure } from '@/lib/desk/founder-call';
+import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+
+/**
+ * Plain-English answers for what svc-support says back to a founder acting on a ticket or an article.
+ *
+ * svc-support names a refusal with a dotted code (`support.transition_illegal`) in the message of its answer. This turns
+ * each code the desk can receive into a title, what it means and what to do next, and says whether anything changed.
+ * A refusal this file does not know falls through to the general answers in `explainRefusal`, never to a raw code.
+ */
+
+/** The sentence a founder reads when svc-support says the session lacks the support permission. Said the same everywhere. */
+export const SUPPORT_OPS_FORBIDDEN = 'Your console session does not have support operations permission yet';
+
+export const SUPPORT_OPS_FORBIDDEN_BODY =
+  'svc-support checks the support-staff permission (support:ops) itself and refused. Founder sign-in does not carry it today; granting it is pending in identity.';
+
+interface Entry {
+  readonly title: string;
+  readonly body: string;
+  readonly next: string;
+}
+
+const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
+  'support.not_found': {
+    title: 'No such ticket',
+    body: 'svc-support does not have that ticket.',
+    next: 'Go back to the queue and open the ticket again.',
+  },
+  'support.transition_same_status': {
+    title: 'The ticket is already in that status',
+    body: 'Nothing needed to change.',
+    next: 'Read the ticket to see where it is now.',
+  },
+  'support.transition_illegal': {
+    title: 'svc-support does not allow that status change',
+    body: 'Open and in-progress tickets can move to any other status except themselves. A resolved ticket can reopen or close. A closed ticket stays closed.',
+    next: 'Pick a status the page offers, or read the ticket to see where it is now.',
+  },
+  'support.comment.terminal': {
+    title: 'This ticket is closed',
+    body: 'A closed ticket takes no more replies.',
+    next: 'If the customer needs more help, they start a new request.',
+  },
+  'support.escalation.terminal': {
+    title: 'A closed ticket cannot be escalated',
+    body: 'A finished ticket stays finished.',
+    next: 'Nothing was changed.',
+  },
+  'support.case_file.ungrounded': {
+    title: 'The escalation cites nothing that was read',
+    body: 'svc-support only escalates with proof of what was read: the customer’s account state, their comments, or an article you cite. None of those could be read here.',
+    next: 'Read the ticket and check that identity is connected, then try again.',
+  },
+  'support.case_file.empty_summary': {
+    title: 'The summary is empty',
+    body: 'The case file keeps what you concluded, so it cannot be blank.',
+    next: 'Write the summary and try again.',
+  },
+  'support.identity_grounding_unwired': {
+    title: 'The support desk cannot read account state',
+    body: 'svc-support is not connected to identity on this deployment, so it will not escalate without reading the account.',
+    next: 'Nothing was changed. Ask engineering to connect it.',
+  },
+  'support.settle.refused': {
+    title: 'svc-support will not do that to a money request',
+    body: 'A ticket escalated as a money request cannot be settled or closed from support. A support channel never moves money.',
+    next: 'Nothing was changed. The money team owns this one.',
+  },
+  'support.kb.revision_stale': {
+    title: 'Someone changed this article first',
+    body: 'The revision you used is no longer the latest, so svc-support refused to overwrite.',
+    next: 'Reload the articles and try again from the new revision. Nothing was changed.',
+  },
+  'support.kb.not_published': {
+    title: 'That article is not published',
+    body: 'It is already hidden from customers.',
+    next: 'Nothing was changed.',
+  },
+  'support.kb_invalid': {
+    title: 'svc-support did not accept that article',
+    body: 'The id or the text keys are not valid for the help library.',
+    next: 'Check the id and both keys against the translation catalogue. Nothing was changed.',
+  },
+  'support.kb_vendor_name': {
+    title: 'Article keys may not name another company’s product',
+    body: 'The help library refuses keys that carry a third-party product name.',
+    next: 'Use a general key. Nothing was changed.',
+  },
+};
+const SUPPORT_CODE = /\bsupport(?:\.[a-z0-9_]+)+/;
+
+export function supportCodeOf(message: string, code: string | null): string | null {
+  return SUPPORT_CODE.exec(message)?.[0] ?? (code && SUPPORT_CODE.test(code) ? code : null);
+}
+
+/** Every non-ok answer to a support write or read, as a view the page and the BFF share. Never a success, never a raw code. */
+export function explainSupportFailure(result: FounderCallFailure<unknown>): RefusalView {
+  switch (result.kind) {
+    case 'forbidden': {
+      if (result.refusal.status === 401) return explainRefusal('admin.session_required', 401, false);
+      return {
+        title: SUPPORT_OPS_FORBIDDEN,
+        body: SUPPORT_OPS_FORBIDDEN_BODY,
+        next: 'Nothing was changed. This control works once the permission is granted.',
+        code: result.refusal.code ?? 'scope.denied',
+        changed: 'no',
+      };
+    }
+    case 'refused': {
+      const named = supportCodeOf(result.refusal.message, result.refusal.code);
+      const known = named ? BY_SUPPORT_CODE[named] : undefined;
+      if (known) return { ...known, code: named, changed: 'no' };
+      if (result.refusal.status === 404) return { ...BY_SUPPORT_CODE['support.not_found']!, code: named, changed: 'no' };
+      return explainRefusal(named ?? result.refusal.code, result.refusal.status, false);
+    }
+    case 'not_built':
+      return {
+        title: 'svc-support has not switched this on',
+        body: 'The service answered that it has no such operation on this deployment.',
+        next: 'Nothing was changed. Ask engineering.',
+        code: 'not_built',
+        changed: 'no',
+      };
+    case 'unavailable':
+      return explainRefusal(null, 503, result.uncertain);
+    case 'invalid':
+      return {
+        title: 'The outcome is not known',
+        body: 'svc-support answered in a shape this console does not understand, so it cannot say whether this went through.',
+        next: 'Read the ticket or the articles again before doing anything twice.',
+        code: null,
+        changed: 'unknown',
+      };
+  }
+}

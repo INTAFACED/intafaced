@@ -1,31 +1,24 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import type { Part } from '@/lib/desk/part';
-import { fetchQueue, fetchTicket, postClaim, type ClaimReply } from '@/lib/support/browser';
+import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, type ClaimReply } from '@/lib/support/browser';
 import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
-import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail } from '@/lib/support/types';
+import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
+import { Failed } from './support-action-parts';
+import { TicketActions } from './support-ticket-actions';
+import { TicketExtras } from './support-ticket-extras';
 import './desk.css';
 
 /**
- * SUPPORT DESK — list, then ticket, then claim.
+ * SUPPORT DESK — list, then ticket, then claim, reply, set status, escalate; with the ticket's case file and rating, and the help articles.
  *
  * Counts and ages are of the tickets svc-support returned for this page, and the desk says how many that is. The
  * score orders the queue; svc-support marks it "not a promise", and so does this page. A claim assigns the ticket to
  * the founder who pressed it; there is no release from here, so it takes a second click.
  */
-
-function Failed({ name, part }: { name: string; part: Extract<Part<unknown>, { kind: 'failed' }> }) {
-  return (
-    <div className="adm-callout" data-tone="danger" role="status" data-testid="support-failed">
-      <strong>{name} unavailable</strong>
-      <p>{part.message}</p>
-      {part.code && <p className="dk-muted">Code: {part.code}</p>}
-    </div>
-  );
-}
 
 export function QueueMetricsView({ read }: { read: QueueRead }) {
   const m = queueMetrics(read);
@@ -66,6 +59,11 @@ export interface DeskViewProps {
   readonly arming: boolean;
   readonly busy: boolean;
   readonly reply: ClaimReply | null;
+  readonly extras: TicketExtrasView | null;
+  readonly loadingExtras: boolean;
+  /** A reply, status change or escalation was sent (whatever the answer): read the ticket and its extras again. */
+  readonly onActionDone: () => void;
+  readonly children?: ReactNode;
   readonly onRefresh: () => void;
   readonly onOpen: (id: string) => void;
   readonly onClose: () => void;
@@ -215,6 +213,9 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
           </table>
         </div>
       )}
+
+      <TicketExtras extras={p.extras} loading={p.loadingExtras} />
+      <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
 }
@@ -226,7 +227,7 @@ export function SupportDeskView(p: DeskViewProps) {
       <div className="adm-pagehead">
         <div>
           <h1>Support queue</h1>
-          <p>Open and waiting tickets, highest score first. Open one to read it and claim it.</p>
+          <p>Open and waiting tickets, highest score first. Open one to read it, claim it, reply, change its status or escalate it.</p>
         </div>
       </div>
       <div className="dk-row">
@@ -284,22 +285,26 @@ export function SupportDeskView(p: DeskViewProps) {
         </>
       )}
       <TicketPanel {...p} />
+      {p.children}
     </div>
   );
 }
 
-export function SupportDesk({ initial, userId }: { initial: SupportQueueView | null; userId: string }) {
+export function SupportDesk({ initial, userId, children }: { initial: SupportQueueView | null; userId: string; children?: ReactNode }) {
   const [queue, setQueue] = useState<SupportQueueView | null>(initial);
   const [ticket, setTicket] = useState<SupportTicketView | null>(null);
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingTicket, setLoadingTicket] = useState(false);
+  const [extras, setExtras] = useState<TicketExtrasView | null>(null);
+  const [loadingExtras, setLoadingExtras] = useState(false);
   const [arming, setArming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<ClaimReply | null>(null);
   const lock = useRef(false);
   const queueSeq = useRef(0);
   const ticketSeq = useRef(0);
+  const extrasSeq = useRef(0);
 
   const reloadQueue = useCallback(async () => {
     const mine = ++queueSeq.current;
@@ -318,6 +323,16 @@ export function SupportDesk({ initial, userId }: { initial: SupportQueueView | n
     if (mine === ticketSeq.current) {
       setTicket(next);
       setLoadingTicket(false);
+    }
+  }, []);
+
+  const loadExtras = useCallback(async (id: string) => {
+    const mine = ++extrasSeq.current;
+    setLoadingExtras(true);
+    const next = await fetchTicketExtras(id);
+    if (mine === extrasSeq.current) {
+      setExtras(next);
+      setLoadingExtras(false);
     }
   }, []);
 
@@ -352,19 +367,30 @@ export function SupportDesk({ initial, userId }: { initial: SupportQueueView | n
       onOpen={(id) => {
         setTicketId(id);
         setTicket(null);
+        setExtras(null);
         setReply(null);
         setArming(false);
         void loadOne(id);
+        void loadExtras(id);
       }}
       onClose={() => {
         ticketSeq.current += 1;
+        extrasSeq.current += 1;
         setTicketId(null);
         setTicket(null);
+        setExtras(null);
         setReply(null);
         setArming(false);
       }}
       onArm={setArming}
       onClaim={() => void claim()}
-    />
+      extras={extras}
+      loadingExtras={loadingExtras}
+      onActionDone={() => {
+        if (ticketId) void Promise.all([loadOne(ticketId), loadExtras(ticketId), reloadQueue()]);
+      }}
+    >
+      {children}
+    </SupportDeskView>
   );
 }
