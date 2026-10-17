@@ -4,10 +4,13 @@ vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import type { Offer, Trade } from '../schemas';
-import type { PersonalPayApi } from '../pay-api';
+import { createApiClient } from '../../../shared/api';
+import type { Offer, TakeQuote, Trade } from '../schemas';
+import { createPayMutationGuard, createPersonalPayApi, type PersonalPayApi } from '../pay-api';
 import { OfferForm } from './OfferForm';
 import { DisputeProgress, EscrowPath, OfferTabs, OrderChat, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
+import { TakeFailureNote, TakeQuoteDetails } from './TakeOffer';
+import { TraderName, TraderSummary } from './Trader';
 
 const BUYER = 'b0000000-0000-4000-8000-000000000001';
 const SELLER = 's0000000-0000-4000-8000-000000000002';
@@ -86,14 +89,127 @@ it('shows the whole chat and cannot send, with the reason', () => {
   expect(out).toMatch(/<button[^>]*disabled[^>]*>Send message/);
 });
 
-it('shows the exact external payment but does not place an order', () => {
-  const out = renderToString(<TakeOfferPanel offer={offer} />);
+const idle = createApiClient({ fetch: () => new Promise<Response>(() => {}) });
+const payFor = (userId: string | null) => createPersonalPayApi(idle, userId, createPayMutationGuard());
+const quote: TakeQuote = {
+  amount: '100',
+  price: '0.92',
+  fiatAmount: '92',
+  feeBps: 30,
+  fee: '0.3',
+  netAmount: '99.7',
+  reservationExpiresAt: '2026-10-18T10:15:00.000Z',
+};
+
+it('offers a stranger the order form with limits, methods and a quote area, and no “not yet” copy', () => {
+  const out = renderToString(<TakeOfferPanel offer={offer} pay={payFor(BUYER)} userId={BUYER} />);
   expect(out).toContain('Quantity in USDT');
-  expect(out).toContain('Orders can’t be placed yet');
-  expect(out).toMatch(/data-testid="take-review"/);
+  expect(out).toContain('This offer takes 10 to 500 USDT per order.');
+  expect(out).toContain('Enter a quantity and choose a payment method to see your quote.');
   expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="take-review"|<button[^>]*data-testid="take-review"[^>]*disabled/);
   expect(out).toContain('sepa');
   expect(out).toContain('wise');
+  expect(out).not.toContain('Orders can’t be placed yet');
+  expect(out).not.toContain('doesn’t give a fee');
+  expect(out).not.toContain('data-testid="take-unresolved"');
+});
+
+it('gives the maker no order form on their own offer', () => {
+  const out = renderToString(<TakeOfferPanel offer={offer} pay={payFor(SELLER)} userId={SELLER} />);
+  expect(out).toContain('This is your offer');
+  expect(out).toContain('data-testid="take-own"');
+  expect(out).not.toContain('<input');
+  expect(out).not.toContain('data-testid="take-review"');
+});
+
+it('shows the quote exactly as the service returned it, from the buyer’s side', () => {
+  const out = renderToString(<TakeQuoteDetails offer={offer} quote={quote} />);
+  for (const text of [
+    'You buy',
+    '100 USDT',
+    'You pay (external payment)',
+    '92 EUR',
+    '0.92 EUR / USDT',
+    'Service fee',
+    '0.3 USDT (0.3%)',
+    'You receive',
+    '99.7 USDT',
+  ])
+    expect(out).toContain(text);
+  expect(out).not.toContain('Reservation');
+});
+
+it('shows the quote from the seller’s side when the maker is buying', () => {
+  const out = renderToString(<TakeQuoteDetails offer={{ ...offer, side: 'buy' }} quote={quote} />);
+  expect(out).toContain('You sell');
+  expect(out).toContain('You receive (external payment from the buyer)');
+  expect(out).toContain('Service fee (taken from what the buyer receives)');
+  expect(out).toContain('The buyer receives');
+  expect(out).toContain('99.7 USDT');
+  expect(out).not.toContain('Reservation');
+});
+
+it('calls an unconfirmed order unconfirmed and shows no service text or code', () => {
+  const failure = {
+    ok: false as const,
+    reason: 'uncertain' as const,
+    message: 'p2p.escrow_lock_uncertain',
+    code: 'p2p.escrow_lock_uncertain',
+  };
+  const out = renderToString(<TakeFailureNote failure={failure} context="take" />);
+  expect(out).toContain('We couldn’t confirm your order');
+  expect(out).toContain('Check before trying again');
+  expect(out).not.toContain('p2p.');
+  const verify = renderToString(
+    <TakeFailureNote failure={{ ok: false, reason: 'forbidden', message: 'x', code: 'denied.kyc_required' }} context="quote" />,
+  );
+  expect(verify).toContain('Verify your identity to place P2P orders.');
+  expect(verify).toContain('href="/verification"');
+  expect(verify).not.toContain('denied.');
+  const region = renderToString(
+    <TakeFailureNote failure={{ ok: false, reason: 'forbidden', message: 'x', code: 'denied.region_blocked' }} context="quote" />,
+  );
+  expect(region).toContain('aren’t available in your region');
+  expect(region).not.toContain('/verification');
+  const refused = { ok: false as const, reason: 'forbidden' as const, message: 'p2p.blocked', code: 'p2p.blocked' };
+  const blocked = renderToString(<TakeFailureNote failure={refused} context="take" />);
+  expect(blocked).toContain('You can’t place an order with this member.');
+  expect(blocked).not.toContain('p2p.blocked');
+});
+
+it('names a trader by handle, never by account id, and says what the record returned', () => {
+  const record = {
+    ok: true as const,
+    data: {
+      tradesTotal: 120,
+      completed: 118,
+      cancelled: 2,
+      disputed: 0,
+      disputesLost: 0,
+      completionRate: 0.985,
+      avgReleaseSecs: 190,
+      badges: [],
+      merchant: null,
+      handle: 'test_friend',
+      memberSince: null,
+    },
+  };
+  const name = renderToString(<TraderName record={record} />);
+  expect(name).toContain('@test_friend');
+  const summary = renderToString(<TraderSummary record={record} />);
+  expect(summary).toContain('120 orders');
+  expect(summary).toContain('98.5%');
+  expect(summary).toContain('releases in about 3 min');
+  const unnamed = renderToString(<TraderName record={{ ok: true, data: { ...record.data, handle: null } }} />);
+  expect(unnamed).toContain('Member');
+  // A maker beyond the board's cap has no record asked for: Member, no spinner, no summary.
+  expect(renderToString(<TraderName record={null} />)).toContain('Member');
+  expect(renderToString(<TraderName record={null} />)).not.toContain('aria-busy');
+  expect(renderToString(<TraderSummary record={null} />)).toBe('');
+  expect(renderToString(<TraderSummary record={{ ok: true, data: { ...record.data, tradesTotal: 0, completed: 0 } }} />)).toContain(
+    'New trader',
+  );
+  expect(renderToString(<TraderSummary record={{ ok: false, reason: 'error', message: 'x' }} />)).toContain('Trader record unavailable');
 });
 
 it('marks the pressed offer and order tabs', () => {
