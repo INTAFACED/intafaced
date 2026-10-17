@@ -223,27 +223,34 @@ describe('seedMarket', () => {
     expect(result.placements).toHaveLength(0);
   });
 
-  it('refuses futures when futuresEnabled is omitted (default is refusal)', async () => {
-    const ledger = new MemoryLedger();
-    const matching = new SeedStubMatching();
-    const result = await seedMarket(
-      {
-        marketId: 'btc-usdt-perp',
-        baseAsset: 'BTC',
-        quoteAsset: 'USDT',
-        midPrice: '100',
-        halfSpreadBps: 100,
-        stepBps: 0,
-        levels: 1,
-        qtyPerLevel: '1',
-        runId: 'run-fut-default',
-      },
-      { ledger, matching, market: ACTIVE_FUTURES },
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe('trade.futures_disabled');
-    expect(matching.submitted).toHaveLength(0);
+  it('refuses futures when futuresEnabled is omitted and the published flag is off', async () => {
+    const previous = process.env.TRADE_FUTURES_ENABLED;
+    process.env.TRADE_FUTURES_ENABLED = 'false';
+    try {
+      const ledger = new MemoryLedger();
+      const matching = new SeedStubMatching();
+      const result = await seedMarket(
+        {
+          marketId: 'btc-usdt-perp',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          midPrice: '100',
+          halfSpreadBps: 100,
+          stepBps: 0,
+          levels: 1,
+          qtyPerLevel: '1',
+          runId: 'run-fut-default',
+        },
+        { ledger, matching, market: ACTIVE_FUTURES },
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toBe('trade.futures_disabled');
+      expect(matching.submitted).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete process.env.TRADE_FUTURES_ENABLED;
+      else process.env.TRADE_FUTURES_ENABLED = previous;
+    }
   });
 
   it('seeds futures when futuresEnabled is true and market is active', async () => {
