@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseSwapSlippageBps } from './amm/slippage.js';
 
 const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address');
 /**
@@ -109,6 +110,15 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_IMPLEMENTATION_ADDRESS: evmAddressDefaultZero,
     /** Constant-product PoolFactory (protocol.amm). Zero until deployed on the target chain. */
     PROTOCOL_AMM_FACTORY_ADDRESS: evmAddressDefaultZero,
+    /**
+     * Worst slippage a swap builder or session check will accept, in bps.
+     *
+     * NO DEFAULT. Blank / unset / non-integer → null; `buildSwapExactIn` and
+     * `checkSessionCall` refuse `protocol.swap_slippage_unset`. 0 means the
+     * minimum must equal the fresh quote. Above 5000 is the same refusal —
+     * 10_000 bps would make the floor 0. Never invent 50.
+     */
+    PROTOCOL_SWAP_SLIPPAGE_BPS: z.string().default('').transform(parseSwapSlippageBps),
     /**
      * `TokenFactory` for `launch.token-factory` (§8.4). Zero until deployed.
      *
