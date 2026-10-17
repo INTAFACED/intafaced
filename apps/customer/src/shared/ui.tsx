@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, ty
 import { Panel } from '@intafaced/ui';
 import type { ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
+import { refusalCopy } from '../data/refusals';
 export { Panel };
 
 export function Button({
@@ -76,8 +77,32 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     </div>
   );
 }
+/** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
+const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
+  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : undefined;
+  if (rawCode && !result.messageCopy) {
+    // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
+    const words = refusalCopy(result.code ?? rawCode);
+    return (
+      <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+        <h3>{words.title}</h3>
+        <p>{words.body}</p>
+        {words.action && (
+          <a className="text-link" href={words.action.href}>
+            {words.action.label}
+          </a>
+        )}
+        {words.reference && <small className="muted">{words.reference}</small>}
+        {retry && result.reason !== 'uncertain' && result.reason !== 'unauthorized' && (
+          <Button variant="secondary" onClick={retry}>
+            <Copy k="retry" />
+          </Button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>

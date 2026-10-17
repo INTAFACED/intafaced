@@ -92,6 +92,9 @@ export interface DisputeListFilter {
   cursor?: string;
   status?: DisputeCaseStatus;
   paymentId?: string;
+  search?: string;
+  from?: string;
+  to?: string;
   /** Inclusive. Rows with no rail due date are excluded. */
   dueAfter?: string;
   /** Inclusive. Rows with no rail due date are excluded. */
@@ -116,6 +119,9 @@ export class DisputeOpsService {
     assertPermission(caller, 'disputes.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
+    if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to)) {
+      throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
+    }
     if (input.deadline === 'unset' && (input.dueAfter !== undefined || input.dueBefore !== undefined)) {
       throw new MerchantOpsError('pay.dispute_deadline_filter_invalid', 'bad_request');
     }
@@ -131,6 +137,9 @@ export class DisputeOpsService {
     const all = (await this.store.listForMerchant(caller.merchantId))
       .filter((c) => (input.status ? c.status === input.status : true))
       .filter((c) => (input.paymentId ? c.paymentId === input.paymentId : true))
+      .filter((c) => (input.search ? c.disputeId === input.search || c.paymentId === input.search : true))
+      .filter((c) => (input.from ? c.openedAt >= input.from : true))
+      .filter((c) => (input.to ? c.openedAt < input.to : true))
       .slice()
       .reverse();
     const dues = await this.dueByDispute(

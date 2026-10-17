@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -117,20 +118,23 @@ function stubPay(over: Partial<Record<string, unknown>> = {}): PayService & { ca
       expiresAt: new Date('2026-09-07T10:00:00.000Z'),
       maxUses: input.maxUses ?? null,
     })),
-    listPaymentLinks: record('listPaymentLinks', async () => [
-      {
-        id: LINK,
-        prefix: 'pl_testtoke',
-        label: 'Invoice',
-        amount: '10',
-        currency: 'USDT',
-        active: true,
-        expiresAt: '2026-09-07T10:00:00.000Z',
-        maxUses: 1,
-        uses: 0,
-        createdAt: '2026-08-07T10:00:00.000Z',
-      },
-    ]),
+    listPaymentLinks: record('listPaymentLinks', async () => ({
+      items: [
+        {
+          id: LINK,
+          prefix: 'pl_testtoke',
+          label: 'Invoice',
+          amount: '10',
+          currency: 'USDT',
+          active: true,
+          expiresAt: '2026-09-07T10:00:00.000Z',
+          maxUses: 1,
+          uses: 0,
+          createdAt: '2026-08-07T10:00:00.000Z',
+        },
+      ],
+      nextCursor: null,
+    })),
     deactivatePaymentLink: record('deactivatePaymentLink', async () => ({ deactivated: true })),
     ...over,
   } as unknown as PayService & { calls: Call[] };
@@ -141,7 +145,7 @@ async function build(
   idempotency = new MemoryRestIdempotencyStore(),
   webhooks?: MerchantWebhookService,
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, genReqId: () => randomUUID() });
   await registerPublicPayRest(app, {
     edgeSecret: SECRET,
     serviceName: 'svc-pay',
@@ -1169,43 +1173,50 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([
-      {
-        id: LINK,
-        prefix: 'pl_testtoke',
-        label: 'Invoice',
-        amount: '10',
-        currency: 'USDT',
-        active: true,
-        expiresAt: '2026-09-07T10:00:00.000Z',
-        maxUses: 1,
-        uses: 0,
-        createdAt: '2026-08-07T10:00:00.000Z',
-      },
-    ]);
-    expect(res.json()[0]).not.toHaveProperty('token');
+    expect(res.json()).toEqual({
+      items: [
+        {
+          id: LINK,
+          prefix: 'pl_testtoke',
+          label: 'Invoice',
+          amount: '10',
+          currency: 'USDT',
+          active: true,
+          expiresAt: '2026-09-07T10:00:00.000Z',
+          maxUses: 1,
+          uses: 0,
+          createdAt: '2026-08-07T10:00:00.000Z',
+        },
+      ],
+      nextCursor: null,
+    });
+    expect(res.json().items[0]).not.toHaveProperty('token');
     expect(pay.calls.filter((c) => c.method === 'listPaymentLinks')).toHaveLength(1);
-    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args).toEqual([MERCHANT, 50]);
+    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[0]).toBe(MERCHANT);
+    expect(pay.calls.find((c) => c.method === 'listPaymentLinks')!.args[1]).toMatchObject({ limit: 50 });
   });
 
   it('REFUSES payment-link list when limit is omitted — never invents 50; owner may pass 50', async () => {
     const pay = stubPay({
-      listPaymentLinks: async (_merchantId: string, limit?: number) => {
-        assertPaymentLinkListLimit(limit);
-        return [
-          {
-            id: LINK,
-            prefix: 'pl_testtoke',
-            label: 'Invoice',
-            amount: '10',
-            currency: 'USDT',
-            active: true,
-            expiresAt: '2026-09-07T10:00:00.000Z',
-            maxUses: 1,
-            uses: 0,
-            createdAt: '2026-08-07T10:00:00.000Z',
-          },
-        ];
+      listPaymentLinks: async (_merchantId: string, query?: { limit?: number }) => {
+        assertPaymentLinkListLimit(query?.limit);
+        return {
+          items: [
+            {
+              id: LINK,
+              prefix: 'pl_testtoke',
+              label: 'Invoice',
+              amount: '10',
+              currency: 'USDT',
+              active: true,
+              expiresAt: '2026-09-07T10:00:00.000Z',
+              maxUses: 1,
+              uses: 0,
+              createdAt: '2026-08-07T10:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+        };
       },
     });
     app = await build(pay);
@@ -1224,7 +1235,7 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
       headers: signed(),
     });
     expect(explicit.statusCode).toBe(200);
-    expect(explicit.json()).toHaveLength(1);
+    expect(explicit.json().items).toHaveLength(1);
   });
 
   it('deactivates through deactivatePaymentLink', async () => {
@@ -1240,5 +1251,20 @@ describe('payment-links — REST translation of createLink / listLinks / deactiv
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ deactivated: true });
     expect(pay.calls.find((c) => c.method === 'deactivatePaymentLink')!.args).toEqual([MERCHANT, LINK]);
+  });
+
+  it('puts the request id on the error header and body', async () => {
+    app = await build(stubPay());
+    const res = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
+    expect(res.statusCode).toBe(401);
+    const requestId = res.headers['x-request-id'];
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(String(requestId).startsWith('req-')).toBe(false);
+    expect(res.json().error.requestId).toBe(requestId);
+    expect(res.json().error.code).toBe('pay.unauthorized');
+    const again = await app.inject({ method: 'GET', url: `/v1/payment-links?merchantId=${MERCHANT}` });
+    expect(again.headers['x-request-id']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(again.headers['x-request-id']).not.toBe(requestId);
+    expect(again.json().error.requestId).toBe(again.headers['x-request-id']);
   });
 });

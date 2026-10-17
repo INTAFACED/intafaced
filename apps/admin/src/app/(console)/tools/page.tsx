@@ -40,7 +40,7 @@ export default async function OperatorToolsPage() {
       };
     }),
     residual: {
-      reconcile: 'simulated — svc-edge has no reconcile route; see /ledger',
+      reconcile: 'not available — svc-edge has no reconcile route; /ledger says so and shows no figures',
       sso: 'Current interactive founder identity is required for every request',
     },
   };

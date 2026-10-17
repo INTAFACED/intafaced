@@ -5,6 +5,7 @@ import {
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
+  merchantControlApprovalPageSchema,
   merchantControlApprovalDecideInputSchema,
   merchantTierListInputSchema,
   merchantTierListSchema,
@@ -174,8 +175,13 @@ export function createMerchantControlRouter(control?: ControlService) {
       approvals: router({
         list: read
           .input(merchantControlApprovalListInputSchema)
-          .output(z.array(payoutApprovalSchema))
-          .query(({ ctx, input }) => guarded(async () => (await control.approvals.list(principalOf(ctx), input)).map(toContractApproval))),
+          .output(merchantControlApprovalPageSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              const page = await control.approvals.list(principalOf(ctx), input);
+              return { items: page.items.map(toContractApproval), nextCursor: page.nextCursor };
+            }),
+          ),
         request: payout
           .input(approvalRequestInputSchema)
           .output(payoutApprovalSchema)

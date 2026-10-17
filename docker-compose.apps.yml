@@ -345,7 +345,24 @@ services:
       # real domain. Do not invent a production registrable domain here.
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-INTAFACED}
-      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+      # Local compose serves the customer app on :8090 and the founder console on
+      # :3100, so those are the origins a browser passkey ceremony will report.
+      # `localhost` only: a passkey cannot be bound to 127.0.0.1 (an IP is not a
+      # valid RP ID). STAGING / PRODUCTION: this default is a localhost, non-https
+      # origin and identity's WebAuthn posture check refuses to boot on it with
+      # APP_ENV staging/prod, so a real host must set WEBAUTHN_RP_ID and an https
+      # WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off). Nothing here is accepted in prod.
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:8090,http://localhost:3100}
+      # Founder pair + single-use enrolment invites. Pass-through only, NO default:
+      # blank = founder controls unconfigured and enrolment closed (the refuse-closed
+      # state), exactly as when the variables are unset. Values come from the local
+      # founder seed (`pnpm local:founder`) or the operator's own .env; see
+      # docs/RUNNING.md "Founder access on the local Docker stack". The outreach
+      # overlay re-declares the pair as required and wins over these lines.
+      IDENTITY_FOUNDER_NITRO_USER_ID: ${IDENTITY_FOUNDER_NITRO_USER_ID:-}
+      IDENTITY_FOUNDER_PHANTOM_USER_ID: ${IDENTITY_FOUNDER_PHANTOM_USER_ID:-}
+      IDENTITY_FOUNDER_INVITE_HASHES: ${IDENTITY_FOUNDER_INVITE_HASHES:-}
+      IDENTITY_FOUNDER_INVITE_EXPIRES_AT: ${IDENTITY_FOUNDER_INVITE_EXPIRES_AT:-}
       # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
       # M01 DMA broker/desk/shift law — pass-through, no compose default, no invented tree.
@@ -1611,7 +1628,14 @@ services:
       SERVICE_NAME: svc-mining-pool
       HTTP_PORT: '4023'
       LEDGER_URL: http://svc-ledger:4001
+      # Role svc_mining_pool and schema mining_pool come from postgres-init.
+      # The drizzle files are applied by migrate-all. Without this URL the
+      # fleet never creates windows/shares (workspace-sync).
+      DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # ── Protocol Plane (§17.4) ─────────────────────────────────────
 
@@ -1887,6 +1911,15 @@ services:
       HOSTNAME: 0.0.0.0
       HEALTHCHECK_PORT: '3100'
       HEALTHCHECK_PATH: /
+      # Founder sign-in. Pass-through only, NO default: blank refuses every login
+      # with `admin.session_unconfigured` (fail closed). ADMIN_ORIGIN is the exact
+      # origin the browser uses (local: http://localhost:3100, accepted only while
+      # APP_ENV is dev/test; staging and prod need https). ADMIN_SESSION_SECRET is
+      # a 32-byte base64url key; generate with
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+      # The outreach overlay re-declares both as required and wins over these lines.
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
       # The control plane this console reaches (§14.6). Container port 4000, not
       # the host's — the console calls the edge across the compose network.
       EDGE_URL: ${EDGE_URL:-http://svc-edge:4000}

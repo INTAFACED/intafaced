@@ -67,9 +67,9 @@ async function setup(page) {
   const mock = createPortalMock('active');
   await mock.install(page);
   for (const [proc, data] of Object.entries({
-    'subscription.list': [subscription],
+    'subscription.list': { items: [subscription], nextCursor: null },
     'subscription.get': subscription,
-    'mandate.list': [mandate],
+    'mandate.list': { items: [mandate], nextCursor: null },
     'mandate.get': mandate,
     'subscription.cycles': { subscriptionId: S, cycles: [cycle] },
     'subscription.listExecutions': [execution],
@@ -345,7 +345,10 @@ async function developerFixture(page, kind, uncertainAction = false) {
         query: async (procedure, input) => {
           window.__fixtureReads = [...(window.__fixtureReads ?? []), { procedure, input }];
           const saved = window.__fixtureProof;
-          return { ok: true, data: procedure === 'subscription.list' ? (saved ? [saved] : []) : (saved ?? subscription) };
+          return {
+            ok: true,
+            data: procedure === 'subscription.list' ? { items: saved ? [saved] : [], nextCursor: null } : (saved ?? subscription),
+          };
         },
         mutate: async (procedure, input, _schema, scope, guardKey, reference) => {
           window.__fixtureCalls.push({ procedure, input, scope, guardKey });

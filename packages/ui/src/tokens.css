@@ -5,6 +5,7 @@
 
 :root {
   --if-base: #000000;
+  --if-bg: var(--if-base);
   --if-surface: #0c0c0e;
   --if-surface-raised: #16161a;
   --if-surface-overlay: #232329;

@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { kybBindingMatches, loadKybDecisionBinding, type KybDecisionBinding } from './kyb-decision-binding.js';
 
 /**
  * DIGITAL KYB — THE LIVE OPERATOR PATH (`pay.psp`).
@@ -157,11 +158,18 @@ export class KybService {
           });
         }
 
-        await tx`
+        const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants
              SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
            WHERE id = ${input.merchantId}
+             AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
+           RETURNING id
         `;
+        if (!updated) {
+          throw new KybError(`Merchant KYB is already ${merchant.kyb_status}`, 'pay.kyb_invalid', {
+            kybStatus: merchant.kyb_status,
+          });
+        }
 
         const [row] = await tx<KybEventRow[]>`
           INSERT INTO pay.merchant_kyb_events (
@@ -190,9 +198,16 @@ export class KybService {
     );
   }
 
+  /** Identity fields and hash a compliance proposer files into the KYB approval. Null when the merchant is missing. */
+  async decisionBinding(merchantId: string): Promise<KybDecisionBinding | null> {
+    return loadKybDecisionBinding(this.sql, merchantId);
+  }
+
   /**
    * Operator decide — works under live-only. This is the digital KYB path the
    * stub points at when it refuses. Scope belongs on the router (`admin:compliance`).
+   * `identityHash` is required. Under the merchant row lock, the live identity
+   * must still be that hash or the decision is refused before `beforeWrite`.
    */
   async decide(input: {
     merchantId: string;
@@ -200,6 +215,9 @@ export class KybService {
     reason: string;
     actorId: string;
     actorScope: string;
+    identityHash: string;
+    /** Runs after the locked identity matches, before the status write. */
+    beforeWrite?: () => Promise<void>;
   }): Promise<{ changed: boolean; kybStatus: KybStatus; event: KybEventRecord | null }> {
     const reason = requireReason(input.reason, 'pay.kyb_reason_required');
     if (reason.length < 3) {
@@ -220,12 +238,24 @@ export class KybService {
             kybStatus: merchant.kyb_status,
           });
         }
+        const live = await loadKybDecisionBinding(tx, input.merchantId);
+        if (!live || !input.identityHash || !kybBindingMatches(live, { identityHash: input.identityHash })) {
+          throw new KybError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+        if (input.beforeWrite) await input.beforeWrite();
 
-        await tx`
+        const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants
              SET kyb_status = ${input.decision}::pay.kyb_status, updated_at = now()
            WHERE id = ${input.merchantId}
+             AND kyb_status = 'pending'::pay.kyb_status
+           RETURNING id
         `;
+        if (!updated) {
+          throw new KybError(`Merchant KYB must be pending to decide (is ${merchant.kyb_status})`, 'pay.kyb_invalid', {
+            kybStatus: merchant.kyb_status,
+          });
+        }
 
         const [row] = await tx<KybEventRow[]>`
           INSERT INTO pay.merchant_kyb_events (

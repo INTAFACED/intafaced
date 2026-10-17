@@ -5,7 +5,14 @@ export interface FreezeState {
   readonly actor: string | null;
   /** Last record change, not read time, operation version or original outcome. */
   readonly changedAt: string;
+  /**
+   * The ledger's own version token for this record (`changedAtPrecise`), when its read returns one. Two-founder
+   * freeze and unfreeze approvals are bound to it, so the desk cannot request either without it. svc-ledger's
+   * `GET /operator/freeze` does not return it today (admin-BACKEND-NEEDS.md); absent means absent, never guessed.
+   */
+  readonly version?: string;
 }
+const VERSION = /^[\x20-\x7e]{1,128}$/;
 export type FreezeReadKind = 'reachable' | 'loading' | 'unconfigured' | 'absent' | 'refused' | 'unreachable' | 'invalid_response';
 export interface FreezeResult {
   readonly ok: boolean;
@@ -66,7 +73,13 @@ export function decodeFreezeState(value: unknown): FreezeState | null {
   )
     return null;
   // actor/reason are opaque published fields, not a human authority or financial schema.
-  return { frozen: value.frozen, reason: value.reason, actor: value.actor, changedAt: value.changedAt };
+  return {
+    frozen: value.frozen,
+    reason: value.reason,
+    actor: value.actor,
+    changedAt: value.changedAt,
+    ...(typeof value.version === 'string' && VERSION.test(value.version) ? { version: value.version } : {}),
+  };
 }
 function detail(body: unknown, fallback: string): string {
   if (!record(body)) return fallback;
