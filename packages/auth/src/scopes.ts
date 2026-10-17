@@ -128,26 +128,52 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
 /**
  * Scopes that must never be granted to a long-lived API key.
  *
- * Withdrawal and treasury movement require an interactive session with 2FA
- * (§9 Security: withdrawal allow-lists + delay tiers). A leaked key must not be
- * able to move value off the platform on its own.
+ * Two membership tests, both closed:
  *
- * The membership test is "does this move value OFF the platform", not "does it
- * feel dangerous". `pay:payout` was missing: it sends a merchant's settled
- * balance out through a rail, which is the same class of action as
- * `trade:withdraw` and had none of the same protection. Found by the agent
- * building svc-pay, which noticed the asymmetry while writing authorisation
- * tests and — correctly — flagged it rather than changing a shared package
- * unilaterally.
+ *   1. Moves value OFF the platform (`trade:withdraw`, `admin:treasury`,
+ *      `bank:card`, `pay:payout`). A leaked key must not be able to do that on
+ *      its own (§9). These also require 2FA on the session (`SESSION_MFA_SCOPES`).
+ *   2. Founder or operator desk authority (`admin:read`, `admin:write`,
+ *      `admin:compliance`, `admin:treasury`, `support:ops`, `market:ops`).
+ *      A founder session used to be able to copy `admin:write`, `admin:read`
+ *      and `support:ops` onto an API key, and a session that held
+ *      `admin:compliance` or `market:ops` could do the same. A long-lived key
+ *      then bypasses the founder MFA and session model. Desk scopes stay on
+ *      the interactive session. `admin:read` and `support:ops` are issued
+ *      before MFA; their second factor, where a procedure needs one, stays a
+ *      local `requireMfa` — being interactive-only is not the same as
+ *      requiring 2FA.
+ *
+ * `pay:payout` was the value-movement miss: it sends a merchant's settled
+ * balance out through a rail, the same class as `trade:withdraw`. Found by the
+ * agent building svc-pay.
  */
-export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
+export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
+  'trade:withdraw',
+  'admin:treasury',
+  'bank:card',
+  'pay:payout',
+  'admin:read',
+  'admin:write',
+  'admin:compliance',
+  'support:ops',
+  'market:ops',
+];
+
+/**
+ * Interactive-only scopes that also require a second factor on the session.
+ *
+ * A subset of `INTERACTIVE_ONLY_SCOPES`. The desk scopes that a founder holds
+ * before MFA (`admin:read`, `support:ops`) and the ones whose procedures call
+ * `requireMfa` themselves (`admin:write`, `admin:compliance`, `market:ops`)
+ * are interactive-only — refused on an API key — and are not in this list.
+ */
+export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
   if (forbidden.length > 0) {
-    throw new Error(
-      `Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive, 2FA-backed session (§9)`,
-    );
+    throw new Error(`Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive session (§9)`);
   }
 }
 
@@ -378,8 +404,9 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
  * could mint a key bearing `admin:compliance`, approve its own KYC record to
  * `institutional`, and unlock every custodial module in the platform.
  *
- * `assertKeyScopesAllowed` did not catch that, and was never meant to — it asks
- * "does this move value off the platform", and self-verification does not.
+ * `assertKeyScopesAllowed` is the interactive-only check: value leaving the
+ * platform, and every founder/operator desk scope. A session that holds
+ * `admin:compliance` still cannot copy it onto a key.
  *
  * Unknown strings are refused rather than skipped. A key requesting `bank:admin`
  * has either a bug or an intent behind it, and storing it silently leaves an
