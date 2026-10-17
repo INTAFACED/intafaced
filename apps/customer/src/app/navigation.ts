@@ -50,6 +50,15 @@ export const rooms: readonly Room[] = [
     screen: 'money',
   },
   {
+    path: '/money/activity/:id',
+    title: 'Activity',
+    description: 'Transaction details',
+    door: 'Money',
+    area: 'money',
+    hidden: true,
+    screen: 'money',
+  },
+  {
     path: '/coin/:asset',
     title: 'Coin',
     description: 'Asset details and actions',
@@ -98,7 +107,14 @@ export const rooms: readonly Room[] = [
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
-  { path: '/bank/business', title: 'Business bank', description: 'Company cash accounts', door: 'Money', area: 'money', business: true },
+  {
+    path: '/bank/business',
+    title: 'Business approvals',
+    description: 'Approval rules on your accounts',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
   { path: '/trade', title: 'Markets', description: 'Prices for every market', door: 'Trade', area: 'trade', screen: 'trade/markets' },
   { path: '/exchange', title: 'Trade', description: 'Spot trading terminal', door: 'Trade', area: 'trade', alias: '/trade' },
   {

@@ -16,6 +16,7 @@ import { payoutRailSourceKey, targetKey, type PayHaltStore } from './halts/store
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
+import { kybBindingMatches, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
@@ -85,6 +86,10 @@ import {
 import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { listMerchantPayoutDestinations } from './portal-reads/destinations.js';
+import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
+import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
+import { listMerchantStatement } from './portal-reads/statement.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -153,6 +158,10 @@ export type PayErrorCode =
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
   | 'pay.kyb_invalid'
   | 'pay.kyb_operator_required'
+  /** The approval was reviewed against a different merchant identity. */
+  | 'pay.kyb_identity_changed'
+  /** decideKyb has no database, so it cannot bind the approval to the live identity. */
+  | 'pay.kyb_profile_unbound'
   /**
    * Live acquiring money door — merchant lacks approved KYB (D26-P1-P10 Layer B).
    * Distinct from scope issuance (Layer A); never invents `pay:*`.
@@ -281,6 +290,22 @@ export type PayErrorCode =
   | 'pay.settlement_not_found'
   /** settlement.list page size unpublished. Blank is not 50. */
   | 'pay.settlement_list_limit_unset'
+  /** A refund event id that is missing or not this caller's. Same refusal either way. */
+  | 'pay.refund_not_found'
+  /** Destination inventory page size unpublished. Blank is not 50. */
+  | 'pay.destination_list_limit_unset'
+  /** Refund list page size unpublished. Blank is not 50. */
+  | 'pay.refund_list_limit_unset'
+  /** Statement page size unpublished. Blank is not 50. */
+  | 'pay.statement_list_limit_unset'
+  /** `merchant.statement.list` without both `from` and `to`. A statement is not the whole history. */
+  | 'pay.statement_range_required'
+  /** Statement window longer than the 92-day technical safety bound. */
+  | 'pay.statement_range_too_wide'
+  /** More than 2000 candidate ledger keys in one statement request. */
+  | 'pay.statement_too_large'
+  /** A statement scan for this merchant is still leased, or this process is already running two. */
+  | 'pay.statement_busy'
   | 'pay.list_cursor_invalid'
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
@@ -1304,18 +1329,33 @@ export class PayService {
     if (!ref || ref.length > 128) {
       throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
     }
-    const merchant = await this.getMerchant(input.merchantId);
-    if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
-      throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
-        kybStatus: merchant.kybStatus,
-      });
-    }
-    await this.sql`
-      UPDATE pay.merchants
-         SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
-       WHERE id = ${input.merchantId}
-    `;
-    return this.getMerchant(input.merchantId);
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<MerchantRow[]>`
+        SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+          FROM pay.merchants WHERE id = ${input.merchantId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new PayError(`Merchant ${input.merchantId} not found`, 'pay.merchant_not_found');
+      const merchant = toMerchant(row);
+      if (merchant.kybStatus === 'pending' || merchant.kybStatus === 'approved') {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      const [updated] = await tx<MerchantRow[]>`
+        UPDATE pay.merchants
+           SET kyb_status = 'pending', kyb_ref = ${ref}, updated_at = now()
+         WHERE id = ${input.merchantId}
+           AND kyb_status IN ('none'::pay.kyb_status, 'rejected'::pay.kyb_status)
+         RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
+      `;
+      if (!updated) {
+        throw new PayError(`Merchant KYB is already ${merchant.kybStatus}`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
+      return toMerchant(updated);
+    });
   }
 
   /**
@@ -1323,8 +1363,21 @@ export class PayService {
    * Writes `merchants.kyb_status` pending → approved|rejected.
    * Does not invent a vendor webhook, fee bps, or `pay:*` scopes (Layer A).
    */
-  async decideKyb(input: { merchantId: string; decision: 'approved' | 'rejected' }): Promise<MerchantRecord> {
-    return this.writeKybDecision(input.merchantId, input.decision);
+  async decideKyb(input: {
+    merchantId: string;
+    decision: 'approved' | 'rejected';
+    identityHash: string;
+    /**
+     * Runs under the merchant row lock after the live identity matches
+     * `identityHash`, and before the status write. The KYB routers consume
+     * the founder approval here so a mismatch refuses without consuming it.
+     */
+    beforeWrite?: () => Promise<void>;
+  }): Promise<MerchantRecord> {
+    return this.writeKybDecision(input.merchantId, input.decision, {
+      identityHash: input.identityHash,
+      beforeWrite: input.beforeWrite,
+    });
   }
 
   /**
@@ -1342,7 +1395,11 @@ export class PayService {
     return this.writeKybDecision(input.merchantId, input.decision);
   }
 
-  private async writeKybDecision(merchantId: string, decision: 'approved' | 'rejected'): Promise<MerchantRecord> {
+  private async writeKybDecision(
+    merchantId: string,
+    decision: 'approved' | 'rejected',
+    binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
+  ): Promise<MerchantRecord> {
     return transaction(this.sql, async (tx) => {
       const rows = await tx<MerchantRow[]>`
         SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
@@ -1356,13 +1413,25 @@ export class PayService {
           kybStatus: merchant.kybStatus,
         });
       }
+      if (binding) {
+        const live = await loadKybDecisionBinding(tx, merchantId);
+        if (!live || !binding.identityHash || !kybBindingMatches(live, { identityHash: binding.identityHash })) {
+          throw new PayError('KYB decision was reviewed against a different merchant identity', 'pay.kyb_identity_changed');
+        }
+        if (binding.beforeWrite) await binding.beforeWrite();
+      }
       const [updated] = await tx<MerchantRow[]>`
         UPDATE pay.merchants
            SET kyb_status = ${decision}, updated_at = now()
          WHERE id = ${merchantId}
+           AND kyb_status = 'pending'::pay.kyb_status
          RETURNING id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       `;
-      if (!updated) throw new PayError(`Merchant ${merchantId} vanished during KYB decision`, 'pay.merchant_not_found');
+      if (!updated) {
+        throw new PayError(`Merchant KYB must be pending to decide (is ${merchant.kybStatus})`, 'pay.kyb_invalid', {
+          kybStatus: merchant.kybStatus,
+        });
+      }
       return toMerchant(updated);
     });
   }
@@ -4760,6 +4829,38 @@ export class PayService {
     if (kybRefuse) {
       throw new PayError(kybRefuse.message, kybRefuse.code, kybRefuse.detail);
     }
+  }
+
+  private portalFail(message: string, code: PayErrorCode): never {
+    throw new PayError(message, code);
+  }
+
+  /** Saved payout destinations, masked. No set-default and no remove: that change flow does not exist. */
+  listPayoutDestinations(input: { merchantId: string; limit?: number; cursor?: string }) {
+    return listMerchantPayoutDestinations(this.sql, input, (message, code) => this.portalFail(message, code));
+  }
+
+  listRefunds(input: Parameters<typeof listMerchantRefunds>[2]) {
+    return listMerchantRefunds(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Merchant id only. The router fences before any amount parse or ledger read. A miss is `pay.refund_not_found`. */
+  locateRefund(refundEventId: string) {
+    return locateRefundMerchant(this.sql, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  /** The refund projection. Call only after the merchant fence. A miss is `pay.refund_not_found`. */
+  readRefund(refundEventId: string) {
+    return readMerchantRefund(this.sql, this.ledger, refundEventId, (message, code) => this.portalFail(message, code));
+  }
+
+  listStatement(input: Parameters<typeof listMerchantStatement>[2]) {
+    return listMerchantStatement(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
+  readPayoutLifecycle(settlementId: string) {
+    return readPayoutLifecycleProjection(this.sql, settlementId, (message, code) => this.portalFail(message, code));
   }
 }
 
