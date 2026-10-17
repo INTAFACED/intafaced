@@ -91,7 +91,7 @@ create → authorize → capture → (optional) refund
 | Capture   | `POST /payments/:id/capture`   | `pay:write`  | Full authorized amount only — partial capture is refused (`pay.partial_capture_unsupported`) |
 | Refund    | `POST /payments/:id/refund`    | `pay:refund` | Own scope on purpose                                                                         |
 | Get       | `GET /payments/:id`            | `pay:read`   |                                                                                              |
-| List      | `GET /payments?merchantId=`    | `pay:read`   |                                                                                              |
+| List      | `GET /payments?merchantId=`    | `pay:read`   | `{ items, nextCursor }`. `nextCursor` is null on the last page. Pass `limit` (omit refuses). |
 | Balances  | `GET /balances?merchantId=`    | `pay:read`   | Clearing + settled                                                                           |
 
 ### Sandbox vs live rail (step 4)

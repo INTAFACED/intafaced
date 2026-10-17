@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import type { ActionApproval, ActionApprovalStatus } from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalKind, ActionApprovalStatus } from '@intafaced/contracts';
 
 export type StoredApproval = {
   readonly approvalId: string;
@@ -22,6 +22,28 @@ export type StoredApproval = {
   readonly expiresAt: Date;
   readonly approvedAt: Date | null;
   readonly consumedAt: Date | null;
+  /** Absent means `four_eyes`. */
+  readonly kind?: ActionApprovalKind;
+  /** Session a `same_person` row is bound to. Null/absent for four-eyes rows. */
+  readonly sessionId?: string | null;
+};
+
+/** What a consume asks the CAS to match, beyond the row's own fields. */
+export type ConsumeCas = {
+  readonly approvalId: string;
+  readonly operationId: string;
+  readonly payloadHash: string;
+  readonly targetService: string;
+  readonly targetId: string;
+  readonly expectedVersion: string;
+  /**
+   * Same-person consume: the caller's principal. A `same_person` row is
+   * consumed only when both match the row, atomically in the CAS; a
+   * `four_eyes` row only when both are absent.
+   */
+  readonly principalUserId?: string | null;
+  readonly principalSessionId?: string | null;
+  readonly now: Date;
 };
 
 export interface ActionApprovalStore {
@@ -31,15 +53,7 @@ export interface ActionApprovalStore {
   casApprove(approvalId: string, approverId: string, now: Date): Promise<StoredApproval | null>;
   casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
   casRevoke(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
-  casConsume(input: {
-    readonly approvalId: string;
-    readonly operationId: string;
-    readonly payloadHash: string;
-    readonly targetService: string;
-    readonly targetId: string;
-    readonly expectedVersion: string;
-    readonly now: Date;
-  }): Promise<StoredApproval | null>;
+  casConsume(input: ConsumeCas): Promise<StoredApproval | null>;
 }
 
 export function newApprovalIds(): { readonly approvalId: string; readonly operationId: string } {
@@ -48,6 +62,7 @@ export function newApprovalIds(): { readonly approvalId: string; readonly operat
 
 export function toActionApproval(row: StoredApproval): ActionApproval {
   return {
+    ...(row.kind === 'same_person' ? { kind: 'same_person' as const } : {}),
     approvalId: row.approvalId,
     actionType: row.actionType,
     targetService: row.targetService,
@@ -118,18 +133,11 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
     return next;
   }
 
-  async casConsume(input: {
-    readonly approvalId: string;
-    readonly operationId: string;
-    readonly payloadHash: string;
-    readonly targetService: string;
-    readonly targetId: string;
-    readonly expectedVersion: string;
-    readonly now: Date;
-  }): Promise<StoredApproval | null> {
+  async casConsume(input: ConsumeCas): Promise<StoredApproval | null> {
     const row = this.rows.get(input.approvalId);
     if (!row) return null;
     if (row.status !== 'APPROVED') return null;
+    if (!principalMatches(row, input)) return null;
     if (row.operationId !== input.operationId) return null;
     if (row.payloadHash !== input.payloadHash) return null;
     if (row.targetService !== input.targetService) return null;
@@ -140,6 +148,19 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
     this.rows.set(input.approvalId, next);
     return next;
   }
+}
+
+/** Same rule as the SQL CAS: a same_person row needs the exact principal, a four_eyes row needs none. */
+function principalMatches(row: StoredApproval, input: ConsumeCas): boolean {
+  if (row.kind === 'same_person') {
+    return (
+      input.principalUserId != null &&
+      input.principalSessionId != null &&
+      row.requesterId === input.principalUserId &&
+      row.sessionId === input.principalSessionId
+    );
+  }
+  return input.principalUserId == null && input.principalSessionId == null;
 }
 
 type DbRow = {
@@ -158,6 +179,8 @@ type DbRow = {
   expires_at: Date;
   approved_at: Date | null;
   consumed_at: Date | null;
+  kind: ActionApprovalKind;
+  session_id: string | null;
 };
 
 function fromDb(row: DbRow): StoredApproval {
@@ -177,11 +200,13 @@ function fromDb(row: DbRow): StoredApproval {
     expiresAt: row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at),
     approvedAt: row.approved_at ? (row.approved_at instanceof Date ? row.approved_at : new Date(row.approved_at)) : null,
     consumedAt: row.consumed_at ? (row.consumed_at instanceof Date ? row.consumed_at : new Date(row.consumed_at)) : null,
+    kind: row.kind,
+    sessionId: row.session_id,
   };
 }
 
 const SELECT_COLS = `approval_id, action_type, target_service, target_id, expected_version, payload_hash,
-  requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at`;
+  requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at, kind, session_id`;
 
 export class SqlActionApprovalStore implements ActionApprovalStore {
   constructor(private readonly sql: Sql) {}
@@ -190,11 +215,13 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
     const saved = await this.sql<DbRow[]>`
       INSERT INTO action_approvals (
         approval_id, action_type, target_service, target_id, expected_version, payload_hash,
-        requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at
+        requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at,
+        kind, session_id
       ) VALUES (
         ${row.approvalId}, ${row.actionType}, ${row.targetService}, ${row.targetId}, ${row.expectedVersion}, ${row.payloadHash},
         ${row.requesterId}, ${row.approverId}, ${row.policyVersion}, ${row.operationId}, ${row.status},
-        ${row.createdAt}, ${row.expiresAt}, ${row.approvedAt}, ${row.consumedAt}
+        ${row.createdAt}, ${row.expiresAt}, ${row.approvedAt}, ${row.consumedAt},
+        ${row.kind ?? 'four_eyes'}, ${row.sessionId ?? null}
       )
       RETURNING ${this.sql.unsafe(SELECT_COLS)}
     `;
@@ -260,15 +287,9 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
     return rows[0] ? fromDb(rows[0]) : null;
   }
 
-  async casConsume(input: {
-    readonly approvalId: string;
-    readonly operationId: string;
-    readonly payloadHash: string;
-    readonly targetService: string;
-    readonly targetId: string;
-    readonly expectedVersion: string;
-    readonly now: Date;
-  }): Promise<StoredApproval | null> {
+  async casConsume(input: ConsumeCas): Promise<StoredApproval | null> {
+    const principalUserId = input.principalUserId ?? null;
+    const principalSessionId = input.principalSessionId ?? null;
     const rows = await this.sql<DbRow[]>`
       UPDATE action_approvals
       SET status = 'CONSUMED', consumed_at = ${input.now}
@@ -280,6 +301,10 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
         AND target_id = ${input.targetId}
         AND expected_version = ${input.expectedVersion}
         AND expires_at > ${input.now}
+        AND (
+          (kind = 'same_person' AND requester_id = ${principalUserId}::text AND session_id = ${principalSessionId}::text)
+          OR (kind <> 'same_person' AND ${principalUserId}::text IS NULL AND ${principalSessionId}::text IS NULL)
+        )
       RETURNING ${this.sql.unsafe(SELECT_COLS)}
     `;
     return rows[0] ? fromDb(rows[0]) : null;

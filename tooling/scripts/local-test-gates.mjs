@@ -483,7 +483,12 @@ async function twoPerson(ctx, sessions, proposal) {
   const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, sessions.a.token);
   const row = data(proposed);
   if (!row?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
-  const approved = await ctx.edge.mutate('identity', 'actionApproval.approve', { approvalId: row.approvalId }, sessions.b.token);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId: row.approvalId, expectedPayloadHash: proposal.payloadHash },
+    sessions.b.token,
+  );
   if (data(approved)?.status !== 'APPROVED')
     throw new Error(`actionApproval.approve refused (${approved.status}): ${refusalText(approved)}`);
   return { approvalId: row.approvalId, operationId: row.operationId };
