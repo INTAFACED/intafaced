@@ -3,7 +3,15 @@ import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { poolAbi } from '../amm/abi.js';
 import { erc20ReadAbi, tokenFactoryAbi } from './abi.js';
-import { ChainUnavailableError, classifyChainError, isZeroAddress, ZERO_ADDRESS } from './availability.js';
+import {
+  ChainUnavailableError,
+  CHAIN_PUBLIC_TEXT,
+  chainRefusal,
+  classifyChainError,
+  isZeroAddress,
+  redactRpcUrl,
+  ZERO_ADDRESS,
+} from './availability.js';
 import type { TokenParams } from '../launch/params.js';
 import { withSpan } from '../tracing.js';
 
@@ -373,9 +381,11 @@ export class ProtocolChain {
   async assertChainId(): Promise<number> {
     const observed = await this.#read('assertChainId', 'chain.chainId', async () => this.client.getChainId());
     if (observed !== this.config.chainId) {
-      throw new ChainUnavailableError(
+      throw chainRefusal(
         'protocol.chain_id_mismatch',
-        `The RPC at ${this.config.rpcUrl} is chain ${observed}, but this service derives addresses for chain ` +
+        this.config.rpcUrl,
+        undefined,
+        `The endpoint ${redactRpcUrl(this.config.rpcUrl)} answered as chain ${observed}, but this service derives addresses for chain ` +
           `${this.config.chainId}. Refusing: an address predicted for the wrong chain is an address a user could fund and never reach.`,
       );
     }
@@ -429,7 +439,10 @@ export class ProtocolChain {
         tokenFactoryConfigured,
         tokenFactoryDeployed: false,
         refusalCode: refusal.code,
-        reason: refusal.message,
+        // Fixed customer copy. `refusal.message` is the same text; the map is
+        // what a public caller is allowed to see even if a future throw puts
+        // an endpoint into `message`.
+        reason: CHAIN_PUBLIC_TEXT[refusal.code],
       };
     }
   }

@@ -6,7 +6,7 @@ import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
 import type { ProtocolChain } from './chain/client.js';
-import { ChainUnavailableError, isZeroAddress } from './chain/availability.js';
+import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, isZeroAddress } from './chain/availability.js';
 import { deployedCodeMatches } from './chain/artifacts.js';
 import { RelayRefusedError, SessionRelay } from './session/relay.js';
 import {
@@ -178,7 +178,8 @@ function toTrpcError(err: unknown): TRPCError {
    * opaque answer a user cannot act on.
    */
   if (err instanceof ChainUnavailableError) {
-    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: `${err.code}: ${err.message}`, cause: err });
+    const customer = /:\/\/|\bSOCKET\b/.test(err.message) ? CHAIN_PUBLIC_TEXT[err.code] : err.message;
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: `${err.code}: ${customer}`, cause: err });
   }
   if (err instanceof SessionScopeError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });

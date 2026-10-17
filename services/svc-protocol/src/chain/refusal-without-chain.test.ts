@@ -111,7 +111,9 @@ describe('a real ProtocolChain pointed at a closed socket', () => {
     );
     expect(error).toBeInstanceOf(ChainUnavailableError);
     expect((error as ChainUnavailableError).code).toBe('protocol.chain_unreachable');
-    expect((error as ChainUnavailableError).message).toContain(DEAD_RPC);
+    expect((error as ChainUnavailableError).message).not.toContain(DEAD_RPC);
+    expect((error as ChainUnavailableError).message).not.toContain('SOCKET');
+    expect((error as ChainUnavailableError).operatorDetail).toContain(DEAD_RPC);
   });
 
   it('reports the outage as data on status(), and claims nothing about deployment', async () => {
