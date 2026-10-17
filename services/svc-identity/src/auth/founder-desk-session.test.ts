@@ -15,9 +15,10 @@ import { totp } from './totp.js';
 /**
  * Founder desk scopes on the tokens AuthService actually issues.
  *
- * A live founder gets `support:ops` and `admin:read`. MFA adds `admin:write`
- * and `admin:treasury`. A directory that throws, or no directory at all, adds
- * none of them. `admin:compliance` is never on the token.
+ * Blank `IDENTITY_FOUNDER_SESSION_SCOPES` (the default this file leaves unset)
+ * adds nothing. A directory that throws, or no directory at all, adds nothing.
+ * `admin:treasury` is not grantable. The configured-grant cases live in
+ * founder-session-scopes.pg.test.ts.
  *
  * The shared TEST_DATABASE_URL names database `test`. The suite guard only
  * accepts a name ending in `_test`, so this file uses `adminopsfix1_test` on
@@ -139,29 +140,28 @@ if (!databaseUrl) {
       for (const scope of DESK) expect(scopes).not.toContain(scope);
     });
 
-    it('a founder login without MFA gets support:ops and admin:read only', async () => {
+    it('a founder login without MFA gets none of the desk scopes when the config is blank', async () => {
       const user = await register();
       auth.useFounderDirectory(directoryOf((id) => id === user.userId));
       const session = await auth.login({ identifier: user.handle, password: PASSWORD });
       const scopes = await decoded(session.accessToken);
-      expect(scopes).toContain('support:ops');
-      expect(scopes).toContain('admin:read');
-      expect(scopes).not.toContain('admin:write');
-      expect(scopes).not.toContain('admin:treasury');
+      for (const scope of DESK) expect(scopes).not.toContain(scope);
     });
 
-    it('a founder MFA login gets all four desk scopes', async () => {
+    it('a founder MFA login gets none of the desk scopes when the config is blank', async () => {
       const user = await register();
       auth.useFounderDirectory(directoryOf((id) => id === user.userId));
       const secret = await enrolTotp(auth, user.userId);
       const session = await loginMfa(auth, user.handle, secret, Date.now() + 30_000);
       const scopes = await decoded(session.accessToken);
-      for (const scope of DESK) expect(scopes).toContain(scope);
+      for (const scope of DESK) expect(scopes).not.toContain(scope);
+      expect(scopes).toEqual(expect.arrayContaining(['academy:read', 'agents:read', 'bank:read', 'token:read']));
     });
 
-    it('a founder step-up gets all four desk scopes', async () => {
+    it('a founder step-up does not receive desk scopes', async () => {
       const user = await register();
       auth.useFounderDirectory(directoryOf((id) => id === user.userId));
+      auth.useFounderSessionScopes({ scopes: ['admin:compliance', 'admin:write'], configValue: 'admin:compliance,admin:write' });
       const secret = await enrolTotp(auth, user.userId);
       const stepped = await auth.stepUp({
         userId: user.userId,
@@ -169,7 +169,8 @@ if (!databaseUrl) {
         totpCode: totp(secret, { at: new Date(Date.now() + 30_000) }),
       });
       const scopes = await decoded(stepped.accessToken);
-      for (const scope of DESK) expect(scopes).toContain(scope);
+      for (const scope of DESK) expect(scopes).not.toContain(scope);
+      expect(scopes).toContain('trade:withdraw');
     });
 
     it('a directory whose isFounder throws adds none of the four', async () => {
@@ -212,11 +213,7 @@ if (!databaseUrl) {
       const principal = await verifyAccessToken(refreshed.accessToken, tokenConfig);
       expect(principal.mfa).toBe(false);
       const scopes = [...principal.scopes];
-      expect(scopes).not.toContain('admin:compliance');
-      expect(scopes).toContain('support:ops');
-      expect(scopes).toContain('admin:read');
-      expect(scopes).not.toContain('admin:write');
-      expect(scopes).not.toContain('admin:treasury');
+      for (const scope of DESK) expect(scopes).not.toContain(scope);
     });
   });
 }

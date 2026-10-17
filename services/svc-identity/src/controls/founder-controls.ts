@@ -10,6 +10,7 @@ import {
 } from '../auth/action-approval-audience.js';
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
+import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
 import {
   accountControlInputSchema,
   accountControlLookupInputSchema,
@@ -756,6 +757,21 @@ export class FounderControls {
     } catch (error) {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
+    }
+  }
+
+  async listRestricted(
+    context: Context,
+    input: { area?: 'identity' | 'trading' | undefined; limit?: number | null | undefined; cursor?: string | undefined },
+  ): Promise<RestrictedAccountPage> {
+    assertRestrictedListReader(context);
+    try {
+      return await listRestrictedAccounts(this.sql, input);
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : null;
+      if (code === '42P01' || code === '42703') throw storageError(error);
+      throw error;
     }
   }
 

@@ -1,8 +1,10 @@
+import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
+  FOUNDER_SESSION_SCOPE_ALLOWLIST,
   issueAccessToken,
   scopesForFounderSession,
   SESSION_SCOPES,
@@ -367,6 +369,10 @@ export class AuthService {
   private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
   private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
+  /** Lead-published founder grant. Blank grants nothing. */
+  private founderSessionScopes: readonly Scope[] = [];
+  /** The config string whose sha256 is written on each founder issuance. */
+  private founderSessionConfigValue = '';
 
   constructor(
     private readonly sql: Sql,
@@ -465,23 +471,76 @@ export class AuthService {
     this.founderDirectory = directory;
   }
 
-  private async founderScopesOn(base: readonly Scope[], userId: string, mfa: boolean, query?: Sql): Promise<Scope[]> {
+  /**
+   * The lead's founder-session grant. Blank grants nothing. A scope outside
+   * the allowlist is refused here as well as at env parse.
+   */
+  useFounderSessionScopes(input: { readonly scopes: readonly Scope[]; readonly configValue: string } | undefined): void {
+    const scopes = input?.scopes ?? [];
+    for (const scope of scopes) {
+      if (!(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope)) {
+        throw new Error(`identity.founder_scope_invalid: ${scope}`);
+      }
+    }
+    this.founderSessionScopes = [...scopes];
+    this.founderSessionConfigValue = input?.configValue ?? '';
+  }
+
+  private founderConfigHash(): string {
+    return createHash('sha256').update(this.founderSessionConfigValue).digest('hex');
+  }
+
+  private async founderScopesOn(
+    base: readonly Scope[],
+    userId: string,
+    mfa: boolean,
+    query: Sql | undefined,
+    gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
+  ): Promise<{ scopes: Scope[]; founder: boolean; granted: Scope[] }> {
     let founder = false;
     try {
       founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
     } catch {
       founder = false;
     }
-    return scopesForFounderSession(base, { founder, mfa });
+    const scopes = scopesForFounderSession(base, {
+      founder,
+      mfa,
+      apiKey: gates.apiKey === true,
+      subAccount: gates.subAccount === true,
+      configured: this.founderSessionScopes,
+    });
+    const granted = scopes.filter(
+      (scope) => (FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope) && !base.includes(scope),
+    );
+    return { scopes, founder, granted };
+  }
+
+  /** One audit row for a live founder issuance. A non-founder writes nothing. */
+  private async recordFounderScopeGrant(
+    query: Sql,
+    userId: string,
+    sessionId: string,
+    founder: boolean,
+    granted: readonly Scope[],
+  ): Promise<void> {
+    if (!founder) return;
+    await query`
+      INSERT INTO founder_session_scope_audit (audit_id, user_id, session_id, scopes, config_hash)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${[...granted]}, ${this.founderConfigHash()})
+    `;
   }
 
   /**
-   * Session scopes, the owner pay grant, then founder desk scopes.
+   * Session scopes, the owner pay grant, then the configured founder grant.
    * The pay lookup is a network call. Do not call this inside a session transaction.
+   * Step-up does not call this: a step-up token never receives founder scopes.
    */
-  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+  private async scopesFor(userId: string, mfa: boolean, sessionId: string, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
     const pay = await this.scopesForNewAccessToken(userId);
-    return this.founderScopesOn([...pay, ...extra], userId, mfa, query);
+    const decided = await this.founderScopesOn([...pay, ...extra], userId, mfa, query, {});
+    await this.recordFounderScopeGrant(query ?? this.sql, userId, sessionId, decided.founder, decided.granted);
+    return decided.scopes;
   }
 
   private resetDeps() {
@@ -732,7 +791,7 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesFor(userId, options.mfa);
+    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
@@ -813,7 +872,9 @@ export class AuthService {
       const tier = await this.kycTier(session.user_id, tx);
       // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
       const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
-      const scopes = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx);
+      const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
+      await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
+      const scopes = decided.scopes;
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
@@ -1767,7 +1828,11 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes = await this.scopesFor(input.userId, true, STEP_UP_SCOPES);
+    // A step-up token carries the withdraw scope only. Founder desk scopes stay
+    // on the interactive session and are re-read at the next refresh.
+    const pay = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...pay];
+    for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },

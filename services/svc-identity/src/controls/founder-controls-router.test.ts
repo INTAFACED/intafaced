@@ -73,6 +73,9 @@ function fixture() {
     async currentAuthority(input) {
       return { subject: input, checkedAt: new Date().toISOString(), status: 'unavailable', code: 'authority.unavailable' };
     },
+    async listRestricted() {
+      return { rows: [], nextCursor: null };
+    },
   };
   return { port, calls };
 }
