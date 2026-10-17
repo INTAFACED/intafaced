@@ -20,6 +20,12 @@ import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
+import {
+  createConditionalOrderService,
+  registerConditionalOrdersRest,
+  refuseFuturesRestingLimit,
+  startConditionalOrderJobs,
+} from './futures/conditional-orders/index.js';
 import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { registerPrivateRest } from './private-rest.js';
 import { attachExpireStash, bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -390,6 +396,23 @@ const positions = new PositionService(sql, ledger, {
     }
   },
 });
+const conditionalOrders = createConditionalOrderService({
+  sql,
+  publishedMark: async (marketId, symbol) => {
+    const mark = await futuresJobs.publicMark(marketId, symbol);
+    return mark?.price ?? null;
+  },
+  closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
+  placeLimit: refuseFuturesRestingLimit,
+});
+const conditionalJobs = startConditionalOrderJobs({
+  config: {
+    enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
+    intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
+  },
+  evaluate: () => conditionalOrders.evaluate({ enabled: true }),
+  onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
+});
 const candleJobs = startCandleJobs({
   sql,
   config: {
@@ -587,6 +610,11 @@ registerPublicRest(app, {
     fundingIntervalConfigured: env.TRADE_FUTURES_FUNDING_INTERVAL_MS != null,
     maxLeverage: maxLeverage == null ? null : formatAmount(maxLeverage),
   },
+});
+registerConditionalOrdersRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  serviceName: env.SERVICE_NAME,
+  orders: conditionalOrders,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -833,6 +861,7 @@ app.log.info(
     spotEnabled: env.TRADE_SPOT_ENABLED,
     futuresEnabled: env.TRADE_FUTURES_ENABLED,
     futuresJobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
+    conditionalJobsEnabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
     futuresJobs: futuresJobs.host.list(),
     venueMark: venueMarkConfigured ? { configured: true, symbolCount: venueMarkConfigured.symbolCount } : null,
     candleJobsEnabled: env.TRADE_CANDLE_JOBS_ENABLED,
@@ -855,6 +884,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       futuresJobs.stop();
+      conditionalJobs.stop();
       candleJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();

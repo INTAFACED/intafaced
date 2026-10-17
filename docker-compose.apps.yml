@@ -627,6 +627,11 @@ services:
       # ticks on a clean clone while env.ts still read as off. Does not invent
       # a market list or a |rate| ceiling; those stay empty until named.
       TRADE_FUTURES_JOBS_ENABLED: ${TRADE_FUTURES_JOBS_ENABLED:-false}
+      # Conditional stops, take-profits, and trails. Default OFF. A blank
+      # interval does not start the timer. Does not enable futures or the
+      # liquidation job.
+      TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED: ${TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:-false}
+      TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS: ${TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS:-}
       # Liquidation scan interval when jobs are on. Matches env.ts 15s.
       # Does not turn jobs on. Host `.env` can pin cadence.
       TRADE_FUTURES_LIQ_INTERVAL_MS: ${TRADE_FUTURES_LIQ_INTERVAL_MS:-15000}
