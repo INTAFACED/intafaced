@@ -62,11 +62,18 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   const filled = readDecimal(row.accFillSz, VENUE.id, 'accFillSz');
   if (amount <= 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'sz must be positive');
   if (filled < 0n) throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz must not be negative');
+  const typeRaw = String(row.ordType ?? '');
+  const sideRaw = String(row.side ?? '').toLowerCase();
+  const quantityUnit = row.tgtCcy ?? '';
+  // accFillSz is always base. Market sz may be quote on either side; do not
+  // derive a base amount/remaining from quote spend or an average execution price.
+  if (typeRaw === 'market' && quantityUnit !== 'base_ccy' && !(sideRaw === 'sell' && quantityUnit === '')) {
+    throw new VenueUnavailableError(VENUE.id, 'malformed', 'spot market quantity unit must be base_ccy before subtracting accFillSz');
+  }
   const remaining = amount - filled;
   if (remaining < 0n) {
     throw new VenueUnavailableError(VENUE.id, 'malformed', 'accFillSz exceeds sz');
   }
-  const typeRaw = String(row.ordType ?? '');
   if (typeRaw !== 'market' && typeRaw !== 'limit' && typeRaw !== 'post_only') {
     throw new VenueUnavailableError(VENUE.id, 'malformed', `ordType ${typeRaw || '(empty)'} is not a known OKX spot type`);
   }
@@ -89,7 +96,6 @@ export function mapOkxSpotOrder(row: Record<string, unknown>, unified: string, n
   }
   const createdRaw = row.cTime ?? row.uTime;
   const createdAt = createdRaw === undefined || createdRaw === null ? now : new Date(readInteger(createdRaw, VENUE.id, 'cTime'));
-  const sideRaw = String(row.side ?? '').toLowerCase();
   if (sideRaw !== 'buy' && sideRaw !== 'sell') {
     throw new VenueUnavailableError(VENUE.id, 'malformed', `side ${sideRaw || '(empty)'} is not a known OKX side`);
   }
@@ -201,6 +207,8 @@ export class OkxSpotTrade implements TradeAdapter {
       ordType: request.type === 'market' ? 'market' : request.postOnly ? 'post_only' : 'limit',
       sz: formatAmount(request.amount),
     };
+    // Unified amounts are base quantity on both sides; make the market unit explicit.
+    if (request.type === 'market') payload.tgtCcy = 'base_ccy';
     if (request.type === 'limit') payload.px = formatAmount(request.price!);
     const ack = await this.#signed('POST', '/api/v5/trade/order', keys, 'placeOrder', payload);
     const row = firstDataRow(ack.data, 'placeOrder');
