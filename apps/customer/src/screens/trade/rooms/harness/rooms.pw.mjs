@@ -21,9 +21,11 @@ const SIZES = [
 ];
 
 const PHONE = [390, 844];
+// ROOMS_PHONE_ALL=1 takes every shot at phone width as well, not only the landing pages.
+const PHONE_ALL = process.env.ROOMS_PHONE_ALL === '1';
 
 /** One screenshot at both sizes (and phone width when `phone`); each file must exist and not be empty. */
-async function shot(page, name, { full = true, phone = false, only = null } = {}) {
+async function shot(page, name, { full = true, phone = PHONE_ALL, only = null } = {}) {
   await page.waitForTimeout(400); // let dialogs and fades finish
   for (const [width, height] of only ? [only] : phone ? [...SIZES, PHONE] : SIZES) {
     await page.setViewportSize({ width, height });
@@ -88,6 +90,18 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
+  // The blocker sentence must wrap on the page, not sit cut off inside a sideways-scrolling table.
+  test('chain: no contract listed shows the blocker as a readable block', async ({ page }) => {
+    const mock = await start(page, 'options', { at: OTC_NOW, emptyChain: true });
+    await expect(page.getByText('No option contract is listed')).toBeVisible();
+    await expect(grid(page, 'Option contracts')).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, 'page scrolls sideways at 390').toBeLessThanOrEqual(1);
+    await shot(page, 'options-01b-chain-empty', { phone: true });
+    await clean(page, mock);
+  });
+
   test('ticket: review a paper contract, cost block, confirm, order lands', async ({ page }) => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     await grid(page, 'Option contracts').getByText('TEST-BTC-25DEC26-60000-C').click();
@@ -97,7 +111,8 @@ test.describe('Options', () => {
     await ticket.getByLabel('Limit price').fill('500');
     await ticket.getByRole('button', { name: 'Review order' }).click();
     await expect(ticket.getByText('Cost before you confirm')).toBeVisible();
-    await expect(ticket.getByText('Total to commit')).toBeVisible();
+    await expect(ticket.getByText('Paper: nothing is held')).toBeVisible();
+    await expect(ticket.getByText('Total to commit')).toHaveCount(0);
     await shot(page, 'options-02-ticket-review');
     await ticket.getByRole('button', { name: 'Place order' }).click();
     await expect(dialog(page)).toBeVisible();
@@ -306,12 +321,13 @@ test.describe('Execution', () => {
     await shot(page, 'exec-11-scaled-confirm');
     await dialog(page).getByRole('button', { name: 'Place orders' }).click();
     const result = page.getByRole('region', { name: 'Ladder result' });
-    await expect(result.getByText('2 of 4 placed, 1 refused, 1 not confirmed')).toBeVisible();
+    // The lost answer is read back from the book at once: the order is there, so the room says so and counts it placed.
+    await expect(result.getByText('3 of 4 placed, 1 refused')).toBeVisible();
     await expect(result.getByText('Refused').first()).toBeVisible();
-    await expect(result.getByText('Not confirmed').first()).toBeVisible();
+    await expect(result.getByText('Placed, found on the book')).toBeVisible();
     await shot(page, 'exec-12-scaled-result');
     await result.getByRole('button', { name: 'Check status' }).click();
-    await expect(result.getByText('On the book')).toBeVisible();
+    await expect(result.getByRole('columnheader', { name: 'On the book' })).toBeVisible();
     await expect(result.getByText('Not found').first()).toBeVisible();
     await shot(page, 'exec-13-scaled-checked');
 
