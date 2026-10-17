@@ -22,6 +22,25 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-stack.mjs');
 
+// p2p is the only service that carries the local-test instrument key, and only under APP_ENV=dev.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { localStackState } = await import('./local-test-state.mjs');
+  const services = localTestServiceEnvs();
+  const p2p = services.find((service) => service.name === 'p2p');
+  assert.ok(p2p, 'p2p service missing');
+  assert.equal(p2p.env.APP_ENV, 'dev');
+  assert.equal(p2p.env.LOCAL_TEST_KMS, '1');
+  assert.equal(p2p.env.LOCAL_TEST_KMS_DIR, join(localStackState(), 'p2p-kms'));
+  assert.equal(p2p.env.P2P_FEE_BPS, '0');
+  for (const service of services) {
+    if (service.name === 'p2p') continue;
+    assert.equal(service.env.LOCAL_TEST_KMS, undefined, `${service.name} must not set LOCAL_TEST_KMS`);
+    assert.equal(service.env.LOCAL_TEST_KMS_DIR, undefined, `${service.name} must not set LOCAL_TEST_KMS_DIR`);
+  }
+  console.log('local-test-stack: p2p local-test kms env checks passed');
+}
+
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
   return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 }

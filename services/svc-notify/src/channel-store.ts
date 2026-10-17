@@ -213,6 +213,28 @@ export interface NoteReceiptInput {
   reference: string | null;
 }
 
+/** The cursor id is not a finished delivery owned by this caller. */
+export class OwnedRecentCursorError extends Error {
+  readonly code = 'notify.recent_deliveries_cursor_invalid' as const;
+
+  constructor() {
+    super('notify.recent_deliveries_cursor_invalid');
+    this.name = 'OwnedRecentCursorError';
+  }
+}
+
+export interface OwnedRecentQuery {
+  readonly userId: string;
+  readonly limit: number;
+  /**
+   * Last delivery id of the previous page. Null on the first page.
+   * The store compares `(created_at, id)` against that row inside its own engine,
+   * so a timestamp is never round-tripped through a millisecond clock.
+   */
+  readonly beforeId: string | null;
+  readonly belongsTo?: (notificationId: string) => Promise<boolean>;
+}
+
 export interface DeliveryStore {
   /**
    * Take exclusive ownership of the next attempt for this (notification, channel).
@@ -244,6 +266,13 @@ export interface DeliveryStore {
   listRecent(limit: number, status?: DeliveryStatus): Promise<DeliveryRecord[]>;
   /** Counts of every delivery row. Not a page. */
   aggregate(): Promise<{ total: number; byStatus: Record<DeliveryStatus, number>; byChannel: Record<string, number> }>;
+  /**
+   * The caller's finished delivery rows, newest first.
+   * Pending is omitted. Postgres joins `notifications` on `userId`.
+   * Memory has no user column: without `belongsTo` it returns nothing,
+   * so a missing predicate cannot dump every account.
+   */
+  listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]>;
   /**
    * Retire rows that have run out of attempts — or out of anyone who will try —
    * and that nobody owns.
@@ -322,6 +351,20 @@ export interface TargetStore {
 
 function deliveryKey(notificationId: string, channel: ChannelId): string {
   return `${notificationId}\0${channel}`;
+}
+
+function ownedNewestFirst(a: DeliveryRecord, b: DeliveryRecord): number {
+  const byTime = b.createdAt.getTime() - a.createdAt.getTime();
+  if (byTime !== 0) return byTime;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+function ownedRowIsOlder(row: DeliveryRecord, before: { readonly createdAt: Date; readonly id: string }): boolean {
+  const time = row.createdAt.getTime();
+  const bound = before.createdAt.getTime();
+  if (time < bound) return true;
+  if (time > bound) return false;
+  return row.id < before.id;
 }
 
 export class MemoryDeliveryStore implements DeliveryStore {
@@ -449,6 +492,29 @@ export class MemoryDeliveryStore implements DeliveryStore {
       byChannel[row.channel] = (byChannel[row.channel] ?? 0) + 1;
     }
     return { total: this.byId.size, byStatus, byChannel };
+  }
+
+  async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
+    if (!query.belongsTo) return [];
+    const cap = Math.max(0, Math.floor(query.limit));
+    if (cap === 0) return [];
+    let cursor: DeliveryRecord | null = null;
+    if (query.beforeId) {
+      const row = this.byId.get(query.beforeId) ?? null;
+      if (!row || row.status === 'pending' || !(await query.belongsTo(row.notificationId))) {
+        throw new OwnedRecentCursorError();
+      }
+      cursor = row;
+    }
+    const rows: DeliveryRecord[] = [];
+    for (const record of this.byId.values()) {
+      if (record.status === 'pending') continue;
+      if (cursor && !ownedRowIsOlder(record, cursor)) continue;
+      if (!(await query.belongsTo(record.notificationId))) continue;
+      rows.push(record);
+    }
+    rows.sort(ownedNewestFirst);
+    return rows.slice(0, cap);
   }
 
   async reapExhausted(maxAttempts: number, opts: ReapExhaustedOptions = {}): Promise<number> {
@@ -784,6 +850,52 @@ export class PostgresDeliveryStore implements DeliveryStore {
        WHERE notification_id = ${notificationId}
        ORDER BY channel ASC
     `;
+    return rows.map(fromDeliveryPg);
+  }
+
+  async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
+    const cap = Math.max(0, Math.floor(query.limit));
+    if (cap === 0) return [];
+    if (query.beforeId) {
+      const owned = await this.sql<{ id: string }[]>`
+        SELECT c.id
+          FROM notify.deliveries c
+          JOIN notify.notifications cn ON cn.id = c.notification_id
+         WHERE c.id = ${query.beforeId}::uuid
+           AND cn.user_id = ${query.userId}
+           AND c.status IN ('accepted', 'refused', 'failed', 'abandoned')
+         LIMIT 1
+      `;
+      if (owned.length === 0) throw new OwnedRecentCursorError();
+    }
+    const rows = query.beforeId
+      ? await this.sql<DeliveryPgRow[]>`
+          SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
+                 d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
+            FROM notify.deliveries d
+            JOIN notify.notifications n ON n.id = d.notification_id
+           WHERE n.user_id = ${query.userId}
+             AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
+             AND (d.created_at, d.id) < (
+               SELECT c.created_at, c.id
+                 FROM notify.deliveries c
+                 JOIN notify.notifications cn ON cn.id = c.notification_id
+                WHERE c.id = ${query.beforeId}::uuid
+                  AND cn.user_id = ${query.userId}
+             )
+           ORDER BY d.created_at DESC, d.id DESC
+           LIMIT ${cap}
+        `
+      : await this.sql<DeliveryPgRow[]>`
+          SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
+                 d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
+            FROM notify.deliveries d
+            JOIN notify.notifications n ON n.id = d.notification_id
+           WHERE n.user_id = ${query.userId}
+             AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
+           ORDER BY d.created_at DESC, d.id DESC
+           LIMIT ${cap}
+        `;
     return rows.map(fromDeliveryPg);
   }
 

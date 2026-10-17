@@ -1649,3 +1649,17 @@
     line-height: 28px;
   }
 }
+.money-spaces-total {
+  display: grid;
+  gap: 4px;
+  padding: 12px 0 0;
+}
+.money-spaces-total p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.money-spaces-total small {
+  color: var(--color-muted);
+}

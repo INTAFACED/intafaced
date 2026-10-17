@@ -119,6 +119,10 @@ export type ActionSpec = {
   fields?: ActionField[];
   initial?: Record<string, string>;
   facts?: [string, string][];
+  /** Rows shown above the fields while filling in the form (balance, pool, APR, term...). */
+  formFacts?: [string, string][];
+  /** Rows worked out from what has been typed so far (estimates). Shown with the form and again in the review. */
+  liveRows?: (values: Record<string, string>) => [string, string][];
   notes: string[];
   input: (values: Record<string, string>, requestId: string) => Record<string, unknown>;
   validate?: (input: Record<string, unknown>) => string | null;
@@ -489,6 +493,16 @@ export function MutationDialog({
               review();
             }}
           >
+            {Boolean(spec.formFacts?.length) && (
+              <dl className="detail-list money-form-facts">
+                {spec.formFacts!.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {spec.fields?.map((field) =>
               field.options ? (
                 <label className="field" key={field.name}>
@@ -537,6 +551,16 @@ export function MutationDialog({
                 />
               ),
             )}
+            {spec.liveRows && (
+              <dl className="detail-list money-form-facts" aria-live="polite">
+                {spec.liveRows(values).map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {errors.form && (
               <p className="error-text" role="alert">
                 {errors.form}
@@ -564,6 +588,12 @@ export function MutationDialog({
                       values[field.name] ??
                       copyText('components.none')}
                   </dd>
+                </div>
+              ))}
+              {spec.liveRows?.(values).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
                 </div>
               ))}
             </dl>
