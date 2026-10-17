@@ -131,11 +131,11 @@ const en = {
   hdr_address: 'Address',
   railsTitle: 'Rails',
   railsNote: 'Custody stays on the single custodial ledger. These rails are the Protocol side only.',
-  railBase: 'Base Sepolia contracts (P0)',
+  railBase: 'Base Sepolia contracts',
   railBaseState: 'Deployed on testnet. Not INTACHAIN.',
-  railIntachain: 'INTACHAIN (P1)',
-  // Source: INTACHAIN P1 stays parked until a written GO is recorded (see INTACHAIN_P1_GO in blockers.ts). Customers read the plain version.
-  railIntachainState: 'Not activated: the INTACHAIN network launch has not been approved yet.',
+  railIntachain: 'INTACHAIN network',
+  // Source: the INTACHAIN P1 GO is recorded (INTACHAIN_P1_GO in blockers.ts) but no chain service runs yet. Customers read the plain version.
+  railIntachainState: 'Approved to build. No INTACHAIN network is running yet, so nothing here runs on it.',
   railBridge: 'Bridge',
   railBridgeState: 'No bridge service exists.',
   // Actions
@@ -156,7 +156,7 @@ const en = {
   // Blockers
   blk_p1_go: 'Not activated: the INTACHAIN network launch has not been approved yet. Nothing here runs on it.',
   blk_no_chain_service:
-    'There is no INTACHAIN chain service or validator set yet. It will not be built until the INTACHAIN launch is approved.',
+    'There is no INTACHAIN chain service or validator set running yet, so this would be refused rather than shown as done.',
   blk_no_bridge_service: 'No bridge service exists, so a bridge request would be refused rather than shown as locked or minted.',
   blk_source_down: 'Cannot confirm: {source} did not answer ({reason}).',
   blk_chain_unreachable: 'The chain is unreachable: {reason}.',
