@@ -8,14 +8,17 @@ const USER = '22222222-2222-4222-8222-222222222222';
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
 
 function principal(): Principal {
-  return {
+  const row: Principal = {
+    sub: USER,
     userId: USER,
-    sessionId: '33333333-3333-4333-8333-333333333333',
+    sid: '33333333-3333-4333-8333-333333333333',
     scopes: ['pay:read', 'pay:write'],
     tier: 'full',
     mfa: false,
     kid: 'key-1',
-  } as Principal;
+    expiresAt: new Date('2026-10-17T00:00:00.000Z'),
+  };
+  return row;
 }
 
 function merchant(overrides: Partial<OwnerPayScopeMerchant> = {}): OwnerPayScopeMerchant {

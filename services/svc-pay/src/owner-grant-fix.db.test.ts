@@ -73,6 +73,8 @@ describe('owner grant fix against postgres', () => {
       parentMerchantId: root.id,
       userId: VICTIM,
       pricing: { feeBps: 0 },
+      actorId: 'operator-user',
+      actorScope: 'pay:write',
     });
     await expect(pay.createMerchant({ userId: VICTIM, pricing: { feeBps: 250 } })).rejects.toMatchObject({
       code: 'pay.merchant_parent_present',

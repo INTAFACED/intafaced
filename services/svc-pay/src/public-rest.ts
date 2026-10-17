@@ -1225,7 +1225,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       },
     },
     async (req: FastifyRequest<{ Params: { id: string }; Querystring: { merchantId: string } }>, reply) => {
-      const principal = principalOf(req, reply, 'pay:read');
+      const principal = await principalOf(req, reply, 'pay:read');
       if (!principal) return reply;
       try {
         await assertAccess(principal.userId, req.query.merchantId, areaForSurface('rest.payment-links.get'));
