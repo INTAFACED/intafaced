@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mnemonicToSeedSync } from '@scure/bip39';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
-import { mnemonicToAccount } from 'viem/accounts';
+import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { loadArtifact } from '../src/chain/artifacts.js';
 
@@ -48,6 +49,37 @@ export const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test tes
 export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 /**
+ * BIP-39 seed (2048 rounds of HMAC-SHA512) is the expensive part. Derive it
+ * once, on first use, and keep each child account so a repeated path returns
+ * the same object. Suites that never ask for an account never pay this cost.
+ */
+let devRoot: HDKey | undefined;
+const devAccountByPath = new Map<string, HDAccount>();
+
+function devHdPath(accountIndex: number, addressIndex: number): string {
+  return `m/44'/60'/${accountIndex}'/0/${addressIndex}`;
+}
+
+function devRootKey(): HDKey {
+  if (!devRoot) {
+    devRoot = HDKey.fromMasterSeed(mnemonicToSeedSync(PUBLIC_ANVIL_DEV_MNEMONIC));
+  }
+  return devRoot;
+}
+
+function accountAt(accountIndex: number, addressIndex: number): HDAccount {
+  const path = devHdPath(accountIndex, addressIndex);
+  const cached = devAccountByPath.get(path);
+  if (cached) return cached;
+  const child = devRootKey().derive(path);
+  // `derive('m')` returns the same key. viem's path type only allows a BIP-44
+  // string, so the master path is asserted and the child is not derived again.
+  const account = hdKeyToAccount(child, { path: 'm' as `m/44'/60'/${string}` });
+  devAccountByPath.set(path, account);
+  return account;
+}
+
+/**
  * One of anvil's ten pre-funded accounts (`m/44'/60'/0'/0/{index}`).
  *
  * Index 0 is reserved for `deploy-dev.ts`, because the addresses it produces
@@ -58,7 +90,7 @@ export const PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS: Address = '0xf39Fd6e51aad88F6F4
  * see the banner there for why a hand-picked index is the wrong tool.
  */
 export function devAccount(index = 0): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: index });
+  return accountAt(0, index);
 }
 
 export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
@@ -215,10 +247,7 @@ export function suiteSenderIndex(suiteFileUrl: string): number {
 
 /** The account a given suite sends from. Never one of anvil's ten. */
 export function suiteAccount(suiteFileUrl: string): HDAccount {
-  return mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, {
-    accountIndex: SUITE_BRANCH_ACCOUNT_INDEX,
-    addressIndex: suiteSenderIndex(suiteFileUrl),
-  });
+  return accountAt(SUITE_BRANCH_ACCOUNT_INDEX, suiteSenderIndex(suiteFileUrl));
 }
 
 /**
