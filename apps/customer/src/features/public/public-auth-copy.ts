@@ -16,6 +16,7 @@ export const publicAuthCopy = defineCopy(
     separateRegister: 'Start a separate sign-in using the action below. It does not confirm this earlier request.',
     freshSignIn: 'Start a fresh sign-in',
     historyWindow: 'Showing one of {total} earlier attempts. Choose a reference to inspect another.',
+    historySingle: 'Showing your earlier attempt.',
     historySelect: 'Earlier attempt',
     original: 'Earlier request',
     browserRef: 'Browser reference',
@@ -31,6 +32,7 @@ export const publicAuthCopy = defineCopy(
     locks: 'Safe coordination between tabs is unavailable. No new authentication is sent. Account help remains available.',
     cleared: 'Enter a fresh password or code for a new attempt. Earlier codes and passkey responses are not resent.',
     pending: 'Checking this sign-in attempt…',
+    registerPending: 'Creating your account…',
     pendingBody: 'Keep this view open while we check this attempt.',
     retained: 'The response was received, but its browser reference could not be updated safely. Earlier attempts remain separate.',
   } as const,
@@ -50,6 +52,7 @@ export const publicAuthCopy = defineCopy(
       separateRegister: 'Inicia una sesión independiente con la acción de abajo. No confirma esta solicitud anterior.',
       freshSignIn: 'Iniciar una nueva sesión',
       historyWindow: 'Se muestra uno de {total} intentos anteriores. Elige una referencia para ver otro.',
+      historySingle: 'Se muestra tu intento anterior.',
       historySelect: 'Intento anterior',
       original: 'Solicitud anterior',
       browserRef: 'Referencia del navegador',
@@ -65,6 +68,7 @@ export const publicAuthCopy = defineCopy(
       locks: 'No se puede coordinar las pestañas con seguridad. No se envía nueva autenticación. La ayuda sigue disponible.',
       cleared: 'Introduce una contraseña o un código nuevos para otro intento. Los códigos y respuestas anteriores no se reenvían.',
       pending: 'Comprobando este intento de acceso…',
+      registerPending: 'Creando tu cuenta…',
       pendingBody: 'Mantén esta vista abierta mientras comprobamos este intento.',
       retained:
         'Se recibió la respuesta, pero no se pudo actualizar su referencia con seguridad. Los intentos anteriores siguen separados.',
@@ -83,6 +87,7 @@ export const publicAuthCopy = defineCopy(
       separateRegister: 'Démarrez une connexion distincte avec l’action ci-dessous. Elle ne confirme pas cette demande antérieure.',
       freshSignIn: 'Démarrer une nouvelle connexion',
       historyWindow: 'Un des {total} essais précédents est affiché. Choisissez une référence pour en consulter un autre.',
+      historySingle: 'Votre essai précédent est affiché.',
       historySelect: 'Essai précédent',
       original: 'Demande antérieure',
       browserRef: 'Référence du navigateur',
@@ -101,6 +106,7 @@ export const publicAuthCopy = defineCopy(
       cleared:
         'Saisissez un mot de passe ou un code pour un nouvel essai. Les anciens codes et réponses de clé d’accès ne sont pas renvoyés.',
       pending: 'Vérification de cet essai de connexion…',
+      registerPending: 'Création de votre compte…',
       pendingBody: 'Gardez cette vue ouverte pendant la vérification de cet essai.',
       retained:
         'La réponse a été reçue, mais sa référence n’a pas pu être mise à jour en sécurité. Les essais antérieurs restent distincts.',
