@@ -30,7 +30,7 @@ const categoryLabel = (value: string): string =>
 
 /**
  * The support desk: published answers, your requests (list, search, conversation, reply) and a new request. Everything the
- * support service offers a signed-in person is here. Close, rate and attach are shown switched off with the reason.
+ * support service offers a signed-in person is here: reply, close, rate, attach a file, and feedback on help articles.
  */
 export function Support() {
   const copy = deskCopy.useCopy();
@@ -66,7 +66,7 @@ export function Support() {
         label={copy.t('tabsLabel')}
         labels={labels}
       />
-      {view === 'help' && <SupportHelpArticles onStartRequest={() => setView('new')} />}
+      {view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => setView('new')} />}
       {view === 'requests' &&
         (selected ? (
           <SupportRequest key={selected} id={selected} action={action} onUpdated={tickets.reload} onBack={() => setSelected('')} />

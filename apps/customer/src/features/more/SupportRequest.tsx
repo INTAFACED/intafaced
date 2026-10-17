@@ -10,7 +10,8 @@ import { Details, Limit, Read, type useAction } from './common';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 import { deskCopy } from './support-desk-copy';
-import { REQUEST_ACTIONS, canReply, replyReopens, ticketReference, type TicketStatus } from './support-desk';
+import { canReply, replyReopens, ticketReference, type TicketStatus } from './support-desk';
+import { SupportRequestActions } from './SupportRequestActions';
 import { commentSchema, ticketSchema } from './support-schemas';
 
 const STATUS_KEY = { open: 'statusOpen', pending: 'statusPending', resolved: 'statusResolved', closed: 'statusClosed' } as const;
@@ -20,14 +21,13 @@ const STATUS_HELP_KEY = {
   resolved: 'statusResolvedHelp',
   closed: 'statusClosedHelp',
 } as const;
-const REASON_KEY = { noCloseProcedure: 'closeReason', noRateProcedure: 'rateReason', noAttachProcedure: 'attachReason' } as const;
 
 export function StatusBadge({ status }: { status: TicketStatus }) {
   const copy = deskCopy.useCopy();
   return <span className={`support-status support-status--${status}`}>{copy.t(STATUS_KEY[status])}</span>;
 }
 
-/** One request: what was asked, every reply, the history, and the controls. Close, rate and attach are shown and switched off, with the reason. */
+/** One request: what was asked, every reply, the history, and the controls to reply, close, rate and attach a file. */
 export function SupportRequest({
   id,
   action,
@@ -203,38 +203,18 @@ export function SupportRequest({
             ) : (
               <p className="muted">{copy.t('closedNote')}</p>
             )}
-            <RequestActions />
+            <SupportRequestActions
+              ticket={ticket}
+              action={action}
+              onChanged={() => {
+                detail.reload();
+                comments.reload();
+                onUpdated();
+              }}
+            />
           </>
         )}
       </Read>
     </section>
-  );
-}
-
-/** Close, rate and attach. Each is a real control that is switched off, and the reason sits next to it (not in a tooltip). */
-function RequestActions() {
-  const copy = deskCopy.useCopy();
-  const base = useId();
-  const rows = [
-    { id: 'close', label: 'closeLabel', rule: REQUEST_ACTIONS.close },
-    { id: 'rate', label: 'rateLabel', rule: REQUEST_ACTIONS.rate },
-    { id: 'attach', label: 'attachLabel', rule: REQUEST_ACTIONS.attach },
-  ] as const;
-  return (
-    <div className="support-actions">
-      <h3>{copy.t('actionsHeading')}</h3>
-      <ul>
-        {rows.map(({ id, label, rule }) => (
-          <li key={id}>
-            <Button variant="secondary" disabled aria-describedby={`${base}-${id}`}>
-              {copy.t(label)}
-            </Button>
-            <small id={`${base}-${id}`} className="muted">
-              {copy.t(REASON_KEY[rule.reason])}
-            </small>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
