@@ -6,6 +6,7 @@ import {
   refuseChargebackLedgerPost,
   refuseChargebackNothingToReverse,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 } from './chargeback-ledger-socket.js';
@@ -289,6 +290,7 @@ export {
   refuseChargebackLedgerPost,
   refuseChargebackNothingToReverse,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
 };

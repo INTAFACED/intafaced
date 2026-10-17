@@ -20,6 +20,7 @@ import { DISPUTE_FEE_NOTE } from './chargeback-ledger.js';
 import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { createFounderMerchantReads } from './namespaces/founder-merchant-reads.js';
+import { listControlAudit } from './control/audit.js';
 import { PayError, PayService, type PaymentView } from './payment-service.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -273,6 +274,143 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
       SELECT count(*)::text AS n FROM pay.payment_events
        WHERE payment_id = ${payment.id} AND event = 'webhook.dispute.won'`;
     expect(markers[0]?.n).toBe('0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('an empty fund with short pots records a refused dispute and a later lost books once the fund can cover', async () => {
+    const { merchantId, payment } = await settled();
+    await ledger.post({
+      idempotencyKey: `test.drain:${payment.id}`,
+      module: 'pay',
+      reason: 'test.proceeds.spent',
+      entries: [
+        { account: merchantProceeds(merchantId, 'USDT'), direction: 'credit', amount: amt('70') },
+        { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('70') },
+      ],
+    });
+    expect(await proceedsOf(merchantId)).toBe('30');
+    const disputeId = 'dp-unfunded-later';
+    const opened = await deliver(payment, 'dispute.opened', disputeId, 'evt-unfunded-open', '100');
+    expect(opened.applied).toBe(true);
+    const refused = await store.get(disputeId);
+    expect(refused?.status).toBe('open');
+    expect(refused?.ledgerWire).toBe('refused');
+    expect(refused?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+    expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
+
+    await ledger.post({
+      idempotencyKey: `test.insurance:${payment.id}`,
+      module: 'pay',
+      reason: 'test.insurance.funded',
+      entries: [
+        { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('70') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('70') },
+      ],
+    });
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-unfunded-lost', '100');
+    expect(lost.applied).toBe(true);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(1);
+    expect((await store.get(disputeId))?.status).toBe('lost');
+    expect(await proceedsOf(merchantId)).toBe('0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a ledger lookup failure on won leaves the dispute open and writes no marker', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-lookup-won';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-lookup-open', '40');
+    expect(await proceedsOf(merchantId)).toBe('60');
+    const real = ledger.getTxByKey.bind(ledger);
+    ledger.getTxByKey = async (key: string) => {
+      if (key.startsWith('pay.chargeback.')) throw new Error('ledger lookup down');
+      return real(key);
+    };
+    await expect(deliver(payment, 'dispute.won', disputeId, 'evt-lookup-won', '40')).rejects.toMatchObject({
+      code: 'pay.chargeback_ledger_failed',
+    });
+    expect((await store.get(disputeId))?.status).toBe('open');
+    const markers = await sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n FROM pay.payment_events
+       WHERE payment_id = ${payment.id} AND event = 'webhook.dispute.won'`;
+    expect(markers[0]?.n).toBe('0');
+    ledger.getTxByKey = real;
+    await deliver(payment, 'dispute.won', disputeId, 'evt-lookup-won', '40');
+    expect(await proceedsOf(merchantId)).toBe('100');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.won')).toHaveLength(1);
+    expect((await store.get(disputeId))?.status).toBe('won');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a won amount below the opening posts nothing and leaves the case open', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-won-partial';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-open-partial', '40');
+    expect(await proceedsOf(merchantId)).toBe('60');
+    const outcome = await deliver(payment, 'dispute.won', disputeId, 'evt-won-25', '25');
+    expect(outcome.applied).toBe(true);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.won')).toHaveLength(0);
+    expect(await proceedsOf(merchantId)).toBe('60');
+    expect((await store.get(disputeId))?.status).toBe('open');
+    const audit = await listControlAudit(sql, { limit: 10, merchantId, kind: 'pay.dispute_outcome_conflict' });
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]?.after).toMatchObject({ disputeId, outcome: 'won' });
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('concurrent won and lost leave the case and the journal in agreement', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-race-outcome';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-race-open', '40');
+    const results = await Promise.allSettled([
+      deliver(payment, 'dispute.won', disputeId, 'evt-race-won', '40'),
+      deliver(payment, 'dispute.lost', disputeId, 'evt-race-lost', '40'),
+    ]);
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    const row = await store.get(disputeId);
+    const wonTxs = ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.won');
+    if (row?.status === 'won') {
+      expect(wonTxs).toHaveLength(1);
+      expect(await proceedsOf(merchantId)).toBe('100');
+    } else {
+      expect(row?.status).toBe('lost');
+      expect(wonTxs).toHaveLength(0);
+      expect(await proceedsOf(merchantId)).toBe('60');
+    }
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a won delivery before the open does not debit the merchant', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-won-before-open';
+    await deliver(payment, 'dispute.won', disputeId, 'evt-won-first', '40');
+    expect((await store.get(disputeId))?.status).toBe('won');
+    expect(await proceedsOf(merchantId)).toBe('100');
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-open-late', '40');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(0);
+    expect(await proceedsOf(merchantId)).toBe('100');
+    expect((await store.get(disputeId))?.status).toBe('won');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a lost amount that differs from the opening records the conflict and does not post again', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-lost-conflict';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-lost-open-40', '40');
+    expect(await proceedsOf(merchantId)).toBe('60');
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-lost-30', '30');
+    expect(lost.applied).toBe(true);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect(await proceedsOf(merchantId)).toBe('60');
+    expect((await store.get(disputeId))?.status).toBe('open');
+    const audit = await listControlAudit(sql, { limit: 10, merchantId, kind: 'pay.dispute_outcome_conflict' });
+    expect(audit.entries).toHaveLength(1);
+    const again = await deliver(payment, 'dispute.lost', disputeId, 'evt-lost-30-again', '30');
+    expect(again.applied).toBe(true);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect((await store.get(disputeId))?.status).toBe('open');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 });

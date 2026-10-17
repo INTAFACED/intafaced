@@ -24,6 +24,8 @@ export {
   refuseChargebackLedgerPost,
   refuseChargebackPlanConflict,
   CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE,
+  refuseChargebackShortfallUnfunded,
+  CHARGEBACK_SHORTFALL_UNFUNDED_CODE,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type ChargebackLedgerRefuseCode,

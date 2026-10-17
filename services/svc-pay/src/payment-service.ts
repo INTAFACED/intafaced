@@ -90,8 +90,10 @@ import {
   railOutcomeConflicts,
   refuseChargebackNothingToReverse,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
+  type DisputeCaseStatus,
   type DisputeCaseStore,
   type RailResolutionOutcome,
 } from './fraud/dispute-case.js';
@@ -3376,46 +3378,55 @@ export class PayService {
         break;
       case 'dispute.opened': {
         // Post the opening recipe via ledger-client, or named refuse. Never claim
-        // posted without a tx id. A shortfall the fund cannot cover throws.
+        // posted without a tx id. An unfunded shortfall is a named refuse: the
+        // dispute is still recorded and a later lost or closed delivery can book it.
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
           const assetId = event.assetId ?? payment.currency;
-          const wire = await this.postChargebackOpenOrRefuse({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-          });
-          let marked = false;
-          if (payment.status === 'settled' || payment.status === 'captured') {
-            await this.markDisputed(payment.id, {
+          await this.withChargebackOutcomeLock(disputeId, async () => {
+            const current = await this.disputeCases.get(disputeId);
+            // A late open must not debit a dispute that already closed.
+            if (current && isTerminalDisputeStatus(current.status)) {
+              applied = true;
+              return;
+            }
+            const wire = await this.postChargebackOpenOrRefuse({
               disputeId,
-              reasonCode: event.reasonCode ?? null,
-              ledgerWire: wire.ledgerPost ? 'posted' : 'refused',
-              ledgerTxId: wire.ledgerPost?.txId ?? null,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
             });
-            marked = true;
-          }
-          await this.disputeCases.open({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-            reasonCode: event.reasonCode ?? null,
-            paymentMarkedDisputed: marked,
-            ledgerPost: wire.ledgerPost,
-            ledgerRefuse: wire.ledgerRefuse,
+            let marked = false;
+            if (payment.status === 'settled' || payment.status === 'captured') {
+              await this.markDisputed(payment.id, {
+                disputeId,
+                reasonCode: event.reasonCode ?? null,
+                ledgerWire: wire.ledgerPost ? 'posted' : 'refused',
+                ledgerTxId: wire.ledgerPost?.txId ?? null,
+              });
+              marked = true;
+            }
+            await this.disputeCases.open({
+              disputeId,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
+              reasonCode: event.reasonCode ?? null,
+              paymentMarkedDisputed: marked,
+              ledgerPost: wire.ledgerPost,
+              ledgerRefuse: wire.ledgerRefuse,
+            });
+            await recordRailDisputeDeadline(this.sql, {
+              merchantId: payment.merchant_id,
+              disputeId,
+              evidenceDueBy: event.evidenceDueBy ?? null,
+              railEventId: deliveryKey,
+            });
+            applied = true;
           });
-          await recordRailDisputeDeadline(this.sql, {
-            merchantId: payment.merchant_id,
-            disputeId,
-            evidenceDueBy: event.evidenceDueBy ?? null,
-            railEventId: deliveryKey,
-          });
-          applied = true;
         }
         break;
       }
@@ -3428,64 +3439,88 @@ export class PayService {
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
+          const amountExplicit = event.amount !== undefined;
           const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
           const assetId = event.assetId ?? payment.currency;
           try {
-            const current = await this.disputeCases.get(disputeId);
-            if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
-              await recordDisputeOutcomeConflict(this.sql, {
-                merchantId: payment.merchant_id,
-                disputeId,
-                railEventId: deliveryKey,
-                railId: adapter.id,
-                storedStatus: current.status,
-                outcome,
-              });
-            } else {
-              const booked = await this.bookDisputeResolution({
-                disputeId,
-                paymentId: payment.id,
-                merchantId: payment.merchant_id,
-                amount,
-                assetId,
-                outcome,
-              });
-              if (!current) {
-                const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
-                await this.disputeCases.open({
-                  disputeId,
-                  paymentId: payment.id,
+            await this.withChargebackOutcomeLock(disputeId, async () => {
+              const current = await this.disputeCases.get(disputeId);
+              if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
+                await recordDisputeOutcomeConflict(this.sql, {
                   merchantId: payment.merchant_id,
-                  amount,
-                  assetId,
-                  reasonCode: event.reasonCode ?? null,
-                  paymentMarkedDisputed: false,
-                  ...(txId
-                    ? { ledgerPost: { txId } }
-                    : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
-                });
-              }
-              if (payment.status === 'settled' || payment.status === 'captured') {
-                await this.markDisputed(payment.id, {
                   disputeId,
-                  reasonCode: event.reasonCode ?? null,
-                  ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
-                  ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
+                  railEventId: deliveryKey,
+                  railId: adapter.id,
+                  storedStatus: current.status,
+                  outcome,
+                });
+              } else {
+                let booked: ChargebackLedgerEffect;
+                try {
+                  booked = await this.bookDisputeResolution({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    outcome,
+                    amountExplicit,
+                  });
+                } catch (err) {
+                  if (!(err instanceof PayError) || err.code !== 'pay.chargeback_plan_conflict') throw err;
+                  await this.recordChargebackPlanConflict({
+                    merchantId: payment.merchant_id,
+                    disputeId,
+                    paymentId: payment.id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    railEventId: deliveryKey,
+                    railId: adapter.id,
+                    storedStatus: current?.status ?? 'open',
+                    outcome,
+                    evidenceDueBy: event.evidenceDueBy ?? null,
+                  });
+                  applied = true;
+                  return;
+                }
+                if (!current) {
+                  const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
+                  await this.disputeCases.open({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    paymentMarkedDisputed: false,
+                    ...(txId
+                      ? { ledgerPost: { txId } }
+                      : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
+                  });
+                }
+                if (payment.status === 'settled' || payment.status === 'captured') {
+                  await this.markDisputed(payment.id, {
+                    disputeId,
+                    reasonCode: event.reasonCode ?? null,
+                    ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
+                    ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
+                  });
+                }
+                await this.disputeCases.applyRailResolution({
+                  disputeId,
+                  railEventId: deliveryKey,
+                  outcome,
                 });
               }
-              await this.disputeCases.applyRailResolution({
+              await recordRailDisputeDeadline(this.sql, {
+                merchantId: payment.merchant_id,
                 disputeId,
+                evidenceDueBy: event.evidenceDueBy ?? null,
                 railEventId: deliveryKey,
-                outcome,
               });
-            }
-            await recordRailDisputeDeadline(this.sql, {
-              merchantId: payment.merchant_id,
-              disputeId,
-              evidenceDueBy: event.evidenceDueBy ?? null,
-              railEventId: deliveryKey,
+              applied = true;
             });
-            applied = true;
           } catch (err) {
             // A closed case stays closed. A different later outcome is recorded
             // for founders and this delivery still succeeds, so the rail does
@@ -4718,12 +4753,12 @@ export class PayService {
       const covered = plan.fromClearing + plan.fromMerchantBalance;
       try {
         if (plan.shortfall > 0n) {
-          const shortfallBooked = await this.ledger.getTxByKey(chargebackKeys(input.disputeId).shortfall).catch(() => null);
+          const shortfallBooked = await this.chargebackBookedTx(chargebackKeys(input.disputeId).shortfall);
           if (!shortfallBooked) {
             const fund = (await this.ledger.balance(insuranceFund(input.assetId))).amount;
             if (fund < plan.shortfall) {
               const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
-              const openingBooked = covered > 0n ? await this.ledger.getTxByKey(openingKey).catch(() => null) : null;
+              const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
               if (!openingBooked) {
                 await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
                 if (plan.replayed && attempt === 0) continue;
@@ -4763,7 +4798,7 @@ export class PayService {
         if (e instanceof PayError) throw e;
         if (!isInsufficientFunds(e)) throw e;
         const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
-        const openingBooked = covered > 0n ? await this.ledger.getTxByKey(openingKey).catch(() => null) : null;
+        const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
         if (openingBooked && plan.shortfall > 0n) {
           throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
             disputeId: input.disputeId,
@@ -4915,6 +4950,8 @@ export class PayService {
     amount: string;
     assetId: string;
     outcome: 'won' | 'lost' | 'closed';
+    /** True when the rail event named an amount. Absent means return the stored plan in full. */
+    amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
     try {
       if (input.outcome === 'won') return await this.reverseChargeback(input);
@@ -4937,13 +4974,19 @@ export class PayService {
     merchantId: string;
     amount: string;
     assetId: string;
+    amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
     const payment = await this.getPayment(input.paymentId);
     const merchant = await this.getMerchant(input.merchantId);
     const plan = await readLivePlan(this.sql, input.paymentId, input.disputeId);
+    if (input.amountExplicit && plan && parseAmount(input.amount) !== parseAmount(plan.amount)) {
+      throw new PayError(`Dispute ${input.disputeId} won for a different amount than its opening plan`, 'pay.chargeback_plan_conflict', {
+        disputeId: input.disputeId,
+      });
+    }
     const keys = chargebackKeys(input.disputeId);
-    const openingTx = await this.ledger.getTxByKey(keys.open).catch(() => null);
-    const shortfallTx = await this.ledger.getTxByKey(keys.shortfall).catch(() => null);
+    const openingTx = await this.chargebackBookedTx(keys.open);
+    const shortfallTx = await this.chargebackBookedTx(keys.shortfall);
     if (!plan || (!openingTx && !shortfallTx)) {
       const none = chargebackLedgerEffect({ openingTxId: null, shortfallTxId: null, wonTxId: null, recoveredTxId: null });
       await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, none);
@@ -5013,9 +5056,84 @@ export class PayService {
   }
 
   /**
-   * Webhook door: post the opening recipe or named refuse. A shortfall the
-   * fund cannot cover throws so the rail can retry. A funds refusal of the
-   * opening post itself is still the named uncovered refuse.
+   * One outcome at a time per dispute. Taken before `pay.chargeback.plan:<disputeId>`, which the
+   * booking transactions acquire on their own connection. Those transactions never take this key.
+   */
+  private async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.outcome:${disputeId}`}))`;
+        return fn();
+      },
+      { isolation: 'read committed', maxAttempts: 1 },
+    );
+  }
+
+  /**
+   * Not-found is null. A transport or validation error is `pay.chargeback_ledger_failed`,
+   * never "not booked", so a plan is not voided and a won credit is not skipped.
+   */
+  private async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
+    try {
+      return await this.ledger.getTxByKey(key);
+    } catch (e) {
+      throw this.chargebackLedgerRefusal(e);
+    }
+  }
+
+  /**
+   * The rail named an amount the stored plan does not match. Post nothing, leave the case
+   * where it is, and record the conflict so this delivery is not retried forever.
+   */
+  private async recordChargebackPlanConflict(input: {
+    merchantId: string;
+    disputeId: string;
+    paymentId: string;
+    amount: string;
+    assetId: string;
+    reasonCode: string | null;
+    railEventId: string;
+    railId: string;
+    storedStatus: DisputeCaseStatus;
+    outcome: RailResolutionOutcome;
+    evidenceDueBy: Date | null;
+  }): Promise<void> {
+    await recordDisputeOutcomeConflict(this.sql, {
+      merchantId: input.merchantId,
+      disputeId: input.disputeId,
+      railEventId: input.railEventId,
+      railId: input.railId,
+      storedStatus: input.storedStatus,
+      outcome: input.outcome,
+      reason: 'the rail amount does not match the opening already planned for this dispute; no value moved',
+    });
+    const current = await this.disputeCases.get(input.disputeId);
+    if (!current) {
+      await this.disputeCases.open({
+        disputeId: input.disputeId,
+        paymentId: input.paymentId,
+        merchantId: input.merchantId,
+        amount: input.amount,
+        assetId: input.assetId,
+        reasonCode: input.reasonCode,
+        paymentMarkedDisputed: false,
+        ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }),
+      });
+    }
+    await recordRailDisputeDeadline(this.sql, {
+      merchantId: input.merchantId,
+      disputeId: input.disputeId,
+      evidenceDueBy: input.evidenceDueBy,
+      railEventId: input.railEventId,
+    });
+  }
+
+  /**
+   * Webhook door: post the opening recipe or named refuse. An unfunded shortfall
+   * is a named refuse so the dispute is recorded; a later lost or closed delivery
+   * books it once the fund can cover. A funds refusal of the opening post itself
+   * is still the named uncovered refuse.
    */
   private async postChargebackOpenOrRefuse(input: {
     disputeId: string;
@@ -5033,6 +5151,9 @@ export class PayService {
       // A redelivery that names another amount cannot be fixed by redelivering: record the case and name the conflict.
       if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
         return { ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }) };
+      }
+      if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+        return { ledgerRefuse: refuseChargebackShortfallUnfunded({ disputeId: input.disputeId, paymentId: input.paymentId }) };
       }
       throw e;
     }

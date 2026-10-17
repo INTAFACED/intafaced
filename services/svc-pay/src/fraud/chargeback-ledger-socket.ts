@@ -22,11 +22,15 @@ export const CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE = 'pay.chargeback_plan_conflic
 /** Won arrived and neither the opening nor a shortfall was booked. Nothing to return. */
 export const CHARGEBACK_NOTHING_TO_REVERSE_CODE = 'pay.chargeback_nothing_to_reverse' as const;
 
+/** Merchant pots are short and the insurance fund cannot cover the rest. Nothing was posted. */
+export const CHARGEBACK_SHORTFALL_UNFUNDED_CODE = 'pay.chargeback_shortfall_unfunded' as const;
+
 export type ChargebackLedgerRefuseCode =
   | typeof CHARGEBACK_LEDGER_REFUSE_CODE
   | typeof CHARGEBACK_LEDGER_UNCOVERED_CODE
   | typeof CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE
-  | typeof CHARGEBACK_NOTHING_TO_REVERSE_CODE;
+  | typeof CHARGEBACK_NOTHING_TO_REVERSE_CODE
+  | typeof CHARGEBACK_SHORTFALL_UNFUNDED_CODE;
 
 export interface ChargebackLedgerRefuse {
   readonly code: ChargebackLedgerRefuseCode;
@@ -77,6 +81,25 @@ export function refuseChargebackNothingToReverse(input: {
     message:
       'No chargeback opening is booked for this dispute, so a won outcome does not credit the merchant ' +
       `(${CHARGEBACK_LEDGER_SOCKET_ID}).`,
+    disputeId: input.disputeId,
+    paymentId: input.paymentId,
+  };
+}
+
+/**
+ * The insurance fund cannot cover the planned shortfall. The dispute is still recorded.
+ * Nothing is posted. A later lost or closed delivery books the opening once the fund can cover.
+ */
+export function refuseChargebackShortfallUnfunded(input: {
+  readonly disputeId: string;
+  readonly paymentId: string;
+}): ChargebackLedgerRefuse {
+  return {
+    code: CHARGEBACK_SHORTFALL_UNFUNDED_CODE,
+    socket: CHARGEBACK_LEDGER_SOCKET_ID,
+    message:
+      'Insurance fund cannot cover the chargeback shortfall ' +
+      `(${CHARGEBACK_SHORTFALL_UNFUNDED_CODE}). No opening and no shortfall were posted.`,
     disputeId: input.disputeId,
     paymentId: input.paymentId,
   };
