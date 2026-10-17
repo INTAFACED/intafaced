@@ -337,6 +337,31 @@ export const merchantAnalyticsVolumeSchema = z
   })
   .strict();
 
+/**
+ * Fees ÷ gross for one asset over the requested window. `rate` is null unless
+ * the quotient is exact at 18 decimal places. `gross_zero` is not a rate of 0.
+ */
+export const merchantEffectiveRateSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    fees: payAmountStringSchema,
+    gross: payAmountStringSchema,
+    rate: payAmountStringSchema.nullable(),
+    rateStatus: z.enum(['exact', 'not_terminating', 'gross_zero']),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.rateStatus === 'exact' && value.rate === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'an exact rate needs a quotient' });
+    }
+    if (value.rateStatus !== 'exact' && value.rate !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'only an exact quotient carries a rate' });
+    }
+    if (value.rateStatus === 'gross_zero' && value.gross !== '0') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'gross_zero requires a zero gross' });
+    }
+  });
+
 export const merchantFeePointSchema = z
   .object({
     period: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -358,12 +383,13 @@ export const merchantAnalyticsFeesSchema = z
     items: z.array(merchantFeePointSchema),
     nextCursor: z.string().nullable(),
     /**
-     * The day rollup stores fee totals, not the pricing rule that produced them.
-     * An effective rate recomputed from those totals would be a number this
-     * service did not record. It stays null until rule snapshots are aggregated.
+     * There is no single rate across assets. `rates` is fees ÷ gross per asset
+     * over the whole window. A quotient that does not fit 18 decimal places is
+     * `not_terminating` with a null rate. A zero gross is `gross_zero`, not 0.
      */
     effectiveRate: z.null(),
     effectiveRateReason: z.literal('not_aggregated'),
+    rates: z.array(merchantEffectiveRateSchema).max(200),
     /** Conversion cost is not on the merchant-day projection. */
     conversionCost: z.null(),
     byRule: z.array(z.never()),

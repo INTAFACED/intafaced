@@ -138,12 +138,31 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     };
     expect(listed.status).toBe('configured');
     expect(listed.ownTierId).toBe(TEST_TIER.id);
-    expect(listed.tiers.map((tier) => tier.id)).toEqual([TEST_TIER.id]);
-    expect(JSON.stringify(listed)).not.toContain('other-tier');
+    expect(listed.tiers.map((tier) => tier.id)).toEqual(['other-tier', TEST_TIER.id]);
+    const otherTier = listed.tiers.find((tier) => tier.id === 'other-tier') as {
+      name: string;
+      caps: typeof TEST_TIER.caps;
+    };
+    expect(otherTier.name).toBe('TEST VALUE other tier');
+    const byKind = (caps: typeof TEST_TIER.caps) => [...caps].sort((left, right) => left.kind.localeCompare(right.kind));
+    expect(byKind(otherTier.caps)).toEqual(byKind([...TEST_TIER.caps]));
+    const text = JSON.stringify(listed);
+    expect(text).not.toContain('founderThresholds');
+    expect(text).not.toContain('approvalThresholds');
+    expect(text).not.toContain('approvalTtlSeconds');
+    expect(text).not.toContain('"merchants"');
+    expect(text).not.toContain('150');
+    expect(text).not.toContain('3600');
+    expect(text).not.toContain('"amount":"50"');
     expect(Object.keys(listed.tiers[0]!).sort()).toEqual(['archetype', 'caps', 'id', 'name', 'reserve', 'version']);
-    const other = await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB });
-    expect(other).toEqual({ status: 'not_configured', ownTierId: null });
-    expect(JSON.stringify(other)).not.toContain('test-tier');
+    const other = (await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB })) as {
+      status: string;
+      ownTierId: string | null;
+      tiers: Array<{ id: string }>;
+    };
+    expect(other.status).toBe('configured');
+    expect(other.ownTierId).toBeNull();
+    expect(other.tiers.map((tier) => tier.id)).toEqual(['other-tier', TEST_TIER.id]);
   });
 
   it("merchant A cannot read merchant B's catalogue or a missing id, and a developer on the team cannot either", async () => {

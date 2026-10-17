@@ -17,6 +17,7 @@ import {
 } from './merchant-control.js';
 import { merchantMetricsSnapshotSchema, metricsFreshnessSchema, payAssetAmountSchema, payMetricWindowSchema } from './merchant-metrics.js';
 import { payHaltOperatorStatusSchema } from './pay-halts.js';
+import { payDestinationDefaultSchema } from './pay-portal-reads.js';
 
 /**
  * FOUNDER ADMIN — wire contract (workstream W0, built by W2/W4).
@@ -448,7 +449,7 @@ const destinationItemSchema = z
     kind: z.string().min(1).max(32),
     destinationMasked: z.string().min(1).max(64),
     screeningState: z.literal('not_recorded'),
-    defaultFlag: z.literal('unset'),
+    defaultFlag: payDestinationDefaultSchema,
     createdAt: payTimestampSchema,
     lastUsedAt: payTimestampSchema.nullable(),
   })

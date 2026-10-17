@@ -434,6 +434,20 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
   },
   {
+    path: 'merchant.payoutDestinations.setDefault',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
+    path: 'merchant.payoutDestinations.remove',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
     path: 'merchant.statement.list',
     scope: 'pay:read',
     own: 'ok',

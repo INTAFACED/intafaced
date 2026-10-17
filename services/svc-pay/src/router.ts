@@ -793,10 +793,10 @@ export function createPayRouter(
         ),
 
       /**
-       * Saved destinations for this merchant. Masked. Screening and a default
-       * flag are not stored, so those fields are the literals `not_recorded`
-       * and `unset`. There is no set-default and no remove: changing a
-       * destination is still the owner's direct overwrite.
+       * Saved destinations for this merchant. Masked. Screening is not stored,
+       * so that field stays `not_recorded`. set-default and remove are owner
+       * writes, the same door as `setPayoutDestination`: no second approval.
+       * Remove refuses while a payout that names the destination is in flight.
        */
       payoutDestinations: router({
         list: scopedProcedure('pay:read', { module: 'pay' })
@@ -806,6 +806,24 @@ export function createPayRouter(
             wrap(async () => {
               await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.list', 'settlements.read');
               return pay.listPayoutDestinations(input);
+            }),
+          ),
+        setDefault: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .output(payPayoutDestinationItemSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.setDefault');
+              return pay.setDefaultPayoutDestination(input);
+            }),
+          ),
+        remove: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .output(z.object({ removed: z.literal(true) }))
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.remove');
+              return pay.removePayoutDestination(input);
             }),
           ),
       }),
@@ -2089,6 +2107,7 @@ function toTrpcError(err: unknown): unknown {
   const code = (() => {
     switch (err.code) {
       case 'pay.merchant_not_found':
+      case 'pay.payout_destination_not_found':
       case 'pay.payment_not_found':
       case 'pay.profile_not_found':
       case 'pay.link_not_found':
@@ -2162,6 +2181,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.refund_id_conflict':
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
+      case 'pay.payout_destination_in_flight':
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':

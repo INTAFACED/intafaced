@@ -5,6 +5,7 @@ import { ListQueryError, encodeListCursor, parseListFilters } from '../list-page
 import { MerchantOpsError } from './errors.js';
 import { iso, money } from './money.js';
 import { requireLimit, toPage } from './pagination.js';
+import { normalizeInvoiceLines, sumLineAmounts, type InvoiceLineInput, type InvoiceLineView } from './invoice-lines.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
 
 /**
@@ -37,7 +38,10 @@ export interface InvoiceView {
   readonly assetId: string;
   readonly amount: string;
   readonly customerRef: string | null;
+  readonly customerEmail: string | null;
   readonly description: string | null;
+  readonly dueAt: string | null;
+  readonly lineItems: readonly InvoiceLineView[];
   readonly paymentLinkId: string | null;
   readonly paymentId: string | null;
   readonly sentAt: string | null;
@@ -63,7 +67,9 @@ interface InvoiceRow {
   asset_id: string;
   amount: string;
   customer_ref: string | null;
+  customer_email: string | null;
   description: string | null;
+  due_at: Date | null;
   payment_link_id: string | null;
   payment_id: string | null;
   sent_at: Date | null;
@@ -102,14 +108,17 @@ function fingerprint(action: string, parts: readonly string[]): string {
     .digest('hex');
 }
 
-function view(row: InvoiceRow): InvoiceView {
+function view(row: InvoiceRow, lineItems: readonly InvoiceLineView[] = []): InvoiceView {
   return {
     id: row.id,
     status: row.status as InvoiceStatus,
     assetId: row.asset_id,
     amount: money(row.amount),
     customerRef: row.customer_ref,
+    customerEmail: row.customer_email,
     description: row.description,
+    dueAt: row.due_at ? iso(row.due_at) : null,
+    lineItems,
     paymentLinkId: row.payment_link_id,
     paymentId: row.payment_id,
     sentAt: row.sent_at ? iso(row.sent_at) : null,
@@ -152,29 +161,62 @@ export class InvoiceService {
 
   async create(
     caller: MerchantCaller,
-    input: { requestId: string; assetId: string; amount: string; customerRef?: string; description?: string },
+    input: {
+      requestId: string;
+      assetId: string;
+      amount: string;
+      customerRef?: string;
+      customerEmail?: string;
+      description?: string;
+      dueAt?: string;
+      lineItems?: InvoiceLineInput[];
+    },
   ): Promise<InvoiceView> {
     assertPermission(caller, 'invoices.write');
     if (!/^[A-Za-z0-9._-]{1,16}$/.test(input.assetId)) throw new MerchantOpsError('pay.invoice_asset_invalid', 'bad_request');
     const amount = formatAmount(parseInvoiceAmount(input.amount));
     const customerRef = blankToNull(input.customerRef, 200);
+    const customerEmail = parseEmail(input.customerEmail);
     const description = blankToNull(input.description, 2000);
-    const fp = fingerprint('create', [input.assetId, amount, customerRef ?? '', description ?? '']);
+    const dueAt = parseDue(input.dueAt);
+    const lineItems = normalizeInvoiceLines(input.lineItems);
+    if (lineItems && formatAmount(sumLineAmounts(lineItems)) !== amount) {
+      throw new MerchantOpsError('pay.invoice_total_mismatch', 'bad_request');
+    }
+    const fp = fingerprint('create', [
+      input.assetId,
+      amount,
+      customerRef ?? '',
+      customerEmail ?? '',
+      description ?? '',
+      dueAt ?? '',
+      lineItems ? JSON.stringify(lineItems) : '',
+    ]);
     const prior = await this.action(caller, input.requestId);
     if (prior) {
       this.sameAction(prior, 'create', fp);
       return this.get(caller, prior.invoice_id);
     }
     try {
-      const rows = await this.sql<InvoiceRow[]>`
-        INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
-        VALUES (${caller.merchantId}, 'draft', ${input.assetId}, ${amount}::numeric, ${customerRef}, ${description}, ${caller.userId})
-        RETURNING ${this.returning()}`;
-      const row = rows[0];
-      if (!row) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
-      await this.recordAction(caller, input.requestId, 'create', fp, row.id);
-      return view(row);
+      const row = await this.sql.begin(async (tx) => {
+        const rows = await tx<InvoiceRow[]>`
+          INSERT INTO pay.merchant_invoices (
+            merchant_id, status, asset_id, amount, customer_ref, customer_email, description, due_at, created_by
+          )
+          VALUES (
+            ${caller.merchantId}, 'draft', ${input.assetId}, ${amount}::numeric,
+            ${customerRef}, ${customerEmail}, ${description}, ${dueAt}, ${caller.userId}
+          )
+          RETURNING ${this.returning(tx as unknown as Sql)}`;
+        const inserted = rows[0];
+        if (!inserted) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
+        if (lineItems) await this.insertLines(tx as unknown as Sql, inserted.id, lineItems);
+        await this.recordAction(caller, input.requestId, 'create', fp, inserted.id, tx as unknown as Sql);
+        return inserted;
+      });
+      return view(row, lineItems ?? []);
     } catch (error) {
+      if (error instanceof MerchantOpsError) throw error;
       if (!uniqueViolation(error)) throw error;
       const raced = await this.action(caller, input.requestId);
       if (!raced) throw error;
@@ -227,6 +269,7 @@ export class InvoiceService {
            ${filters.search}::text IS NULL
            OR id::text = lower(${filters.search})
            OR customer_ref = ${filters.search}
+           OR customer_email = ${filters.search}
          )
          AND (
            ${cursorAt}::text IS NULL
@@ -235,14 +278,25 @@ export class InvoiceService {
        ORDER BY created_at DESC, id DESC
        LIMIT ${limit + 1}
     `;
-    return toPage(rows, limit, view, (row) => encodeListCursor(row.created_at_cursor, row.id));
+    const page = toPage(
+      rows,
+      limit,
+      (row) => row,
+      (row) => encodeListCursor(row.created_at_cursor, row.id),
+    );
+    const lines = await this.linesFor(page.items.map((row) => row.id));
+    return {
+      items: page.items.map((row) => view(row, lines.get(row.id) ?? [])),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async get(caller: MerchantCaller, invoiceId: string): Promise<InvoiceView> {
     assertPermission(caller, 'invoices.read');
     const row = await this.owned(caller, invoiceId);
     if (!row) throw notFound();
-    return view(row);
+    const lines = await this.linesFor([row.id]);
+    return view(row, lines.get(row.id) ?? []);
   }
 
   async send(caller: MerchantCaller, input: { requestId: string; invoiceId: string }) {
@@ -298,7 +352,7 @@ export class InvoiceService {
       throw statusError(current?.status ?? 'draft');
     }
     return {
-      invoice: view(saved),
+      invoice: await this.withLines(saved),
       paymentLink: {
         id: link.id,
         prefix: link.prefix,
@@ -375,7 +429,7 @@ export class InvoiceService {
       throw new MerchantOpsError('pay.invoice_link_reissue_conflict', 'conflict');
     }
     return {
-      invoice: view(saved),
+      invoice: await this.withLines(saved),
       paymentLink: {
         id: link.id,
         prefix: link.prefix,
@@ -425,7 +479,7 @@ export class InvoiceService {
         await this.recordAction(caller, input.requestId, 'void', fp, invoice.id, tx as unknown as Sql);
         return row;
       });
-      return view(saved);
+      return this.withLines(saved);
     } catch (error) {
       if (error instanceof MerchantOpsError) throw error;
       if (!uniqueViolation(error)) throw error;
@@ -491,21 +545,62 @@ export class InvoiceService {
       throw statusError(current?.status ?? invoice.status);
     }
     await this.recordAction(caller, input.requestId, 'mark_paid', fp, invoice.id);
-    return view(saved[0]);
+    return this.withLines(saved[0]);
   }
 
-  private cols() {
-    return this.sql`id, status, asset_id, amount::text, customer_ref, description, payment_link_id, payment_id,
+  private cols(db: Sql = this.sql) {
+    return db`id, status, asset_id, amount::text, customer_ref, customer_email, description, due_at, payment_link_id, payment_id,
       sent_at, voided_at, paid_at, created_at,
       to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       updated_at`;
   }
 
-  private returning() {
-    return this.sql`id, status, asset_id, amount::text, customer_ref, description, payment_link_id, payment_id,
-      sent_at, voided_at, paid_at, created_at,
-      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
-      updated_at`;
+  private returning(db: Sql = this.sql) {
+    return this.cols(db);
+  }
+
+  private async withLines(row: InvoiceRow): Promise<InvoiceView> {
+    const lines = await this.linesFor([row.id]);
+    return view(row, lines.get(row.id) ?? []);
+  }
+
+  private async insertLines(db: Sql, invoiceId: string, lines: readonly InvoiceLineView[]): Promise<void> {
+    await db`
+      INSERT INTO pay.merchant_invoice_lines ${db(
+        lines.map((line, index) => ({
+          invoice_id: invoiceId,
+          line_no: index + 1,
+          description: line.description,
+          quantity: line.quantity,
+          unit_amount: line.unitAmount,
+          line_amount: line.amount,
+        })),
+      )}
+    `;
+  }
+
+  private async linesFor(ids: readonly string[]): Promise<Map<string, InvoiceLineView[]>> {
+    const grouped = new Map<string, InvoiceLineView[]>();
+    if (ids.length === 0) return grouped;
+    const rows = await this.sql<
+      Array<{ invoice_id: string; description: string; quantity: string; unit_amount: string; line_amount: string }>
+    >`
+      SELECT invoice_id, description, quantity::text, unit_amount::text, line_amount::text
+        FROM pay.merchant_invoice_lines
+       WHERE invoice_id IN ${this.sql([...ids])}
+       ORDER BY invoice_id, line_no
+    `;
+    for (const row of rows) {
+      const list = grouped.get(row.invoice_id) ?? [];
+      list.push({
+        description: row.description,
+        quantity: money(row.quantity),
+        unitAmount: money(row.unit_amount),
+        amount: money(row.line_amount),
+      });
+      grouped.set(row.invoice_id, list);
+    }
+    return grouped;
   }
 
   private async owned(caller: MerchantCaller, invoiceId: string): Promise<InvoiceRow | null> {
@@ -578,6 +673,27 @@ export class InvoiceService {
       alreadyIssued: token === null,
     };
   }
+}
+
+function parseEmail(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > 254 || /[\u0000-\u001f\u007f]/.test(trimmed) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed)) {
+    throw new MerchantOpsError('pay.invoice_email_invalid', 'bad_request');
+  }
+  return trimmed;
+}
+
+function parseDue(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(trimmed)) {
+    throw new MerchantOpsError('pay.invoice_due_invalid', 'bad_request');
+  }
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) throw new MerchantOpsError('pay.invoice_due_invalid', 'bad_request');
+  return date.toISOString();
 }
 
 function blankToNull(value: string | undefined, max: number): string | null {

@@ -1187,6 +1187,33 @@ describe('merchant portal procedures', () => {
     const feeText = JSON.stringify(fees);
     expect(fees.effectiveRate).toBeNull();
     expect(fees.effectiveRateReason).toBe('not_aggregated');
+    expect(fees.rates).toEqual([
+      { assetCode: 'USDC', fees: '1', gross: '4', rate: '0.25', rateStatus: 'exact' },
+      { assetCode: 'USDT', fees: '1', gross: '10', rate: '0.1', rateStatus: 'exact' },
+    ]);
+    const paged = await as(developer).merchantAnalytics.fees({ merchantId: merchantA, ...WINDOW, bucket: 'day', limit: 1 });
+    expect(paged.items).toHaveLength(1);
+    expect(paged.rates).toEqual(fees.rates);
+    const oneAsset = await as(developer).merchantAnalytics.fees({
+      merchantId: merchantA,
+      ...WINDOW,
+      bucket: 'day',
+      limit: 10,
+      assetId: 'USDT',
+    });
+    expect(oneAsset.rates).toEqual([{ assetCode: 'USDT', fees: '1', gross: '10', rate: '0.1', rateStatus: 'exact' }]);
+    await sql`
+      INSERT INTO pay.metrics_merchant_day (merchant_id, day, asset_code, settle_gross, settle_fees, settle_net)
+      VALUES
+        (${merchantA}, '2026-10-07', 'BTC', 0, 1, 0),
+        (${merchantA}, '2026-10-07', 'ETH', 3, 1, 2)`;
+    const odd = await as(developer).merchantAnalytics.fees({ merchantId: merchantA, ...WINDOW, bucket: 'day', limit: 10 });
+    expect(odd.rates).toEqual(
+      expect.arrayContaining([
+        { assetCode: 'BTC', fees: '1', gross: '0', rate: null, rateStatus: 'gross_zero' },
+        { assetCode: 'ETH', fees: '1', gross: '3', rate: null, rateStatus: 'not_terminating' },
+      ]),
+    );
     expect(fees.conversionCost).toBeNull();
     expect(fees.byRule).toEqual([]);
     expect(feeText).not.toContain('feeBps');

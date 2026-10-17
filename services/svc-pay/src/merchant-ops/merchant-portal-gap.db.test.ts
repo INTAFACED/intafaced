@@ -516,6 +516,112 @@ describe('merchant portal gaps: dispute deadlines, evidence, invoices', () => {
     expect(visible.items.map((i) => i.id)).not.toContain(foreignInvoice.id);
   });
 
+  it('stores a due date, a customer email and line items whose total is the header amount', async () => {
+    const ownerCaller = as(owner);
+    const bare = await ownerCaller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '10',
+    });
+    expect(bare).toMatchObject({ dueAt: null, customerEmail: null, lineItems: [] });
+
+    const dueAt = '2026-11-01T00:00:00.000Z';
+    const created = await ownerCaller.merchantOps.invoices.create({
+      requestId: nid(),
+      assetId: 'USDT',
+      amount: '3.25',
+      customerEmail: 'buyer@example.com',
+      dueAt,
+      lineItems: [
+        { description: 'Widget', quantity: '2', unitAmount: '1.25' },
+        { description: 'Seal', quantity: '1.5', unitAmount: '0.50' },
+      ],
+    });
+    expect(created.amount).toBe('3.25');
+    expect(created.customerEmail).toBe('buyer@example.com');
+    expect(created.dueAt).toBe(dueAt);
+    expect(created.lineItems).toEqual([
+      { description: 'Widget', quantity: '2', unitAmount: '1.25', amount: '2.5' },
+      { description: 'Seal', quantity: '1.5', unitAmount: '0.5', amount: '0.75' },
+    ]);
+    const got = await ownerCaller.merchantOps.invoices.get({ invoiceId: created.id });
+    expect(got).toMatchObject({
+      customerEmail: 'buyer@example.com',
+      dueAt,
+      lineItems: created.lineItems,
+    });
+    const found = await ownerCaller.merchantOps.invoices.list({ limit: 20, search: 'buyer@example.com' });
+    expect(found.items.map((item) => item.id)).toContain(created.id);
+
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: nid(),
+            assetId: 'USDT',
+            amount: '3',
+            lineItems: [
+              { description: 'Widget', quantity: '2', unitAmount: '1.25' },
+              { description: 'Seal', quantity: '1.5', unitAmount: '0.50' },
+            ],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_total_mismatch');
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: nid(),
+            assetId: 'USDT',
+            amount: '1',
+            lineItems: [{ description: 'Dust', quantity: '0.0000000001', unitAmount: '0.0000000001' }],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_line_not_exact');
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId: nid(),
+            assetId: 'USDT',
+            amount: '1',
+            customerEmail: 'not-an-email',
+          }),
+        )
+      ).cause,
+    ).toBe('pay.invoice_email_invalid');
+
+    const requestId = nid();
+    const first = await ownerCaller.merchantOps.invoices.create({
+      requestId,
+      assetId: 'USDT',
+      amount: '2',
+      lineItems: [{ description: 'One', quantity: '1', unitAmount: '2' }],
+    });
+    const replay = await ownerCaller.merchantOps.invoices.create({
+      requestId,
+      assetId: 'USDT',
+      amount: '2',
+      lineItems: [{ description: 'One', quantity: '1.0', unitAmount: '2.00' }],
+    });
+    expect(replay.id).toBe(first.id);
+    expect(replay.lineItems).toEqual([{ description: 'One', quantity: '1', unitAmount: '2', amount: '2' }]);
+    expect(
+      (
+        await refusal(() =>
+          ownerCaller.merchantOps.invoices.create({
+            requestId,
+            assetId: 'USDT',
+            amount: '4',
+            lineItems: [{ description: 'One', quantity: '2', unitAmount: '2' }],
+          }),
+        )
+      ).cause,
+    ).toBe('pay.request_id_reused');
+  });
+
   it('reissues a sent invoice link once per request and refuses a void whose link cannot be deactivated', async () => {
     const ownerCaller = as(owner);
     const created = (await ownerCaller.merchantOps.invoices.create({
