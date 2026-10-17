@@ -12,6 +12,13 @@ import { channelsFromEnv } from './channels/registry.js';
 import { NotificationDispatcher } from './dispatch.js';
 import { publishedMaxDeliveryAttempts } from './max-delivery-attempts.js';
 import { PostgresMuteStore } from './preferences/mute-store.js';
+import { AccountPrefs } from './preferences/account.js';
+import { PostgresCommandLog, PostgresDigestPrefStore, PostgresHoldStore, PostgresTopicPrefStore } from './preferences/account.pg.js';
+import { planOutOfApp } from './preferences/gate.js';
+import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
+import { NoticeBoard } from './notices/board.js';
+import { PostgresNoticeStore } from './notices/board.pg.js';
+import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
@@ -94,6 +101,15 @@ await sql`SELECT 1 FROM notify.target_rate_windows LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM notify.price_alerts LIMIT 1`.catch(() => {
   throw new Error('notify.price_alerts is missing — run migration 0006_notify_price_alerts before starting svc-notify');
 });
+await sql`SELECT 1 FROM notify.topic_prefs LIMIT 1`.catch(() => {
+  throw new Error('notify.topic_prefs is missing — run migration 0010_notify_topic_digest before starting svc-notify');
+});
+await sql`SELECT 1 FROM notify.digest_holds LIMIT 1`.catch(() => {
+  throw new Error('notify.digest_holds is missing — run migration 0010_notify_topic_digest before starting svc-notify');
+});
+await sql`SELECT 1 FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices is missing — run migration 0011_notify_public_notices before starting svc-notify');
+});
 
 // Consumer only — trade / p2p / identity / token / bank own their streams.
 // `ownedStreams: []` matches svc-ws: we never create a stream for subjects we do
@@ -132,11 +148,18 @@ const guests = new GuestNotificationService(sql, channels.get('email'), {
   addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
 });
 const muteStore = new PostgresMuteStore(sql);
+const topicStore = new PostgresTopicPrefStore(sql);
+const digestStore = new PostgresDigestPrefStore(sql);
+const commandLog = new PostgresCommandLog(sql);
+const holdStore = new PostgresHoldStore(sql);
+const account = new AccountPrefs(topicStore, digestStore, commandLog, () => channels.status());
+const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(), commandLog);
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
   mutePrefsOf: (userId) => muteStore.get(userId),
+  planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date() }),
 });
 
 const targetRateLimiter = new PostgresTargetRateLimiter(sql);
@@ -148,7 +171,7 @@ const notify = new NotifyService(
     verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
-  { targets, deliveries, channels, dispatcher, muteStore },
+  { targets, deliveries, channels, dispatcher, muteStore, account, holds: holdStore, notices },
 );
 
 /**
@@ -272,6 +295,13 @@ await app.register(fastifyTRPCPlugin, {
  * serve notifications over it would be the larger outage. So it logs and waits
  * for the next tick. `unref` keeps it out of the way of shutdown.
  */
+const digestRelease = setInterval(() => {
+  void holdStore.releaseDueAll(new Date()).catch((err) => {
+    app.log.error({ err }, 'svc-notify digest release failed — held notices stay held until the next tick');
+  });
+}, DIGEST_RELEASE_INTERVAL_MS);
+digestRelease.unref();
+
 const reaper = setInterval(() => {
   void deliveries
     .reapExhausted(maxAttempts)

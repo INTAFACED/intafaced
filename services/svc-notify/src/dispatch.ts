@@ -4,7 +4,8 @@ import { normaliseLocale, renderNotification } from './channels/render.js';
 import type { ChannelTarget, DeliveryRecord, DeliveryStore, TargetStore } from './channel-store.js';
 import type { Notification } from './store.js';
 import { withNotifySpan } from './tracing.js';
-import { EMPTY_MUTE_PREFS, isChannelMuted, type ChannelMutePrefs, type MuteableChannel } from './preferences/mute.js';
+import { EMPTY_MUTE_PREFS, isChannelMuted, type ChannelMutePrefs, type MuteableChannel, type NotifySeverity } from './preferences/mute.js';
+import type { OutOfAppPlan } from './preferences/gate.js';
 
 /**
  * FAN-OUT.
@@ -61,11 +62,22 @@ export interface DispatchOptions {
    * Critical severity never mutes — see preferences/mute.ts.
    */
   readonly mutePrefsOf?: (userId: string) => Promise<ChannelMutePrefs> | ChannelMutePrefs;
+  /**
+   * Topic mute and quiet-hours / digest hold. Critical never calls this.
+   * `hold` records the notice for the next summary and does not drop it.
+   */
+  readonly planOutOfApp?: (input: {
+    userId: string;
+    kind: string;
+    notificationId: string;
+    channel: MuteableChannel;
+    severity: NotifySeverity;
+  }) => Promise<OutOfAppPlan>;
 }
 
 export interface ChannelOutcome {
   readonly channel: ChannelId;
-  readonly status: 'accepted' | 'refused' | 'failed' | 'abandoned' | 'already_accepted';
+  readonly status: 'accepted' | 'refused' | 'failed' | 'abandoned' | 'already_accepted' | 'held';
   readonly code: RefusalCode | null;
   readonly detail: string | null;
   /** True when the bus should redeliver so this channel gets another go. */
@@ -190,6 +202,25 @@ export class NotificationDispatcher {
             const prefs = await this.options.mutePrefsOf(notification.userId);
             if (isChannelMuted(prefs ?? EMPTY_MUTE_PREFS, channel as MuteableChannel, notification.severity)) {
               outcomes.push(await this.refuse(notification, channel, 'channel.muted'));
+              continue;
+            }
+          }
+
+          // Topic mute and quiet hours. Critical ignores both: it never reaches the gate.
+          if (this.options.planOutOfApp && notification.severity !== 'critical') {
+            const plan = await this.options.planOutOfApp({
+              userId: notification.userId,
+              kind: notification.kind,
+              notificationId: notification.id,
+              channel: channel as MuteableChannel,
+              severity: notification.severity,
+            });
+            if (plan === 'muted') {
+              outcomes.push(await this.refuse(notification, channel, 'channel.muted'));
+              continue;
+            }
+            if (plan === 'hold') {
+              outcomes.push({ channel, status: 'held', code: null, detail: null, retryable: false });
               continue;
             }
           }

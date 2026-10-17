@@ -34,6 +34,10 @@ import {
 import { describeChannelsPolicy } from './channels-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
+import { PreferenceError } from './preferences/account.js';
+import { QuietHoursError } from './preferences/quiet-hours.js';
+import { RecentDeliveriesError } from './preferences/recent.js';
+import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
 
 /**
  * svc-notify API — inbox, channels, and the delivery record.
@@ -172,6 +176,59 @@ function deliveryToWire(d: DeliveryRecord) {
     refusalCode: d.refusalCode,
   };
 }
+
+function typedRefusal(err: unknown): never {
+  if (
+    err instanceof PreferenceError ||
+    err instanceof QuietHoursError ||
+    err instanceof RecentDeliveriesError ||
+    err instanceof NoticeError
+  ) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
+  throw err;
+}
+
+const topicPrefOutput = z.object({
+  topic: z.enum(['trade', 'p2p', 'identity', 'bank', 'token', 'agents']),
+  channel: channelSchema,
+  enabled: z.boolean(),
+  configured: z.boolean(),
+});
+
+const digestOutput = z.object({
+  mode: z.enum(['immediate', 'hourly', 'daily']),
+  quietHours: z
+    .object({
+      start: z.string(),
+      end: z.string(),
+      timeZone: z.string(),
+    })
+    .nullable(),
+});
+
+const recentDeliveryOutput = z.object({
+  notificationId: z.string().uuid(),
+  channel: channelSchema,
+  status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
+  outcome: z.enum(['sent', 'refused', 'failed']),
+  attempts: z.number().int().nonnegative(),
+  attemptedAt: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+
+const noticeWireOutput = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
+  title: z.string(),
+  body: z.string(),
+  status: z.enum(['draft', 'published']),
+  publishedAt: z.string().nullable(),
+  startsAt: z.string().nullable(),
+  endsAt: z.string().nullable(),
+  version: z.number().int(),
+});
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
   return {
@@ -361,8 +418,10 @@ export function createNotifyRouter(
        */
       announcement: publicProcedure
         .input(z.object({ text: z.string().max(2000).optional() }).optional())
-        .output(z.null())
-        .query(() => {
+        .output(noticeWireOutput)
+        .query(async () => {
+          const current = notify.notices ? await notify.notices.currentAnnouncement() : null;
+          if (current) return current;
           try {
             return readPublicAnnouncement();
           } catch (err) {
@@ -565,6 +624,186 @@ export function createNotifyRouter(
         .mutation(async ({ ctx, input }) => {
           await notify.setChannelMute(ctx.principal.userId, input.channel, input.muted);
           return notify.listMutePrefs(ctx.principal.userId);
+        }),
+
+      /**
+       * Per-topic out-of-app choices. Inbox is always enabled. Unset means enabled.
+       * `configured` is the channel credential fact, not the person's choice.
+       */
+      topicPrefs: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.array(topicPrefOutput))
+        .query(async ({ ctx }) => {
+          if (!notify.account) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          try {
+            return [...(await notify.account.topicPrefs(ctx.principal.userId))];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      setTopicPref: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            topic: z.string().min(1).max(32),
+            channel: z.string().min(1).max(16),
+            enabled: z.boolean(),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(z.array(topicPrefOutput))
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.account) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          try {
+            return [...(await notify.account.setTopicPref(ctx.principal.userId, input))];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      digestPrefs: scopedProcedure('notify:read', { module: 'notify' })
+        .output(digestOutput)
+        .query(async ({ ctx }) => {
+          if (!notify.account) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          return notify.account.digestPrefs(ctx.principal.userId);
+        }),
+
+      setDigest: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            mode: z.string().min(1).max(16),
+            quietHours: z
+              .object({
+                start: z.string().max(8),
+                end: z.string().max(8),
+                timeZone: z.string().max(64),
+              })
+              .nullable()
+              .optional(),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(digestOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.account) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          try {
+            return await notify.account.setDigest(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * One page of this account's finished deliveries, newest first.
+       * Limit above {@link RECENT_DELIVERIES_LIMIT_MAX} is clamped to that constant.
+       */
+      recentDeliveries: scopedProcedure('notify:read', { module: 'notify' })
+        .input(
+          z.object({
+            limit: z.number().int().min(1),
+            cursor: z.string().min(1).max(512).nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            rows: z.array(recentDeliveryOutput),
+            counts: z.object({
+              sent: z.number().int().nonnegative(),
+              refused: z.number().int().nonnegative(),
+              failed: z.number().int().nonnegative(),
+            }),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ ctx, input }) => {
+          try {
+            return await notify.recentDeliveries(ctx.principal.userId, input.limit, input.cursor ?? null);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Published notices only. Signed-out callers can read this. Drafts are absent. */
+      notices: publicProcedure
+        .input(
+          z.object({
+            kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(),
+            limit: z.number().int().min(1),
+          }),
+        )
+        .output(z.array(noticeWireOutput))
+        .query(async ({ input }) => {
+          if (!notify.notices) return [];
+          try {
+            return [...(await notify.notices.notices({ kind: input.kind ?? null, limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX) }))];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      notice: publicProcedure
+        .input(z.object({ id: z.string().uuid() }))
+        .output(noticeWireOutput)
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notice_not_found' });
+          try {
+            return await notify.notices.notice(input.id);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Open published incidents and maintenance windows. Signed-out. */
+      noticeStatus: publicProcedure
+        .output(
+          z.object({
+            incidents: z.array(noticeWireOutput),
+            maintenance: z.array(noticeWireOutput),
+          }),
+        )
+        .query(async () => {
+          if (!notify.notices) return { incidents: [], maintenance: [] };
+          const status = await notify.notices.noticeStatus();
+          return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
+        }),
+
+      draftNotice: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({
+            kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
+            title: z.string().min(1).max(200),
+            body: z.string().min(1).max(8000),
+            startsAt: z.string().datetime({ offset: true }).nullable().optional(),
+            endsAt: z.string().datetime({ offset: true }).nullable().optional(),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(noticeWireOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return await notify.notices.draft(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      publishNotice: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({
+            id: z.string().uuid(),
+            clientRequestId: z.string().min(1).max(128),
+            approvalId: z.string().min(1).max(128),
+            operationId: z.string().min(1).max(128),
+          }),
+        )
+        .output(noticeWireOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return await notify.notices.publish(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
         }),
 
       /**

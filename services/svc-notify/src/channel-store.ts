@@ -213,6 +213,14 @@ export interface NoteReceiptInput {
   reference: string | null;
 }
 
+export interface OwnedRecentQuery {
+  readonly userId: string;
+  readonly limit: number;
+  /** Exclusive upper bound in newest-first order. */
+  readonly before: { readonly createdAt: Date; readonly id: string } | null;
+  readonly belongsTo?: (notificationId: string) => Promise<boolean>;
+}
+
 export interface DeliveryStore {
   /**
    * Take exclusive ownership of the next attempt for this (notification, channel).
@@ -242,6 +250,13 @@ export interface DeliveryStore {
    * Caps at `limit` so an ops console cannot pull the entire history by accident.
    */
   listRecent(limit: number): Promise<DeliveryRecord[]>;
+  /**
+   * The caller's finished delivery rows, newest first.
+   * Pending is omitted. Postgres joins `notifications` on `userId`.
+   * Memory has no user column: without `belongsTo` it returns nothing,
+   * so a missing predicate cannot dump every account.
+   */
+  listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]>;
   /**
    * Retire rows that have run out of attempts — or out of anyone who will try —
    * and that nobody owns.
@@ -320,6 +335,20 @@ export interface TargetStore {
 
 function deliveryKey(notificationId: string, channel: ChannelId): string {
   return `${notificationId}\0${channel}`;
+}
+
+function ownedNewestFirst(a: DeliveryRecord, b: DeliveryRecord): number {
+  const byTime = b.createdAt.getTime() - a.createdAt.getTime();
+  if (byTime !== 0) return byTime;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+function ownedRowIsOlder(row: DeliveryRecord, before: { readonly createdAt: Date; readonly id: string }): boolean {
+  const time = row.createdAt.getTime();
+  const bound = before.createdAt.getTime();
+  if (time < bound) return true;
+  if (time > bound) return false;
+  return row.id < before.id;
 }
 
 export class MemoryDeliveryStore implements DeliveryStore {
@@ -434,6 +463,21 @@ export class MemoryDeliveryStore implements DeliveryStore {
     const cap = Math.max(0, Math.min(Math.floor(limit), 500));
     if (cap === 0) return [];
     return [...this.byId.values()].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id)).slice(0, cap);
+  }
+
+  async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
+    if (!query.belongsTo) return [];
+    const cap = Math.max(0, Math.floor(query.limit));
+    if (cap === 0) return [];
+    const rows: DeliveryRecord[] = [];
+    for (const record of this.byId.values()) {
+      if (record.status === 'pending') continue;
+      if (query.before && !ownedRowIsOlder(record, query.before)) continue;
+      if (!(await query.belongsTo(record.notificationId))) continue;
+      rows.push(record);
+    }
+    rows.sort(ownedNewestFirst);
+    return rows.slice(0, cap);
   }
 
   async reapExhausted(maxAttempts: number, opts: ReapExhaustedOptions = {}): Promise<number> {
@@ -768,6 +812,29 @@ export class PostgresDeliveryStore implements DeliveryStore {
       SELECT id, notification_id, channel, status, attempts, attempted_at, accepted_at, lease_until, refusal_code, detail, reference, created_at, updated_at FROM notify.deliveries
        WHERE notification_id = ${notificationId}
        ORDER BY channel ASC
+    `;
+    return rows.map(fromDeliveryPg);
+  }
+
+  async listOwnedRecent(query: OwnedRecentQuery): Promise<DeliveryRecord[]> {
+    const cap = Math.max(0, Math.floor(query.limit));
+    if (cap === 0) return [];
+    const beforeAt = query.before?.createdAt ?? null;
+    const beforeId = query.before?.id ?? null;
+    const rows = await this.sql<DeliveryPgRow[]>`
+      SELECT d.id, d.notification_id, d.channel, d.status, d.attempts, d.attempted_at, d.accepted_at, d.lease_until,
+             d.refusal_code, d.detail, d.reference, d.created_at, d.updated_at
+        FROM notify.deliveries d
+        JOIN notify.notifications n ON n.id = d.notification_id
+       WHERE n.user_id = ${query.userId}
+         AND d.status IN ('accepted', 'refused', 'failed', 'abandoned')
+         AND (
+           ${beforeAt}::timestamptz IS NULL
+           OR d.created_at < ${beforeAt}
+           OR (d.created_at = ${beforeAt} AND d.id < ${beforeId}::uuid)
+         )
+       ORDER BY d.created_at DESC, d.id DESC
+       LIMIT ${cap}
     `;
     return rows.map(fromDeliveryPg);
   }

@@ -8,6 +8,7 @@
  */
 
 import type { NotifySeverity } from './mute.js';
+import { inQuietHours, quietReleaseUtc, type QuietWindow } from './quiet-hours.js';
 
 export type DigestCadence = 'off' | 'hourly' | 'daily';
 
@@ -246,6 +247,45 @@ export function digestStatusLineMatches(prefs: DigestPrefs): boolean {
 }
 
 /** L3 — true when windowMs matches cadence law. */
+export type DigestMode = 'immediate' | 'hourly' | 'daily';
+
+const DIGEST_MODES: readonly DigestMode[] = ['immediate', 'hourly', 'daily'];
+
+export function assertDigestMode(raw: string): DigestMode {
+  if ((DIGEST_MODES as readonly string[]).includes(raw)) return raw as DigestMode;
+  throw new DigestError('notify.digest_mode_unknown', 'preference.invalid_cadence');
+}
+
+/**
+ * When a non-critical notice should wait for the next summary.
+ * Null means send now. Critical is always null. An unset quiet window does
+ * not invent one. Hourly and daily boundaries are UTC. A boundary that would
+ * fall inside quiet hours waits until that window ends.
+ */
+export function holdUntilFor(input: { mode: DigestMode; quiet: QuietWindow | null; severity: NotifySeverity; now: Date }): Date | null {
+  if (input.severity === 'critical') return null;
+  if (input.quiet) {
+    const quietEnd = quietReleaseUtc(input.now, input.quiet);
+    if (quietEnd) return quietEnd;
+  }
+  if (input.mode === 'immediate') return null;
+  let boundary = nextUtcBoundary(input.now, input.mode);
+  if (input.quiet && inQuietHours(boundary, input.quiet)) {
+    const extended = quietReleaseUtc(boundary, input.quiet);
+    if (extended) boundary = extended;
+  }
+  return boundary;
+}
+
+function nextUtcBoundary(now: Date, mode: 'hourly' | 'daily'): Date {
+  const step = mode === 'hourly' ? 3_600_000 : 86_400_000;
+  const time = now.getTime();
+  return new Date(Math.floor(time / step) * step + step);
+}
+
+/** How often the process looks for summaries that are due. Not a user window. */
+export const DIGEST_RELEASE_INTERVAL_MS = 60_000;
+
 export function digestStatusLineConsistent(line: string): boolean {
   const p = parseDigestStatusLine(line);
   if (!p) return false;

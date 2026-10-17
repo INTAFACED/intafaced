@@ -4,9 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Digest/combined pure helpers look like a product surface. Production dispatch
- * never imports them (closeout: LANE-CLOSEOUT-OPS-2026-08-08 — cadence law open).
- * This test pins that: if someone wires hold_digest without product law, CI fails.
+ * Topic choices, quiet hours, and summaries are product procedures.
+ * Critical still ignores mute, topic choice, and quiet hours.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -16,21 +15,36 @@ function source(rel: string): string {
   return readFileSync(join(root, rel), 'utf8');
 }
 
-describe('digest/combined are pure helpers — not production product', () => {
-  it('dispatch never imports preferences/digest or combined', () => {
-    const dispatch = source('dispatch.ts');
-    expect(dispatch).not.toMatch(/preferences\/digest/);
-    expect(dispatch).not.toMatch(/preferences\/combined/);
-    expect(dispatch).not.toMatch(/hold_digest|decideChannelDelivery/);
-  });
-
-  it('router never exposes a digest cadence API', () => {
+describe('topic and digest preferences are wired', () => {
+  it('router exposes the preference, delivery-list, and notice procedures', () => {
     const router = source('router.ts');
-    expect(router).not.toMatch(/digest/i);
+    for (const name of [
+      'topicPrefs:',
+      'setTopicPref:',
+      'digestPrefs:',
+      'setDigest:',
+      'recentDeliveries:',
+      'notices:',
+      'notice:',
+      'noticeStatus:',
+      'draftNotice:',
+      'publishNotice:',
+    ]) {
+      expect(router).toContain(name);
+    }
   });
 
-  it('index never constructs a digest store', () => {
+  it('dispatch asks the preference gate and skips it for critical', () => {
+    const dispatch = source('dispatch.ts');
+    expect(dispatch).toContain('planOutOfApp');
+    expect(dispatch).toContain("notification.severity !== 'critical'");
+  });
+
+  it('index constructs the preference stores and the notice board', () => {
     const index = source('index.ts');
-    expect(index).not.toMatch(/DigestStore|digest\.ts|combined\.ts/);
+    expect(index).toContain('PostgresTopicPrefStore');
+    expect(index).toContain('PostgresHoldStore');
+    expect(index).toContain('NoticeBoard');
+    expect(index).toContain('planOutOfApp');
   });
 });
