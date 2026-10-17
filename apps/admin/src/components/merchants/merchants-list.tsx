@@ -106,8 +106,8 @@ export function MerchantsListView({ data, query }: { data: MerchantListPageData;
           </select>
         </div>
         <p id="f-tier-hint" className="mp-hint mp-filters__note">
-          The tier filter arrives with the control room (W1); the service refuses it until tiers exist. Search and sort work on the rows of
-          the current page only.
+          The tier filter is not connected: the service refuses it because no tiers exist. Search and sort work on the rows of the current
+          page only.
         </p>
         <div className="mp-filters__actions">
           <button type="submit" className="mp-btn mp-btn--primary">

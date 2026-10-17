@@ -17,11 +17,11 @@ import { DisputesView, LiveView, PayoutsView, RecentMerchantsView, RiskView } fr
 import { SCREEN_SECTIONS, slugOf, type Query } from '@/lib/founder-ops/read-model';
 import './screens.css';
 
-export function Arrives({ reason }: { reason: string }) {
+export function NotConnected({ reason }: { reason: string }) {
   return (
     <StateBlock
       kind="not_built"
-      title="Arrives with the next backend update"
+      title="Not connected yet"
       action={
         <a className="mp-btn" href="/merchants">
           Open available overview
@@ -52,7 +52,7 @@ export function FounderScreenView({
   const isList = screen.type === 'LIST' || screen.type === 'QUEUE';
   const slug = merchantId ? slugOf(screen.route) : '';
   const sectionList = merchantId ? SCREEN_SECTIONS[slug] : undefined;
-  /** Pages whose data now comes from the founder reads: they show real lists, not the "arrives" state. */
+  /** Pages whose data now comes from the founder reads: they show real lists, not the "not connected" state. */
   const wired = ['F02', 'F03', 'F05', 'F32', 'F37'].includes(screen.id);
   const drilled = sectionList !== undefined || (merchantId !== undefined && ['F22'].includes(screen.id));
   const handled = wired || drilled;
@@ -162,7 +162,7 @@ export function FounderScreenView({
           </>
         )
       ) : null}
-      {!handled && !noArrives(screen.id) ? <Arrives reason={screen.gap} /> : null}
+      {!handled && !noPointer(screen.id) ? <NotConnected reason={screen.gap} /> : null}
       {screen.id === 'F05' ? <NamedBlocker title="Creating a merchant is not in the pay service yet" reason={screen.gap} /> : null}
       {screen.id === 'F12' ? <NamedBlocker title="Conversion orders reader not built yet" reason={screen.gap} /> : null}
       {screen.id === 'F13' || screen.id === 'F14' ? <ControlsPointer merchantId={merchantId} what={screen.title} /> : null}
@@ -248,7 +248,7 @@ export function FounderScreenView({
           </Card>
         </>
       ) : null}
-      {!isList && !handled && !noArrives(screen.id) && !data.metrics && !data.treasury && !fraud && !data.approvals ? (
+      {!isList && !handled && !noPointer(screen.id) && !data.metrics && !data.treasury && !fraud && !data.approvals ? (
         <div className="fo-sections">
           {screen.sections.map((title) => (
             <Card key={title} title={title}>
@@ -269,7 +269,7 @@ export function FounderScreenView({
           <p className="mp-footnote">Table fallback and per-asset series arrive with the analytics reader.</p>
         </Card>
       ) : null}
-      {['FORM', 'CONFIG', 'DETAIL'].includes(screen.type) && !handled && !noArrives(screen.id) ? (
+      {['FORM', 'CONFIG', 'DETAIL'].includes(screen.type) && !handled && !noPointer(screen.id) ? (
         <Card
           title="Change review and audit"
           sub="No change can be submitted from this screen until the required reads and approval context are available."
@@ -294,11 +294,11 @@ export function FounderScreenView({
         </Card>
       ) : null}
       <p className="mp-footnote">
-        {handled || noArrives(screen.id)
+        {handled || noPointer(screen.id)
           ? 'Read from the pay service at '
           : 'As of: unavailable for unbuilt projections. Snapshot request: '}
         <time dateTime={data.readAt}>{data.readAt}</time>
-        {handled || noArrives(screen.id)
+        {handled || noPointer(screen.id)
           ? '. Each list shows exactly what the service returned at that moment; nothing is estimated and missing values stay missing.'
           : '. Unknown freshness is never displayed as live. Missing thresholds stay not configured.'}
       </p>
@@ -500,7 +500,7 @@ function ApprovalFacts({ approval: a }: { approval: PayoutApproval }) {
 }
 
 /** F13 and F14 read their data in the merchant's Controls tab, so these pages point there instead of repeating it. */
-function noArrives(id: string): boolean {
+function noPointer(id: string): boolean {
   return id === 'F12' || id === 'F13' || id === 'F14' || id === 'F23';
 }
 

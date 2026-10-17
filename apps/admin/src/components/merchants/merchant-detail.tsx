@@ -269,7 +269,7 @@ function Overview({
                   <Amounts rows={m.conversionVolume} empty="None" />
                 )
               }
-              period="Arrives with W6"
+              period="No conversion order reader yet"
             />
           </div>
         )}
@@ -514,7 +514,7 @@ function Settlements({ metrics, here }: { metrics: MerchantDetailData['metrics']
             </table>
           )}
           <p className="mp-footnote mp-mt">
-            Individual settlements with retry and hold arrive with W1 and W5. This tab is the summary the read model projects.
+            Individual settlements with retry and hold are not connected yet. This tab is the summary the read model projects.
           </p>
         </Card>
       )}
