@@ -15,6 +15,7 @@ import {
   type MuxVerb,
   type ParsedOp,
 } from './protocol.js';
+import { publishedPositiveMs } from './idle.js';
 import type { MarketResolver } from './resolver.js';
 import type { TickerHub } from './ticker-hub.js';
 
@@ -79,6 +80,12 @@ export interface MuxSessionDeps {
   readonly maxOpsPerSecond: number | undefined;
   /** Owner-published. Unset refuses the connection. */
   readonly highWaterBytes: number | undefined;
+  /**
+   * Close this socket after it has held no subscription for this long.
+   * Unpublished: the session does not invent a timeout. The gateway refuses
+   * to start unless startup resolved one.
+   */
+  readonly idleMs?: number;
   readonly log: HubLogger;
   readonly clock?: () => number;
 }
@@ -113,6 +120,8 @@ export class MuxSession {
   #tokens = 0;
   #lastRefill = 0;
   #pendingOps = 0;
+  /** When this connection last had zero subscriptions; null while it holds any. */
+  #emptySince: number | null = null;
   #chain: Promise<void> = Promise.resolve();
   /** While a hub `attach` is running, a synchronous refusal is captured here instead of sent. */
   #attaching: { key: string; refusal: { code: number; reason: string } | null } | null = null;
@@ -139,7 +148,29 @@ export class MuxSession {
     if (!isPublishedMuxLimit(maxOpsPerSecond)) return this.#refuse(WS_COPY.muxMaxOpsUnset);
     this.#tokens = maxOpsPerSecond;
     this.#lastRefill = this.#clock();
+    this.#emptySince = this.#lastRefill;
     return true;
+  }
+
+  /**
+   * True when the connection has held no subscription for `idleMs` and has no
+   * operation in flight. An in-flight subscribe is not idle: it may be about
+   * to hold a channel.
+   */
+  idleExpired(now: number): boolean {
+    const idleMs = this.#deps.idleMs;
+    if (!publishedPositiveMs(idleMs)) return false;
+    return !this.#closed && this.#emptySince !== null && this.#pendingOps === 0 && now - this.#emptySince >= idleMs;
+  }
+
+  /** Close an idle connection 1008 with the catalog name. */
+  closeIdle(): void {
+    this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxIdle));
+  }
+
+  #noteSubscriptions(): void {
+    if (this.#subs.size > 0) this.#emptySince = null;
+    else if (this.#emptySince === null) this.#emptySince = this.#clock();
   }
 
   #refuse(copyKey: string): false {
@@ -298,6 +329,7 @@ export class MuxSession {
     }
     entry.detach = detach;
     this.#subs.set(key, entry);
+    this.#noteSubscriptions();
     if (marketId !== null && spec.market !== undefined && spec.market !== marketId) this.#aliases.set(spec.market, marketId);
     if (marketId !== null && symbol !== null) this.#aliases.set(symbol, marketId);
     return ok(i, spec, marketId, symbol);
@@ -306,9 +338,9 @@ export class MuxSession {
   #attach(spec: ChannelSpec, marketId: string | null, sink: DepthSink): (() => void) | null {
     switch (spec.ch) {
       case 'book':
-        return this.#deps.depth.attach(marketId as string, sink);
+        return this.#deps.depth.attach(marketId as string, sink, { mux: true });
       case 'trades':
-        return this.#deps.trades.attach(marketId as string, sink);
+        return this.#deps.trades.attach(marketId as string, sink, { mux: true });
       case 'candles':
         return this.#deps.candles.attach(marketId as string, spec.interval, sink, this.#clock());
       case 'ticker':
@@ -385,6 +417,7 @@ export class MuxSession {
     if (entry) {
       entry.detach?.();
       this.#subs.delete(key);
+      this.#noteSubscriptions();
     }
     const error: MuxErrorCode = code === CLOSE_POLICY && reason === resolveWsCopy(WS_COPY.unknownMarket) ? 'unknown_market' : 'unavailable';
     this.#sendControl(
@@ -401,6 +434,7 @@ export class MuxSession {
 
   #drop(key: string, entry: Entry): void {
     this.#subs.delete(key);
+    this.#noteSubscriptions();
     entry.detach?.();
     for (const [alias, id] of this.#aliases) if (id === entry.marketId && !this.#hasOtherFor(id)) this.#aliases.delete(alias);
   }

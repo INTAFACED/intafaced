@@ -136,7 +136,7 @@ export type ClaimOk = {
 
 export type ClaimRefuse = {
   readonly status: 'refuse';
-  readonly reason: 'not_found' | 'not_queueable' | 'already_claimed' | 'invalid_operator';
+  readonly reason: 'not_found' | 'not_queueable' | 'already_claimed' | 'invalid_operator' | 'not_assignee';
 };
 
 export type ClaimResult = ClaimOk | ClaimRefuse;

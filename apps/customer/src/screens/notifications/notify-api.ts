@@ -140,3 +140,103 @@ export function onChange(listener: () => void): () => void {
   window.addEventListener(CHANGED, listener);
   return () => window.removeEventListener(CHANGED, listener);
 }
+
+// ── Price alerts ────────────────────────────────────────────────────────────────────────────────────────────────
+// `notify.alerts` (scope notify:read) lists the person's watches with whether any can fire; `notify.createAlert` and
+// `notify.cancelAlert` (scope notify:write) change them. Prices are decimal strings end to end, never a number. Neither
+// mutation takes a request id, so a lost answer cannot be replayed safely; the page checks the list instead.
+
+export const ALERT_KINDS = ['price', 'funding', 'liquidation_proximity', 'whale'] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
+export type AlertDirection = 'above' | 'below';
+
+export const priceAlertSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string(),
+  marketId: z.string().min(1).max(64),
+  kind: z.enum(ALERT_KINDS),
+  direction: z.enum(['above', 'below']),
+  targetPrice: z.string().min(1).max(64),
+  status: z.enum(['active', 'fired', 'cancelled']),
+  firedAt: date.nullable(),
+  createdAt: date,
+});
+export type PriceAlert = z.infer<typeof priceAlertSchema>;
+
+export const alertEvaluationSchema = z.object({
+  markSource: z.enum(['dark', 'live']),
+  canFire: z.boolean(),
+  code: z.enum(['alert.price_unavailable', 'alerts.whale_mark_dark', 'channel.not_configured', 'channel.disabled']).nullable(),
+});
+export type AlertEvaluation = z.infer<typeof alertEvaluationSchema>;
+
+const alertListSchema = z.object({ items: z.array(priceAlertSchema).max(100), evaluation: alertEvaluationSchema });
+export type AlertList = z.infer<typeof alertListSchema>;
+
+/** The latest 100 watches, newest first. `limit` is always sent: the service refuses a list without one. */
+export const listAlerts = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertList>> =>
+  api.query('notify', 'notify.alerts', { limit: 100 }, alertListSchema, { signal });
+
+export interface AlertIntent {
+  marketId: string;
+  direction: AlertDirection;
+  /** A positive decimal string, exactly as the person typed it (trimmed). */
+  targetPrice: string;
+}
+
+/** True when a stored watch is the one an intent asked for: same market, side and price (100.50 equals 100.5). */
+export function isIntent(row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'>, intent: AlertIntent): boolean {
+  return (
+    row.kind === 'price' &&
+    row.marketId === intent.marketId &&
+    row.direction === intent.direction &&
+    canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice)
+  );
+}
+
+/** The same number spelled one way: no sign, no leading zeros, no trailing fraction zeros. Not a number: still a string. */
+export function canonicalPrice(raw: string): string {
+  const [whole = '', fraction = ''] = raw.trim().replace(/^\+/, '').split('.');
+  const int = whole.replace(/^0+(?=\d)/, '') || '0';
+  const frac = fraction.replace(/0+$/, '');
+  return frac ? `${int}.${frac}` : int;
+}
+
+/** Save a price alert. The answer must be an active, unfired watch for exactly what was asked, or it is not believed. */
+export function createPriceAlert(
+  api: ApiClient,
+  intent: AlertIntent,
+  userId: string,
+): Promise<ApiResult<{ alert: PriceAlert; evaluation: AlertEvaluation }>> {
+  return api.mutate(
+    'notify',
+    'notify.createAlert',
+    { kind: 'price', marketId: intent.marketId, direction: intent.direction, targetPrice: intent.targetPrice },
+    z.object({
+      alert: priceAlertSchema.refine(
+        (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
+        'Returned alert does not match',
+      ),
+      evaluation: alertEvaluationSchema,
+    }),
+  );
+}
+
+/** Cancel one watch. `cancelled: false` with a row means it was already fired or cancelled; `alert: null` means it was not found. */
+export function cancelPriceAlert(
+  api: ApiClient,
+  id: string,
+  userId: string,
+): Promise<ApiResult<{ cancelled: boolean; alert: PriceAlert | null }>> {
+  return api.mutate(
+    'notify',
+    'notify.cancelAlert',
+    { id },
+    z
+      .object({
+        cancelled: z.boolean(),
+        alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
+      })
+      .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
+  );
+}

@@ -3,6 +3,7 @@
  * names the real reason; the service code sits underneath as small support text. No "coming soon", no service names.
  * Codes this file does not know fall through to the shared `refusalCopy`, so a new code never shows raw JSON.
  */
+import { classifyRefusal } from '../../../data';
 import { refusalCopy, refusalSupportCode } from './ui';
 
 export interface Words {
@@ -90,6 +91,10 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'This order may have been placed',
     body: 'The service could not confirm the outcome. Check status before placing it again.',
   },
+  'trade.price_band': {
+    title: 'Price is too far from the market',
+    body: 'The price is outside the range this market accepts around the current price. Move it closer and try again.',
+  },
   'trade.client_order_id_conflict': {
     title: 'That order id was used for a different order',
     body: 'Nothing new was placed. Start a new ladder.',
@@ -104,11 +109,24 @@ export interface RefusalInput {
 
 export function roomWords(input: RefusalInput): Words {
   const code = input.code?.trim();
+  // A write that may have gone through is never described as refused or unchanged, whatever code came with it. The code
+  // stays only as a reference for support.
+  if (input.reason === 'uncertain')
+    return {
+      title: "We couldn't confirm that",
+      body: 'The connection dropped before an answer arrived. Check status before trying again.',
+      ...(code ? { code: refusalSupportCode(code) } : {}),
+    };
   if (code) {
     const known = KNOWN[code];
     if (known) return { ...known, code: refusalSupportCode(code) };
     if (code.startsWith('trade.greeks_')) return { ...KNOWN['trade.greeks_native_unlinked']!, code: refusalSupportCode(code) };
     const shared = refusalCopy(code);
+    // A trade.* code nobody here has words for keeps the service's own sentence, so the real blocker is never replaced by a generic line.
+    // Other families (auth, scope, internal) keep the shared words, so no service wording leaks.
+    const message = input.message?.trim();
+    if (message && code.startsWith('trade.') && classifyRefusal(code) === 'unknown')
+      return { title: shared.title, body: message, code: refusalSupportCode(code) };
     return { title: shared.title, body: shared.body, code: refusalSupportCode(code) };
   }
   if (input.reason === 'unauthorized') return { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.' };

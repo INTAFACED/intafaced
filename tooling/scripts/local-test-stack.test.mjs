@@ -78,6 +78,14 @@ for (const name of ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOU
 assert.equal(/screening\.local\.json/.test(source), true);
 assert.equal(/\bZZ\b/.test(source), false, 'the repo script must not carry the ZZ fixture');
 
+// The identity process takes its founder pair from the local test vault helper.
+// The Docker founder files are not named here.
+assert.match(source, /founderIdentityEnv\(/);
+assert.equal(source.includes('.env.founder-secrets.local'), false);
+assert.equal(source.includes('.env.founder.local'), false);
+assert.equal(source.includes('local_nitro'), false);
+assert.equal(source.includes('local_phantom'), false);
+
 console.log('local-test-stack: 6 refusal checks passed');
 
 // 7. Every Edge upstream, and every module the Customer app calls, points at a service this
