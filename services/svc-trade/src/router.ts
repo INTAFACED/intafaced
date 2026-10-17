@@ -32,6 +32,8 @@ import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
+import { tradeOpsAdminRouter } from './admin/router.js';
+import type { TradeOpsAdmin } from './admin/service.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -392,9 +394,16 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, copy?: CopyService, controls?: TradingControls) {
+export function createTradeRouter(
+  trade: TradeService,
+  otc?: OtcDeskService,
+  copy?: CopyService,
+  controls?: TradingControls,
+  admin?: TradeOpsAdmin,
+) {
   return router({
     accountControls: tradingControlsRouter(controls),
+    admin: tradeOpsAdminRouter(admin),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
