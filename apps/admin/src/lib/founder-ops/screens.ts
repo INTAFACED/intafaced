@@ -331,7 +331,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'LIST',
     'Trace state changes to their actor, second approver and before/after values.',
     ['Action and resource', 'Actor', 'Second approver', 'Before / after', 'Reason', 'Time'],
-    'Only control changes are listed here: merchant, tier, pricing and approval decisions. Other activity is not in this list, and a failed read never means no changes occurred.',
+    'This list holds control-audit rows: merchant, tier, pricing and approval decisions, plus capture reconciliations, dispute conflicts, invoice and over-cap events and destination reads. Other activity is not in this list, and a failed read never means no changes occurred.',
   ),
   screen(
     'F65',

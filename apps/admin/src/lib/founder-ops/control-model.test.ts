@@ -43,3 +43,20 @@ describe('before and after text', () => {
     expect(jsonPreview({ a: 'x'.repeat(5000) })).toContain('shortened');
   });
 });
+
+describe('jsonPreview hides destination-like values of any shape', () => {
+  it('hides nested objects, arrays and bare refs under sensitive keys', () => {
+    const out = jsonPreview({
+      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
+      iban: ['DE89370400440532013000'],
+      wallet: '0x7a3f00000000000000000000000000000000abcd',
+      ref: 'DE89370400440532013000',
+      cap: '5000.00',
+      note: null,
+    });
+    expect(out).not.toContain('DE89');
+    expect(out).not.toContain('0x7a3f');
+    expect(out).toContain('"cap": "5000.00"');
+    expect(out).toContain('"note": null');
+  });
+});

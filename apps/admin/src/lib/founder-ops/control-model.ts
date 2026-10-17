@@ -62,15 +62,15 @@ export function auditInput(query: Query | undefined): AuditInput {
 
 export const hasAuditFilter = (f: AuditFilter): boolean => Boolean(f.merchant || f.kind || f.from || f.to);
 
-const SENSITIVE_KEY = /destination|iban|account|address|secret|token|password/i;
+const SENSITIVE_KEY = /destination|iban|account|address|secret|token|password|beneficiary|wallet|^ref$/i;
 const MAX_PREVIEW = 1200;
 
-/** A stored before/after value as readable text. Money stays the strings the service stored; a key that looks like a destination is hidden. */
+/** A stored before/after value as readable text. Money stays the strings the service stored; any non-null value under a key that looks like a destination is hidden, objects and arrays included. */
 export function jsonPreview(value: unknown): string {
   if (value === null || value === undefined) return '';
   const text = JSON.stringify(
     value,
-    (key, v: unknown) => (key !== '' && SENSITIVE_KEY.test(key) && typeof v === 'string' ? '[hidden]' : v),
+    (key, v: unknown) => (key !== '' && SENSITIVE_KEY.test(key) && v !== null && v !== undefined ? '[hidden]' : v),
     2,
   );
   if (text === undefined) return '';
