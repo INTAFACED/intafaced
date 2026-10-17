@@ -15,8 +15,9 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import {
   openRefreshCookieBag,
   refreshCookieAls,
+  cookiePathMatches,
   REFRESH_COOKIE_NAME,
-  REFRESH_COOKIE_PATH,
+  REFRESH_COOKIE_PATHS,
   type RefreshCookieBag,
 } from './refresh-cookie.js';
 import { hashToken } from './passwords.js';
@@ -113,17 +114,29 @@ function softAuthenticator() {
   };
 }
 
-function cookieLine(res: { headers: Record<string, unknown> }): string {
+function cookieLines(res: { headers: Record<string, unknown> }): string[] {
   const raw = res.headers['set-cookie'];
-  const line = Array.isArray(raw) ? raw[0] : raw;
-  expect(typeof line).toBe('string');
-  return line as string;
+  const lines = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
+  expect(lines).toHaveLength(REFRESH_COOKIE_PATHS.length);
+  return lines;
 }
 
-function cookieValue(line: string): string {
-  const first = line.split(';')[0] ?? '';
-  expect(first.startsWith(`${REFRESH_COOKIE_NAME}=`)).toBe(true);
-  return first.slice(REFRESH_COOKIE_NAME.length + 1);
+function cookieValue(lines: string[]): string {
+  const values = lines.map((line) => {
+    const first = line.split(';')[0] ?? '';
+    expect(first.startsWith(`${REFRESH_COOKIE_NAME}=`)).toBe(true);
+    return first.slice(REFRESH_COOKIE_NAME.length + 1);
+  });
+  expect(new Set(values).size).toBe(1);
+  return values[0]!;
+}
+
+function expectCookiePaths(lines: string[]): void {
+  for (const path of REFRESH_COOKIE_PATHS) {
+    expect(lines.some((line) => line.includes(`Path=${path}`))).toBe(true);
+    expect(cookiePathMatches(path, path)).toBe(true);
+  }
+  expect(cookiePathMatches('/trpc/auth.', '/trpc/auth.refresh')).toBe(false);
 }
 
 function wireData(res: { json: () => unknown }): Record<string, unknown> {
@@ -164,7 +177,9 @@ if (!available) {
     });
     server.addHook('onSend', async (req, reply, payload) => {
       const setCookie = bags.get(req)?.setCookie;
-      if (setCookie) reply.header('set-cookie', setCookie);
+      if (setCookie) {
+        for (const line of setCookie) reply.header('set-cookie', line);
+      }
       return payload;
     });
     await server.register(fastifyTRPCPlugin, {
@@ -203,14 +218,14 @@ if (!available) {
         payload: { identifier: handle, password: PASSWORD },
       });
       expect(browser.statusCode).toBe(200);
-      const line = cookieLine(browser);
-      expect(line).toContain('HttpOnly');
-      expect(line).toContain('SameSite=Strict');
-      expect(line).toContain(`Path=${REFRESH_COOKIE_PATH}`);
-      expect(line).toContain('Max-Age=2592000');
-      expect(line).not.toContain('Secure');
-      expect(line.toLowerCase()).not.toContain('domain=');
-      const token = cookieValue(line);
+      const lines = cookieLines(browser);
+      expect(lines.every((line) => line.includes('HttpOnly'))).toBe(true);
+      expect(lines.every((line) => line.includes('SameSite=Strict'))).toBe(true);
+      expectCookiePaths(lines);
+      expect(lines.every((line) => line.includes('Max-Age=2592000'))).toBe(true);
+      expect(lines.some((line) => line.includes('Secure'))).toBe(false);
+      expect(lines.some((line) => line.toLowerCase().includes('domain='))).toBe(false);
+      const token = cookieValue(lines);
       const body = wireData(browser);
       expect(body.refreshToken).toBeUndefined();
       expect(JSON.stringify(body)).not.toContain(token);
@@ -222,7 +237,7 @@ if (!available) {
         headers: { host: 'app.example.com', origin: 'https://app.example.com' },
         payload: { identifier: handle, password: PASSWORD },
       });
-      expect(cookieLine(secure)).toContain('Secure');
+      expect(cookieLines(secure).every((line) => line.includes('Secure'))).toBe(true);
 
       const api = await server.inject({
         method: 'POST',
@@ -246,7 +261,7 @@ if (!available) {
         headers: { host: 'localhost', origin: 'http://localhost:3000' },
         payload: { identifier: handle, password: PASSWORD },
       });
-      const first = cookieValue(cookieLine(login));
+      const first = cookieValue(cookieLines(login));
       const refreshed = await server.inject({
         method: 'POST',
         url: '/trpc/auth.refresh',
@@ -254,7 +269,7 @@ if (!available) {
         payload: {},
       });
       expect(refreshed.statusCode).toBe(200);
-      const second = cookieValue(cookieLine(refreshed));
+      const second = cookieValue(cookieLines(refreshed));
       expect(second).not.toBe(first);
       expect(JSON.stringify(wireData(refreshed))).not.toContain(second);
       const access = wireData(refreshed).accessToken;
@@ -295,7 +310,7 @@ if (!available) {
         headers: { host: 'localhost', origin: 'http://localhost:3000' },
         payload: { identifier: handle, password: PASSWORD },
       });
-      const token = cookieValue(cookieLine(browser));
+      const token = cookieValue(cookieLines(browser));
       const other = await auth.login({ identifier: handle, password: PASSWORD });
       const loggedOut = await server.inject({
         method: 'POST',
@@ -304,10 +319,10 @@ if (!available) {
         payload: {},
       });
       expect(loggedOut.statusCode).toBe(200);
-      const cleared = cookieLine(loggedOut);
-      expect(cleared).toContain('Max-Age=0');
-      expect(cleared).toContain(`Path=${REFRESH_COOKIE_PATH}`);
-      expect(cleared).toContain('HttpOnly');
+      const cleared = cookieLines(loggedOut);
+      expect(cleared.every((line) => line.includes('Max-Age=0'))).toBe(true);
+      expectCookiePaths(cleared);
+      expect(cleared.every((line) => line.includes('HttpOnly'))).toBe(true);
       const again = await server.inject({
         method: 'POST',
         url: '/trpc/auth.refresh',
@@ -341,11 +356,11 @@ if (!available) {
         payload: { identifier: handle, credential: authenticator.assertionResponse(authOptions.challenge) },
       });
       expect(res.statusCode).toBe(200);
-      const line = cookieLine(res);
-      expect(line).toContain('HttpOnly');
-      expect(line).toContain('SameSite=Strict');
-      expect(line).toContain(`Path=${REFRESH_COOKIE_PATH}`);
-      const token = cookieValue(line);
+      const lines = cookieLines(res);
+      expect(lines.every((line) => line.includes('HttpOnly'))).toBe(true);
+      expect(lines.every((line) => line.includes('SameSite=Strict'))).toBe(true);
+      expectCookiePaths(lines);
+      const token = cookieValue(lines);
       expect(JSON.stringify(wireData(res))).not.toContain(token);
       const principal = await verifyAccessToken(wireData(res).accessToken as string, tokenConfig);
       expect(principal.mfa).toBe(true);

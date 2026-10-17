@@ -4,19 +4,22 @@
  * The access token stays in page memory. The refresh token is this cookie and
  * is not readable from script. Name is `ifc_rt` (not `__Host-` or `__Secure-`):
  * those prefixes require `Secure` on every host, and localhost dev omits
- * `Secure`. Path is the identity auth prefix so the cookie is not attached to
+ * `Secure`. Each line has an exact Path, so the cookie is not attached to
  * trade, pay, or the WebSocket upgrade. The edge rewrites that path to the
  * public `/api/identity` prefix when it forwards `Set-Cookie`.
  *
  * Client contract (sovereign-70):
  * - Cookie: `ifc_rt`. HttpOnly; SameSite=Strict; Secure except localhost,
  *   127.0.0.1, and ::1; no Domain attribute.
- * - Identity path: `/trpc/auth.`. Browser path after the edge: `/api/identity/trpc/auth.`.
- * - Send it on `auth.login`, `auth.register`, `auth.registerFounder`,
+ * - Two Set-Cookie lines, same value. Identity paths: `/trpc/auth.refresh`
+ *   and `/trpc/auth.logout`. Browser paths after the edge:
+ *   `/api/identity/trpc/auth.refresh` and `/api/identity/trpc/auth.logout`.
+ *   A prefix such as `/trpc/auth.` does not match those URLs.
+ * - Set on `auth.login`, `auth.register`, `auth.registerFounder`,
  *   `webauthn.authVerify`, `auth.refresh`, and `auth.logout`.
- *   The cookie Path stays `/trpc/auth.` so a later refresh and logout
- *   receive it. Passkey verify is not under that path; the edge still
- *   forwards its Set-Cookie.
+ *   Passkey verify is not under those paths; the edge still forwards
+ *   its Set-Cookie. The browser sends the cookie back only on refresh
+ *   and logout.
  * - `auth.refresh` and `auth.logout` read this cookie when the body omits
  *   `refreshToken`. A body `refreshToken` still wins (API and mobile).
  * - A request that sends `Origin` is a browser: the JSON omits `refreshToken`.
@@ -27,10 +30,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export const REFRESH_COOKIE_NAME = 'ifc_rt';
-/** Path on svc-identity. Matches `auth.*` procedures and nothing else. */
-export const REFRESH_COOKIE_PATH = '/trpc/auth.';
-/** Path the browser sees after svc-edge. */
-export const PUBLIC_REFRESH_COOKIE_PATH = '/api/identity/trpc/auth.';
+/**
+ * Exact paths on svc-identity. A prefix such as `/trpc/auth.` does not
+ * match `/trpc/auth.refresh` under the cookie path algorithm.
+ */
+export const REFRESH_COOKIE_PATHS = ['/trpc/auth.refresh', '/trpc/auth.logout'] as const;
+/** Paths the browser sees after svc-edge. */
+export const PUBLIC_REFRESH_COOKIE_PATHS = ['/api/identity/trpc/auth.refresh', '/api/identity/trpc/auth.logout'] as const;
 
 /**
  * Two tabs reloading together present one cookie. Ten seconds covers that
@@ -46,7 +52,7 @@ export interface RefreshCookieBag {
   /** True when the request carried an Origin header (a browser). */
   readonly browser: boolean;
   readonly secure: boolean;
-  setCookie: string | null;
+  setCookie: string[] | null;
   issue(token: string, maxAgeSeconds: number): void;
   clear(): void;
 }
@@ -62,11 +68,27 @@ export function refreshCookieSecure(host: string | undefined): boolean {
   return !LOCAL_HOSTS.has(hostname);
 }
 
-export function serializeRefreshCookie(token: string, options: { maxAgeSeconds: number; secure: boolean; path?: string }): string {
+export function serializeRefreshCookie(token: string, options: { maxAgeSeconds: number; secure: boolean; path: string }): string {
   const parts = [`${REFRESH_COOKIE_NAME}=${token}`, 'HttpOnly'];
   if (options.secure) parts.push('Secure');
-  parts.push('SameSite=Strict', `Path=${options.path ?? REFRESH_COOKIE_PATH}`, `Max-Age=${Math.max(0, Math.floor(options.maxAgeSeconds))}`);
+  parts.push('SameSite=Strict', `Path=${options.path}`, `Max-Age=${Math.max(0, Math.floor(options.maxAgeSeconds))}`);
   return parts.join('; ');
+}
+
+export function refreshCookieLines(token: string, options: { maxAgeSeconds: number; secure: boolean }): string[] {
+  return REFRESH_COOKIE_PATHS.map((path) => serializeRefreshCookie(token, { ...options, path }));
+}
+
+/**
+ * RFC 6265 path-match. The cookie is sent only when the paths are identical,
+ * or the cookie path is a directory prefix (it ends in `/`, or the next
+ * request character is `/`).
+ */
+export function cookiePathMatches(cookiePath: string, requestPath: string): boolean {
+  const req = requestPath.split('?')[0] ?? '';
+  if (cookiePath === req) return true;
+  if (cookiePath.endsWith('/') && req.startsWith(cookiePath)) return true;
+  return req.startsWith(cookiePath) && req[cookiePath.length] === '/';
 }
 
 export function readRefreshCookie(header: string | undefined): string | null {
@@ -83,7 +105,11 @@ export function readRefreshCookie(header: string | undefined): string | null {
 }
 
 export function rewriteRefreshCookiePath(line: string): string {
-  return line.replaceAll(`Path=${REFRESH_COOKIE_PATH}`, `Path=${PUBLIC_REFRESH_COOKIE_PATH}`);
+  let out = line;
+  for (let i = 0; i < REFRESH_COOKIE_PATHS.length; i++) {
+    out = out.replaceAll(`Path=${REFRESH_COOKIE_PATHS[i]}`, `Path=${PUBLIC_REFRESH_COOKIE_PATHS[i]}`);
+  }
+  return out;
 }
 
 export function isRefreshCookieRoute(pathname: string): boolean {
@@ -112,10 +138,10 @@ export function openRefreshCookieBag(headers: {
     secure,
     setCookie: null,
     issue(token, maxAgeSeconds) {
-      bag.setCookie = serializeRefreshCookie(token, { maxAgeSeconds, secure });
+      bag.setCookie = refreshCookieLines(token, { maxAgeSeconds, secure });
     },
     clear() {
-      bag.setCookie = serializeRefreshCookie('', { maxAgeSeconds: 0, secure });
+      bag.setCookie = refreshCookieLines('', { maxAgeSeconds: 0, secure });
     },
   };
   return bag;

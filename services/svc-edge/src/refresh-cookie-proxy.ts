@@ -2,8 +2,9 @@
  * Set-Cookie and Cookie for the refresh cookie.
  *
  * Set-Cookie is copied on identity auth procedures and on passkey verify
- * (`webauthn.authVerify`). Its Path is rewritten from the identity prefix
- * (`/trpc/auth.`) to the public prefix (`/api/identity/trpc/auth.`).
+ * (`webauthn.authVerify`). Each Path is rewritten from the identity path
+ * (`/trpc/auth.refresh` or `/trpc/auth.logout`) to the public path
+ * (`/api/identity/trpc/auth.refresh` or `/api/identity/trpc/auth.logout`).
  * The Cookie request header is forwarded only on the auth procedures,
  * which are the ones that read it.
  *
@@ -15,8 +16,8 @@
  */
 
 const REFRESH_COOKIE_NAME = 'ifc_rt';
-const REFRESH_COOKIE_PATH = '/trpc/auth.';
-const PUBLIC_REFRESH_COOKIE_PATH = '/api/identity/trpc/auth.';
+const REFRESH_COOKIE_PATHS = ['/trpc/auth.refresh', '/trpc/auth.logout'] as const;
+const PUBLIC_REFRESH_COOKIE_PATHS = ['/api/identity/trpc/auth.refresh', '/api/identity/trpc/auth.logout'] as const;
 
 function headerOne(value: string | string[] | undefined): string | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -60,7 +61,11 @@ function originMatchesRequestHost(origin: string, hostHeader: string): boolean {
 }
 
 export function rewriteRefreshCookiePath(line: string): string {
-  return line.replaceAll(`Path=${REFRESH_COOKIE_PATH}`, `Path=${PUBLIC_REFRESH_COOKIE_PATH}`);
+  let out = line;
+  for (let i = 0; i < REFRESH_COOKIE_PATHS.length; i++) {
+    out = out.replaceAll(`Path=${REFRESH_COOKIE_PATHS[i]}`, `Path=${PUBLIC_REFRESH_COOKIE_PATHS[i]}`);
+  }
+  return out;
 }
 
 export function setCookieLines(headers: { getSetCookie?: () => string[]; get(name: string): string | null }): string[] {

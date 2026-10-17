@@ -340,7 +340,9 @@ app.addHook('onRequest', (req, _reply, done) => {
 
 app.addHook('onSend', async (req, reply, payload) => {
   const setCookie = refreshCookieBags.get(req)?.setCookie;
-  if (setCookie) reply.header('set-cookie', setCookie);
+  if (setCookie) {
+    for (const line of setCookie) reply.header('set-cookie', line);
+  }
   return payload;
 });
 

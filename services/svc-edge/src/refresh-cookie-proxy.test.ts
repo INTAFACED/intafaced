@@ -21,22 +21,34 @@ describe('refresh cookie at the edge', () => {
   it('passes Set-Cookie on auth routes and rewrites the path to the public prefix', () => {
     const forwarded = forwardUpstreamResponseHeaders(
       '/api/identity/trpc/auth.login',
-      headers(['ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.; Max-Age=2592000']),
+      headers([
+        'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.refresh; Max-Age=2592000',
+        'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.logout; Max-Age=2592000',
+      ]),
     );
     expect(forwarded['content-type']).toBe('application/json');
-    expect(forwarded['set-cookie']).toBe('ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.; Max-Age=2592000');
+    expect(forwarded['set-cookie']).toEqual([
+      'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.refresh; Max-Age=2592000',
+      'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.logout; Max-Age=2592000',
+    ]);
   });
 
   it('passes Set-Cookie on passkey verify', () => {
     const forwarded = forwardUpstreamResponseHeaders(
       '/api/identity/trpc/webauthn.authVerify',
-      headers(['ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.; Max-Age=2592000']),
+      headers([
+        'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.refresh; Max-Age=2592000',
+        'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/trpc/auth.logout; Max-Age=2592000',
+      ]),
     );
-    expect(forwarded['set-cookie']).toBe('ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.; Max-Age=2592000');
+    expect(forwarded['set-cookie']).toEqual([
+      'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.refresh; Max-Age=2592000',
+      'ifc_rt=secret; HttpOnly; SameSite=Strict; Path=/api/identity/trpc/auth.logout; Max-Age=2592000',
+    ]);
   });
 
   it('drops Set-Cookie on every other route', () => {
-    const forwarded = forwardUpstreamResponseHeaders('/api/trade/trpc/orders.list', headers(['ifc_rt=secret; Path=/trpc/auth.']));
+    const forwarded = forwardUpstreamResponseHeaders('/api/trade/trpc/orders.list', headers(['ifc_rt=secret; Path=/trpc/auth.refresh']));
     expect(forwarded['set-cookie']).toBeUndefined();
     expect(forwarded['content-type']).toBe('application/json');
   });
