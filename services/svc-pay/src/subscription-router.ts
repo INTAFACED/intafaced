@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import { assertMerchantAreaAccess, type MerchantAreaFence } from './merchant-ownership.js';
+import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { PayError, type PayService } from './payment-service.js';
 import type { SubscriptionService } from './subscriptions/subscription-service.js';
 import type { Cadence } from './subscriptions/schedule.js';
@@ -211,6 +211,8 @@ function toTrpcError(err: unknown): unknown {
        */
       case 'pay.subscription_resume_exceeds_mandate':
       case 'pay.subscription_exceeds_mandate':
+      case 'pay.subscription_mandate_open':
+      case 'pay.idempotency_conflict':
         return 'CONFLICT' as const;
       /*
        * The merchant cannot fix an unpublished platform fee rate, so this is not
@@ -243,6 +245,14 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
 
   const assertPaymentArea = (userId: string | undefined, merchantId: string) =>
     assertMerchantAreaAccess(pay, userId, merchantId, 'payment', trees);
+  /** Somebody else's mandate / subscription id reads exactly like one that does not exist. */
+  const assertMandateArea = (userId: string | undefined, mandateId: string, merchantId: string) =>
+    refuseAsMissing(assertPaymentArea(userId, merchantId), () => new PayError(`Mandate ${mandateId} not found`, 'pay.mandate_not_found'));
+  const assertSubscriptionArea = (userId: string | undefined, subscriptionId: string, merchantId: string) =>
+    refuseAsMissing(
+      assertPaymentArea(userId, merchantId),
+      () => new PayError(`Subscription ${subscriptionId} not found`, 'pay.subscription_not_found'),
+    );
 
   return router({
     mandate: router({
@@ -291,7 +301,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .query(({ ctx, input }) =>
           wrap(async () => {
             const mandate = await subscriptions.getMandate(input.mandateId);
-            await assertPaymentArea(ctx.principal?.userId, mandate.merchantId);
+            await assertMandateArea(ctx.principal?.userId, input.mandateId, mandate.merchantId);
             return toMandateOut(mandate);
           }),
         ),
@@ -309,17 +319,25 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
              * Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
           }),
         )
-        .output(z.array(mandateView))
+        .output(z.object({ items: z.array(mandateView), nextCursor: z.string().nullable() }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
-            const rows = await subscriptions.listMandates(input.merchantId, {
+            const page = await subscriptions.listMandates(input.merchantId, {
               status: input.status,
+              cursor: input.cursor,
+              search: input.search,
+              from: input.from,
+              to: input.to,
               limit: input.limit,
             });
-            return rows.map(toMandateOut);
+            return { items: page.items.map(toMandateOut), nextCursor: page.nextCursor };
           }),
         ),
 
@@ -333,7 +351,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getMandate(input.mandateId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertMandateArea(ctx.principal?.userId, input.mandateId, existing.merchantId);
             const mandate = await subscriptions.cancelMandate(input.mandateId);
             return toMandateOut(mandate);
           }),
@@ -355,7 +373,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getMandate(input.mandateId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertMandateArea(ctx.principal?.userId, input.mandateId, existing.merchantId);
             subscriptions.proposeMandateAmountChange(existing, {
               amount: parseAmount(input.amount),
               ceiling: input.ceiling === undefined ? existing.ceiling : input.ceiling === null ? null : parseAmount(input.ceiling),
@@ -439,22 +457,50 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           return { ...posture, paths: [...posture.paths] };
         }),
 
+      /**
+       * Idempotency-Key is `idempotencyKey` on the input. The tRPC context has
+       * no header slot, so this is the same place refunds put `refundId`.
+       * Same key and same body returns the original subscription. Same key and
+       * a different body refuses `pay.idempotency_conflict`. A second open
+       * subscription on the mandate refuses `pay.subscription_mandate_open`
+       * even with a new key. A blank or oversized key is
+       * `pay.idempotency_required` before a subscription is created. The
+       * customer mutate sends `${lockId}:${attemptId}` on this field. The lock
+       * id stays `${userId}:subscription-create:${mandateId}`. A retry of the
+       * same uncertain attempt reuses the stored attempt id. It is not an HTTP
+       * header — see `createBusinessPayApi`.
+       */
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
             mandateId: z.string().uuid(),
             /** Default crypto_invoice — never invents a pull path. */
             path: z.enum(['crypto_invoice', 'card', 'card_mandate']).optional(),
+            /**
+             * Caller's Idempotency-Key. Omit it and the mandate unique index is
+             * still enforced. Blank or over 255 characters is
+             * `pay.idempotency_required`. 255 is the existing public REST cap,
+             * not a new product limit. The check lives in the handler so the
+             * refusal is that pay code, not a generic parser error.
+             */
+            idempotencyKey: z.string().optional(),
           }),
         )
         .output(subscriptionView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
+            if (input.idempotencyKey !== undefined) {
+              const key = input.idempotencyKey.trim();
+              if (!key || key.length > 255) {
+                throw new PayError('Idempotency-Key must be 1 to 255 characters. Nothing was written.', 'pay.idempotency_required');
+              }
+            }
             const mandate = await subscriptions.getMandate(input.mandateId);
-            await assertPaymentArea(ctx.principal?.userId, mandate.merchantId);
+            await assertMandateArea(ctx.principal?.userId, input.mandateId, mandate.merchantId);
             const sub = await subscriptions.createSubscription({
               mandateId: input.mandateId,
               path: input.path,
+              idempotencyKey: input.idempotencyKey,
             });
             return toSubOut(sub);
           }),
@@ -466,7 +512,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .query(({ ctx, input }) =>
           wrap(async () => {
             const sub = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, sub.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, sub.merchantId);
             return toSubOut(sub);
           }),
         ),
@@ -484,17 +530,25 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
              * Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(300).optional(),
+            search: z.string().trim().min(1).max(200).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
           }),
         )
-        .output(z.array(subscriptionView))
+        .output(z.object({ items: z.array(subscriptionView), nextCursor: z.string().nullable() }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
-            const rows = await subscriptions.listSubscriptions(input.merchantId, {
+            const page = await subscriptions.listSubscriptions(input.merchantId, {
               status: input.status,
               limit: input.limit,
+              cursor: input.cursor,
+              search: input.search,
+              from: input.from,
+              to: input.to,
             });
-            return rows.map(toSubOut);
+            return { items: page.items.map(toSubOut), nextCursor: page.nextCursor };
           }),
         ),
 
@@ -517,7 +571,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .query(({ ctx, input }) =>
           wrap(async () => {
             const sub = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, sub.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, sub.merchantId);
             const rows = await subscriptions.listExecutions(input.subscriptionId, { limit: input.limit });
             return rows.map(toExecutionOut);
           }),
@@ -530,7 +584,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const sub = await subscriptions.cancelSubscription(input.subscriptionId);
             return toSubOut(sub);
           }),
@@ -549,7 +603,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             return toSubOut(await subscriptions.pauseSubscription(input.subscriptionId));
           }),
         ),
@@ -574,7 +628,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const { subscription, projectedEnd } = await subscriptions.resumeSubscription(input.subscriptionId);
             return { subscription: toSubOut(subscription), projectedEnd: projectedEnd === null ? null : projectedEnd.toISOString() };
           }),
@@ -599,7 +653,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
         .query(({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
-            await assertPaymentArea(ctx.principal?.userId, existing.merchantId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const cycles = await subscriptions.listCycles(input.subscriptionId, { limit: input.limit });
             return { subscriptionId: input.subscriptionId, cycles: cycles.map(toCycleOut) };
           }),

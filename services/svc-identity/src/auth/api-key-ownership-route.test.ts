@@ -56,6 +56,8 @@ describe('GET /internal/api-keys/:keyId', () => {
       originAllowlist: ['app.example.com'],
       domainWhitelist: ['app.example.com'],
       ipAllowlist: ['203.0.113.10'],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
       accountId: ACC,
       expiresAt: EXPIRES,
     };
@@ -93,6 +95,8 @@ describe('GET /internal/api-keys/:keyId', () => {
       originAllowlist: [],
       domainWhitelist: [],
       ipAllowlist: [],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
     };
     const app = Fastify({ logger: false });
     registerApiKeyOwnershipRoute(app, { door: doorWith(open), internalSecret: SECRET, edgeAuthoritySecret: EDGE });

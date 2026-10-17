@@ -13,11 +13,19 @@ export function isTimeoutOrAbort(error: unknown): boolean {
 }
 
 /** Transport failure after dispatch is outcome-unknown — never a fill or a reject. */
-export function throwVenueTransportFailure(venueId: string, method: string, path: string, error: unknown): never {
+export function throwVenueTransportFailure(venueId: string, method: string, path: string, error: unknown, sent = false): never {
   if (isTimeoutOrAbort(error)) {
-    throw new VenueUnavailableError(venueId, 'unreachable', `${method} ${path} timed out — outcome unknown, not a fill`);
+    throw new VenueUnavailableError(venueId, 'unreachable', `${method} ${path} timed out — outcome unknown, not a fill`, sent);
   }
-  throw new VenueUnavailableError(venueId, 'unreachable', `${method} ${path} failed: ${String(error)}`);
+  throw new VenueUnavailableError(venueId, 'unreachable', `${method} ${path} failed: ${String(error)}`, sent);
+}
+
+/** Retag a failure with whether the place POST had already been dispatched. */
+export function rethrowWithSent(error: unknown, sent: boolean): never {
+  if (error instanceof VenueUnavailableError) {
+    throw new VenueUnavailableError(error.venueId, error.reason, error.message, sent);
+  }
+  throw error;
 }
 
 export function assertKnownOrderStatus<S extends VenueOrder['status']>(
@@ -25,9 +33,10 @@ export function assertKnownOrderStatus<S extends VenueOrder['status']>(
   status: S | undefined,
   raw: string,
   label: string,
+  sent = false,
 ): asserts status is S {
   if (!status) {
-    throw new VenueUnavailableError(venueId, 'malformed', `${label} ${raw || '(empty)'} is unknown — outcome unknown, not a fill`);
+    throw new VenueUnavailableError(venueId, 'malformed', `${label} ${raw || '(empty)'} is unknown — outcome unknown, not a fill`, sent);
   }
 }
 
@@ -40,11 +49,12 @@ export function assertFillReportMatchesStatus(
   status: VenueOrder['status'],
   filled: bigint,
   averagePrice: VenueOrder['averagePrice'],
+  sent = false,
 ): void {
   if (status === 'partially_filled' && filled <= 0n) {
-    throw new VenueUnavailableError(venueId, 'malformed', 'partially_filled without a fill report — outcome unknown, not a fill');
+    throw new VenueUnavailableError(venueId, 'malformed', 'partially_filled without a fill report — outcome unknown, not a fill', sent);
   }
   if (status === 'filled' && (filled <= 0n || averagePrice === null)) {
-    throw new VenueUnavailableError(venueId, 'malformed', 'filled status without a fill report — outcome unknown, not a fill');
+    throw new VenueUnavailableError(venueId, 'malformed', 'filled status without a fill report — outcome unknown, not a fill', sent);
   }
 }

@@ -22,18 +22,50 @@
  *          what catches, say, "Every infrastructure-backed suite actually ran" going red on a PR when main's job failed
  *          only at "Run pnpm test --continue".
  *        - "Doctrine gates": the failing gate ids (the `✖ <id>` summary lines of the job log) must be a subset of main's.
- *        - "Tests (full)": the failing turbo tasks (the `Failed:` line of the log, `pnpm test --continue` runs turbo) must be
- *          a subset of main's.
+ *        - "Tests (full)": the failing TESTS, per package, against a window of main's recent runs (below).
  *      If the failing ids cannot be read from a log, the failure counts as new.
  *      The PR test SHARDS ("Tests (protocol)", "(money)", "(trade)") run `pnpm --no-bail --filter ... test`, which prints no
  *      `Failed:` line, so there is nothing to compare: EVERY red shard blocks the PR, even while main's "Tests (full)" is
  *      red. ("Tests (pay-bank)" runs turbo but is treated the same way, on purpose, for one simple rule.)
  *
- * Known gap that remains: the comparison stops at the package. A NEW failing test inside a package that is already red on
- * main (today svc-indexer, svc-notify, svc-ops, svc-support in "Tests (full)") is invisible, and so is a second finding in
- * a doctrine gate that is already red (say "secrets"). Closing it needs a per-test baseline.
- *
  *   6. The PR does not change gate files (tooling/ci, workflows, ...) unless its title says so (gate-file-guard.mjs).
+ *
+ * "TESTS (FULL)": A TEST-NAME RATCHET AGAINST A WINDOW OF MAIN (2026-10-14; replaces the package-level comparison)
+ *
+ *   Main's "Tests (full)" is flaky (timeouts under load, a shared anvil, about ten packages that come and go), so comparing
+ *   packages with one single main run blocked every PR on whichever package happened to flake, while a NEW failing test
+ *   inside an already-red package stayed invisible. Now:
+ *     - The failing packages of a job are the tasks on the `Failed:    a#test, b#test` line (turbo).
+ *     - What failed in a package is read as NAMES from vitest's summary: `FAIL  <file> > <suite> > <test>` is the name
+ *       "<file> > <suite> > <test>"; `FAIL  <file> [ <file> ]` (a suite or hook that failed to load or run) is the file-level
+ *       name "<file>"; each unhandled error ("Unhandled Error" / "Unhandled Rejection", also counted by the `Errors  N error`
+ *       summary) is the name "(unhandled) <file>" when vitest says `This error originated in "<file>"`, else
+ *       "(unhandled) <task>". Test names are compared exactly: the same file with another test name is a NEW failure.
+ *     - Attribution. Turbo runs here with grouped log order, so FAIL lines carry NO package prefix: the log holds one block per
+ *       package that starts with a header line `@intafaced/<pkg>:test` and ends at `##[endgroup]`. A line counts as a header
+ *       only if its task is on the log's own `Failed:` line or it sits behind `##[group]`; anything else that merely looks
+ *       like one (`Error:boom`) is ordinary text and does not switch the block. A per-line prefix
+ *       (`@intafaced/<pkg>:test: ...`, turbo's stream mode) wins over the block. A FAIL line on the PR that has no package,
+ *       belongs to a package that is not on the `Failed:` line, or cannot be read at all BLOCKS the PR ("belongs to no failing
+ *       package"): the gate never ignores a failure it cannot place. On main's logs such lines only mean less is excused.
+ *     - The window is the last MAIN_WINDOW (5) completed push runs of ci.yml on main in which "Tests (full)" actually ran
+ *       (success, failure or timed_out; cancelled and skipped ones do not count). Their logs are fetched once per gate run
+ *       and cached in a temp directory that is deleted afterwards.
+ *     - A failing package of the PR is PRE-EXISTING only if (a) at least one name was read from the PR log, and (b) EVERY
+ *       name of it also failed, in that same package, in at least one run of the window. Otherwise the PR is blocked and the
+ *       verdict names the new tests. This holds inside packages that are red on main right now too.
+ *     - A failing package with NO readable name (no FAIL line, no unhandled error: an exit code only) is excused only if that
+ *       package is also on the `Failed:` line of main's LATEST run (the previous package-level behaviour), and the verdict
+ *       says so. A new package with nothing readable blocks.
+ *     - The verdict lists every excused name with the main run ids where it failed ("known flaky on main: <task> <name>
+ *       (runs a, b)").
+ *   The job-level rules above are unchanged: "Tests (full)" must still be red on main's latest run to be excused at all,
+ *   and its failing steps must still be a subset of that run's.
+ *
+ * Known gaps that remain: a second finding in a doctrine gate that is already red (say "secrets") is invisible. The
+ * ratchet sees only what vitest prints: a test that fails in a way vitest does not name (a runner that is not vitest, a crash)
+ * is judged at package level only. A test whose name embeds something that changes every run (a timestamp, a random id) never
+ * matches main and blocks. If main's latest "Tests (full)" run happens to be green, the job is not excused at all, flaky or not.
  *
  * Docs-only PRs: ci.yml has a path filter, so a PR that only touches docs/**, *.md, NOTICE or LICENSE gets no CI run at
  * all. That is accepted when, and only when, the changed files are all excluded by that filter and every check that DID
@@ -49,6 +81,8 @@
  * decide (wrong head, timeout, bad arguments, no baseline), 3 GitHub refused with 403/429 (stop, never retried).
  */
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evaluateGateFileRule, RULE_TEXT } from './gate-file-guard.mjs';
@@ -111,6 +145,11 @@ export const AGENT_RULE_PATTERNS = [
 export const CI_PR_PATHS = ['**', '!docs/**', '!**/*.md', '!NOTICE', '!LICENSE', 'INTAFACED_DEFINITIVE_BUILD.md', ...AGENT_RULE_PATTERNS];
 
 const FAIL_BUCKETS = new Set(['fail', 'cancel']);
+
+/** How many of main's recent completed push runs (that ran "Tests (full)") the test-name ratchet looks back over. */
+export const MAIN_WINDOW = 5;
+/** The conclusions of a main job that count as "it ran" (a cancelled or skipped job proves nothing). */
+const RAN = new Set(['success', 'failure', 'timed_out']);
 
 export class GateError extends Error {
   constructor(message, code = 2) {
@@ -224,6 +263,7 @@ export function evaluate({ checks, mainFailing, mainJobs = new Set(), files, tit
     docsOnly,
     gate,
     logChecks: [],
+    flaky: [],
   };
 }
 
@@ -256,10 +296,109 @@ function* logLines(log) {
         ? parts
             .slice(2)
             .join('\t')
+            .replace(/^\uFEFF/, '')
             .replace(/^\S+Z\s?/, '')
-        : raw;
-    yield text.replace(/\u001b\[[0-9;]*m/g, '');
+        : raw.replace(/^\uFEFF/, '');
+    // Colour codes: a real ESC, or the caret form `^[[` that some log captures (and terminals' copy) leave behind.
+    yield text.replace(/(?:\u001b|\^\[)\[[0-9;]*m/g, '').replace(/\r$/, '');
   }
+}
+
+/** A package block header in turbo's grouped log: `@intafaced/svc-ops:test` (optionally behind `##[group]`). */
+const HEADER_RE = /^(##\[group\])?((?:@[\w.-]+\/)?[A-Za-z][\w.-]*):([A-Za-z][\w-]*)\s*$/;
+/** Turbo's per-line prefix in stream mode: `@intafaced/svc-ops:test: <text>`. */
+const PREFIX_RE = /^((?:@[\w.-]+\/)?[A-Za-z][\w.-]*):([a-z][\w-]*): (.*)$/;
+/** vitest's summary line: ` FAIL  [|project| ]<file> > <suite> > <test>` or ` FAIL  <file> [ <file> ]` (suite/hook failure). */
+const FAIL_RE = /^\s*FAIL\s+(?:\|[^|]*\|\s+)?(\S+\.[cm]?[jt]sx?)(?:\s+(>\s.*?|\[.*?))?\s*$/;
+const ANY_FAIL_RE = /^\s*FAIL(\s|$)/;
+/** One unhandled error of a vitest run: `Unhandled Error` / `Unhandled Rejection` heading (not the plural summary). */
+const UNHANDLED_RE = /Unhandled (?:Error|Rejection)\s*(?:[^\w\s]|$)/;
+const ORIGIN_RE = /This error originated in "([^"]+)"/;
+const ERRORS_RE = /^\s*Errors\s+(\d+) errors?\b/;
+
+/**
+ * What failed in a test job log, per turbo task, as NAMES: Map<"@intafaced/svc-ops#test", Set<name>> where a name is
+ *   - `<file> > <suite> > <test>`  for a failing test (vitest prints the whole path on its FAIL line),
+ *   - `<file>`                     for a suite/hook that failed to load or run (`FAIL <file> [ <file> ]`): file-level,
+ *   - `(unhandled) <file>`         for each unhandled error that vitest says originated in <file>, and
+ *   - `(unhandled) <task>`         for an unhandled error with no file named (or more errors counted than described).
+ * And `orphans`: every FAIL line that could not be given to a task on the `Failed:` line, or could not be read at all.
+ *
+ * Attribution (see the header): a package block starts at a header line `pkg:task` and ends at `##[endgroup]`. A header
+ * counts only if its task is on the log's own `Failed:` line (`tasks`) or sits behind `##[group]`; any other line that merely
+ * looks like one (`Error:boom`) is ordinary text and does NOT switch the block. A per-line prefix `pkg:task: ` wins.
+ */
+export function parseFailedTests(log, { tasks = parseTurboFailures(log) } = {}) {
+  const byTask = new Map();
+  const orphans = [];
+  const add = (task, name) => {
+    if (!byTask.has(task)) byTask.set(task, new Set());
+    byTask.get(task).add(name);
+  };
+  let current = null;
+  let pending = null; // an unhandled error being read: { task, file }
+  let described = 0; // unhandled errors named in the current block
+  const finish = () => {
+    if (pending) {
+      add(pending.task, pending.file ? `(unhandled) ${pending.file}` : `(unhandled) ${pending.task}`);
+      described++;
+    }
+    pending = null;
+  };
+  const endBlock = () => {
+    finish();
+    current = null;
+    described = 0;
+  };
+  for (const line of logLines(log)) {
+    const trimmed = line.trim();
+    if (trimmed === '##[endgroup]') {
+      endBlock();
+      continue;
+    }
+    const head = HEADER_RE.exec(line);
+    if (head && (head[1] || tasks.has(`${head[2]}#${head[3]}`))) {
+      endBlock();
+      current = `${head[2]}#${head[3]}`;
+      continue;
+    }
+    let task = current;
+    let text = line;
+    const pre = PREFIX_RE.exec(line);
+    if (pre) {
+      task = `${pre[1]}#${pre[2]}`;
+      text = pre[3];
+    }
+    if (task && tasks.has(task)) {
+      // unhandled errors (vitest: "Unhandled Errors" summary, then one "Unhandled Error|Rejection" section per error)
+      if (/^\s*⎯/.test(text)) {
+        finish();
+        if (UNHANDLED_RE.test(text) && !/Unhandled Errors/.test(text)) pending = { task, file: null };
+      } else if (pending) {
+        const o = ORIGIN_RE.exec(text);
+        if (o && !pending.file) pending.file = o[1];
+      }
+      const count = ERRORS_RE.exec(text);
+      if (count) {
+        finish();
+        if (Number(count[1]) > described) add(task, `(unhandled) ${task}`);
+      }
+    }
+    const m = FAIL_RE.exec(text);
+    if (!m) {
+      if (ANY_FAIL_RE.test(text)) orphans.push(text.trim());
+      continue;
+    }
+    finish();
+    if (!task || !tasks.has(task)) {
+      orphans.push(text.trim());
+      continue;
+    }
+    const rest = (m[2] ?? '').trim();
+    add(task, rest.startsWith('>') ? `${m[1]} ${rest}`.replace(/\s+/g, ' ') : m[1]);
+  }
+  finish();
+  return { byTask, orphans };
 }
 
 const PARSERS = { doctrine: parseDoctrineFailures, turbo: parseTurboFailures };
@@ -276,11 +415,12 @@ const runIdOf = (c) => /\/runs\/(\d+)\//.exec(c.link ?? '')?.[1] ?? null;
  *   2. for the jobs in LOG_RATCHETS, the failing ids in the log (gate ids, turbo tasks) must be a subset of main's.
  * Anything new, or anything that cannot be read, turns the excuse into a new failure. Mutates and returns `ev`.
  */
-export function refineWithLogs(ev, { gh, repo, main }) {
+export function refineWithLogs(ev, { gh, repo, main, logStore = makeLogStore(gh, repo) }) {
   if (!main || !ev.excusedOnMain.length) return ev;
+  ev.flaky ??= [];
   const mainLogs = new Map();
   const prRuns = new Map();
-  const readLog = (id) => gh(['run', 'view', '--job', String(id), '-R', repo, '--log']).stdout;
+  const readLog = logStore;
   const prJob = (c) => {
     const runId = runIdOf(c);
     const id = jobIdOf(c);
@@ -308,13 +448,26 @@ export function refineWithLogs(ev, { gh, repo, main }) {
       // 2. ids inside the log
       if (!detail && ratchet) {
         if (!mainLogs.has(ratchet.source)) mainLogs.set(ratchet.source, readLog(main.byKey.get(ratchet.source).databaseId));
-        const parse = PARSERS[ratchet.parse];
-        const prIds = parse(readLog(jobIdOf(c)));
-        const mainIds = parse(mainLogs.get(ratchet.source));
-        const added = [...prIds].filter((x) => !mainIds.has(x)).sort();
-        if (!prIds.size) detail = `could not read the failing ${ratchet.what} ids from the log, so nothing proves they are all on main`;
-        else if (added.length) detail = `new failing ${ratchet.what}(s) not failing on main: ${added.join(', ')}`;
-        else ev.logChecks.push(`${c.name}: ${prIds.size} failing ${ratchet.what}(s), all also failing on main`);
+        const prLog = readLog(jobIdOf(c));
+        if (ratchet.parse === 'turbo') {
+          detail = compareTests(ev, c, {
+            gh,
+            repo,
+            main,
+            readLog,
+            prLog,
+            mainLog: mainLogs.get(ratchet.source),
+            source: ratchet.source,
+          });
+        } else {
+          const parse = PARSERS[ratchet.parse];
+          const prIds = parse(prLog);
+          const mainIds = parse(mainLogs.get(ratchet.source));
+          const added = [...prIds].filter((x) => !mainIds.has(x)).sort();
+          if (!prIds.size) detail = `could not read the failing ${ratchet.what} ids from the log, so nothing proves they are all on main`;
+          else if (added.length) detail = `new failing ${ratchet.what}(s) not failing on main: ${added.join(', ')}`;
+          else ev.logChecks.push(`${c.name}: ${prIds.size} failing ${ratchet.what}(s), all also failing on main`);
+        }
       }
     } catch (e) {
       if (e?.name === 'GitHubRefusalError') throw e;
@@ -330,9 +483,87 @@ export function refineWithLogs(ev, { gh, repo, main }) {
   return ev;
 }
 
-/** The latest COMPLETED push run of ci.yml on main that really ran jobs. Cancelled and superseded runs are skipped. */
-export async function selectMainRun(gh, repo, { maxCandidates = 12 } = {}) {
-  const runs = ghJson(gh, [
+/**
+ * The test-name ratchet for "Tests (full)" (see the header). Returns a blocking detail string, or undefined when every
+ * failing package of the PR is pre-existing; on success it appends to ev.flaky and ev.logChecks.
+ */
+function compareTests(ev, check, { gh, repo, main, readLog, prLog, mainLog, source }) {
+  const prTasks = parseTurboFailures(prLog);
+  if (!prTasks.size) return 'could not read the failing test task ids from the log, so nothing proves they are all on main';
+  const pr = parseFailedTests(prLog, { tasks: prTasks });
+  // A FAIL line that no package on the `Failed:` line owns could be anything: it blocks.
+  if (pr.orphans.length)
+    return `${pr.orphans.length} FAIL line(s) in the log belong to no failing package on the Failed: line, so their package cannot be compared: ${listCapped(pr.orphans, 5)}`;
+  const mainLatestTasks = parseTurboFailures(mainLog);
+  const window = loadMainWindow({ gh, repo, main, readLog, source });
+  const blocked = [];
+  const flaky = [];
+  const unreadable = [];
+  for (const task of [...prTasks].sort()) {
+    const names = pr.byTask.get(task);
+    if (names?.size) {
+      const fresh = [];
+      for (const name of [...names].sort()) {
+        const runs = window.filter((w) => w.names.get(task)?.has(name)).map((w) => w.runId);
+        if (runs.length) flaky.push({ task, name, runs });
+        else fresh.push(name);
+      }
+      if (fresh.length)
+        blocked.push(
+          `${task}: ${fresh.length} new failing test(s) not failing on main in its last ${window.length} run(s): ${listCapped(fresh, 8)}`,
+        );
+    } else if (mainLatestTasks.has(task)) unreadable.push(task);
+    else blocked.push(`${task}: no failing test could be read from the log, and the package is not failing on main's latest run`);
+  }
+  if (blocked.length) return blocked.join('; ');
+  ev.flaky.push(...flaky);
+  const runList = window.map((w) => w.runId).join(', ');
+  ev.logChecks.push(
+    `${check.name}: ${prTasks.size} failing package(s); all ${flaky.length} failing test(s) or suite(s) read from the log also failed on main in the last ${window.length} run(s) (${runList})`,
+  );
+  for (const task of unreadable)
+    ev.logChecks.push(
+      `${check.name}: ${task} has no readable FAIL line or unhandled error (exit code only); excused only because it also fails in main's latest run ${main.run.databaseId}`,
+    );
+  return undefined;
+}
+
+const listCapped = (items, n) => (items.length > n ? `${items.slice(0, n).join('; ')}; and ${items.length - n} more` : items.join('; '));
+
+/**
+ * The failing tests of the last MAIN_WINDOW main runs that ran `source`: [{ runId, names: Map<task, Set<name>> }], newest
+ * first (names as in parseFailedTests). A run whose log cannot be read is skipped (a 403/429 is never skipped: it stops the gate).
+ */
+function loadMainWindow({ gh, repo, main, readLog, source }) {
+  const name = source.slice(source.indexOf('/') + 1);
+  const out = [];
+  for (const { run, job } of selectMainWindow(gh, repo, { jobName: name, main })) {
+    try {
+      out.push({ runId: run.databaseId, names: parseFailedTests(readLog(job.databaseId)).byTask });
+    } catch (e) {
+      if (e?.name === 'GitHubRefusalError') throw e;
+    }
+  }
+  if (!out.length) throw new Error('no log of a main "Tests (full)" run could be read for the window');
+  return out;
+}
+
+/** `gh run view --job <id> --log`, kept once per gate run: in `dir` when given (deleted by the caller), else in memory. */
+export function makeLogStore(gh, repo, dir) {
+  const mem = new Map();
+  return (id) => {
+    const file = dir ? join(dir, `job-${id}.log`) : null;
+    if (file && existsSync(file)) return readFileSync(file, 'utf8');
+    if (!file && mem.has(id)) return mem.get(id);
+    const text = gh(['run', 'view', '--job', String(id), '-R', repo, '--log']).stdout;
+    if (file) writeFileSync(file, text);
+    else mem.set(id, text);
+    return text;
+  };
+}
+
+const mainRunList = (gh, repo, cache) =>
+  (cache.runs ??= ghJson(gh, [
     'run',
     'list',
     '-R',
@@ -349,23 +580,51 @@ export async function selectMainRun(gh, repo, { maxCandidates = 12 } = {}) {
     '30',
     '--json',
     'databaseId,headSha,conclusion,createdAt,url',
-  ]);
+  ]));
+const mainRunJobs = (gh, repo, cache, run) => {
+  if (!cache.jobs.has(run.databaseId))
+    cache.jobs.set(run.databaseId, ghJson(gh, ['run', 'view', String(run.databaseId), '-R', repo, '--json', 'jobs']).jobs);
+  return cache.jobs.get(run.databaseId);
+};
+
+/** The latest COMPLETED push run of ci.yml on main that really ran jobs. Cancelled and superseded runs are skipped. */
+export async function selectMainRun(gh, repo, { maxCandidates = 12 } = {}) {
+  const cache = { jobs: new Map() };
   let tried = 0;
-  for (const run of runs) {
+  for (const run of mainRunList(gh, repo, cache)) {
     if (run.conclusion !== 'success' && run.conclusion !== 'failure') continue; // cancelled, skipped, neutral
     if (++tried > maxCandidates) break;
-    const jobs = ghJson(gh, ['run', 'view', String(run.databaseId), '-R', repo, '--json', 'jobs']).jobs;
+    const jobs = mainRunJobs(gh, repo, cache, run);
     if (!jobs.some((j) => j.conclusion === 'success' || j.conclusion === 'failure')) continue; // ran no jobs
     const keyed = jobs.map((j) => ({ ...j, workflow: CI_WORKFLOW_NAME }));
     return {
       run,
       jobs,
+      cache,
       byKey: new Map(keyed.map((j) => [keyOf(j), j])),
       failing: new Set(keyed.filter((j) => j.conclusion === 'failure' || j.conclusion === 'timed_out').map(keyOf)),
       names: new Set(keyed.map(keyOf)),
     };
   }
   return null;
+}
+
+/**
+ * The last `k` completed push runs of ci.yml on main in which the job `jobName` actually ran (success, failure or timed_out),
+ * newest first: [{ run, job }]. Looks at no more than `maxCandidates` runs; reuses what selectMainRun already fetched.
+ */
+export function selectMainWindow(gh, repo, { jobName = 'Tests (full)', main, k = MAIN_WINDOW, maxCandidates = 15 }) {
+  const cache = main.cache;
+  const out = [];
+  let tried = 0;
+  for (const run of mainRunList(gh, repo, cache)) {
+    if (out.length >= k) break;
+    if (run.conclusion !== 'success' && run.conclusion !== 'failure') continue; // cancelled, skipped, neutral
+    if (++tried > maxCandidates) break;
+    const job = mainRunJobs(gh, repo, cache, run).find((j) => j.name === jobName && RAN.has(j.conclusion));
+    if (job) out.push({ run, job });
+  }
+  return out;
 }
 
 export function mergeCommand(pr, head, repo = REPO) {
@@ -399,6 +658,10 @@ export function renderComment({ verdict, head, pr, main, checks, evalResult }) {
       `- **Failing here and also failing on main (pre-existing red, not added by this PR):** ${e.excusedOnMain.map(link).join(', ')}.`,
     );
   for (const l of e.logChecks) L.push(`- **Log comparison:** ${l}.`);
+  if (e.flaky?.length) {
+    L.push('- **Excused as known flaky on main (each failed in the same package in a recent main run):**');
+    for (const f of e.flaky) L.push(`  - known flaky on main: ${f.task} ${f.name} (runs ${f.runs.join(', ')})`);
+  }
   if (e.knownRed.length) {
     L.push(`- **Known PR-only red, allowed:** ${e.knownRed.map((c) => `${link(c)} (${KNOWN_PR_ONLY_RED[keyOf(c)]})`).join('; ')}.`);
   }
@@ -532,7 +795,12 @@ export async function runGate(o, { gh, now = Date.now, sleep = (ms) => new Promi
     title,
     ciPresent: settled.ciPresent,
   });
-  refineWithLogs(evalResult, { gh, repo, main });
+  const logDir = mkdtempSync(join(tmpdir(), 'merge-gate-logs-'));
+  try {
+    refineWithLogs(evalResult, { gh, repo, main, logStore: makeLogStore(gh, repo, logDir) });
+  } finally {
+    rmSync(logDir, { recursive: true, force: true });
+  }
   if (settled.mergeable === 'CONFLICTING') {
     evalResult.reasons.push('PR has merge conflicts with main');
     evalResult.pass = false;

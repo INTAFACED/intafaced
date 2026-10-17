@@ -953,12 +953,12 @@ describe('svc-bank cards PG-hard', () => {
     // reach. There was no operator surface to release it and none to read it.
 
     /** A CardService whose ledger refuses one kind of post, and only that one. */
-    const ledgerFailingOn = (keyPrefix: string) => {
+    const ledgerFailingOn = (keyPrefix: string, failure: () => Error = () => new Error('svc-ledger unreachable')) => {
       const client = {
         ...ledger,
         balance: ledger.balance.bind(ledger),
         post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
-          if (tx.idempotencyKey.startsWith(keyPrefix)) throw new Error('svc-ledger unreachable');
+          if (tx.idempotencyKey.startsWith(keyPrefix)) throw failure();
           return ledger.post(tx);
         },
       } as unknown as MemoryLedger;
@@ -976,11 +976,13 @@ describe('svc-bank cards PG-hard', () => {
         'svc-ledger unreachable',
       );
 
-      // The row records the failure, and the money is still held — not lost.
+      // The outcome is UNKNOWN (an unreachable ledger may have committed), so the
+      // row stays pending, never `rejected`, and the money is still held.
       const rows = await sql<Array<{ status: string; rejection_code: string | null }>>`
         SELECT status, rejection_code FROM bank.card_settlements WHERE authorization_id = ${auth.id} AND sequence = 0
       `;
-      expect(rows[0]!.status).toBe('rejected');
+      expect(rows[0]!.status).toBe('pending');
+      expect(rows[0]!.rejection_code).toBeNull();
       expect(await heldOn(auth.id)).toBe('120');
 
       // THE POINT: the retry is allowed through, and it completes.
@@ -991,15 +993,55 @@ describe('svc-bank cards PG-hard', () => {
       expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
-    it('lets reverse() release a hold after a failed capture, rather than refusing it as closed', async () => {
+    it('an UNKNOWN capture outcome stays pending, refuses a reversal, and a retry re-drives the same key', async () => {
       await fund(HOLDER, 'USDT', '500');
       const card = await issueCard();
       const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
 
-      const broken = ledgerFailingOn('withdraw.settle');
-      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
-        'svc-ledger unreachable',
+      // The commit lands, then the reply is lost: the worst case for a `rejected` row.
+      const keys: string[] = [];
+      const lossy = {
+        ...ledger,
+        balance: ledger.balance.bind(ledger),
+        post: async (tx: Parameters<MemoryLedger['post']>[0]) => {
+          const receipt = await ledger.post(tx);
+          if (tx.idempotencyKey.startsWith('withdraw.settle')) {
+            keys.push(tx.idempotencyKey);
+            if (keys.length === 1) throw new Error('reply lost after commit');
+          }
+          return receipt;
+        },
+      } as unknown as MemoryLedger;
+      const lossyCards = new CardService(sql, lossy, { issuer: cardSim() });
+
+      await expect(lossyCards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
+        'reply lost after commit',
       );
+      const pending = await sql<Array<{ status: string; rejection_code: string | null }>>`
+        SELECT status, rejection_code FROM bank.card_settlements WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(pending).toEqual([{ status: 'pending', rejection_code: null }]);
+
+      // A reversal would release a hold the capture already spent: refused while unknown.
+      await expect(cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' })).rejects.toMatchObject({
+        code: 'bank.card_settlement_kind_conflict',
+      });
+
+      // The same capture again re-drives the SAME key; the ledger returns the original.
+      const captured = await lossyCards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+      expect(formatAmount(captured.captured)).toBe('120');
+      expect(keys).toEqual([`withdraw.settle:${auth.id}`, `withdraw.settle:${auth.id}`]);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `withdraw.settle:${auth.id}`)).toHaveLength(1);
+      expect(await heldOn(auth.id)).toBe('0');
+    });
+
+    it('lets reverse() release a hold after a DEFINITELY refused capture, rather than refusing it as closed', async () => {
+      await fund(HOLDER, 'USDT', '500');
+      const card = await issueCard();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
+
+      const broken = ledgerFailingOn('withdraw.settle', () => new LedgerError('refused', 'ledger.invalid_entry'));
+      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow('refused');
 
       // The merchant never got paid, so the whole hold goes back to the user.
       const reversed = await cards.reverse({ cardId: card.id, authorizationRef: 'auth-1' });
@@ -1023,10 +1065,8 @@ describe('svc-bank cards PG-hard', () => {
       const card = await issueCard();
       const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') });
 
-      const broken = ledgerFailingOn('withdraw.settle');
-      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
-        'svc-ledger unreachable',
-      );
+      const broken = ledgerFailingOn('withdraw.settle', () => new LedgerError('refused', 'ledger.invalid_entry'));
+      await expect(broken.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow('refused');
 
       const captureRows = await sql<Array<{ id: string; kind: string; status: string; amount: string; ledger_tx_id: string | null }>>`
         SELECT id, kind, status, amount::text AS amount, ledger_tx_id
