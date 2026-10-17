@@ -38,8 +38,13 @@ export async function createState() {
     const market = rows.find((r) => r.symbol === symbol);
     const tick = market?.tickSize ?? '0.01';
     const lot = market?.lotSize ?? '1';
-    const qty = String(Number(lot) * (1 + (i % 5)));
-    const filledQty = i % 7 === 3 ? String(Number(lot)) : '0';
+    const dp = (s) => (String(s).split('.')[1] ?? '').length;
+    const fix = (n, places) => {
+      const t = n.toFixed(places);
+      return t.includes('.') ? t.replace(/\.?0+$/, '') || '0' : t;
+    };
+    const qty = fix(Number(lot) * (1 + (i % 5)), dp(lot));
+    const filledQty = i % 7 === 3 ? fix(Number(lot), dp(lot)) : '0';
     const held = i === 11;
     const seeded = i % 4 === 0;
     const price = (100 + Math.floor(seedRand(i + 1) * 900) * Number(tick || 1)).toFixed(Math.max(0, (tick.split('.')[1] ?? '').length));
@@ -57,8 +62,8 @@ export async function createState() {
       price,
       amount: qty,
       filled: filledQty,
-      remaining: String(Number(qty) - Number(filledQty)),
-      cost: filledQty === '0' ? '0' : String(Number(filledQty) * Number(price)),
+      remaining: fix(Number(qty) - Number(filledQty), dp(lot)),
+      cost: filledQty === '0' ? '0' : fix(Number(filledQty) * Number(price), dp(lot) + dp(price)),
       status: 'open',
       recoveryReason: held ? 'SUBMIT_UNKNOWN' : null,
       reconciliationKey: held ? `recon-${i}` : null,
@@ -81,21 +86,44 @@ export function baseRoutes(state) {
   const trpcOk = (data) => ({ status: 200, body: { result: { data: { json: data } } } });
   return [
     // ── founder sign-in (TEST) ──
-    { method: 'POST', path: '/api/identity/trpc/auth.login', handle: () =>
-        trpcOk({ userId: NITRO, accessToken: 'test-founder-access-token', refreshToken: 'test-founder-refresh-token', expiresAt: new Date(Date.now() + 4 * 3_600_000 - 60_000).toISOString() }) },
+    {
+      method: 'POST',
+      path: '/api/identity/trpc/auth.login',
+      handle: () =>
+        trpcOk({
+          userId: NITRO,
+          accessToken: 'test-founder-access-token',
+          refreshToken: 'test-founder-refresh-token',
+          expiresAt: new Date(Date.now() + 4 * 3_600_000 - 60_000).toISOString(),
+        }),
+    },
     { method: 'POST', path: '/api/identity/trpc/auth.logout', handle: () => trpcOk({ signedOut: true }) },
-    { method: 'GET', path: '/api/identity/trpc/accountControls.operatorStatus', handle: () =>
-        trpcOk({ status: 'enabled', userId: NITRO, version: '1', changedAt: new Date().toISOString() }) },
+    {
+      method: 'GET',
+      path: '/api/identity/trpc/accountControls.operatorStatus',
+      handle: () => trpcOk({ status: 'enabled', userId: NITRO, version: '1', changedAt: new Date().toISOString() }),
+    },
     // ── real local data, passed through ──
     { method: 'GET', path: '/api/trade/trpc/markets.list', handle: async ({ url }) => upstream(`${url.pathname}${url.search}`) },
     { method: 'GET', path: /^\/api\/v1\/market-lifecycle\/.+/, handle: async ({ url }) => upstream(`${url.pathname}${url.search}`) },
     // ── operator reads (TEST rows) ──
-    { method: 'GET', path: '/api/v1/admin/orders/open', handle: ({ query }) => {
+    {
+      method: 'GET',
+      path: '/api/v1/admin/orders/open',
+      handle: ({ query }) => {
         const limit = Number(query.get('limit'));
         if (!Number.isInteger(limit) || limit < 1 || limit > 500)
-          return { status: 400, body: { code: 'BadRequest', message: 'admin orders limit is unset — refuse to invent 100', intafacedCode: 'trade.admin_orders_limit_unset' } };
+          return {
+            status: 400,
+            body: {
+              code: 'BadRequest',
+              message: 'admin orders limit is unset — refuse to invent 100',
+              intafacedCode: 'trade.admin_orders_limit_unset',
+            },
+          };
         return { status: 200, body: state.orders.slice(0, limit) };
-      } },
+      },
+    },
     { method: 'GET', path: '/admin/kill-switches', handle: () => ({ status: 200, body: state.killSwitch }) },
   ];
 }

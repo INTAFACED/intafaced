@@ -43,7 +43,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
     cell: (r) => <RecordStatusBadge status={r.market.status} />,
     sortValue: (r) => r.market.status,
     sortable: true,
-    width: 110,
+    width: 140,
   },
   {
     id: 'lifecycle',
@@ -51,7 +51,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
     cell: (r) => <LifecycleBadge lifecycle={r.lifecycle} />,
     sortValue: (r) => lifecycleOf(r)?.state ?? null,
     sortable: true,
-    width: 120,
+    width: 130,
   },
   {
     id: 'actions',
@@ -63,12 +63,12 @@ const columns: readonly TableColumn<MarketRowView>[] = [
       return l ? String(l.allowedActions.length) : null;
     },
     sortable: true,
-    width: 70,
+    width: 100,
   },
-  { id: 'tick', header: 'Tick', numeric: true, value: (r) => r.market.tickSize, sortable: true },
-  { id: 'lot', header: 'Lot', numeric: true, value: (r) => r.market.lotSize, sortable: true },
-  { id: 'minQty', header: 'Min qty', numeric: true, value: (r) => r.market.minQty, sortable: true },
-  { id: 'minNotional', header: 'Min notional', numeric: true, value: (r) => r.market.minNotional, sortable: true },
+  { id: 'tick', header: 'Tick', numeric: true, width: 120, value: (r) => r.market.tickSize, sortable: true },
+  { id: 'lot', header: 'Lot', numeric: true, width: 120, value: (r) => r.market.lotSize, sortable: true },
+  { id: 'minQty', header: 'Min qty', numeric: true, width: 120, value: (r) => r.market.minQty, sortable: true },
+  { id: 'minNotional', header: 'Min notional', numeric: true, width: 140, value: (r) => r.market.minNotional, sortable: true },
   {
     id: 'fees',
     header: 'Maker / taker bps',
@@ -76,7 +76,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
     sortable: true,
     sortValue: (r) => String(r.market.makerBps),
     cell: (r) => `${r.market.makerBps} / ${r.market.takerBps}`,
-    width: 110,
+    width: 160,
   },
   {
     id: 'open',
@@ -85,7 +85,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
     sortable: true,
     value: (r) => (r.orders ? String(r.orders.open) : null),
     cell: (r) => (r.orders ? (r.orders.held > 0 ? `${r.orders.open} (${r.orders.held} held)` : String(r.orders.open)) : '—'),
-    width: 100,
+    width: 130,
   },
   {
     id: 'seeded',
@@ -100,7 +100,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
       const p = seededPercent(r.orders);
       return p === null ? '—' : `${p}%`;
     },
-    width: 70,
+    width: 90,
   },
   {
     id: 'asOf',
@@ -108,7 +108,7 @@ const columns: readonly TableColumn<MarketRowView>[] = [
     cell: (r) => clockUtc(r.lifecycle?.asOf ?? null),
     value: (r) => r.lifecycle?.asOf ?? null,
     sortable: true,
-    width: 100,
+    width: 130,
   },
 ];
 

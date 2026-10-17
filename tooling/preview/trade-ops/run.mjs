@@ -43,14 +43,19 @@ const BANNER = `<script>(()=>{const show=()=>{if(document.getElementById('trops-
 async function main() {
   const state = await createState();
   const routes = [...baseRoutes(state)];
-  for (const file of readdirSync(join(import.meta.dirname, 'fixtures')).filter((f) => f.endsWith('.mjs')).sort()) {
+  for (const file of readdirSync(join(import.meta.dirname, 'fixtures'))
+    .filter((f) => f.endsWith('.mjs'))
+    .sort()) {
     const mod = await import(pathToFileURL(join(import.meta.dirname, 'fixtures', file)).href);
     routes.push(...mod.default(state));
   }
   const edge = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://edge');
-    const route = routes.find((r) => r.method === req.method && (typeof r.path === 'string' ? r.path === url.pathname : r.path.test(url.pathname)));
-    const send = (status, body) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body));
+    const route = routes.find(
+      (r) => r.method === req.method && (typeof r.path === 'string' ? r.path === url.pathname : r.path.test(url.pathname)),
+    );
+    const send = (status, body) =>
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body));
     if (!route) return send(404, { code: 'not_found', message: `no route ${req.method} ${url.pathname}` });
     try {
       const body = req.method === 'POST' ? await readJson(req) : {};
@@ -65,18 +70,22 @@ async function main() {
   await new Promise((done) => edge.listen(edgePort, '127.0.0.1', done));
 
   const nextPort = await freePort();
-  const next = spawn(process.execPath, [join(adminDir, 'node_modules/next/dist/bin/next'), 'start', '--port', String(nextPort), '--hostname', '127.0.0.1'], {
-    cwd: adminDir,
-    env: {
-      ...process.env,
-      ADMIN_ORIGIN: `http://localhost:${PORT}`,
-      EDGE_URL: `http://127.0.0.1:${edgePort}`,
-      ADMIN_SESSION_SECRET: randomBytes(32).toString('base64url'),
-      APP_ENV: 'dev',
-      NEXT_TELEMETRY_DISABLED: '1',
+  const next = spawn(
+    process.execPath,
+    [join(adminDir, 'node_modules/next/dist/bin/next'), 'start', '--port', String(nextPort), '--hostname', '127.0.0.1'],
+    {
+      cwd: adminDir,
+      env: {
+        ...process.env,
+        ADMIN_ORIGIN: `http://localhost:${PORT}`,
+        EDGE_URL: `http://127.0.0.1:${edgePort}`,
+        ADMIN_SESSION_SECRET: randomBytes(32).toString('base64url'),
+        APP_ENV: 'dev',
+        NEXT_TELEMETRY_DISABLED: '1',
+      },
+      stdio: ['ignore', 'ignore', 'inherit'],
     },
-    stdio: ['ignore', 'ignore', 'inherit'],
-  });
+  );
   const front = createServer((req, res) => {
     const headers = { ...req.headers };
     delete headers['accept-encoding'];
@@ -92,7 +101,10 @@ async function main() {
         delete out['content-length'];
         delete out['transfer-encoding'];
         const html = Buffer.concat(chunks).toString('utf8');
-        res.writeHead(r.statusCode, out).end(html.includes('</body>') ? html.replace('</body>', `${BANNER}</body>`) : html + BANNER);
+        // The console's CSP only runs scripts that carry its per-response nonce, so the label takes the same nonce.
+        const nonce = /'nonce-([^']+)'/.exec(String(r.headers['content-security-policy'] ?? ''))?.[1];
+        const banner = nonce ? BANNER.replace('<script>', `<script nonce="${nonce}">`) : BANNER;
+        res.writeHead(r.statusCode, out).end(html.includes('</body>') ? html.replace('</body>', `${banner}</body>`) : html + banner);
       });
     });
     up.on('error', () => {
@@ -111,10 +123,15 @@ async function main() {
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   for (let i = 0; i < 400; i += 1) {
-    const ok = await fetch(`http://127.0.0.1:${nextPort}/login`, { headers: { host: `localhost:${PORT}` } }).then((r) => r.ok, () => false);
+    const ok = await fetch(`http://127.0.0.1:${nextPort}/login`, { headers: { host: `localhost:${PORT}` } }).then(
+      (r) => r.ok,
+      () => false,
+    );
     if (ok) break;
     await sleep(300);
   }
-  console.log(`TROPS preview ready: http://localhost:${PORT}/trade-ops  (sign in: any email + password, code 123456)\nTEST edge on :${edgePort}; real market data from :3210.`);
+  console.log(
+    `TROPS preview ready: http://localhost:${PORT}/trade-ops  (sign in: any email + password, code 123456)\nTEST edge on :${edgePort}; real market data from :3210.`,
+  );
 }
 await main();

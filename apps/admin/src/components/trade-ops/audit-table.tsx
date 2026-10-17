@@ -46,8 +46,8 @@ export function AuditTable({ rows, label, emptyText }: { rows: readonly AuditRow
     },
     { id: 'actor', header: 'Actor', value: (r) => r.actor, sortable: true, width: 200 },
     { id: 'action', header: 'Action', value: (r) => r.action, sortable: true, width: 200 },
-    { id: 'target', header: 'Target', value: (r) => r.target, sortable: true },
-    { id: 'reason', header: 'Reason', value: (r) => r.reason, sortable: true },
+    { id: 'target', header: 'Target', value: (r) => r.target, sortable: true, width: 240 },
+    { id: 'reason', header: 'Reason', value: (r) => r.reason, sortable: true, width: 280 },
     { id: 'outcome', header: 'Outcome', value: (r) => r.outcome, sortable: true, width: 200 },
     { id: 'requestId', header: 'Request id', value: (r) => r.requestId, width: 120 },
   ];

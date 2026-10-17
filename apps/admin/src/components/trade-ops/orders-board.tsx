@@ -126,9 +126,9 @@ export function OrdersBoard({ rows, limit }: { rows: readonly AdminOrderRow[]; l
     { id: 'type', header: 'Type', width: 70, value: (o) => o.type, sortable: true },
     { id: 'tif', header: 'TIF', width: 56, value: (o) => o.timeInForce, sortable: true },
     { id: 'price', header: 'Price', numeric: true, sortable: true, value: (o) => o.price },
-    { id: 'amount', header: 'Amount', numeric: true, sortable: true, value: (o) => o.amount },
+    { id: 'amount', header: 'Amount', numeric: true, width: 150, sortable: true, value: (o) => o.amount },
     { id: 'filled', header: 'Filled', numeric: true, sortable: true, value: (o) => o.filled },
-    { id: 'remaining', header: 'Remaining', numeric: true, sortable: true, value: (o) => o.remaining },
+    { id: 'remaining', header: 'Remaining', numeric: true, width: 150, sortable: true, value: (o) => o.remaining },
     {
       id: 'status',
       header: 'Status',
@@ -160,7 +160,7 @@ export function OrdersBoard({ rows, limit }: { rows: readonly AdminOrderRow[]; l
     {
       id: 'created',
       header: 'Created (UTC)',
-      width: 150,
+      width: 175,
       sortable: true,
       value: (o) => o.datetime.slice(0, 19).replace('T', ' '),
       sortValue: (o) => o.datetime,

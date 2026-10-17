@@ -43,6 +43,11 @@ export function ConfirmAction(props: {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Outcome<unknown> | null>(null);
+  // The words shown when the dialog opened stay fixed: a successful action refreshes the page behind it, and the
+  // title must not flip to the opposite action (Stop -> "Resume the trade module?") while the result is on screen.
+  const [opened, setOpened] = useState<{ title: string; consequence: ReactNode } | null>(null);
+  const title = opened?.title ?? props.title;
+  const consequence = opened?.consequence ?? props.consequence;
   const reasonId = useId();
   const tooShort = reasonMin > 0 && reason.trim().length < reasonMin;
 
@@ -60,21 +65,31 @@ export function ConfirmAction(props: {
       onOpenChange={(next) => {
         if (busy) return;
         setOpen(next);
+        if (next) setOpened({ title: props.title, consequence: props.consequence });
         if (!next) {
+          setOpened(null);
           setResult(null);
           setReason('');
         }
       }}
     >
       <AlertDialogTrigger
-        render={<Button size={28} variant={props.triggerVariant ?? (props.tone === 'danger' ? 'sell' : 'secondary')} shape="rounded" disabled={props.disabled} title={props.disabled ? props.disabledReason : undefined} />}
+        render={
+          <Button
+            size={28}
+            variant={props.triggerVariant ?? (props.tone === 'danger' ? 'sell' : 'secondary')}
+            shape="rounded"
+            disabled={props.disabled}
+            title={props.disabled ? props.disabledReason : undefined}
+          />
+        }
       >
         {props.trigger}
       </AlertDialogTrigger>
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle>{props.title}</AlertDialogTitle>
-          <AlertDialogDescription render={<div />}>{props.consequence}</AlertDialogDescription>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription render={<div />}>{consequence}</AlertDialogDescription>
         </AlertDialogHeader>
         {reasonMin > 0 && result?.kind !== 'ok' ? (
           <Field label="Reason (kept in the audit)" hint={`At least ${reasonMin} characters.`} density="dense">

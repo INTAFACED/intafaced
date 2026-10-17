@@ -1,24 +1,26 @@
 'use client';
 
-import { Table, type TableColumn } from '@intafaced/ui';
 import { SWITCH_EXPLAINERS, TRADE_ALWAYS_ALLOWED, type SwitchExplainer } from '@/lib/trade-ops/kill-switch-model';
 
 /** What each switch does and does not do, so an operator never reaches for the wrong one (TRD-0193). */
 export function KillSwitchExplainer() {
-  const columns: TableColumn<SwitchExplainer>[] = [
-    { id: 'name', header: 'Switch', value: (r) => r.name, width: 220 },
-    { id: 'stops', header: 'What it stops', value: (r) => r.stops },
-    { id: 'not', header: 'What it does not do', value: (r) => r.doesNotStop },
-  ];
   return (
     <div className="flex flex-col gap-3">
-      <Table<SwitchExplainer>
-        label="What each switch does and does not do"
-        density="dense"
-        columns={columns}
-        rows={SWITCH_EXPLAINERS}
-        getRowId={(r) => r.name}
-      />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {SWITCH_EXPLAINERS.map((r: SwitchExplainer) => (
+          <section key={r.name} className="rounded-md border border-line p-3 text-sm">
+            <h3 className="font-medium text-fg">{r.name}</h3>
+            <p className="mt-1 text-fg-2">
+              <span className="text-fg-3">Stops: </span>
+              {r.stops}
+            </p>
+            <p className="mt-1 text-fg-2">
+              <span className="text-fg-3">Does not: </span>
+              {r.doesNotStop}
+            </p>
+          </section>
+        ))}
+      </div>
       <div className="text-sm text-fg-2">
         <p className="font-medium text-fg">While the trade module is stopped, the edge still lets these through</p>
         <ul className="mt-1 list-disc pl-5">
