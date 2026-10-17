@@ -69,8 +69,9 @@ import type { Amount } from '@intafaced/ledger-client';
  *     nothing). A `recovery` that is BOOKKEEPING ONLY (a settlement post, a
  *     payment capture) MUST finish: refusing it leaves a frozen window or a
  *     captured payment half recorded. A `recovery` that would SEND to a rail
- *     (`beforePayoutExecute`, `beforeUserMoneyWithdrawal`) is refused by a PAYOUT
- *     halt, because a halt that lets money leave is not a halt. The booked hold is
+ *     (`beforePayoutExecute`) is refused by a PAYOUT halt, because a halt that
+ *     lets merchant proceeds leave is not a halt. A personal withdrawal is not
+ *     that exit: settlement credits proceeds. The booked hold is
  *     untouched, so that operation is paused, not stranded: nothing is released
  *     or marked failed, and the same call completes once the halt clears. A guard
  *     that refuses a rail-send recovery must therefore refuse BEFORE the hold is
@@ -80,7 +81,7 @@ import type { Amount } from '@intafaced/ledger-client';
  *     the ledger, by business key). Where state cannot prove value moved it is
  *     `fresh`: a rail capture whose ledger post rolled back leaves no trace, and
  *     neither does a refund whose ledger post committed but whose reply was lost.
- * *     INTAKE CAPS COUNT CAPTURED VOLUME, never created payments: public checkout
+ *     INTAKE CAPS COUNT CAPTURED VOLUME, never created payments: public checkout
  *     lets anyone create a payment, so counting at create would let a stranger fill a
  *     merchant's caps. Create only refuses read-only when the headroom is already
  *     gone. The count itself happens in `afterPaymentCaptureBooked`. A capture is
@@ -203,6 +204,12 @@ export interface PaymentCaptureBookedContext {
   readonly merchantId: string;
   readonly assetId: string;
   readonly amount: Amount;
+  /**
+   * When set, intake is counted on this instant's day and month. The
+   * authorized-capture reconciler passes the ledger transaction's postedAt so a
+   * capture booked earlier is not charged to the run. A live capture omits it.
+   */
+  readonly at?: Date;
 }
 
 /** Context for `beforePayoutAdmit`; runs inside the transaction that records a NEW payout admission. */
@@ -248,9 +255,15 @@ export interface SettlementRunContext {
   readonly replay: GuardReplay;
 }
 
-/** Context for `beforeConversion`. NOT CALLED YET: the conversion path (W6) does not exist. */
+/**
+ * Context for `beforeConversion`. Runs inside the order-intent transaction, before
+ * that transaction commits and before any venue call. A refusal rolls the intent
+ * back: no client order id is kept, so nothing is left to place on a retry.
+ * `tx` is that transaction. The pool (`sql`) is not a lock.
+ */
 export interface ConversionContext {
   readonly sql: Sql;
+  readonly tx: Sql;
   readonly merchantId: string;
   readonly settlementId: string;
   readonly fromAsset: string;

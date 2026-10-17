@@ -90,7 +90,7 @@ async function routes(page, state) {
       }
       return reply(route, merchant);
     }
-    if (name === 'payment.list') return reply(route, [payment]);
+    if (name === 'payment.list') return reply(route, { items: [payment], nextCursor: null });
     if (name === 'railHealth') return reply(route, []);
     if (name === 'payment.get') return reply(route, state.payment || payment);
     if (name === 'payment.history') {

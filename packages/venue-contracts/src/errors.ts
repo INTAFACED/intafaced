@@ -52,10 +52,19 @@ export type VenueUnavailableReason =
   | 'diverged';
 
 export class VenueUnavailableError extends Error {
+  /**
+   * Whether the place POST had already been handed to the transport.
+   * `false` means the call never left. Missing means the caller did not prove
+   * that, and conversion treats it as sent.
+   *
+   * This is a constructor parameter, not a separate field. A field declaration
+   * would be initialized after this assignment and wipe the flag.
+   */
   constructor(
     readonly venueId: string,
     readonly reason: VenueUnavailableReason,
     message: string,
+    readonly sent?: boolean,
   ) {
     super(message);
     this.name = 'VenueUnavailableError';

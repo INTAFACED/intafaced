@@ -177,7 +177,7 @@ export const customerDetailSchema = customerSchema.extend({
 });
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
-export const exportKinds = ['payments', 'settlements', 'payouts'] as const;
+export const exportKinds = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
 export type ExportKind = (typeof exportKinds)[number];
 export const exportJobSchema = z.object({
   jobId: z.string(),
@@ -188,13 +188,15 @@ export const exportJobSchema = z.object({
     status: z.string().optional(),
     assetId: z.string().optional(),
   }),
-  status: z.enum(['queued', 'running', 'ready', 'failed']),
+  columns: z.array(z.string()),
+  status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   failureCode: z.string().nullable(),
   fileName: z.string().nullable(),
   sizeBytes: z.string().nullable(),
   rowCount: z.number().int().nullable(),
   sha256: z.string().nullable(),
   requestedBy: z.string(),
+  generatedAt: timestamp.nullable(),
   asOf: timestamp.nullable(),
   expiresAt: timestamp.nullable(),
   createdAt: timestamp,
@@ -367,7 +369,11 @@ export const haltStatusSchema = z.object({
   states: z.array(
     z.object({
       scope: z.enum(haltScopes),
-      target: z.object({ level: z.enum(['global', 'merchant']), merchantId: z.string().optional() }),
+      target: z.discriminatedUnion('level', [
+        z.object({ level: z.literal('global') }),
+        z.object({ level: z.literal('merchant'), merchantId: z.string() }),
+        z.object({ level: z.literal('rail'), railId: z.string() }),
+      ]),
       halted: z.boolean(),
       changedAt: timestamp.nullable(),
     }),

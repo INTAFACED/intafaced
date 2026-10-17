@@ -586,7 +586,7 @@ function changeFromValues(kind: RegistryKind, values: RegistryFormValues, expect
   return built.ok ? built.change : null;
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <fieldset className="mp-section">
       <legend>{title}</legend>
@@ -595,7 +595,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({
+export function Field({
   label,
   required,
   error,
@@ -672,6 +672,12 @@ export function RefusalBlock({ refusal }: { refusal: RefusalView | null }) {
   return (
     <StateBlock kind="error" title={refusal.title} requestId={refusal.requestId}>
       {refusal.body} {refusal.next}
+      {refusal.code === 'pay.dual_control_required' ? (
+        <>
+          {' '}
+          <strong>You already signed this one first: a different founder has to do this step.</strong>
+        </>
+      ) : null}
     </StateBlock>
   );
 }

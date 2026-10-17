@@ -23,7 +23,7 @@
  * type alone. A target service consumes by target id and payload hash, not by the type string, so deciding on the type
  * only would let a founder-only action be filed under a harmless-looking type.
  */
-import { isSamePersonActionType } from '@intafaced/contracts';
+import { isSamePersonActionType, PROTECTIVE_OPERATOR_APPROVALS } from '@intafaced/contracts';
 import { factorActor } from './factor-gate.js';
 
 export type ActionAudience = 'founder' | 'operator' | 'self';
@@ -42,18 +42,12 @@ export const FOUNDER_ACTION_TYPES: readonly string[] = ['identity.change_fee_tie
 export const OPERATOR_TARGET_SERVICES: readonly string[] = ['svc-edge', 'svc-market', 'svc-academy', 'svc-p2p', 'svc-identity'];
 
 /**
- * Protective verbs: a brake must not need both founders online, so these are operator-level even though they sit in a
- * founder namespace. The exception holds only when the type, the target service AND the target verb all agree (a
- * `matching.halt` filed against an `open:` target, or against another service, gets the strict answer). Verbs that open
- * or re-enable things (`resume`, `open`, `unfreeze`, ...) are deliberately absent.
+ * Protective verbs live in `PROTECTIVE_OPERATOR_APPROVALS` (contracts). A brake must not need both founders online,
+ * so those rows are operator-level even though they sit in a founder namespace. The exception holds only when the
+ * type, the target service AND the target verb all agree (a `matching.halt` filed against an `open:` target, or
+ * against another service, gets the strict answer). Verbs that open or re-enable things (`resume`, `open`,
+ * `unfreeze`, ...) are deliberately absent from that list.
  */
-export const PROTECTIVE_ACTIONS: readonly { readonly actionType: string; readonly targetService: string; readonly targetVerb: string }[] = [
-  { actionType: 'matching.halt', targetService: 'svc-matching', targetVerb: 'halt' },
-  { actionType: 'matching.halt_all', targetService: 'svc-matching', targetVerb: 'halt_all' },
-  { actionType: 'matching.reduce_only', targetService: 'svc-matching', targetVerb: 'reduce_only' },
-  { actionType: 'matching.post_only', targetService: 'svc-matching', targetVerb: 'post_only' },
-  { actionType: 'ledger.freeze', targetService: 'svc-ledger', targetVerb: 'posting_freeze' },
-];
 
 const norm = (v: string): string => v.trim().toLowerCase();
 /** `halt:market-1` -> `halt`; `posting_freeze` -> `posting_freeze`. */
@@ -97,7 +91,8 @@ export function audienceOfApproval(subject: ApprovalSubject): ActionAudience {
   const type = norm(subject.actionType);
   const service = norm(subject.targetService);
   const verb = verbOf(subject.targetId);
-  if (PROTECTIVE_ACTIONS.some((p) => p.actionType === type && p.targetService === service && p.targetVerb === verb)) return 'operator';
+  if (PROTECTIVE_OPERATOR_APPROVALS.some((p) => p.actionType === type && p.targetService === service && p.targetVerb === verb))
+    return 'operator';
   if (isFounderName(subject.actionType) || isFounderName(subject.targetId)) return 'founder';
   if (!OPERATOR_TARGET_SERVICES.includes(service)) return 'founder';
   return 'operator';

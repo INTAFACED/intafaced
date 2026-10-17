@@ -587,10 +587,10 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
       expect(sa.linkUsage).toEqual({ linksUsed: 0, paymentsViaLinks: 0 });
 
       // Balances come from the ledger, not from a copy.
-      const { merchantClearing, userAvailable } = await import('@intafaced/ledger-client');
+      const { merchantClearing, merchantProceeds } = await import('@intafaced/ledger-client');
       const bal = sa.balances.find((x) => x.assetCode === 'USDT')!;
       expect(bal.clearing).toBe(formatAmount((await ledger.balance(merchantClearing(a.id, 'USDT'))).amount));
-      expect(bal.available).toBe(formatAmount((await ledger.balance(userAvailable((await pay.getMerchant(a.id)).userId, 'USDT'))).amount));
+      expect(bal.available).toBe(formatAmount((await ledger.balance(merchantProceeds(a.id, 'USDT'))).amount));
 
       const sb = await metrics.reader.merchantSnapshot(b.id, { kind: 'preset', preset: 'today' });
       expect(sb.linkUsage).toEqual({ linksUsed: 1, paymentsViaLinks: 1 });

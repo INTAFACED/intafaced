@@ -222,6 +222,7 @@ export function ReviewedAction<T>({
   perform,
   onConfirmed,
   disabled = false,
+  disabledReason,
   variant = 'secondary',
 }: {
   title: string;
@@ -230,6 +231,7 @@ export function ReviewedAction<T>({
   perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
   onConfirmed?: (data: T) => void;
   disabled?: boolean;
+  disabledReason?: string;
   variant?: 'primary' | 'secondary' | 'danger';
 }) {
   const [opened, setOpened] = useState(false);
@@ -269,7 +271,7 @@ export function ReviewedAction<T>({
     }
   }
   return (
-    <div className="pay-action">
+    <div className="pay-action" title={disabled ? disabledReason : undefined}>
       <Button
         variant={variant}
         disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
