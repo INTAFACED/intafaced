@@ -56,8 +56,16 @@ describe('fetchPage', () => {
 describe('what a failed on-request read says', () => {
   const failure = (status: number | null) => ({ ok: false as const, status, code: null });
   it('an ended session says to sign in again', () => {
-    for (const status of [401, 403])
-      expect(ownServerFailureText(failure(status), 'transfer')).toContain('Your founder session has ended; sign in again');
+    expect(ownServerFailureText(failure(401), 'transfer')).toContain('Your founder session has ended; sign in again');
+  });
+  it('a 403 says what was refused: another page, or a founder no longer allowed', () => {
+    expect(ownServerFailureText({ ok: false, status: 403, code: 'not_same_origin' }, 'transfer')).toContain(
+      'did not come from this console',
+    );
+    expect(ownServerFailureText({ ok: false, status: 403, code: 'admin.session_origin' }, 'transfer')).toContain(
+      'did not come from this console',
+    );
+    expect(ownServerFailureText({ ok: false, status: 403, code: null }, 'transfer')).toContain('no longer allowed to read this');
   });
   it('a bad id says it is not an id this desk can look up', () => {
     expect(ownServerFailureText(failure(400), 'transfer')).toContain('isn’t a transfer id this desk can look up');
@@ -66,8 +74,9 @@ describe('what a failed on-request read says', () => {
   it('a switched-off desk says so', () => {
     expect(ownServerFailureText(failure(404), 'transfer')).toContain('This desk is switched off');
   });
-  it('a server error or no reply says the console could not reach its own server', () => {
-    for (const status of [500, 502, 503, null])
-      expect(ownServerFailureText(failure(status), 'transfer')).toContain('could not reach its own server');
+  it('a server error says the console’s own server failed; no reply says it could not reach it', () => {
+    for (const status of [500, 502, 503])
+      expect(ownServerFailureText(failure(status), 'transfer')).toContain('own server failed on this read');
+    expect(ownServerFailureText(failure(null), 'transfer')).toContain('could not reach its own server');
   });
 });

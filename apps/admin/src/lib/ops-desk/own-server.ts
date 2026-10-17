@@ -38,13 +38,19 @@ export async function fetchOutcome(url: string, signal?: AbortSignal): Promise<O
 
 /** In words, for the founder, what a failed on-request read means. `what` is the thing being read. */
 export function ownServerFailureText(failure: Extract<OwnFetch, { ok: false }>, what: 'transfer' | 'page'): string {
-  const { status } = failure;
-  if (status === 401 || status === 403) return 'Your founder session has ended; sign in again. Nothing was read.';
+  const { status, code } = failure;
+  if (status === 401) return 'Your founder session has ended; sign in again. Nothing was read.';
+  if (status === 403) {
+    return code === 'not_same_origin' || code === 'admin.session_origin'
+      ? 'This request did not come from this console’s own page, so it was refused. Reload the desk and try again. Nothing was read.'
+      : 'This founder session is no longer allowed to read this; sign in again. Nothing was read.';
+  }
   if (status === 400) {
     return what === 'transfer'
       ? 'That isn’t a transfer id this desk can look up. Nothing was sent.'
       : 'That isn’t a page marker this desk can read. Nothing was sent.';
   }
   if (status === 404) return 'This desk is switched off on this console. Nothing was read.';
+  if (status !== null) return 'The console’s own server failed on this read. Nothing is shown rather than a guess.';
   return 'The console could not reach its own server for this. Nothing is shown rather than a guess.';
 }

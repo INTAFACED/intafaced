@@ -22,8 +22,8 @@ describe('the transfer record view', () => {
   it('404: says the desk is switched off', () => {
     expect(html(fail(404))).toContain('This desk is switched off');
   });
-  it('500 and no reply: say the console could not reach its own server', () => {
-    expect(html(fail(500))).toContain('could not reach its own server');
+  it('500 says the own server failed; no reply says it could not be reached', () => {
+    expect(html(fail(500))).toContain('own server failed on this read');
     expect(html(fail(null))).toContain('could not reach its own server');
   });
   it('a service refusal keeps its sentence and code', () => {
