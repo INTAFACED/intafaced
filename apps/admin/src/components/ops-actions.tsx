@@ -50,7 +50,7 @@ export function VendorActions({ row, userId, onChanged }: { row: Row; userId: st
   const copy = DECISION_COPY[decision];
   const action: ControlAction = {
     heading: `${copy.label} this vendor`,
-    submitLabel: `Ask a second founder to approve: ${copy.label.toLowerCase()}`,
+    submitLabel: `Ask a second operator to approve: ${copy.label.toLowerCase()} (this console admits only founders)`,
     needsReason: true,
     reasonLabel: 'Why (kept in the vendor’s audit trail, 12 to 500 characters)',
     build: (reason) => ({ kind: 'market.vendor.vet', vendorId, decision, reason }),
@@ -95,7 +95,7 @@ export function AmbassadorActions({ row, userId, onChanged }: { row: Row; userId
     verb === 'freeze'
       ? {
           heading: 'Freeze this ambassador',
-          submitLabel: 'Ask a second founder to approve the freeze',
+          submitLabel: 'Ask a second operator to approve the freeze (this console admits only founders)',
           needsReason: true,
           reasonLabel: 'Why (kept with the freeze, 12 to 500 characters)',
           build: (reason) => ({ kind: 'academy.ambassador.freeze', userId: ambassadorId, reason }),
@@ -103,7 +103,7 @@ export function AmbassadorActions({ row, userId, onChanged }: { row: Row; userId
         }
       : {
           heading: 'Lift this ambassador’s freeze',
-          submitLabel: 'Ask a second founder to approve lifting the freeze',
+          submitLabel: 'Ask a second operator to approve lifting the freeze (this console admits only founders)',
           needsReason: false,
           reasonLabel: '',
           build: () => ({ kind: 'academy.ambassador.unfreeze', userId: ambassadorId }),

@@ -198,6 +198,50 @@ describe('POST on desks with actions', () => {
   });
 });
 
+describe("reject and withdraw cannot reach another desk's approval", () => {
+  const ledger = { kind: 'ledger.freeze', reason: 'reconciliation mismatch on USD', version: 'v1' };
+  it('refuse a ledger request on the academy and more desks, and a body with no request, before sending anything', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const step of ['reject', 'revoke']) {
+      for (const [route, path] of [
+        [academy, '/api/academy-ops'],
+        [more, '/api/more-ops'],
+      ] as const) {
+        expect((await route.POST(post(path, { step, request: ledger, approvalId: 'appr_1' }))).status, `${step} ${path} ledger`).toBe(400);
+        expect((await route.POST(post(path, { step, approvalId: 'appr_1' }))).status, `${step} ${path} bare`).toBe(400);
+      }
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it('still reject an approval for their own kind', async () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const fn = vi.fn(async () =>
+      ok({
+        approvalId: 'appr_1',
+        operationId: 'op_1',
+        status: 'REJECTED',
+        expiresAt: '2026-10-17T03:10:00.000Z',
+        requesterId: '22222222-2222-4222-8222-222222222222',
+        approverId: FOUNDER,
+        actionType: 'academy.ambassador.unfreeze',
+        targetService: 'svc-academy',
+        targetId: 'academy.ambassador.unfreeze',
+        expectedVersion: '1',
+        payloadHash: 'sha256:x',
+        policyVersion: 'v1',
+        createdAt: '2026-10-17T03:00:00.000Z',
+      }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const res = await academy.POST(
+      post('/api/academy-ops', { step: 'reject', request: { kind: 'academy.ambassador.unfreeze', userId }, approvalId: 'appr_1' }),
+    );
+    expect((await res.json()).ok).toBe(true);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('module gate', () => {
   it('ADMIN_MODULES that leaves a desk out makes its API answer 404 before doing anything', async () => {
     process.env.ADMIN_MODULES = 'crm';

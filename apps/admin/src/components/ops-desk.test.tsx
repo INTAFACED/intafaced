@@ -170,7 +170,7 @@ describe('row detail and actions', () => {
     const html = render(props('more', view('more', [outcome]), { openKey: `market.applications:${APPLICATION.id}` }));
     expect(html).toContain('Sells charts');
     expect(html).toContain('data-testid="vendor-actions"');
-    expect(html).toContain('Ask a second founder to approve: approve');
+    expect(html).toContain('Ask a second operator to approve: approve');
     expect(html).toContain('APPROVE VENDOR 5a3b9c10');
   });
   it('only one row is open across the desk', () => {

@@ -44,13 +44,14 @@ export function AccountControls({ csrf }: { csrf: string }) {
     return (await response.json()) as unknown;
   }
   async function inspect() {
+    setReadAt(null);
     const params = new URLSearchParams({ area, id });
     const current = (await read(`/api/accounts?${params}`)) as AccountControlState | null;
     if (!current) throw new Error('Account not found.');
     setState(current);
+    setReadAt(new Date().toISOString());
     const events = (await read(`/api/accounts?${params}&history=true&limit=50`)) as AccountControlResult[];
     setHistory(events);
-    setReadAt(new Date().toISOString());
   }
   return (
     <section className="adm-workspace">
