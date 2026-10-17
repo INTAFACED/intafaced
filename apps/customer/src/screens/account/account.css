@@ -230,7 +230,10 @@
   .acct-body .rank-perks__heading {
     flex-wrap: wrap;
   }
+  /* rank-perks.css (unlayered) sets flex: 1 below 899px, which beats this layer; without
+     the override a nowrap heading spills under its button instead of the button wrapping. */
   .acct-body .rank-perks__heading h2 {
+    flex: 1 1 auto !important;
     white-space: nowrap;
   }
   .acct-body .subaccounts__rows,
