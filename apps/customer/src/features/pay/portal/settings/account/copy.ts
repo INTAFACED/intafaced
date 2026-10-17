@@ -53,6 +53,8 @@ const en = {
   stepOpen: 'Continue',
   stepReview: 'Review',
   startHere: 'Start with step 1, your business details.',
+  ownerSetsUpTitle: 'Your business is set up by its owner',
+  ownerSetsUpBody: 'The account owner makes the business details, verification and payout destination. Ask them if something is missing.',
   overviewLeftTitle: 'What is left',
   overviewLeftBody: 'Everything between you and live payments, in order.',
   leftBusiness: 'Tell us about your business (step 1).',

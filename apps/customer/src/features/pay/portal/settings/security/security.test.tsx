@@ -13,24 +13,32 @@ describe('security', () => {
     expect(parsePortalRoute('/pay/settings/security')).toEqual({ room: 'settings-security' });
   });
   it('shows this session, the session list and where to manage sign-in', () => {
-    const out = renderToString(<SecurityView role="owner" interactive verified />);
+    const out = renderToString(<SecurityView role="owner" interactive kybStatus="approved" />);
     expect(out).toContain('Signed in with two-step verification');
     expect(out).toContain('SESSION LIST');
     expect(out).toContain('href="/settings/security"');
     expect(out).toContain('href="/pay/developer/keys"');
   });
+  it('shows the business check as the service reports it, never "pending" for a rejected or unsubmitted one', () => {
+    const chip = (kybStatus: 'none' | 'pending' | 'approved' | 'rejected') =>
+      renderToString(<SecurityView role="owner" interactive kybStatus={kybStatus} />);
+    expect(chip('rejected')).toContain('pp-chip');
+    expect(chip('rejected')).not.toBe(chip('pending'));
+    expect(chip('none')).not.toBe(chip('pending'));
+    expect(chip('approved')).not.toBe(chip('pending'));
+  });
   it('says so, and asks for two-step sign-in, when the session has none', () => {
-    const out = renderToString(<SecurityView role="finance" interactive={false} verified={false} />);
+    const out = renderToString(<SecurityView role="finance" interactive={false} kybStatus="rejected" />);
     expect(out).toContain('Signed in without two-step verification');
     expect(out).toContain('needs two-step verification');
   });
   it('never claims what it does not know', () => {
-    const out = renderToString(<SecurityView role={null} interactive={null} verified={false} />);
+    const out = renderToString(<SecurityView role={null} interactive={null} kybStatus={null} />);
     expect(out).toContain('Not known');
     expect(out).not.toContain('Signed in with two-step verification');
   });
   it('names the team-wide rules as waiting, not as a pass', () => {
-    const out = renderToString(<SecurityView role="owner" interactive verified />);
+    const out = renderToString(<SecurityView role="owner" interactive kybStatus="approved" />);
     expect(out).toContain('Security settings are not connected here');
     expect(out).not.toContain('Coming soon');
   });

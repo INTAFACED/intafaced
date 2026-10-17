@@ -415,6 +415,36 @@ function MemberPanel({
   );
 }
 
+/** What an invite will do. The full account ID is always shown; a label is only a name beside it, never instead of it. */
+export function InviteReview({ userId, label, role }: { userId: string; label: string; role: TeamRole }) {
+  const { t } = portalCopy.useCopy();
+  const id = userId.trim();
+  const name = label.trim();
+  return (
+    <>
+      <p>{t('inviteReview', { who: id, role: t(`role_${role}` as 'role_owner') })}</p>
+      <dl className="pp-facts">
+        <div>
+          <dt>{t('fUserId')}</dt>
+          <dd>
+            <code className="pp-wrap">{id}</code>
+          </dd>
+        </div>
+        {name && (
+          <div>
+            <dt>{t('fLabel')}</dt>
+            <dd>{name}</dd>
+          </div>
+        )}
+        <div>
+          <dt>{t('fRole')}</dt>
+          <dd>{t(`role_${role}` as 'role_owner')}</dd>
+        </div>
+      </dl>
+    </>
+  );
+}
+
 function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: MemberRole | null; refresh: () => void }) {
   const { t } = portalCopy.useCopy();
   const allowed = grantableRoles(role);
@@ -461,7 +491,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
             title={t('sendInvite')}
             variant="primary"
             description={t('sendInviteBody')}
-            review={<p>{t('inviteReview', { who: label.trim() || userId.trim(), role: t(`role_${chosen}` as 'role_owner') })}</p>}
+            review={<InviteReview userId={userId} label={label} role={chosen} />}
             perform={() => portal.invite({ userId: userId.trim(), role: chosen, ...(label.trim() ? { label: label.trim() } : {}) })}
             onConfirmed={() => {
               setUserId('');

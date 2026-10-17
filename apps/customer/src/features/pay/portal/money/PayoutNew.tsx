@@ -31,9 +31,79 @@ import {
 import { settlementName } from './Settlements';
 import { isDefaultDestination, type DestinationItem } from './schemas';
 import type { Settlement } from '../schemas';
+import type { ApiResult } from '../../../../shared/api';
 
 /** What a payout submit answers: a request for approval, or money sent straight away. */
-export type PayoutOutcome = { route: 'approval'; id: string } | { route: 'sent'; id: string };
+export type PayoutOutcome = { route: 'approval'; id: string } | { route: 'sent'; id: string; status: string };
+
+type T = ReturnType<typeof mc.useCopy>['t'];
+type Refusal = { ok: false; reason: 'error'; code: string; message: string };
+const localRefusal = (message: string): Refusal => ({ ok: false, reason: 'error', code: 'portal.local', message });
+
+/**
+ * Why the payout form cannot be sent yet, in the order a merchant would fix it, or null. A pause read that has not
+ * answered (still loading, or failed) blocks like a pause: a payout is never started on an unknown.
+ */
+export function payoutProblem(
+  t: T,
+  input: {
+    allowed: boolean;
+    settlement: unknown;
+    haltsRead: 'loading' | 'ready' | 'failed';
+    block: PayoutBlock;
+    dest: unknown;
+    sending: boolean;
+    maySend: boolean;
+  },
+): string | null {
+  if (!input.allowed) return t('pnNotAllowed');
+  if (!input.settlement) return t('pnBlock_nothing');
+  if (input.haltsRead === 'loading') return t('pnHaltsLoading');
+  if (input.haltsRead === 'failed') return t('pnHaltsFailed');
+  if (input.block) return t(`pnBlock_${input.block}` as 'pnBlock_paused');
+  if (!input.dest) return t('pnPickDestination');
+  // Only the account owner can send a payout (the payout page's rule); say who can instead of showing a form that fails.
+  if (input.sending && !input.maySend) return t('pnOwnerSends');
+  return null;
+}
+
+/**
+ * Ask for approval, or send. Only a waiting request goes to the team and only an approved one is sent; an expired,
+ * voided, rejected or used one is a refusal, never a quiet "with your team".
+ * `railId` stands for the destination because the service keeps one destination per network (merchant and rail).
+ */
+export async function submitPayout(input: {
+  portal: PortalApi;
+  merchantId: string;
+  t: T;
+  settlement: { id: string } | null;
+  dest: { railId: string } | null;
+  sending: boolean;
+  maySend: boolean;
+}): Promise<ApiResult<PayoutOutcome>> {
+  const { portal, merchantId, t, settlement, dest, sending, maySend } = input;
+  if (!settlement || !dest) return localRefusal(t('pnPickDestination'));
+  const send = async (): Promise<ApiResult<PayoutOutcome>> => {
+    // A person who cannot send is told who can, rather than sent into a refusal.
+    if (!maySend) return localRefusal(t('pnOwnerSends'));
+    const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
+    return sent.ok ? { ok: true, data: { route: 'sent', id: sent.data.id, status: sent.data.status } } : sent;
+  };
+  // Already approved for this destination: use that approval and send, do not ask again.
+  if (sending) return send();
+  const asked = await portal.requestPayoutApproval({ merchantId, settlementId: settlement.id, railId: dest.railId });
+  if (asked.ok) {
+    const status = asked.data.status;
+    if (status === 'approved') return send();
+    if (status === 'pending') return { ok: true, data: { route: 'approval', id: asked.data.settlementId } };
+    return localRefusal(
+      status === 'expired' ? t('pnAskExpired') : t('pnAskStatus', { status: t(`pnAskWord_${status}` as 'pnAskWord_voided') }),
+    );
+  }
+  // Below the approval limit the service says no approval is needed; the same reviewed payout is then sent directly.
+  if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required')) return asked;
+  return send();
+}
 
 /** Nothing can be started: say whether that is because requests are waiting for a second person, and link to them. */
 export function NoPayable({ waitingN }: { waitingN: number }) {
@@ -93,7 +163,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
     return (
       <div className="stack">
         <p className="pp-callout" role="status">
-          {done.route === 'approval' ? t('pnDoneApproval') : t('pnDoneSent')}
+          {done.route === 'approval' ? t('pnDoneApproval') : done.status === 'paid_out' ? t('pnDoneSent') : t('pnDoneCheck')}
         </p>
         <div className="pp-actions">
           <LinkButton variant="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>
@@ -124,6 +194,8 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           // Sending uses the approval only when it is for this very destination; any other choice starts a new request.
           const sending = approved !== null && approvedDest !== null && dest?.id === approvedDest.id;
           const headroom = settlement && usage.resource.status === 'ready' ? payoutHeadroom(usage.resource.data, settlement.assetId) : null;
+          // Until the pause read has answered, nothing can be sent: a payout is never started on an unknown.
+          const haltsRead = halts.resource.status;
           const paused =
             halts.resource.status === 'ready'
               ? (() => {
@@ -139,15 +211,9 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
             remaining: headroom?.remaining ?? null,
           });
           const allowed = can('payout.request');
-          const problem = !allowed
-            ? t('pnNotAllowed')
-            : !settlement
-              ? t('pnBlock_nothing')
-              : block
-                ? t(`pnBlock_${block}` as 'pnBlock_paused')
-                : !dest
-                  ? t('pnPickDestination')
-                  : null;
+          // The account owner is the only person who can send a payout (same rule as the payout page); a role we could not read is left to the service.
+          const maySend = access.status !== 'ready' || access.role === 'owner';
+          const problem = payoutProblem(t, { allowed, settlement, haltsRead, block, dest, sending, maySend });
           return (
             <>
               {payable.length === 0 ? (
@@ -280,26 +346,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                           </dl>
                         ) : undefined
                       }
-                      perform={async () => {
-                        if (!settlement || !dest)
-                          return { ok: false as const, reason: 'error' as const, code: 'portal.local', message: t('pnPickDestination') };
-                        const send = async () => {
-                          const sent = await portal.sendPayout({ settlementId: settlement.id, railId: dest.railId });
-                          return sent.ok ? { ok: true as const, data: { route: 'sent' as const, id: sent.data.id } } : sent;
-                        };
-                        // Already approved for this destination: use that approval and send, do not ask again.
-                        if (sending) return send();
-                        const asked = await portal.requestPayoutApproval({ merchantId, settlementId: settlement.id, railId: dest.railId });
-                        // The service hands back the live request when one exists. An approved one is sent; a waiting one is not.
-                        if (asked.ok)
-                          return asked.data.status === 'approved'
-                            ? send()
-                            : { ok: true as const, data: { route: 'approval' as const, id: asked.data.settlementId } };
-                        // Below the approval limit the service says no approval is needed; the same reviewed payout is then sent directly.
-                        if (asked.code !== 'pay.approval_not_required' && !asked.message.startsWith('pay.approval_not_required'))
-                          return asked;
-                        return send();
-                      }}
+                      perform={() => submitPayout({ portal, merchantId, t, settlement, dest, sending, maySend })}
                       onConfirmed={setDone}
                     />
                   </PaySection>

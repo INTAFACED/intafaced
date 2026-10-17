@@ -107,14 +107,39 @@ test('signing: nothing is saved until a choice is made; the secret is shown once
   await signIn(page, '/pay/developer/signing?key=TEST-key-1');
   await expect(page.getByText(/We cannot show what is saved/).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save signing settings' })).toBeDisabled();
-  await page.getByRole('checkbox', { name: /Require signed requests/ }).click();
+  // Neither setting has a default: Save opens only when both are chosen.
+  await page.getByRole('radiogroup', { name: 'Require signed requests' }).getByLabel('On').check();
   await expect(page.getByText('Requests with this key need a valid signature, or they are refused.').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save signing settings' })).toBeDisabled();
+  await page
+    .getByRole('radiogroup', { name: /allowed IP address/ })
+    .getByLabel('Off')
+    .check();
   await page.getByRole('button', { name: 'Save signing settings' }).click();
   await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText('ifs_TEST-signing-secret')).toBeVisible();
   await page.getByRole('button', { name: 'Hide it', exact: true }).click();
   await expect(page.getByText('ifs_TEST-signing-secret')).toHaveCount(0);
   expect(b.calls.filter((c) => c.procedure === 'setApiKeyRequestSigning')).toHaveLength(1);
+});
+
+test('signing off says it deletes the secret; an empty list is its own "Remove all addresses" choice', async ({ page }) => {
+  const { b } = await setup(page);
+  await signIn(page, '/pay/developer/signing?key=TEST-key-1');
+  await page.getByRole('radiogroup', { name: 'Require signed requests' }).getByLabel('Off').check();
+  await page
+    .getByRole('radiogroup', { name: /allowed IP address/ })
+    .getByLabel('Off')
+    .check();
+  await page.getByRole('button', { name: 'Save signing settings' }).click();
+  await expect(
+    page.getByRole('dialog').getByText('This deletes the current signing secret; turning it on later issues a new one.'),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Replace allowed addresses' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Remove all addresses' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect.poll(() => b.calls.filter((c) => c.procedure === 'bindApiKeyIpAllowlist').length).toBe(1);
 });
 
 test('allowed addresses: the review warns that saving can change whether the key needs signed requests', async ({ page }) => {

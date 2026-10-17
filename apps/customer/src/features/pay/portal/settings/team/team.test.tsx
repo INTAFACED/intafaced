@@ -8,7 +8,7 @@ import type { PortalApi } from '../../api';
 import type { Invitation, Member, MemberRole, TeamEvent } from '../../schemas';
 import { pinOwner } from '../account/model';
 import { failed, list, noop, plain, ready, refusal } from '../account/testing';
-import { TeamView } from './Team';
+import { TeamView, InviteReview } from './Team';
 
 const member = (patch: Partial<Member>): Member => ({
   memberId: 'a1',
@@ -131,5 +131,17 @@ describe('team', () => {
   });
   it('says how many rows are shown and whether more exist', () => {
     expect(html('owner', { members: list([owner, member({})], true) })).toMatch(/2 shown so far\. More are available\./);
+  });
+});
+
+describe('invite review', () => {
+  it('always shows the full account ID, with the label beside it and never instead of it', () => {
+    const id = 'user-0123456789abcdef-full-account-id';
+    const withLabel = renderToString(<InviteReview userId={` ${id} `} label="Sam from finance" role="developer" />);
+    expect(withLabel).toContain(`<code class="pp-wrap">${id}</code>`);
+    expect(withLabel).toContain('Sam from finance');
+    const bare = renderToString(<InviteReview userId={id} label="" role="viewer" />);
+    expect(bare).toContain(id);
+    expect(bare).not.toContain('Label');
   });
 });

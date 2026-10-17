@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Resource } from '../../../../../shared/resource';
+import { EmptyState } from '../../../ui-kit';
+import { accountCopy } from './copy';
 import { NotLiveCard } from '../../chrome/NotLiveCard';
 import { Gate, PortalFailure } from '../../components';
 import { isNotLive } from '../../refusal';
@@ -48,4 +50,10 @@ export function ReadGate<T>({
       {children}
     </Gate>
   );
+}
+
+/** Setup belongs to the account owner. A team member who opens it is told so, instead of being led into steps they cannot finish. */
+export function OwnerSetsUp() {
+  const { t } = accountCopy.useCopy();
+  return <EmptyState title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</EmptyState>;
 }

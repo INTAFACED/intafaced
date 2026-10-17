@@ -20,7 +20,6 @@ import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } fr
 import { mc } from './copy';
 import { usePayoutPicture } from './payout-picture';
 import { describeDestination } from './destination';
-import { formatMoney } from '../ui/format';
 import {
   ageOf,
   decisionBlock,
@@ -222,6 +221,9 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
   );
 }
 
+/** Stands in for the amount while the sentence is split around it. */
+const LEFT_MARK = '\u0001';
+
 /** Approve or reject one request. The reason is required and is kept with the decision. */
 export function ApprovalDecision({
   portal,
@@ -251,9 +253,15 @@ export function ApprovalDecision({
   const why = block ? t(`block_${block}` as 'block_own') : reasonOk ? null : t('reasonNeeded');
   const disabled = block !== null || !reasonOk;
   const overLimit = remaining !== null && overRemaining(approval.amount, remaining);
-  const overWarning = overLimit
-    ? t('apvOverLimit', { left: `${formatMoney(remaining!, approval.assetCode)} ${approval.assetCode}` })
-    : null;
+  // The amount left is a <MoneyText>, so inside the review it shows every digit like the other figures there.
+  const [overBefore = '', overAfter = ''] = t('apvOverLimit', { left: LEFT_MARK }).split(LEFT_MARK);
+  const overWarning = overLimit ? (
+    <>
+      {overBefore}
+      <MoneyText value={remaining!} asset={approval.assetCode} />
+      {overAfter}
+    </>
+  ) : null;
   // A decision the service answered but that did not take effect (voided or ended meanwhile) is shown as a refusal.
   const decide = (decision: 'approve' | 'reject') => async () => {
     const result = await portal.decideApproval({

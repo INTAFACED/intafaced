@@ -221,9 +221,17 @@ describe('approval review', () => {
       />,
     );
   it('warns before approving more than is left of today’s payout limit, with the exact amount left', () => {
-    const out = decide('200');
-    expect(out).toContain('more than you have left of today’s payout limit (200.00 USDT)');
+    const out = decide('200').replace(/<!-- -->/g, '');
+    expect(out).toContain('more than you have left of today’s payout limit (<span class="numeric pp-money pp-nowrap">200.00 ');
     expect(out).toContain('pp-callout--warn');
+  });
+  it('shows every digit of the amount left inside the review, where the callout rounds it', () => {
+    const out = decide('200.123456').replace(/<!-- -->/g, '');
+    // The review is drawn in an exact scope, so the over-limit line there carries the full figure.
+    const at = out.indexOf('data-review="Approve payout"');
+    expect(out.slice(at)).toMatch(/>200\.123456 /);
+    expect(out.slice(0, at)).toContain('>200.12 ');
+    expect(out.slice(0, at)).not.toMatch(/>200\.123456/);
   });
   it('does not warn when the payout fits, or when the limit is unknown', () => {
     expect(decide('965.55')).not.toContain('payout limit');

@@ -25,6 +25,8 @@ import {
 } from './model';
 import { SecretReveal } from './SecretReveal';
 import { AllowedIps, Recipe, SigningSettings } from './Signing';
+import { developersApi } from './client';
+import { developersCopy as c } from './copy';
 import { SandboxView } from './Sandbox';
 import type { ApiKey, Delivery, Endpoint, Health } from './schemas';
 
@@ -122,6 +124,12 @@ describe('allowed addresses', () => {
     expect(out).toContain('We cannot show what is saved for this key');
     expect(out).toContain('Replace allowed addresses');
   });
+  it('never saves an empty list as a plain Save: emptying it is its own "Remove all addresses" choice', () => {
+    const out = renderToString(<AllowedIps api={api} keyId="TEST-key-1" />);
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Replace allowed addresses/);
+    expect(out).toContain('Enter at least one address, or use Remove all addresses.');
+    expect(out).toMatch(/<button(?![^>]*disabled="")[^>]*>Remove all addresses/);
+  });
 });
 
 describe('API keys', () => {
@@ -177,10 +185,40 @@ describe('one-time secrets', () => {
 });
 
 describe('signing', () => {
-  it('describes the effect of each choice before saving', () => {
+  it('starts with neither setting chosen: no default, and the effects say "Not chosen yet"', () => {
     const out = renderToString(<SigningSettings api={api} keyId="TEST-key-1" onSecret={() => {}} />);
     expect(out).toContain('What will happen');
-    expect(out).toContain('Requests with this key do not need a signature.');
+    expect((out.match(/Not chosen yet\./g) ?? []).length).toBe(2);
+    expect(out).not.toContain('Requests with this key do not need a signature.');
+    // Four radio buttons (on and off for each of the two settings), none checked.
+    expect((out.match(/type="radio"/g) ?? []).length).toBe(4);
+    expect(out).not.toMatch(/checked/);
+  });
+  it('holds Save back until both settings are chosen, and says why', () => {
+    const out = renderToString(<SigningSettings api={api} keyId="TEST-key-1" onSecret={() => {}} />);
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Save signing settings/);
+    expect(out).toContain('Choose on or off for both settings first.');
+  });
+  it('words turning signing off as deleting the secret, and turning it on later as issuing a new one', () => {
+    expect(c.t('effectSecretDeleted')).toBe('This deletes the current signing secret; turning it on later issues a new one.');
+    expect(c.t('secretExists')).toContain('A secret already exists');
+  });
+  it('turns an answer that says "not revoked" or "not retried" into a refusal', async () => {
+    const tools = {
+      identityMutate: async () => ({ ok: true, data: { revoked: false } }),
+      mutate: async () => ({ ok: true, data: { retried: false, delivery: {} } }),
+    } as unknown as Parameters<typeof developersApi>[0];
+    const real = developersApi(tools);
+    const revoked = await real.keyRevoke('k');
+    expect(revoked.ok).toBe(false);
+    expect(revoked.ok ? '' : revoked.message).toContain('not revoked');
+    const retried = await real.deliveryRetry('d', 'r');
+    expect(retried.ok).toBe(false);
+    expect(retried.ok ? '' : retried.message).toContain('not queued');
+    const done = developersApi({ identityMutate: async () => ({ ok: true, data: { revoked: true } }) } as unknown as Parameters<
+      typeof developersApi
+    >[0]);
+    expect((await done.keyRevoke('k')).ok).toBe(true);
   });
   it('gives the recipe: method, path, time, nonce, body hash and the five-minute window', () => {
     const out = renderToString(<Recipe />);

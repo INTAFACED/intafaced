@@ -24,11 +24,14 @@ const IBAN = /^[A-Za-z]{2}\d{2}[A-Za-z0-9]{11,30}$/;
 const IFSC = /^[A-Za-z]{4}0[A-Za-z0-9]{6}$/;
 /** A first look at the shape, so an obvious slip is caught before the review. The service checks it properly. */
 export function referenceProblem(kind: 'crypto' | 'bank', ref: string): 'empty' | 'crypto' | 'bank' | null {
-  const text = ref.trim().replace(/\s+/g, '');
+  const text = normaliseReference(ref);
   if (!text) return 'empty';
   if (kind === 'crypto') return EVM.test(text) ? null : 'crypto';
   return IBAN.test(text) || IFSC.test(text) ? null : 'bank';
 }
+
+/** What is sent to the service: the reference with every space removed. The review shows exactly this. */
+export const normaliseReference = (ref: string): string => ref.replace(/\s+/g, '');
 
 /** `/pay/payouts/destinations`: where your payouts can go. Full numbers and addresses are never shown again once saved. */
 export function Destinations({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
@@ -114,7 +117,7 @@ export function Destinations({ portal, merchantId }: { portal: PortalApi; mercha
       {rows.length > 0 && (
         <ManageDestinations portal={portal} merchantId={merchantId} rows={rows} onChanged={list.reload} setSaid={setSaid} />
       )}
-      <AddDestination portal={portal} merchantId={merchantId} onAdded={list.reload} />
+      <AddDestination portal={portal} merchantId={merchantId} existing={rows} onAdded={list.reload} />
     </div>
   );
 }
@@ -200,20 +203,75 @@ function ManageDestinations({
   );
 }
 
-function AddDestination({ portal, merchantId, onAdded }: { portal: PortalApi; merchantId: string; onAdded: () => void }) {
+/** What the owner checks before saving: the network, the address exactly as it is sent, and what it replaces. */
+export function SaveReview({
+  railId,
+  kind,
+  sentRef,
+  replaces,
+}: {
+  railId: string;
+  kind: 'crypto' | 'bank';
+  sentRef: string;
+  replaces: Pick<DestinationItem, 'kind' | 'destinationMasked' | 'railId'> | null;
+}) {
+  const { t } = mc.useCopy();
+  return (
+    <dl className="pp-facts">
+      <div>
+        <dt>{t('dstRail')}</dt>
+        <dd>{railWords(t, railId)}</dd>
+      </div>
+      <div>
+        <dt>{kind === 'bank' ? t('dstRefBankLabel') : t('dstRefCryptoLabel')}</dt>
+        <dd className="pp-mono pp-wrap">{sentRef}</dd>
+      </div>
+      {replaces && (
+        <>
+          <div>
+            <dt>{t('dstReplaces')}</dt>
+            <dd>{describeDestination(t, replaces.kind, replaces.destinationMasked, replaces.railId)}</dd>
+          </div>
+          <div>
+            <dt>{t('dstReplaceWarnLabel')}</dt>
+            <dd>{t('dstReplaceWarn')}</dd>
+          </div>
+        </>
+      )}
+    </dl>
+  );
+}
+
+/**
+ * The service keeps ONE destination per network (merchant and rail), so adding on a network that already has one
+ * replaces it. That is also why a payout names its destination by `railId` alone (see PayoutNew).
+ */
+function AddDestination({
+  portal,
+  merchantId,
+  existing,
+  onAdded,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  existing: readonly DestinationItem[];
+  onAdded: () => void;
+}) {
   const { t } = mc.useCopy();
   const { can } = useMerchantAccess();
   const rails = useResource((s) => portal.rails(s), `money:rails:${merchantId}`);
   const [railId, setRail] = useState('');
   const [ref, setRef] = useState('');
   const [tried, setTried] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<'added' | 'replaced' | false>(false);
   useUnsavedForm(ref.trim() !== '' && !saved, t('mnUnsaved'));
   const owner = can('owner');
   const options = rails.resource.status === 'ready' ? rails.resource.data.filter((r) => r.capabilities.includes('payout') && r.usable) : [];
   const rail = options.find((r) => r.id === railId) ?? (options.length === 1 ? options[0]! : null);
   const kind = rail ? destinationKindOfRail(rail.id) : null;
   const problem = kind ? referenceProblem(kind, ref) : null;
+  const sentRef = normaliseReference(ref);
+  const replaces = rail ? (existing.find((d) => d.railId === rail.id) ?? null) : null;
   const why = !owner
     ? t('dstOwnerOnly')
     : !rail
@@ -255,35 +313,22 @@ function AddDestination({ portal, merchantId, onAdded }: { portal: PortalApi; me
             spellCheck={false}
           />
           <PortalReview
-            title={t('dstSave')}
+            title={replaces ? t('dstReplace') : t('dstSave')}
             variant="primary"
-            description={t('dstReviewBody')}
+            description={replaces ? t('dstReplaceReviewBody') : t('dstReviewBody')}
             disabled={why !== null}
             disabledReason={why ?? undefined}
-            review={
-              rail && kind ? (
-                <dl className="pp-facts">
-                  <div>
-                    <dt>{t('dstRail')}</dt>
-                    <dd>{railWords(t, rail.id)}</dd>
-                  </div>
-                  <div>
-                    <dt>{kind === 'bank' ? t('dstRefBankLabel') : t('dstRefCryptoLabel')}</dt>
-                    <dd className="pp-mono pp-wrap">{ref.trim()}</dd>
-                  </div>
-                </dl>
-              ) : undefined
-            }
-            perform={() => portal.setPayoutDestination(merchantId, rail!.id, kind!, ref.trim().replace(/\s+/g, ''))}
+            review={rail && kind ? <SaveReview railId={rail.id} kind={kind} sentRef={sentRef} replaces={replaces} /> : undefined}
+            perform={() => portal.setPayoutDestination(merchantId, rail!.id, kind!, sentRef)}
             onConfirmed={() => {
-              setSaved(true);
+              setSaved(replaces ? 'replaced' : 'added');
               setRef('');
               onAdded();
             }}
           />
           {saved && (
             <p className="pp-callout" role="status">
-              {t('dstSaved')}
+              {saved === 'replaced' ? t('dstReplaced') : t('dstSaved')}
             </p>
           )}
         </form>

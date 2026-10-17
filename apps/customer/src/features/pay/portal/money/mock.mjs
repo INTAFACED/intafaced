@@ -639,6 +639,12 @@ export function createMoneyMock(ctx) {
           if (Number(x.net) < 1000) return refuse(route, 412, 'pay.approval_not_required');
           const dest = destinationRows().find((d) => d.railId === input.railId);
           if (!dest) return refuse(route, 412, 'pay.payout_destination_missing');
+          // A request that has run out is expired, as the service does it; asking the same payout again makes a NEW waiting row.
+          for (const a of approvals)
+            if (a.settlementId === x.id && (a.status === 'pending' || a.status === 'approved') && Date.parse(a.expiresAt) <= Date.now()) {
+              a.status = 'expired';
+              a.decidedAt = a.decidedAt ?? iso(Date.now());
+            }
           const live = approvals.find(
             (a) =>
               a.settlementId === x.id &&

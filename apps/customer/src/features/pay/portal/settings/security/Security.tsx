@@ -14,12 +14,19 @@ import { Blocker } from '../account/ui';
 export function Security() {
   const value = useMerchantAccess();
   const ready = readyAccess(value);
-  return (
-    <SecurityView role={ready?.role ?? null} interactive={ready?.sessionInteractive ?? null} verified={ready?.kybStatus === 'approved'} />
-  );
+  return <SecurityView role={ready?.role ?? null} interactive={ready?.sessionInteractive ?? null} kybStatus={ready?.kybStatus ?? null} />;
 }
 
-export function SecurityView({ role, interactive, verified }: { role: string | null; interactive: boolean | null; verified: boolean }) {
+/** `kybStatus` is the business check as the service reports it; null when it could not be read. */
+export function SecurityView({
+  role,
+  interactive,
+  kybStatus,
+}: {
+  role: string | null;
+  interactive: boolean | null;
+  kybStatus: 'none' | 'pending' | 'approved' | 'rejected' | null;
+}) {
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   return (
@@ -36,9 +43,7 @@ export function SecurityView({ role, interactive, verified }: { role: string | n
           </div>
           <div>
             <dt>{t('secBusinessVerified')}</dt>
-            <dd>
-              <Chip kind="kyb" value={verified ? 'approved' : 'pending'} />
-            </dd>
+            <dd>{kybStatus === null ? t('secUnknown') : <Chip kind="kyb" value={kybStatus} />}</dd>
           </div>
         </dl>
         {interactive === false && <p className="pp-callout">{t('secNeedsVerified')}</p>}

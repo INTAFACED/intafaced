@@ -17,6 +17,8 @@ import { Permissions } from '../network/Permissions';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
+import { OwnerSetsUp } from './ui';
+import type { Access } from '../../access/resolve';
 
 const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
   <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
@@ -24,6 +26,9 @@ const link = (href: string, label: string, variant: 'primary' | 'secondary' = 's
   </Button>
 );
 const t = portalCopy.t;
+
+/** A person who belongs to a business without owning it. */
+export const isTeamMember = (access: Access): boolean => access.status === 'ready' && access.role !== 'owner';
 
 /** The account's own mode, for pages that belong to platform accounts only. */
 function useMode(): string | null {
@@ -75,19 +80,23 @@ export const accountRooms: RoomTable = {
       purpose: t('purposeOnboarding'),
       action: link('/pay/merchant', t('openDashboard')),
     }),
-    render: (route, { portal, access, starterFeeBps }) => (
-      <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
-        {(record) => (
-          <Onboarding
-            step={route.step}
-            portal={portal}
-            merchant={record}
-            reloadMerchant={access.reloadMerchant}
-            starterFeeBps={starterFeeBps}
-          />
-        )}
-      </Gate>
-    ),
+    // A signed-in team member (a business exists, and they are not its owner) has nothing to set up: the owner does that.
+    render: (route, { portal, access, starterFeeBps }) =>
+      isTeamMember(access.access) ? (
+        <OwnerSetsUp />
+      ) : (
+        <Gate resource={access.merchant} retry={access.reloadMerchant} rows={4}>
+          {(record) => (
+            <Onboarding
+              step={route.step}
+              portal={portal}
+              merchant={record}
+              reloadMerchant={access.reloadMerchant}
+              starterFeeBps={starterFeeBps}
+            />
+          )}
+        </Gate>
+      ),
   },
   team: {
     header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite')) }),

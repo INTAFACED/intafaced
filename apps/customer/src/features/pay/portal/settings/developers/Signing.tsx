@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox } from '@intafaced/ui';
+import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { Facts, Gate, SelectField } from '../../components';
@@ -103,6 +103,43 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
   );
 }
 
+/** On, off, or not chosen yet. The saved setting cannot be read, so there is no default: the person chooses each one. */
+type Choice = boolean | null;
+
+function OnOff({
+  name,
+  legend,
+  hint,
+  value,
+  onChange,
+}: {
+  name: string;
+  legend: string;
+  hint: string;
+  value: Choice;
+  onChange: (on: boolean) => void;
+}) {
+  const { t } = c.useCopy();
+  return (
+    <fieldset className="pp-choice" style={{ border: 0, padding: 0, margin: 0 }}>
+      <legend>
+        <strong>{legend}</strong>
+      </legend>
+      <small className="muted">{hint}</small>
+      <div className="pp-actions" role="radiogroup" aria-label={legend}>
+        <label className="pp-check">
+          <input type="radio" name={name} checked={value === true} onChange={() => onChange(true)} />
+          <span>{t('choiceOn')}</span>
+        </label>
+        <label className="pp-check">
+          <input type="radio" name={name} checked={value === false} onChange={() => onChange(false)} />
+          <span>{t('choiceOff')}</span>
+        </label>
+      </div>
+    </fieldset>
+  );
+}
+
 export function SigningSettings({
   api,
   keyId,
@@ -113,73 +150,58 @@ export function SigningSettings({
   onSecret: (secret: string) => void;
 }) {
   const { t } = c.useCopy();
-  const [sign, setSign] = useState(false);
-  const [needIp, setNeedIp] = useState(false);
-  // The saved setting cannot be read, so nothing is saved until the person has chosen.
-  const [touched, setTouched] = useState(false);
-  const [saved, setSaved] = useState<{ sign: boolean; needIp: boolean } | null>(null);
+  // Neither setting has a default: Save opens only when both are chosen.
+  const [sign, setSign] = useState<Choice>(null);
+  const [needIp, setNeedIp] = useState<Choice>(null);
+  const [saved, setSaved] = useState<{ sign: boolean; needIp: boolean; secretKept: boolean } | null>(null);
+  const chosen = sign !== null && needIp !== null;
+  const signLine = sign === null ? t('effectNotChosen') : sign ? t('effectSignedOn') : t('effectSignedOff');
+  const ipLine = needIp === null ? t('effectNotChosen') : needIp ? t('effectIpOn') : t('effectIpOff');
   return (
     <PaySection title={t('signedTitle')} description={t('signedBody')}>
       <p className="pp-callout" role="status">
         {t('settingNotReadable')}
       </p>
       <div className="form-stack pp-form">
-        <label className="pp-check">
-          <Checkbox
-            checked={sign}
-            onCheckedChange={(on) => {
-              setSign(Boolean(on));
-              setTouched(true);
-            }}
-          />
-          <span>
-            <strong>{t('requireSigned')}</strong>
-            <small className="muted">{t('requireSignedHint')}</small>
-          </span>
-        </label>
-        <label className="pp-check">
-          <Checkbox
-            checked={needIp}
-            onCheckedChange={(on) => {
-              setNeedIp(Boolean(on));
-              setTouched(true);
-            }}
-          />
-          <span>
-            <strong>{t('requireIp')}</strong>
-            <small className="muted">{t('requireIpHint')}</small>
-          </span>
-        </label>
+        <OnOff name={`sign-${keyId}`} legend={t('requireSigned')} hint={t('requireSignedHint')} value={sign} onChange={setSign} />
+        <OnOff name={`ip-${keyId}`} legend={t('requireIp')} hint={t('requireIpHint')} value={needIp} onChange={setNeedIp} />
         <div className="pp-effect" aria-live="polite">
           <strong>{t('effectTitle')}</strong>
           <ul>
-            <li>{sign ? t('effectSignedOn') : t('effectSignedOff')}</li>
-            <li>{needIp ? t('effectIpOn') : t('effectIpOff')}</li>
+            <li>{signLine}</li>
+            <li>{ipLine}</li>
           </ul>
         </div>
         <PortalReview
           title={t('saveSigning')}
           variant="primary"
           description={t('saveSigningBody')}
-          disabled={!touched}
-          disabledReason={t('chooseFirst')}
+          disabled={!chosen}
+          disabledReason={t('chooseBoth')}
           review={
             <ul>
-              <li>{sign ? t('effectSignedOn') : t('effectSignedOff')}</li>
-              <li>{needIp ? t('effectIpOn') : t('effectIpOff')}</li>
-              {sign && <li>{t('effectSecretOnce')}</li>}
+              <li>{signLine}</li>
+              <li>{ipLine}</li>
+              {sign === true && <li>{t('effectSecretOnce')}</li>}
+              {sign === false && <li>{t('effectSecretDeleted')}</li>}
             </ul>
           }
-          perform={() => api.signingSet(keyId, sign, needIp)}
+          perform={() => api.signingSet(keyId, sign === true, needIp === true)}
           onConfirmed={(result) => {
-            setSaved({ sign: result.requireSignature, needIp: result.requireNonEmptyIpAllowlist });
+            // Signing on without a secret in the answer means one already exists; it is never shown again.
+            setSaved({
+              sign: result.requireSignature,
+              needIp: result.requireNonEmptyIpAllowlist,
+              secretKept: result.requireSignature && !result.signingSecret,
+            });
             if (result.signingSecret) onSecret(result.signingSecret);
           }}
         />
         {saved && (
-          <p className="pay-confirmed" role="status">
-            {t('savedSigning', { signed: saved.sign ? t('yes') : t('no'), ip: saved.needIp ? t('yes') : t('no') })}
-          </p>
+          <div className="pay-confirmed" role="status">
+            <p>{t('savedSigning', { signed: saved.sign ? t('yes') : t('no'), ip: saved.needIp ? t('yes') : t('no') })}</p>
+            {saved.secretKept && <p>{t('secretExists')}</p>}
+          </div>
         )}
       </div>
     </PaySection>
@@ -237,27 +259,44 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
         <PortalReview
           title={t('ipsSave')}
           description={t('ipsReview')}
-          disabled={Boolean(bad)}
-          disabledReason={t('errIpFix')}
+          disabled={Boolean(bad) || list.length === 0}
+          disabledReason={bad ? t('errIpFix') : t('ipsEmptyUseRemoveAll')}
           review={
             <>
               <p className="pp-callout" role="note">
                 {t('ipsSigningWarning')}
               </p>
-              <p>{list.length ? t('ipsEffect') : t('ipsEffectEmpty')}</p>
-              {list.length > 0 && (
-                <ul>
-                  {list.map((ip) => (
-                    <li key={ip}>
-                      <code>{ip}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <p>{t('ipsEffect')}</p>
+              <ul>
+                {list.map((ip) => (
+                  <li key={ip}>
+                    <code>{ip}</code>
+                  </li>
+                ))}
+              </ul>
             </>
           }
           perform={() => api.ipsBind(keyId, list)}
           onConfirmed={(result) => setSaved(result.ipAllowlist)}
+        />
+        {/* An empty list lets the key work from any address, so it is its own choice and never an empty Save. */}
+        <PortalReview
+          title={t('ipsRemoveAll')}
+          variant="sell"
+          description={t('ipsRemoveAllReview')}
+          review={
+            <>
+              <p className="pp-callout" role="note">
+                {t('ipsSigningWarning')}
+              </p>
+              <p>{t('ipsEffectEmpty')}</p>
+            </>
+          }
+          perform={() => api.ipsBind(keyId, [])}
+          onConfirmed={(result) => {
+            setSaved(result.ipAllowlist);
+            setText('');
+          }}
         />
         <Field
           label={t('ipsRemoveLabel')}

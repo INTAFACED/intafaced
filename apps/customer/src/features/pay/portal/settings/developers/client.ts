@@ -2,14 +2,25 @@ import { z } from 'zod';
 import type { SettingsBTools } from '../b-client';
 import { tolerantPage } from '../b-shared';
 import { pagedResult } from '../../ui/page';
+import type { ApiResult } from '../../../../../shared/api';
+import { developersCopy } from './copy';
 import * as s from './schemas';
+
+/** An answer that says "no" in its data (`revoked: false`) is a refusal in words, never a quiet success. */
+const refusedWhen = <T>(result: ApiResult<T>, notDone: (data: T) => boolean, words: () => string): ApiResult<T> =>
+  result.ok && notDone(result.data) ? { ok: false, reason: 'error', code: 'portal.local', message: words() } : result;
 
 export const developersApi = ({ query, mutate, identityQuery, identityMutate }: SettingsBTools) => ({
   // ---- API keys and request signing (identity service) ----
   keysList: (signal?: AbortSignal) => identityQuery('apiKeys.list', { limit: 200 }, z.array(s.keySchema), signal),
   keyCreate: (input: { name: string; scopes: string[] }) =>
     identityMutate('apiKeys.create', { ...input, mode: 'sandbox' }, s.createdKeySchema),
-  keyRevoke: (keyId: string) => identityMutate('apiKeys.revoke', { keyId }, s.revokedSchema),
+  keyRevoke: async (keyId: string) =>
+    refusedWhen(
+      await identityMutate('apiKeys.revoke', { keyId }, s.revokedSchema),
+      (d) => !d.revoked,
+      () => developersCopy.t('revokeRefused'),
+    ),
   signingSet: (keyId: string, requireSignature: boolean, requireNonEmptyIpAllowlist: boolean) =>
     identityMutate('setApiKeyRequestSigning', { keyId, requireSignature, requireNonEmptyIpAllowlist }, s.signingSchema),
   signingRotate: (keyId: string) => identityMutate('rotateSigningSecret', { keyId }, s.rotatedSigningSchema),
@@ -50,7 +61,11 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
         signal,
       ),
     ),
-  deliveryRetry: (deliveryId: string, requestId: string) =>
-    mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
+  deliveryRetry: async (deliveryId: string, requestId: string) =>
+    refusedWhen(
+      await mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
+      (d) => !d.retried,
+      () => developersCopy.t('retryRefused'),
+    ),
   webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),
 });

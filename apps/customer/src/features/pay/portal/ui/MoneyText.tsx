@@ -3,6 +3,15 @@ import { uiCopy } from './copy';
 import { useExactMoneyScope } from './ExactMoneyScope';
 import { formatMoney, isRounded } from './format';
 
+/** True for a zero amount. A string that is not an amount is not zero: the line is drawn as the service sent it, and nothing throws. */
+function isZero(value: string): boolean {
+  try {
+    return parseAmount(value) === 0n;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * An amount with its asset code, kept on one line, formatted by `formatMoney` (see ./format.ts): fiat and stablecoins
  * at 2 places, thousands separators, never a float. Inside a review (`ExactMoneyScope`) it shows every digit; elsewhere a
@@ -27,7 +36,7 @@ export function MoneyText({
 }) {
   const { t } = uiCopy.useCopy();
   const exactScope = useExactMoneyScope();
-  if (hideZero && parseAmount(value) === 0n) return null;
+  if (hideZero && isZero(value)) return null;
   const text = formatMoney(value, asset, { exact: exactScope, sign });
   const rounded = !exactScope && isRounded(value, asset);
   // Inside a review the figure shows every digit, so a figure that differs from the rounded one in the list says so.

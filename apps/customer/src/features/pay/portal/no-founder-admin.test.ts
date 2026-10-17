@@ -52,6 +52,72 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       );
     expect(text).not.toMatch(/admin:|operator|killswitch/i);
   });
+  it('reaches only allowlisted namespaces from every api and client file under the portal', () => {
+    // Every file that talks to the service: *api*.ts and client.ts, wherever they sit under portal/. Named files below
+    // must be among them, so the scan cannot quietly shrink to fewer files.
+    const portalRoot = join(root, 'features', 'pay', 'portal');
+    const files = sources(portalRoot).filter((file) => /[\\/](?:[^\\/]*api[^\\/]*|[^\\/]*client)\.ts$/.test(file));
+    const rel = files.map((file) => file.slice(portalRoot.length + 1).replace(/\\/g, '/'));
+    for (const must of [
+      'api.ts',
+      'api-core.ts',
+      'api-tools.ts',
+      'money/api.ts',
+      'payments/api.ts',
+      'settings/api.ts',
+      'settings/account/account-api.ts',
+      'settings/analytics/client.ts',
+      'settings/reports/client.ts',
+      'settings/developers/client.ts',
+    ])
+      expect(rel, must).toContain(must);
+    // Namespaces (the part before the first dot) a merchant page may call. `apiKeys` and the signing and address calls are
+    // the identity service's key management for the merchant's own keys; `mandate` and `subscription` are the merchant's own reads.
+    const namespaces = new Set([
+      'merchant',
+      'merchantOps',
+      'merchantMetrics',
+      'merchantControl',
+      'merchantAnalytics',
+      'submerchant',
+      'submerchantPermission',
+      'payHalts',
+      'payment',
+      'settlement',
+      'conversion',
+      'subscription',
+      'mandate',
+      'apiKeys',
+    ]);
+    // Procedures with no dot in their name, each allowed by name.
+    const bare = new Set([
+      'railHealth',
+      'setApiKeyRequestSigning',
+      'rotateSigningSecret',
+      'bindApiKeyIpAllowlist',
+      'unbindApiKeyIpAllowlist',
+    ]);
+    // Dotted strings that are not procedures (a local refusal code the page writes itself).
+    const notProcedures = new Set(['portal.local']);
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const [i, file] of files.entries()) {
+      const text = readFileSync(file, 'utf8');
+      const named = new Set<string>();
+      // Every 'x.y' string, and the first argument of every call that sends a procedure (not `api.query('pay', …)`, whose first argument is the service).
+      for (const m of text.matchAll(/['"`]([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+)['"`]/g)) named.add(m[1]!);
+      for (const m of text.matchAll(/(?<![.\w])(?:query|mutate|identityQuery|identityMutate)\(\s*['"`]([A-Za-z][A-Za-z0-9.]*)['"`]/g))
+        named.add(m[1]!);
+      for (const name of named) {
+        if (notProcedures.has(name)) continue;
+        seen += 1;
+        const ok = name.includes('.') ? namespaces.has(name.split('.')[0]!) : bare.has(name);
+        if (!ok) offenders.push(`${rel[i]}: ${name}`);
+      }
+    }
+    expect(seen).toBeGreaterThan(80);
+    expect(offenders).toEqual([]);
+  });
   it('keeps the whole customer app free of the founder namespace', () => {
     const offenders = sources(root).filter((file) => banned.test(readFileSync(file, 'utf8')));
     expect(offenders).toEqual([]);
