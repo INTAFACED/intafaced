@@ -24,6 +24,10 @@ export function toUserBinding(i: {
   toUserId: string;
   assetId: string;
   amount: string;
+  /** Trimmed note. Omitted from the hash when there is no note, so older approvals still match. */
+  note?: string;
+  /** Set when this send settles a payment request. Omitted otherwise. */
+  requestId?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.toUser',
@@ -35,6 +39,8 @@ export function toUserBinding(i: {
       toUserId: i.toUserId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.requestId ? { requestId: i.requestId } : {}),
     },
   };
 }
