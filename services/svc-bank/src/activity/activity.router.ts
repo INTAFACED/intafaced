@@ -35,6 +35,8 @@ const activityItem = z.object({
   spaceName: z.string().nullable(),
   /** Present only when the ledger links the line to the user's own trade order. Omitted otherwise. */
   orderId: z.string().min(1).max(128).optional(),
+  /** Recipient-visible note on a personal send. Omitted when that send had none. */
+  note: z.string().min(1).max(140).optional(),
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });

@@ -82,6 +82,8 @@ export const EVENT_BUS_MATRIX = {
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
   bankMarginCalled: { kind: 'live' },
+  personalRequestCreated: { kind: 'live' },
+  personalRequestSettled: { kind: 'live' },
   blueprintCreated: { kind: 'live' },
   blueprintDeleted: { kind: 'live' },
   crewMemberCreated: { kind: 'broken_promise', socketClass: 'B' },

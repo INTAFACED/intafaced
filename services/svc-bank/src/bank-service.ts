@@ -12,6 +12,9 @@ import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/
 import { BusinessService } from './business/business-service.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
+import { PersonalPayService } from './transfers/personal-pay.js';
+import type { PartyHandlePort } from './transfers/party-handles.js';
+import type { PersonalRequestNotices } from './transfers/request-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 
@@ -32,6 +35,7 @@ import type { RecipientStatePort } from './recipient-state.js';
 export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
+  readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
@@ -102,15 +106,26 @@ export interface BankServiceOptions {
   recipients?: RecipientStatePort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
+  /** Public handles for receipts. Unset = receipts name `bank.party_handles_unset` and requests refuse. */
+  handles?: PartyHandlePort;
+  /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
+  requestNotices?: PersonalRequestNotices;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
   const spaces = new SpaceService(sql, ledger, options.recipients);
   const transfers = new TransferService(sql, ledger, spaces);
+  const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
+    handles: options.handles,
+    notices: options.requestNotices,
+  });
   const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
-  const activity = new ActivityService(spaces, options.activity ?? {});
+  const activity = new ActivityService(spaces, {
+    ...(options.activity ?? {}),
+    transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
+  });
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -129,7 +144,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
   const business = new BusinessService(sql, ledger, spaces, transfers);
 
-  return { spaces, transfers, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
+  return { spaces, transfers, personalPay, earn, analytics, portfolio, activity, loans, cards, ramps, autoInvest, business };
 }
 
 export { PortfolioService, httpTickerSource, type TickerSource } from './portfolio/portfolio-service.js';
@@ -137,6 +152,7 @@ export { ActivityService, type ActivityServiceOptions } from './activity/activit
 export {
   SpaceService,
   TransferService,
+  PersonalPayService,
   EarnService,
   SpendAnalytics,
   LoanService,

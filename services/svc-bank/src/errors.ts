@@ -447,7 +447,33 @@ export type BankErrorCode =
   /** The approval was already spent on a different operation. Ask again. */
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
-  | 'bank.step_up_unavailable';
+  | 'bank.step_up_unavailable'
+  /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
+  | 'bank.personal_transfer_terms_unset'
+  /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
+  | 'bank.personal_transfer_fee_unwired'
+  | 'bank.personal_transfer_limit_exceeded'
+  | 'bank.personal_transfer_daily_limit_exceeded'
+  /** Same transfer id, different note, payee, amount, or request. */
+  | 'bank.personal_transfer_conflict'
+  | 'bank.personal_transfer_not_found'
+  | 'bank.personal_note_invalid'
+  | 'bank.personal_request_not_found'
+  | 'bank.personal_request_closed'
+  | 'bank.personal_request_expired'
+  | 'bank.personal_request_not_payer'
+  | 'bank.personal_request_not_payee'
+  | 'bank.personal_request_amount_mismatch'
+  | 'bank.personal_request_claim_held'
+  | 'bank.personal_request_conflict'
+  | 'bank.personal_request_self'
+  | 'bank.personal_request_list_limit_unset'
+  | 'bank.personal_request_payer_unknown'
+  | 'bank.pay_request_notify_unwired'
+  /** IDENTITY_URL is unset, so a request cannot name either person. */
+  | 'bank.party_handles_unset'
+  /** Identity did not answer a handle lookup. Nothing was created. */
+  | 'bank.party_handles_unavailable';
 
 export class BankError extends Error {
   constructor(
