@@ -12,6 +12,7 @@ import { ReceiveCard } from './ReceiveCard';
 import { RequestCard } from './RequestCard';
 import { BillsCard } from './BillsCard';
 import { GlobalCard } from './GlobalCard';
+import { RecentPanel } from './RecentPanel';
 
 type Tab = 'send' | 'receive' | 'request' | 'bills' | 'global';
 const ROUTES: Record<Tab, string> = {
@@ -52,6 +53,11 @@ export default function PayScreen({ path, search }: ScreenProps) {
           <h1>{t('Pay')}</h1>
           <p>{tagline}</p>
         </header>
+        {session ? (
+          <div className="pay-side">
+            <RecentPanel />
+          </div>
+        ) : null}
         <section className="pay-card" aria-label={t('Pay')}>
           <Tabs value={tab} onValueChange={(next) => typeof next === 'string' && navigate(ROUTES[next as Tab] ?? ROUTES.send)}>
             <TabsList divider aria-label={t('Send or receive')} className="pay-tabs">
