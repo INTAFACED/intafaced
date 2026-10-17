@@ -250,7 +250,7 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
     expect(res.statusCode).toBe(200);
     const status = resultData<{ published: boolean; residual: string | null; statusLine: string }>(res);
     expect(status.published).toBe(false);
-    expect(status.residual).toContain('DIRECTION §8');
+    expect(status.residual).toContain('not available yet');
     // It names all three unpublished numbers, so nobody has to read the code.
     expect(status.residual).toContain('spread');
     expect(status.statusLine).toContain('published=0');
@@ -289,7 +289,7 @@ describe('the OTC desk is mounted, and what is mounted refuses', () => {
       expect(res.statusCode).not.toBe(404);
       // PLATFORM missing a ruling, not the caller getting something wrong.
       expect(errorCode(res)).toBe('PRECONDITION_FAILED');
-      expect(errorMessage(res)).toContain('DIRECTION §8');
+      expect(errorMessage(res)).toContain('not available yet');
     }
 
     await desk.app.close();

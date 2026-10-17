@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SUPPORT_EMAIL,
-  REQUEST_ACTIONS,
+  RATING_SCORES,
   canReply,
   filterTickets,
   inKbCategory,
@@ -10,6 +10,7 @@ import {
   matchesFilter,
   newestFirst,
   replyReopens,
+  requestActionStates,
   statusCounts,
   supportEmail,
   supportMailto,
@@ -84,12 +85,32 @@ describe('what a person can do to a request', () => {
     expect(replyReopens('open')).toBe(false);
   });
 
-  it('keeps close, rate and attach switched off with a named reason because the service has no procedure', () => {
-    expect(REQUEST_ACTIONS.reply.available).toBe(true);
-    for (const id of ['close', 'rate', 'attach'] as const) {
-      expect(REQUEST_ACTIONS[id].available).toBe(false);
-      expect(REQUEST_ACTIONS[id]).toHaveProperty('reason');
-    }
+  it('offers close, rate and attach from the status, with a named reason when one is off', () => {
+    expect(requestActionStates('open', false)).toEqual({
+      close: { available: true },
+      rate: { available: false, reason: 'rateNotYet' },
+      attach: { available: true },
+    });
+    expect(requestActionStates('pending', false).rate).toEqual({ available: false, reason: 'rateNotYet' });
+    expect(requestActionStates('resolved', false)).toEqual({
+      close: { available: true },
+      rate: { available: true },
+      attach: { available: true },
+    });
+    expect(requestActionStates('closed', false)).toEqual({
+      close: { available: false, reason: 'closeAlreadyClosed' },
+      rate: { available: true },
+      attach: { available: false, reason: 'attachClosed' },
+    });
+  });
+
+  it('rates a request once', () => {
+    expect(requestActionStates('resolved', true).rate).toEqual({ available: false, reason: 'rateDone' });
+    expect(requestActionStates('closed', true).rate).toEqual({ available: false, reason: 'rateDone' });
+  });
+
+  it('accepts the whole scores 1 to 5, best first', () => {
+    expect([...RATING_SCORES]).toEqual([5, 4, 3, 2, 1]);
   });
 });
 

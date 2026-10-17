@@ -1,27 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Sql, TransactionSql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { InvalidEntryError, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
-import { runScheduledReconciliation, type ReconciliationReport } from './reconcile.js';
-
-/** Enough of a client for the tip lock. The insert itself is not this stub's job. */
-function sqlThatLocksTip(onLock: () => void): Sql {
-  const tx = ((strings: TemplateStringsArray) => {
-    const text = strings.join(' ');
-    if (!text.includes('FOR UPDATE')) {
-      return Promise.reject(new Error(`scheduled reconciliation ran SQL before the snapshot decision: ${text}`));
-    }
-    onLock();
-    return Promise.resolve([{ hash: 'tip-hash', seq: '4', frozen: false, reason: null }]);
-  }) as unknown as Sql;
-  Object.assign(tx, { savepoint: (fn: (held: TransactionSql) => Promise<unknown>) => fn(tx as unknown as TransactionSql) });
-  return {
-    begin: (_isolation: string, fn: (tx: Sql) => Promise<unknown>) => fn(tx),
-  } as unknown as Sql;
-}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcRoot = join(here, '..');
@@ -37,28 +19,6 @@ const LIVE_MONEY_FILES = [
   'operator-http.ts',
   'index.ts',
 ] as const;
-
-function failedReport(): ReconciliationReport {
-  return {
-    ok: false,
-    ranAt: new Date('2026-08-26T00:00:00.000Z'),
-    balances: { ok: false, drift: [], accountsChecked: 1 },
-    chain: { ok: true, length: 3 },
-    totals: { USDT: '1' },
-    unbalancedAssets: ['USDT'],
-  };
-}
-
-function greenReport(): ReconciliationReport {
-  return {
-    ok: true,
-    ranAt: new Date('2026-08-26T00:00:00.000Z'),
-    balances: { ok: true, accountsChecked: 1 },
-    chain: { ok: true, length: 3 },
-    totals: { USDT: '0' },
-    unbalancedAssets: [],
-  };
-}
 
 describe('live money — refuse Number/parseFloat, refuse a broken snapshot', () => {
   it('refuses a JS number amount instead of mixing it into bigint math', () => {
@@ -83,57 +43,10 @@ describe('live money — refuse Number/parseFloat, refuse a broken snapshot', ()
     expect(parseStoredAmount('12.5', 'accounts.balance')).toBe(amt('12.5'));
   });
 
-  it('does not snapshot a book that failed reconciliation — that would heal the break as success', async () => {
-    let snapshotted = 0;
-    let locked = false;
-    const result = await runScheduledReconciliation(
-      sqlThatLocksTip(() => {
-        locked = true;
-      }),
-      {
-        reconcileInTransaction: async () => failedReport(),
-        haltReconciliationInTransaction: async () => {
-          throw new Error('unexpected proof throw');
-        },
-        publishReconciliationResult: async () => {},
-      },
-      async () => {
-        snapshotted += 1;
-        return 1;
-      },
-    );
-    expect(locked).toBe(true);
-    expect(result.snapshotted).toBe(false);
-    expect(result.report.ok).toBe(false);
-    expect(snapshotted).toBe(0);
-  });
-
-  it('snapshots only after the book proves green, and only while the tip lock is already held', async () => {
-    let snapshotted = 0;
-    let locked = false;
-    const result = await runScheduledReconciliation(
-      sqlThatLocksTip(() => {
-        locked = true;
-      }),
-      {
-        haltReconciliationInTransaction: async () => {
-          throw new Error('unexpected proof throw');
-        },
-        publishReconciliationResult: async () => {},
-        reconcileInTransaction: async () => {
-          expect(locked).toBe(true);
-          return greenReport();
-        },
-      },
-      async () => {
-        expect(locked).toBe(true);
-        snapshotted += 1;
-        return 4;
-      },
-    );
-    expect(result.snapshotted).toBe(true);
-    expect(snapshotted).toBe(1);
-  });
+  // The two stub-driven tests that stood here pinned "snapshot only after green, only while the tip
+  // lock is held" against a fake `sql.begin`. The proof no longer takes a tip lock (#4755). Their
+  // real-database successors live in snapshot-anchor.test.ts ('a failed proof writes no snapshot',
+  // 'snapshot rows carry the tip the proof read') and run against Postgres, not a fake.
 
   it('live money files never coerce with Number() or parseFloat', () => {
     for (const rel of LIVE_MONEY_FILES) {

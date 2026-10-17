@@ -28,6 +28,7 @@ import {
   type InspectCopyMarket,
   type PlaceFollowerOrderPort,
 } from './auto-mirror-place.js';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import {
   copyLawResidual,
@@ -888,11 +889,8 @@ export class CopyService {
       const law = this.feeShareLaw;
       if (law.published !== true) {
         // attributeCopyFeeShare already throws on blank; this is defensive for types.
-        throw new CopyError(
-          'Copy fee-share is refuse-closed until owner publishes DIRECTION §8 / D26-P0-02 leader_share_bps',
-          'trade.copy_fee_share_blank',
-          COPY_FEE_SHARE_RESIDUAL,
-        );
+        logRefusalSpec('trade.copy_fee_share_blank');
+        throw new CopyError(COPY_FEE_SHARE_RESIDUAL, 'trade.copy_fee_share_blank', COPY_FEE_SHARE_RESIDUAL);
       }
       const cap = parseAmount(law.earningsCapPerFollower);
 
