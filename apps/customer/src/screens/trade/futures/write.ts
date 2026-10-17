@@ -110,7 +110,7 @@ export async function runIntent(
     userId,
     pending,
     () => send(api, intent),
-    (result) => !result.ok && result.reason === 'uncertain',
+    (result) => !result.ok && result.reason === 'uncertain' && !isDefinite(result),
     options,
   );
   if (guarded.kind === 'blocked') {

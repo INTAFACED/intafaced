@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { FuturesExchange } from './futures.fixtures.mjs';
 
-const root = process.env.HOME + '/projects/sovereign-worktrees/trfut/apps/customer/package.json';
+// Playwright is resolved from a worktree that has node_modules; override with PW_ROOT (default: this worktree's apps/customer).
+const root = process.env.PW_ROOT || new URL('../../../../package.json', import.meta.url).pathname;
 const { chromium } = createRequire(root)('@playwright/test');
 const login = fs.readFileSync(process.env.HOME + '/.codex/context/work/TEST-LOGIN.md', 'utf8');
 const creds = { email: login.match(/^Email: (.*)$/m)[1], password: login.match(/^Password: (.*)$/m)[1] };
@@ -59,6 +60,7 @@ export const shot = async (name) => {
   for (const [w, h] of [
     [1440, 900],
     [1280, 800],
+    [390, 844],
   ]) {
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(500);
