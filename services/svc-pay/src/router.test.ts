@@ -4,9 +4,10 @@ import type { Context } from '@intafaced/contracts';
 import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
-import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
+import { MemoryDisputeCaseStore, defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { PayError, assertPaymentHistoryLimit, type PayService, type PaymentView, type SettlementRecord } from './payment-service.js';
+import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import type { DepositRecord, UserMoneyService, WithdrawalRecord } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
@@ -355,6 +356,7 @@ beforeEach(() => {
         address_country: null,
       },
     ]) as never,
+    { bps: 250, source: 'local_test' },
   );
 });
 
@@ -968,15 +970,15 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
   });
 
   it('binds merchant.create to the principal, not a body userId', async () => {
-    const api = await caller(['pay:write']);
-    await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 } });
+    const api = await caller(['pay:onboard']);
+    await api.merchant.create({ mode: 'psp', pricing: { feeBps: 0 } });
     const call = stub.calls.find((c) => c.method === 'createMerchant');
     expect(call).toBeDefined();
-    expect((call!.args[0] as { userId: string }).userId).toBe(USER);
+    expect(call!.args[0]).toMatchObject({ userId: USER, mode: 'gateway', pricing: { feeBps: 250 } });
   });
 
   it('forwards trimmed merchant names to the service and never lets a body choose the owner', async () => {
-    const api = await caller(['pay:write']);
+    const api = await caller(['pay:onboard']);
     await api.merchant.create({
       mode: 'gateway',
       pricing: { feeBps: 250 },
@@ -1011,14 +1013,14 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
   ];
 
   it('accepts an emoji name that uses a zero-width joiner', async () => {
-    const api = await caller(['pay:write']);
+    const api = await caller(['pay:onboard']);
     const family = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467} Family Shop';
     await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: family });
     expect(stub.calls.filter((c) => c.method === 'createMerchant').at(-1)!.args[0]).toMatchObject({ displayName: family });
   });
 
   it('refuses a blank, over-long or control-character merchant name before the service runs', async () => {
-    const api = await caller(['pay:write']);
+    const api = await caller(['pay:onboard']);
     const before = stub.calls.filter((c) => c.method === 'createMerchant').length;
     for (const bad of [
       '',
@@ -1039,6 +1041,45 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(stub.calls.filter((c) => c.method === 'createMerchant')).toHaveLength(before);
   });
 
+  it('refuses merchant.create on pay:write and when the starter fee is unpublished', async () => {
+    const writer = await caller(['pay:write']);
+    await expect(writer.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(stub.calls.filter((c) => c.method === 'createMerchant')).toHaveLength(0);
+
+    const bare = createPayRouter(
+      stub.service,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+      null,
+      undefined,
+      (async () => []) as never,
+    );
+    const onboard = bare.createCaller(await ctx(['pay:onboard']));
+    await expect(onboard.merchant.create({ mode: 'gateway', pricing: { feeBps: 1 } })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('pay.starter_fee_unpublished'),
+    });
+  });
+
+  it('keeps payments, payout destinations and the KYB stub off pay:onboard', async () => {
+    const api = await caller(['pay:onboard']);
+    await expect(
+      api.payment.create({ merchantId: MERCHANT, amount: '1', assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      api.merchant.setPayoutDestination({
+        merchantId: MERCHANT,
+        railId: 'crypto-native',
+        kind: 'crypto',
+        ref: '0x000000000000000000000000000000000000dEaD',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(api.merchant.decideKybStub({ merchantId: MERCHANT, decision: 'approved' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {
     const me = async (feeBps: number | undefined) => {
       const pay = {
@@ -1057,8 +1098,30 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
         .merchant.me();
     };
     expect((await me(undefined))?.feeBps).toBeNull();
+    expect((await me(undefined))?.starterFee).toBeNull();
     expect((await me(0))?.feeBps).toBe(0);
     expect((await me(250))?.feeBps).toBe(250);
+  });
+
+  it('labels a local-test starter fee on merchant.me and leaves the merchant fee alone', async () => {
+    const pay = {
+      getMerchantByUserId: async () => ({
+        id: MERCHANT,
+        userId: USER,
+        mode: 'gateway' as const,
+        status: 'active' as const,
+        kybStatus: 'approved' as const,
+        kybRef: null,
+        pricing: { feeBps: 150 },
+      }),
+    } as unknown as PayService;
+    const row = await createPayRouter(pay, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, undefined, null, {
+      bps: 250,
+      source: 'local_test',
+    })
+      .createCaller(await ctx(['pay:read']))
+      .merchant.me();
+    expect(row).toMatchObject({ feeBps: 150, starterFee: { bps: 250, source: 'local_test' } });
   });
 
   it('merchant.decideKyb is operator admin:compliance, not merchant pay:write', async () => {
@@ -1752,5 +1815,85 @@ describe('payment links are capability URLs on the wire too', () => {
     const api = await caller(['pay:read']);
     const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
+  });
+});
+
+describe('fraud doors are fenced to the merchant on the case', () => {
+  const stranger = '99999999-9999-4999-8999-999999999999';
+
+  it('getDispute answers not-found for a missing id and for another merchant, without the id', async () => {
+    const disputes = new MemoryDisputeCaseStore();
+    disputes.open({ disputeId: 'dp-owned', paymentId: PAYMENT, merchantId: MERCHANT, amount: '10', assetId: 'USDT', reasonCode: '4853' });
+    const fenced = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, disputes);
+    const owner = fenced.createCaller(await ctx(['pay:read']));
+    const found = await owner.fraud.getDispute({ disputeId: 'dp-owned' });
+    expect(found.merchantId).toBe(MERCHANT);
+
+    const other = fenced.createCaller(await ctx(['pay:read'], { userId: stranger }));
+    const foreign = await other.fraud.getDispute({ disputeId: 'dp-owned' }).catch((e: unknown) => e);
+    const missing = await owner.fraud.getDispute({ disputeId: 'dp-missing' }).catch((e: unknown) => e);
+    for (const err of [foreign, missing]) {
+      expect(err).toMatchObject({ code: 'NOT_FOUND', message: expect.stringContaining('pay.dispute_not_found') });
+      expect((err as { message: string }).message).not.toContain('dp-owned');
+      expect((err as { message: string }).message).not.toContain('dp-missing');
+    }
+  });
+
+  it('enqueueReview refuses another merchant before the queue is written', async () => {
+    const id = `rev-fence-${Date.now()}`;
+    const other = await caller(['pay:write'], { userId: stranger });
+    await expect(
+      other.fraud.enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '99',
+        assetId: 'USDT',
+        recentPaymentCount: 50,
+        thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(defaultFraudReviewQueue.get(id)).toBeNull();
+  });
+});
+
+describe('a stored pay scope is rechecked against the live owner grant', () => {
+  it('refuses pay:read after KYB rejection and pay:write after suspension, and still allows a caller with no merchant', async () => {
+    const rejected = router.createCaller({
+      ...(await ctx(['pay:read'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, async () => ({
+            id: MERCHANT,
+            userId: principal.userId,
+            kybStatus: 'rejected',
+            status: 'active',
+          })),
+      },
+    });
+    await expect(rejected.merchant.me()).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+
+    const suspended = router.createCaller({
+      ...(await ctx(['pay:write'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, async () => ({
+            id: MERCHANT,
+            userId: principal.userId,
+            kybStatus: 'approved',
+            status: 'suspended',
+          })),
+      },
+    });
+    await expect(
+      suspended.payment.create({ merchantId: MERCHANT, amount: '1', assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+
+    const team = router.createCaller({
+      ...(await ctx(['pay:read'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) => assertOwnerPayScopeStillGranted(principal, scope, async () => null),
+      },
+    });
+    await expect(team.merchant.me()).resolves.toMatchObject({ id: MERCHANT });
   });
 });

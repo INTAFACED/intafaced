@@ -375,7 +375,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     ownCause: 'pay.destination_step_up_required',
     input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
   },
-  { path: 'merchant.submitKyb', scope: 'pay:write', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },
+  { path: 'merchant.submitKyb', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },
   {
     path: 'merchant.decideKybStub',
     scope: 'pay:write',
@@ -451,6 +451,20 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
   },
   {
+    path: 'merchant.payoutDestinations.setDefault',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
+    path: 'merchant.payoutDestinations.remove',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
     path: 'merchant.statement.list',
     scope: 'pay:read',
     own: 'ok',
@@ -491,7 +505,21 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'settlement.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.release', scope: 'pay:write', own: 'service', input: (i) => ({ settlementId: i.settlementId, reason: 'probe' }) },
   // kyb.*
-  { path: 'kyb.submit', scope: 'pay:write', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-2' }) },
+  { path: 'kyb.submit', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-2' }) },
+  { path: 'fraud.getDispute', scope: 'pay:read', own: 'ok', input: (i) => ({ disputeId: i.disputeId }) },
+  {
+    path: 'fraud.enqueueReview',
+    scope: 'pay:write',
+    own: 'ok',
+    input: (i) => ({
+      id: `rev-${i.merchantId}`,
+      merchantId: i.merchantId,
+      amount: '99',
+      assetId: 'USDT',
+      recentPaymentCount: 50,
+      thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+    }),
+  },
   // sub-merchant tree, probed from outside the tree (inside-tree cases are the M3 table)
   { path: 'submerchant.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'submerchant.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },

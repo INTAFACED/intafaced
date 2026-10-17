@@ -183,20 +183,26 @@ describe('svc-token money PG-hard', () => {
     toBurn?: string;
     toRewards?: string;
     status?: 'pending' | 'settled';
-    /** Age of the claim row (a crash leftover is old; a claim still being posted is young). Default 1 hour. */
+    /** Age of the claim row (`created_at`). Default 1 hour. Not the quiet-period clock. */
     ageSeconds?: number;
+    /** Age of the last burn/post attempt (`last_post_at`). Defaults to ageSeconds. */
+    lastPostAgeSeconds?: number;
   }) {
     const tokensBought = input.tokensBought ?? '1000';
     const toBurn = input.toBurn ?? '600';
     const toRewards = input.toRewards ?? '400';
+    const ageSeconds = input.ageSeconds ?? 3600;
+    const lastPostAgeSeconds = input.lastPostAgeSeconds ?? ageSeconds;
     await sql`
       INSERT INTO token.buyback_runs (
         id, revenue_window_from, revenue_window_to, revenue_total,
-        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at, created_at
+        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at, created_at, last_post_at
       ) VALUES (
         ${input.runId}, ${input.window.from}, ${input.window.to}, ${sql.json({ IFC: '1000' } as never)},
         ${tokensBought}::numeric, ${toBurn}::numeric, ${toRewards}::numeric,
-        ${input.status ?? 'settled'}, now(), now() - make_interval(secs => ${input.ageSeconds ?? 3600})
+        ${input.status ?? 'settled'}, now(),
+        now() - make_interval(secs => ${ageSeconds}),
+        now() - make_interval(secs => ${lastPostAgeSeconds})
       )
     `;
   }
@@ -1493,6 +1499,67 @@ describe('svc-token money PG-hard', () => {
       ).rejects.toMatchObject({ code: 'token.buyback_tokens_unmoved' });
 
       expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(1);
+    });
+
+    it('keeps a claim with an old created_at when the last burn attempt is still inside the quiet period', async () => {
+      await fundRewards('2000', 'w-claim-last-post');
+      const runId = crypto.randomUUID();
+      await seedBuybackRun({ runId, window: JULY, status: 'pending', ageSeconds: 3600, lastPostAgeSeconds: 5 });
+
+      await expect(
+        token.recordBuyback({ runId, revenueWindow: JULY, revenueTotal: { IFC: '1000' }, tokensBought: amt('1000') }),
+      ).rejects.toMatchObject({ code: 'token.buyback_tokens_unmoved' });
+
+      expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(1);
+      expect(await token.burnedSupply()).toBe(0n);
+    });
+
+    it('a late burn and recordBuyback cannot both pass the quiet period', async () => {
+      await ledger.post(recipes.mintEmission({ epoch: 0, assetId: 'IFC', amount: amt('1000'), destination: rewardsEngine('IFC') }));
+      const runId = crypto.randomUUID();
+      await seedBuybackRun({ runId, window: JULY, status: 'pending', ageSeconds: 3600, lastPostAgeSeconds: 3600 });
+      const input = {
+        runId,
+        revenueWindow: JULY,
+        revenueTotal: { IFC: '1000' },
+        tokensBought: amt('1000'),
+      };
+
+      let releaseGate!: () => void;
+      const releaseDone = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      let burnEntered!: () => void;
+      const burnInPost = new Promise<void>((resolve) => {
+        burnEntered = resolve;
+      });
+      const realPost = ledger.post.bind(ledger);
+      ledger.post = async (tx) => {
+        const [clock] = await sql<Array<{ created_old: boolean; post_young: boolean }>>`
+          SELECT
+            (clock_timestamp() - created_at) > make_interval(secs => 120) AS created_old,
+            last_post_at IS NOT NULL AND (clock_timestamp() - last_post_at) < make_interval(secs => 120) AS post_young
+            FROM token.buyback_runs WHERE id = ${runId}
+        `;
+        expect(clock?.created_old).toBe(true);
+        expect(clock?.post_young).toBe(true);
+        burnEntered();
+        await releaseDone;
+        return realPost(tx);
+      };
+
+      const burning = token.settleBuybackFill(input);
+      await burnInPost;
+      await expect(token.recordBuyback(input)).rejects.toMatchObject({ code: 'token.buyback_tokens_unmoved' });
+      expect(await sql`SELECT id FROM token.buyback_runs WHERE id = ${runId}`).toHaveLength(1);
+      expect(await token.burnedSupply()).toBe(0n);
+      releaseGate();
+
+      await expect(burning).resolves.toMatchObject({ runId, burned: amt('600'), toRewards: amt('400') });
+      expect(await burnIfC()).toBe(amt('600'));
+      const rows = await sql<Array<{ status: string }>>`SELECT status FROM token.buyback_runs WHERE id = ${runId}`;
+      expect(rows[0]?.status).toBe('settled');
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
     /**

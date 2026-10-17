@@ -8,6 +8,7 @@ import {
   type RailEvent,
   type RailHealth,
   type RailMode,
+  type PayoutRailStatus,
   type RailResult,
   type RailWebhookRequest,
   type SettlementInstruction,
@@ -429,6 +430,22 @@ export class CryptoNativeAdapter implements RailAdapter {
     }
   }
 
+  payoutIdempotencyKey(s: SettlementInstruction): string {
+    return `pay.payout:${s.settlementId}`;
+  }
+
+  async queryPayout(idempotencyKey: string): Promise<PayoutRailStatus> {
+    try {
+      const found = await this.chain.lookupSend(idempotencyKey);
+      if (found.state === 'not_sent') return { status: 'not_sent' };
+      if (found.state === 'unknown') return { status: 'unknown' };
+      return { status: 'sent', railRef: found.txHash, amount: found.amount, assetId: found.assetId };
+    } catch (err) {
+      if (err instanceof ChainNotConfiguredError) return { status: 'unknown' };
+      return { status: 'unknown' };
+    }
+  }
+
   async payout(s: SettlementInstruction): Promise<RailResult> {
     this.lastContact = this.now();
 
@@ -461,7 +478,7 @@ export class CryptoNativeAdapter implements RailAdapter {
         to: s.destination.ref,
         assetId: s.assetId,
         amount: s.amount,
-        idempotencyKey: `pay.payout:${s.settlementId}`,
+        idempotencyKey: this.payoutIdempotencyKey(s),
       });
 
       return {

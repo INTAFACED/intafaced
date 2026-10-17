@@ -83,28 +83,10 @@ export const RECIPE_MATRIX = {
   fxConversionRelease: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
   fxConversionReverse: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
   fxConversionLateFill: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/conversion/service.ts' },
-  chargebackOpen: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — pay.rails ADR 2026-08-04 clause 3: chargeback recipes exist before any rail reports a dispute; owner Class M sign-off; deliberately unwired from svc-pay (see chargeback.ts banner).',
-  },
-  chargebackShortfall: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — pay.rails ADR 2026-08-04 / chargeback.ts: shortfall leg parked with open/won/recovered; no svc-pay writer until owner signs the four debit questions.',
-  },
-  chargebackWon: {
-    kind: 'socket',
-    socket: '§13',
-    reason: '§13 — pay.rails ADR 2026-08-04 / chargeback.ts: won recovery unwired with the open path; no dispute writer on tip.',
-  },
-  chargebackShortfallRecovered: {
-    kind: 'socket',
-    socket: '§13',
-    reason: '§13 — pay.rails ADR 2026-08-04 / chargeback.ts: insurance recovery unwired with the shortfall path; no dispute writer on tip.',
-  },
+  chargebackOpen: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/chargeback-ledger.ts' },
+  chargebackShortfall: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/chargeback-ledger.ts' },
+  chargebackWon: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/chargeback-ledger.ts' },
+  chargebackShortfallRecovered: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/chargeback-ledger.ts' },
   stake: { kind: 'live', module: 'token', proof: 'services/svc-token/src/token-service.ts' },
   unstake: { kind: 'live', module: 'token', proof: 'services/svc-token/src/token-service.ts' },
   mintEmission: { kind: 'live', module: 'token', proof: 'services/svc-token/src/token-service.ts' },

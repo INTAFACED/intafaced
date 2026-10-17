@@ -12,7 +12,8 @@ import {
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
 import { userCopy } from './user-copy.js';
-import type { AcademyService, RoomRecord } from './academy-service.js';
+import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
+import type { CallerSeat } from './learning/customer-store.js';
 import {
   AmbassadorPayRefuseError,
   ambassadorPayPlaneStatus,
@@ -131,6 +132,8 @@ const roomOut = z.object({
   minStake: amountString,
   capacity: z.number().int(),
   hostId: z.string().uuid(),
+  seated: z.boolean(),
+  role: z.enum(['host', 'speaker', 'attendee']).nullable(),
 });
 
 const sessionOut = z.object({
@@ -146,6 +149,8 @@ const sessionOut = z.object({
   scene: z.record(z.unknown()),
   /** Always on read — client supplies this as expectedFingerprint on updateScene. */
   sceneFingerprint: z.string().min(1),
+  seated: z.boolean(),
+  role: z.enum(['host', 'speaker', 'attendee']).nullable(),
 });
 
 const curriculumSummaryOut = z.object({
@@ -445,6 +450,35 @@ const enrollmentOut = z.object({
   pathSlug: z.string(),
   enrolledAt: z.date(),
 });
+const leaveOut = enrollmentOut.extend({ leftAt: z.date() });
+const completionPageOut = z.object({
+  items: z.array(z.object({ itemSlug: z.string(), completedAt: z.date() })),
+  nextCursor: z.string().nullable(),
+});
+const learningStateOut = z.object({
+  lastItemSlug: z.string().nullable(),
+  lastOpenedAt: z.date().nullable(),
+  secondsRead: z.number().int(),
+  activeDays: z.number().int(),
+});
+const cohortOut = z.object({
+  slug: z.string(),
+  startsAt: z.date().nullable(),
+  endsAt: z.date().nullable(),
+  capacity: z.number().int().nullable(),
+  entryRules: z.string().nullable(),
+  seatsLeft: z.number().int().nullable(),
+});
+const videoProgressOut = z.object({
+  videoSlug: z.string(),
+  positionSeconds: z.number().int().nullable(),
+});
+const metricCellOut = z.object({
+  value: z.number().int().nullable(),
+  reason: z.enum(['metric_not_recorded']).nullable(),
+});
+const attendeeRole = z.enum(['host', 'speaker', 'attendee']);
+const upcomingSessionOut = sessionOut.extend({ seated: z.literal(true), role: attendeeRole });
 const itemCompletionOut = z.object({
   userId: z.string().uuid(),
   itemSlug: z.string(),
@@ -521,7 +555,23 @@ const certProgressOut = z.object({
   grantIdempotencyKey: z.string().nullable(),
 });
 
-const serialiseRoom = (room: RoomRecord): z.infer<typeof roomOut> => ({ ...room, minStake: formatAmount(room.minStake) });
+const seatFor = (seats: readonly CallerSeat[], id: string, kind: 'room' | 'session'): { role: AttendeeRole } | null => {
+  const hit = seats.find((s) => (kind === 'room' ? s.roomId === id : s.sessionId === id));
+  return hit ? { role: hit.role } : null;
+};
+
+const serialiseRoom = (room: RoomRecord, seat: { role: AttendeeRole } | null = null): z.infer<typeof roomOut> => ({
+  ...room,
+  minStake: formatAmount(room.minStake),
+  seated: seat !== null,
+  role: seat?.role ?? null,
+});
+
+const serialiseSession = (session: SessionRecord, seat: { role: AttendeeRole } | null = null): z.infer<typeof sessionOut> => ({
+  ...session,
+  seated: seat !== null,
+  role: seat?.role ?? null,
+});
 
 /**
  * Error codes are preserved, not flattened.
@@ -671,7 +721,25 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.open_residencies_list_limit_unset':
     case 'academy.my_residencies_list_limit_unset':
     case 'academy.my_certs_list_limit_unset':
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'academy.my_completions_list_limit_unset':
+    case 'academy.residency_cohorts_list_limit_unset':
+    case 'academy.my_upcoming_sessions_list_limit_unset':
+    case 'academy.grant_audit_list_limit_unset':
+    case 'academy.prerequisite_unmet':
+      return new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: err.code === 'academy.prerequisite_unmet' ? err.message : message,
+        cause: err,
+      });
+
+    case 'academy.seconds_out_of_range':
+    case 'academy.video_position_out_of_range':
+    case 'academy.metrics_range_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.video_not_found':
+    case 'academy.enrollment_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
@@ -928,6 +996,10 @@ export function createAcademyRouter(
             slug: z.string(),
             title: z.string(),
             path: curriculumPath,
+            durationSeconds: z.number().int().nullable(),
+            thumbnailUrl: z.string().nullable(),
+            language: z.string().nullable(),
+            captionsUrl: z.string().nullable(),
           }),
         ),
       )
@@ -1182,34 +1254,42 @@ export function createAcademyRouter(
     rooms: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ kind: roomKind.optional(), limit: z.number().optional() }).optional())
       .output(z.array(roomOut))
-      .query(async ({ input }) =>
-        (
-          await academy.listRooms({
-            ...(input?.kind ? { kind: input.kind } : {}),
-            limit: input?.limit,
-          })
-        ).map(serialiseRoom),
-      ),
+      .query(async ({ ctx, input }) => {
+        const rooms = await academy.listRooms({
+          ...(input?.kind ? { kind: input.kind } : {}),
+          limit: input?.limit,
+        });
+        const seats = await academy.callerLiveSeats(ctx.principal.userId);
+        return rooms.map((room) => serialiseRoom(room, seatFor(seats, room.id, 'room')));
+      }),
 
-    /** A room, its terms, and what is on in it. */
+    /** A room, its terms, and what is on in it. `seated` and `role` are the caller's. */
     room: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ roomId: z.string().uuid(), limit: z.number().optional() }))
       .output(z.object({ room: roomOut, sessions: z.array(sessionOut) }))
-      .query(({ input }) =>
-        guard(async () => ({
-          room: serialiseRoom(await academy.room(input.roomId)),
-          sessions: await academy.listSessions({ roomId: input.roomId, limit: input.limit }),
-        })),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return {
+            room: serialiseRoom(await academy.room(input.roomId), seatFor(seats, input.roomId, 'room')),
+            sessions: (await academy.listSessions({ roomId: input.roomId, limit: input.limit })).map((session) =>
+              serialiseSession(session, seatFor(seats, session.id, 'session')),
+            ),
+          };
+        }),
       ),
 
     session: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ sessionId: z.string().uuid() }))
       .output(z.object({ session: sessionOut, occupancy: z.number().int() }))
-      .query(({ input }) =>
-        guard(async () => ({
-          session: await academy.session(input.sessionId),
-          occupancy: await academy.occupancy(input.sessionId),
-        })),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return {
+            session: serialiseSession(await academy.session(input.sessionId), seatFor(seats, input.sessionId, 'session')),
+            occupancy: await academy.occupancy(input.sessionId),
+          };
+        }),
       ),
 
     /**
@@ -1302,17 +1382,35 @@ export function createAcademyRouter(
     scheduleSession: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ roomId: z.string().uuid(), title: z.string().min(1).max(160), startsAt: z.coerce.date() }))
       .output(sessionOut)
-      .mutation(({ ctx, input }) => guard(() => academy.scheduleSession({ ...input, hostId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const session = await academy.scheduleSession({ ...input, hostId: ctx.principal.userId });
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return serialiseSession(session, seatFor(seats, session.id, 'session'));
+        }),
+      ),
 
     startSession: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ sessionId: z.string().uuid() }))
       .output(sessionOut)
-      .mutation(({ ctx, input }) => guard(() => academy.startSession({ sessionId: input.sessionId, hostId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const session = await academy.startSession({ sessionId: input.sessionId, hostId: ctx.principal.userId });
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return serialiseSession(session, seatFor(seats, session.id, 'session'));
+        }),
+      ),
 
     endSession: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ sessionId: z.string().uuid() }))
       .output(sessionOut)
-      .mutation(({ ctx, input }) => guard(() => academy.endSession({ sessionId: input.sessionId, hostId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const session = await academy.endSession({ sessionId: input.sessionId, hostId: ctx.principal.userId });
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return serialiseSession(session, seatFor(seats, session.id, 'session'));
+        }),
+      ),
 
     /**
      * The 2D scene (§8.3). Host writes whole scene; optional expectedFingerprint
@@ -1328,14 +1426,16 @@ export function createAcademyRouter(
       )
       .output(sessionOut.extend({ sceneFingerprint: z.string() }))
       .mutation(({ ctx, input }) =>
-        guard(() =>
-          academy.updateScene({
+        guard(async () => {
+          const session = await academy.updateScene({
             sessionId: input.sessionId,
             hostId: ctx.principal.userId,
             scene: input.scene,
             ...(input.expectedFingerprint !== undefined ? { expectedFingerprint: input.expectedFingerprint } : {}),
-          }),
-        ),
+          });
+          const seats = await academy.callerLiveSeats(ctx.principal.userId);
+          return serialiseSession(session, seatFor(seats, session.id, 'session'));
+        }),
       ),
 
     // ── Ambassador programme Stage-1 (status only — NO PAY / Class M residual) ─
@@ -2059,6 +2159,158 @@ export function createAcademyRouter(
           };
         }),
       ),
+
+    myCompletions: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ limit: z.number().optional(), cursor: z.string().min(1).max(512).optional() }))
+      .output(completionPageOut)
+      .query(({ ctx, input }) =>
+        guard(() => academy.myCompletions({ userId: ctx.principal.userId, limit: input.limit, cursor: input.cursor ?? null })),
+      ),
+
+    myEnrollments: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(enrollmentOut))
+      .query(({ ctx }) =>
+        guard(async () =>
+          (await academy.myEnrollments(ctx.principal.userId)).map((row) => ({
+            userId: row.userId,
+            pathSlug: row.pathSlug,
+            enrolledAt: row.enrolledAt,
+          })),
+        ),
+      ),
+
+    leaveCertPath: scopedProcedure('academy:write', { module: 'academy' })
+      .input(z.object({ pathSlug: z.string().min(1).max(64), clientRequestId: z.string().min(1).max(200) }))
+      .output(leaveOut)
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const row = await academy.leaveCertPath({
+            userId: ctx.principal.userId,
+            pathSlug: input.pathSlug,
+            clientRequestId: input.clientRequestId,
+          });
+          if (!row.leftAt) throw new AcademyError('Leave did not record leftAt', 'academy.cert_invalid');
+          return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt, leftAt: row.leftAt };
+        }),
+      ),
+
+    learningState: scopedProcedure('academy:read', { module: 'academy' })
+      .output(learningStateOut)
+      .query(({ ctx }) => guard(() => academy.learningState(ctx.principal.userId))),
+
+    touchLesson: scopedProcedure('academy:write', { module: 'academy' })
+      .input(
+        z.object({
+          slug: z.string().min(1).max(120),
+          secondsRead: z.number().optional(),
+          clientRequestId: z.string().min(1).max(200),
+        }),
+      )
+      .output(learningStateOut)
+      .mutation(({ ctx, input }) =>
+        guard(() =>
+          academy.touchLesson({
+            userId: ctx.principal.userId,
+            slug: input.slug,
+            clientRequestId: input.clientRequestId,
+            ...(input.secondsRead !== undefined ? { secondsRead: input.secondsRead } : {}),
+          }),
+        ),
+      ),
+
+    residencyCohorts: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ limit: z.number().optional() }))
+      .output(z.array(cohortOut))
+      .query(({ input }) => guard(() => academy.residencyCohorts(input.limit))),
+
+    videoProgress: router({
+      set: scopedProcedure('academy:write', { module: 'academy' })
+        .input(
+          z.object({
+            videoSlug: z.string().min(1).max(120),
+            positionSeconds: z.number(),
+            clientRequestId: z.string().min(1).max(200),
+          }),
+        )
+        .output(videoProgressOut)
+        .mutation(({ ctx, input }) =>
+          guard(() =>
+            academy.setVideoProgress({
+              userId: ctx.principal.userId,
+              videoSlug: input.videoSlug,
+              positionSeconds: input.positionSeconds,
+              clientRequestId: input.clientRequestId,
+            }),
+          ),
+        ),
+      get: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ videoSlug: z.string().min(1).max(120) }))
+        .output(videoProgressOut)
+        .query(({ ctx, input }) => guard(() => academy.getVideoProgress({ userId: ctx.principal.userId, videoSlug: input.videoSlug }))),
+    }),
+
+    myUpcomingSessions: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ limit: z.number().optional() }))
+      .output(z.array(upcomingSessionOut))
+      .query(({ ctx, input }) => guard(() => academy.myUpcomingSessions({ userId: ctx.principal.userId, limit: input.limit }))),
+
+    sessionCalendar: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ sessionId: z.string().uuid() }))
+      .output(z.object({ calendar: z.string() }))
+      .query(({ ctx, input }) =>
+        guard(async () => ({ calendar: await academy.sessionCalendar({ userId: ctx.principal.userId, sessionId: input.sessionId }) })),
+      ),
+
+    admin: router({
+      grantAudit: scopedProcedure('admin:read', { module: 'academy' })
+        .input(
+          z.object({
+            limit: z.number().optional(),
+            cursor: z.string().min(1).max(512).optional(),
+            certificateId: z.string().min(1).max(64).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                accountId: z.string().uuid(),
+                certificateId: z.string(),
+                grantedAt: z.date(),
+                status: z.literal('granted'),
+                reference: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(({ input }) =>
+          guard(() =>
+            academy.grantAudit({
+              limit: input.limit,
+              cursor: input.cursor ?? null,
+              certificateId: input.certificateId ?? null,
+            }),
+          ),
+        ),
+      opsMetrics: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ from: z.string(), to: z.string() }))
+        .output(
+          z.object({
+            from: z.string(),
+            to: z.string(),
+            days: z.array(
+              z.object({
+                date: z.string(),
+                lessonsRead: metricCellOut,
+                completions: metricCellOut,
+                grants: metricCellOut,
+              }),
+            ),
+          }),
+        )
+        .query(({ input }) => guard(() => academy.opsMetrics({ from: input.from, to: input.to }))),
+    }),
   });
 }
 

@@ -70,6 +70,8 @@ export const CONTROL_ERROR_CODES = [
   'pay.control_invalid',
   'pay.pricing_unconfigured',
   'pay.reserve_ledger_unwired',
+  'pay.caps_unconfigured',
+  'pay.payout_daily_limit_exceeded',
 ] as const;
 export type ControlErrorCode = (typeof CONTROL_ERROR_CODES)[number];
 
@@ -104,16 +106,22 @@ const CLASS_OF: Record<ControlErrorCode, ControlErrorClass> = {
   'pay.tier_unassigned': 'precondition',
   'pay.control_invalid': 'bad_request',
   'pay.reserve_ledger_unwired': 'unwired',
+  'pay.caps_unconfigured': 'precondition',
+  'pay.payout_daily_limit_exceeded': 'precondition',
 };
 
 export class ControlError extends Error {
   readonly errorClass: ControlErrorClass;
+  /** Exact decimal still approvable today. Set on `pay.payout_daily_limit_exceeded`. */
+  readonly remaining?: string;
   constructor(
     readonly code: ControlErrorCode,
     message?: string,
+    remaining?: string,
   ) {
     super(message ?? code);
     this.name = 'ControlError';
     this.errorClass = CLASS_OF[code];
+    if (remaining !== undefined) this.remaining = remaining;
   }
 }

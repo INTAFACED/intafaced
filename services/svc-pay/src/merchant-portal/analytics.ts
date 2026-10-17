@@ -8,6 +8,7 @@ import type { PayService } from '../payment-service.js';
 import { resolveRange, type DayRange } from '../metrics/window.js';
 import type { PermissionArea } from '../submerchants.js';
 import { decodeSeriesCursor, encodeSeriesCursor, requirePageLimit, type SeriesCursor } from './series-cursor.js';
+import { exactFeeRate, type EffectiveRate } from './effective-rate.js';
 import { ListQueryError } from '../list-page.js';
 
 type Bucket = 'day' | 'week';
@@ -48,8 +49,10 @@ function assetOf(assetId: string | undefined): string | null {
  * merchant-day projection. Each row is one period and one asset. The query
  * groups by both, so two assets are never added together.
  *
- * Effective rate stays null: the projection stores fee totals, not the pricing
- * rule that produced them. Conversion cost is not on this projection.
+ * `effectiveRate` stays null: assets are not added into one rate. `rates` is
+ * fees ÷ gross per asset over the whole window, from the same projection.
+ * The quotient is exact at 18 decimal places or it is withheld. Conversion
+ * cost is not on this projection.
  */
 export class MerchantAnalyticsService {
   constructor(
@@ -79,7 +82,8 @@ export class MerchantAnalyticsService {
     const page = this.page(input);
     const read = await this.snapshot(input.merchantId, async (tx) => {
       const rows = await this.points(tx, input, page, 'fees');
-      return { rows, freshness: await this.freshness(tx, input.merchantId) };
+      const rates = await this.windowRates(tx, input.merchantId, page.range, page.asset);
+      return { rows, rates, freshness: await this.freshness(tx, input.merchantId) };
     });
     const packed = this.pack(input, page.range, read.freshness, read.rows, (row) => ({
       period: row.period,
@@ -93,6 +97,7 @@ export class MerchantAnalyticsService {
       ...packed,
       effectiveRate: null,
       effectiveRateReason: 'not_aggregated' as const,
+      rates: read.rates,
       conversionCost: null,
       byRule: [],
     };
@@ -128,6 +133,27 @@ export class MerchantAnalyticsService {
     const now = row?.as_of_now ?? new Date();
     const asOf = row?.oldest ?? now;
     return { asOf: asOf.toISOString(), lagSeconds: Math.max(0, Math.trunc((now.getTime() - asOf.getTime()) / 1000)) };
+  }
+
+  /** Fees ÷ gross per asset for the whole window, not the current page. */
+  private async windowRates(
+    tx: Sql,
+    merchantId: string,
+    range: DayRange,
+    asset: string | null,
+  ): Promise<Array<EffectiveRate & { assetCode: string }>> {
+    const assetSql = asset ? tx`AND asset_code = ${asset}` : tx``;
+    const rows = await tx<Array<{ asset_code: string; gross: string; fees: string }>>`
+      SELECT asset_code, sum(settle_gross)::text AS gross, sum(settle_fees)::text AS fees
+        FROM pay.metrics_merchant_day
+       WHERE merchant_id = ${merchantId}
+         AND day >= ${range.from}::date AND day < ${range.to}::date
+         ${assetSql}
+       GROUP BY asset_code
+      HAVING sum(settle_gross) > 0 OR sum(settle_fees) > 0
+       ORDER BY asset_code
+    `;
+    return rows.map((row) => ({ assetCode: row.asset_code, ...exactFeeRate(row.fees, row.gross) }));
   }
 
   private async points(

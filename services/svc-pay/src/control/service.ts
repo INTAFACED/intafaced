@@ -1,15 +1,16 @@
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import type {
-  FounderControlAuditListInput,
-  FounderLimitRequestCloseResult,
-  MerchantControlProfile,
-  MerchantLimitIncreaseResult,
-  MerchantLimitOpen,
-  MerchantLimitWithdrawResult,
-  MerchantPricingHistory,
-  MerchantTierList,
-  PayCap,
+import {
+  merchantTierSummarySchema,
+  type FounderControlAuditListInput,
+  type FounderLimitRequestCloseResult,
+  type MerchantControlProfile,
+  type MerchantLimitIncreaseResult,
+  type MerchantLimitOpen,
+  type MerchantLimitWithdrawResult,
+  type MerchantPricingHistory,
+  type MerchantTierList,
+  type PayCap,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { roleOnMerchant as lookupRoleOnMerchant, type ControlAccessPorts } from './access.js';
@@ -17,6 +18,7 @@ import { listControlAudit, readMerchantAudit, type MerchantAuditEvent } from './
 import { ApprovalService } from './approvals.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
+import { reservedLivePayoutAmount } from './payout-daily-limit.js';
 import { ControlError } from './errors.js';
 import {
   closeLimitRequest,
@@ -216,13 +218,15 @@ export class ControlService {
       }
       const daily = cap.kind === 'daily_intake' || cap.kind === 'daily_payout';
       const used = await readUsage(this.sql, merchantId, cap.kind, cap.assetCode, daily ? dayKey(at) : monthKey(at));
+      const reserved = cap.kind === 'daily_payout' ? await reservedLivePayoutAmount(this.sql, merchantId, cap.assetCode, at) : 0n;
       const limit = parseAmount(cap.limit);
+      const committed = used + reserved;
       rows.push({
         kind: cap.kind,
         assetCode: cap.assetCode,
         limit: cap.limit,
         used: fmt(used),
-        remaining: fmt(limit > used ? limit - used : 0n),
+        remaining: fmt(limit > committed ? limit - committed : 0n),
         resetsAt: (daily ? nextDayStart(at) : nextMonthStart(at)).toISOString(),
       });
     }
@@ -232,7 +236,7 @@ export class ControlService {
   // ── operator reads ────────────────────────────────────────────────────────
 
   async listTiers() {
-    const rows = await this.sql<Array<Parameters<typeof toTier>[0] & { merchants: string }>>`
+    const rows = await this.sql<Array<Parameters<typeof toTier>[0] & { merchants: string; merchant_visible: boolean }>>`
       SELECT t.*, (SELECT count(*) FROM pay.control_merchant_profiles p WHERE p.tier_id = t.id) AS merchants
         FROM pay.control_tiers t ORDER BY t.id
     `;
@@ -247,6 +251,7 @@ export class ControlService {
         approvalThresholds: [...tier.approvalThresholds].map(([assetCode, amount]) => ({ assetCode, amount: fmt(amount) })),
         founderThresholds: [...tier.founderThresholds].map(([assetCode, amount]) => ({ assetCode, amount: fmt(amount) })),
         approvalTtlSeconds: tier.approvalTtlSeconds,
+        merchantVisible: row.merchant_visible,
         version: tier.version.toString(),
         merchants: Number(row.merchants),
       };
@@ -299,38 +304,44 @@ export class ControlService {
   }
 
   /**
-   * This merchant's own tier only. Other tiers are not listed: nothing marks a tier public.
-   * No assigned tier, or a tier id with no row, is `not_configured`. The query is limited
-   * even though a tier id matches at most one row.
+   * The tier ladder this merchant may read: their own tier, plus any tier
+   * flagged `merchant_visible`. Another merchant's unpublished tier is not
+   * included. Founder thresholds, approval bars, TTL, the visibility flag and
+   * merchant counts stay on `founderAdmin.control.tiers.list`. No visible tier
+   * and no assignment is `not_configured`. An assigned id with no row is not
+   * reported as current. More than 64 visible tiers refuses rather than
+   * dropping the rest. 64 is a response bound, not a product limit.
    */
   async merchantTierList(merchantId: string): Promise<MerchantTierList> {
     const control = await loadMerchantControl(this.sql, merchantId);
-    const tierId = control.profile?.tierId ?? null;
-    if (!tierId) return { status: 'not_configured', ownTierId: null };
+    const assigned = control.profile?.tierId ?? null;
     const rows = await this.sql<Array<Parameters<typeof toTier>[0]>>`
-      SELECT * FROM pay.control_tiers WHERE id = ${tierId} ORDER BY id LIMIT 1
+      SELECT * FROM pay.control_tiers
+       WHERE merchant_visible OR (${assigned}::text IS NOT NULL AND id = ${assigned})
+       ORDER BY id
+       LIMIT 65
     `;
-    const row = rows[0];
-    if (!row) return { status: 'not_configured', ownTierId: null };
+    if (rows.length === 0) return { status: 'not_configured', ownTierId: null };
+    if (rows.length > 64) throw new ControlError('pay.control_invalid', 'tier catalogue exceeds the response bound');
     const archetypes = ['psp', 'broker', 'gaming', 'standard'] as const;
-    const tier = toTier(row);
-    if (!(archetypes as readonly string[]).includes(tier.archetype)) {
-      throw new ControlError('pay.control_invalid', 'tier archetype is unreadable');
-    }
-    return {
-      status: 'configured',
-      ownTierId: tier.id,
-      tiers: [
-        {
-          id: tier.id,
-          name: tier.name,
-          archetype: tier.archetype as (typeof archetypes)[number],
-          caps: [...tier.caps],
-          reserve: tier.reserve ? { rollingReserveBps: tier.reserve.bps, holdDays: tier.reserve.holdDays } : null,
-          version: tier.version.toString(),
-        },
-      ],
-    };
+    const tiers = rows.map((row) => {
+      const tier = toTier(row);
+      if (!(archetypes as readonly string[]).includes(tier.archetype)) {
+        throw new ControlError('pay.control_invalid', 'tier archetype is unreadable');
+      }
+      const summary = merchantTierSummarySchema.safeParse({
+        id: tier.id,
+        name: tier.name,
+        archetype: tier.archetype,
+        caps: [...tier.caps],
+        reserve: tier.reserve ? { rollingReserveBps: tier.reserve.bps, holdDays: tier.reserve.holdDays } : null,
+        version: tier.version.toString(),
+      });
+      if (!summary.success) throw new ControlError('pay.control_invalid', 'tier is unreadable');
+      return summary.data;
+    });
+    const ownTierId = assigned !== null && tiers.some((tier) => tier.id === assigned) ? assigned : null;
+    return { status: 'configured', ownTierId, tiers };
   }
 
   /**

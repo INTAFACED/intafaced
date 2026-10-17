@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DESTINATION_CHANGE_FLOW } from './destinations.js';
+import { DESTINATION_CHANGE_FLOW, DESTINATION_DEFAULT_REMOVE_FLOW } from './destinations.js';
 import { derivePayoutLifecycleStatus, type LifecycleKind } from './lifecycle-status.js';
 
 describe('payout lifecycle status', () => {
@@ -13,5 +13,9 @@ describe('payout lifecycle status', () => {
 
   it('changes a destination only through step-up and a hold', () => {
     expect(DESTINATION_CHANGE_FLOW).toBe('step_up_hold');
+  });
+
+  it('treats destination remove and set-default as an owner write, not a reviewed change', () => {
+    expect(DESTINATION_DEFAULT_REMOVE_FLOW).toBe('owner_write');
   });
 });

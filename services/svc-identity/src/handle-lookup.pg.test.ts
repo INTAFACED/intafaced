@@ -114,7 +114,7 @@ if (!available) {
     it('returns the caller userId and stored handle', async () => {
       const me = await signUp('Whoami_Now');
       const out = await (await as(me)).me();
-      expect(out).toEqual({ userId: me, handle: 'Whoami_Now' });
+      expect(out).toEqual({ userId: me, handle: 'Whoami_Now', emailVerified: false });
     });
   });
 }

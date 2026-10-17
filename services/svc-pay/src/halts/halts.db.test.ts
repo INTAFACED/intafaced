@@ -37,6 +37,8 @@ const migrations = [
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
   '0006_pay_merchant_status_history.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
   '0018_pay_founder_controls_admission.sql',
   '0037_pay_withdrawal_rail_attempts.sql',
@@ -45,6 +47,7 @@ const migrations = [
   '0071_pay_merchant_names.sql',
   '0073_pay_settlement_read.sql',
   '0079_pay_halt_autotrip_window.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-halts-test-secret-at-least-32-characters';
@@ -517,12 +520,14 @@ describe('W5 halts store and guards (real Postgres, two replica pools)', () => {
       });
       expect(railCalls).toBe(0);
       expect(chain.outboundTransfers()).toHaveLength(0);
-      // Paused, not failed: same status and attempt, no release or reverse, no outcome row.
+      // Paused, not failed: same status and attempt, no release or reverse.
+      // The dispatch marker is already committed (the rail was entered, then
+      // the process died before a send). There is still no rail answer.
       expect((await poolA`SELECT status, payout_attempts FROM pay.settlements WHERE id = ${first.id}`)[0]).toEqual(statusBefore);
       expect(ledger.journal().length).toBe(journalBefore);
       expect(
-        await poolA`SELECT 1 FROM pay.payout_outcomes o JOIN pay.payout_admissions a ON a.id = o.admission_id WHERE a.settlement_id = ${first.id}`,
-      ).toHaveLength(0);
+        await poolA`SELECT o.kind FROM pay.payout_outcomes o JOIN pay.payout_admissions a ON a.id = o.admission_id WHERE a.settlement_id = ${first.id} ORDER BY o.kind`,
+      ).toEqual([{ kind: 'dispatched' }]);
 
       // The halt clears (two founders): the very same call completes.
       const clear = setInput({ scope: 'payout', halted: false, expectedVersion: '1', reason: 'rail repaired' });
