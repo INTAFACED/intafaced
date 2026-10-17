@@ -2512,7 +2512,7 @@ describe('private REST — mount boundary + order write path', () => {
       await app.close();
     });
 
-    it('DELETE with no price closes at the mark — the happy path still works', async () => {
+    it('DELETE with no price is cancel-not-close and does not call closePosition', async () => {
       const seen: string[] = [];
       const app = await build(
         deps({
@@ -2527,23 +2527,25 @@ describe('private REST — mount boundary + order write path', () => {
         url: `/api/v1/positions/${ORDER_ID}`,
         headers: signedHeaders(),
       });
-      expect(res.statusCode).toBe(200);
-      expect(seen).toEqual([ORDER_ID]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('trade.cancel_not_close');
+      expect(seen).toEqual([]);
       await app.close();
     });
 
-    it('DELETE /positions unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
+    it('POST /positions/:id/close unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
       const app = await build(
         deps({
-          closePosition: async () => {
+          closePositionQuantity: async () => {
             throw new FuturesError('cannot pay', 'trade.profit_source_unconfigured', 403);
           },
         }),
       );
       const res = await app.inject({
-        method: 'DELETE',
-        url: `/api/v1/positions/${ORDER_ID}`,
+        method: 'POST',
+        url: `/api/v1/positions/${ORDER_ID}/close`,
         headers: signedHeaders(),
+        payload: { quantity: '1', clientCloseId: 'close-1' },
       });
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({

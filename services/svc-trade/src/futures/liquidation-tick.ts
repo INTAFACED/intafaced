@@ -26,6 +26,19 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
+import { gateLiquidationRecipe } from './sub-account-loss.js';
+
+async function postGuarded(
+  ledger: Pick<LedgerClient, 'post'>,
+  row: { readonly userId: string; readonly subAccountId?: string | null },
+  recipe: PostRequest,
+): Promise<void> {
+  const gate = gateLiquidationRecipe(row, recipe);
+  if (!gate.ok) {
+    throw Object.assign(new Error(gate.reason), { code: gate.code });
+  }
+  await ledger.post(recipe);
+}
 import {
   DEPTH_UNKNOWN,
   FuturesLadderError,
@@ -892,7 +905,7 @@ async function planAndDrive(
   }
 
   for (const recipe of decision.recipes) {
-    await deps.ledger.post(recipe as PostRequest);
+    await postGuarded(deps.ledger, row, recipe as PostRequest);
   }
 
   if (decision.closesPosition) {
@@ -1007,7 +1020,7 @@ async function driveRung(
 
     for (const stored of plan.recipes) {
       try {
-        await deps.ledger.post(stored);
+        await postGuarded(deps.ledger, row, stored);
       } catch (err) {
         const code = (err as { code?: unknown } | null)?.code;
         if (code !== 'ledger.insufficient_funds') throw err;
@@ -1036,7 +1049,7 @@ async function driveRung(
             amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
           releaseShort += potEntry.amount - amended;
           if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), releaseShort }))) return rereadAndDrive();
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else if (
           stored.reason === 'futures.loss.realized' &&
           potEntry &&
@@ -1106,7 +1119,7 @@ async function driveRung(
           }
           if (!(await amend(next))) return rereadAndDrive();
           if (closing) insuranceGrown += shift; // the amendment is persisted: the fund now pays `shift` more than planned
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else if (current.fromInsurance > 0n) {
           // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
           // the insurance fund — but only if the fund is actually below the leg. Otherwise it is
@@ -1153,7 +1166,7 @@ async function driveRung(
           if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), fromInsurance: 0n, lossShort }))) {
             return rereadAndDrive();
           }
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else {
           throw err;
         }

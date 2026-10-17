@@ -99,6 +99,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'That order id was used for a different order',
     body: 'Nothing new was placed. Start a new ladder.',
   },
+  'trade.system_overload': {
+    title: 'New orders are paused',
+    body: 'The order door is overloaded, so a new position is refused. An order that only reduces a position can still be sent.',
+  },
+  'trade.cancel_not_close': {
+    title: 'That does not close the position',
+    body: 'Deleting a position does not close it or release its margin. Use close. Nothing was changed.',
+  },
 };
 
 export interface RefusalInput {

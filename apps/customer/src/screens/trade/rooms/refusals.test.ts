@@ -17,4 +17,9 @@ describe('roomWords: a write that may have gone through is never called unchange
   it('still explains a plain refusal by its code', () => {
     expect(roomWords({ reason: 'error', code: 'trade.matching_unavailable' }).code).toBe('trade.matching_unavailable');
   });
+  it('has plain words for an overloaded order door', () => {
+    const words = roomWords({ reason: 'error', code: 'trade.system_overload' });
+    expect(words.title.length).toBeGreaterThan(0);
+    expect(words.body.length).toBeGreaterThan(0);
+  });
 });

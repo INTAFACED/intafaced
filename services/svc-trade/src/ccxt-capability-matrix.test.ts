@@ -177,6 +177,7 @@ describe('ccxt capability matrix — inventory integrity', () => {
         'addIsolatedMarginInsufficient',
         'adlDisclosureRequired',
         'callerPriceOnClose',
+        'cancelNotClose',
         'callerPriceOnOpen',
         'crossMarginOnOpen',
         'fundingRateSpot',
@@ -614,7 +615,10 @@ describe('ccxt capability matrix — claim ≡ wire (inject)', () => {
     expect(body.refuseArms.some((a) => a.id === 'leverageRequiredOnOpen' && a.httpStatus === 400)).toBe(true);
     expect(body.routes.some((r) => r.name === 'openPosition' && r.refuseArmIds?.includes('futuresUnconfiguredOnOpen'))).toBe(true);
     expect(body.refuseArms.some((a) => a.id === 'futuresUnconfiguredOnOpen' && a.httpStatus === 403)).toBe(true);
-    expect(body.routes.some((r) => r.name === 'closePosition' && r.refuseArmIds?.includes('profitSourceUnconfiguredOnClose'))).toBe(true);
+    expect(body.routes.some((r) => r.name === 'closePosition' && r.refuseArmIds?.includes('cancelNotClose'))).toBe(true);
+    expect(body.routes.some((r) => r.name === 'closePositionQuantity' && r.refuseArmIds?.includes('profitSourceUnconfiguredOnClose'))).toBe(
+      true,
+    );
     expect(body.refuseArms.some((a) => a.id === 'profitSourceUnconfiguredOnClose' && a.httpStatus === 403)).toBe(true);
     expect(body.routes.some((r) => r.name === 'setLeverage' && r.kind === 'supported')).toBe(true);
     expect(body.routes.some((r) => r.name === 'setMarginMode' && r.kind === 'refuse')).toBe(true);
