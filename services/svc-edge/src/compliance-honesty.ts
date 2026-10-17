@@ -10,6 +10,8 @@
  * No second freeze path. Money freeze remains ledger-only.
  */
 
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+import { dirname } from 'node:path';
 import {
   FREEZE_AUTHORITY_FLAG_KEY,
   NETWORK_SIGNAL_CONFIGURED_ENV,
@@ -96,12 +98,16 @@ export type ComplianceQueueAuditEntry = {
   readonly ok: boolean;
   readonly status: string | null;
   readonly actor: string | null;
+  /** Approver from the consumed approval. Absent on a refuse that never reached one. */
+  readonly approverId?: string | null;
   readonly code?: string;
   readonly reason?: string;
 };
 
 export type ComplianceQueueDoorSnapshot = ComplianceQueueSnapshot & {
   readonly recentAudit: readonly ComplianceQueueAuditEntry[];
+  /** `file` survives a process restart. `memory` does not. */
+  readonly store: 'file' | 'memory';
 };
 
 export type EdgeComplianceHonesty = {
@@ -232,12 +238,23 @@ export class EdgeComplianceQueue {
   private readonly items = new Map<string, ComplianceQueueItem>();
   private readonly audit: ComplianceQueueAuditEntry[] = [];
   private static readonly AUDIT_CAP = 50;
+  private readonly statePath: string | undefined;
+  private unreadable: string | null = null;
 
-  constructor(private readonly env: () => Record<string, string | undefined> = () => process.env) {}
+  constructor(
+    private readonly env: () => Record<string, string | undefined> = () => process.env,
+    options: { readonly statePath?: string | undefined } = {},
+  ) {
+    this.statePath = options.statePath?.trim() || undefined;
+    if (this.statePath) this.hydrate();
+  }
 
   snapshot(): ComplianceQueueDoorSnapshot {
+    if (this.unreadable) {
+      throw new Error(`edge.compliance_queue_unreadable: ${this.unreadable}`);
+    }
     const base = complianceQueueSnapshot([...this.items.values()], assertScreeningConfigured(this.env()).configured);
-    return { ...base, recentAudit: [...this.audit] };
+    return { ...base, recentAudit: [...this.audit], store: this.statePath ? 'file' : 'memory' };
   }
 
   /**
@@ -258,10 +275,15 @@ export class EdgeComplianceQueue {
       status: 'opened',
       actor: 'operator',
     });
+    this.persist();
     return this.snapshot();
   }
 
-  dispose(itemId: string, request: ComplianceQueueDispositionRequest): ComplianceQueueDispositionResult {
+  dispose(
+    itemId: string,
+    request: ComplianceQueueDispositionRequest,
+    meta: { readonly approverId?: string | null; readonly reason?: string | null } = {},
+  ): ComplianceQueueDispositionResult {
     const item = this.items.get(itemId.trim()) ?? null;
     const partnerConfigured = assertScreeningConfigured(this.env()).configured;
     const result = applyComplianceQueueDisposition(item, request, partnerConfigured);
@@ -272,6 +294,8 @@ export class EdgeComplianceQueue {
         ok: true,
         status: result.status,
         actor: result.actor,
+        approverId: meta.approverId ?? null,
+        ...(meta.reason ? { reason: meta.reason } : {}),
       });
       if (result.status !== 'pending') {
         this.items.delete(itemId.trim());
@@ -287,7 +311,55 @@ export class EdgeComplianceQueue {
         reason: result.reason,
       });
     }
+    this.persist();
     return result;
+  }
+
+  private hydrate(): void {
+    const path = this.statePath;
+    if (!path) return;
+    let raw: string;
+    try {
+      raw = readFileSync(path, 'utf8');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return;
+      this.unreadable = code ?? 'read failed';
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw) as { items?: ComplianceQueueItem[]; recentAudit?: ComplianceQueueAuditEntry[] };
+      if (!Array.isArray(parsed.items) || !Array.isArray(parsed.recentAudit)) {
+        this.unreadable = 'shape';
+        return;
+      }
+      this.items.clear();
+      for (const item of parsed.items) this.items.set(item.id, item);
+      this.audit.splice(0, this.audit.length, ...parsed.recentAudit.slice(0, EdgeComplianceQueue.AUDIT_CAP));
+    } catch {
+      this.unreadable = 'json';
+    }
+  }
+
+  private persist(): void {
+    if (!this.statePath || this.unreadable) return;
+    const body = `${JSON.stringify({ items: [...this.items.values()], recentAudit: this.audit }, null, 2)}\n`;
+    const path = this.statePath;
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    const fd = openSync(tmp, 'wx', 0o600);
+    try {
+      const data = Buffer.from(body, 'utf8');
+      let offset = 0;
+      while (offset < data.length) offset += writeSync(fd, data, offset);
+      fsyncSync(fd);
+    } catch (err) {
+      closeSync(fd);
+      unlinkSync(tmp);
+      throw err;
+    }
+    closeSync(fd);
+    renameSync(tmp, path);
   }
 
   private pushAudit(entry: ComplianceQueueAuditEntry): void {
