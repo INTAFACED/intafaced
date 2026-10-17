@@ -50,6 +50,15 @@ export const rooms: readonly Room[] = [
     screen: 'money',
   },
   {
+    path: '/money/activity/:id',
+    title: 'Activity',
+    description: 'Transaction details',
+    door: 'Money',
+    area: 'money',
+    hidden: true,
+    screen: 'money',
+  },
+  {
     path: '/coin/:asset',
     title: 'Coin',
     description: 'Asset details and actions',
@@ -90,7 +99,7 @@ export const rooms: readonly Room[] = [
   { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Money', area: 'money' },
   { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Money', area: 'money' },
   { path: '/uc/record', title: 'Activity', description: 'Money moving in and out', door: 'Money', area: 'money', alias: '/money/activity' },
-  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money', alias: '/money' },
+  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money' },
   { path: '/bank/spaces', title: 'Spaces', description: 'Organise funds for your goals', door: 'Money', area: 'money' },
   { path: '/bank/transfers', title: 'Transfers', description: 'Move funds between your spaces', door: 'Money', area: 'money' },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Money', area: 'money' },
@@ -98,7 +107,14 @@ export const rooms: readonly Room[] = [
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
-  { path: '/bank/business', title: 'Business bank', description: 'Company cash accounts', door: 'Money', area: 'money', business: true },
+  {
+    path: '/bank/business',
+    title: 'Business approvals',
+    description: 'Approval rules on your accounts',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
   { path: '/trade', title: 'Markets', description: 'Prices for every market', door: 'Trade', area: 'trade', screen: 'trade/markets' },
   { path: '/exchange', title: 'Trade', description: 'Spot trading terminal', door: 'Trade', area: 'trade', alias: '/trade' },
   {
@@ -384,13 +400,11 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...(['chain', 'dex', 'protocol'] as const).map((slug) => ({
-    path: `/${slug}`,
-    title: slug,
-    description: 'Parked until owner activation' as const,
-    area: 'parked' as const,
-    hidden: true,
-  })),
+  ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
+    { path: `/${slug}`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const },
+    // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
+    { path: `/${slug}/*`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const, hidden: true },
+  ]),
 ];
 
 export function findRoom(path: string): Room | undefined {
@@ -456,18 +470,23 @@ export function roomDescription(room: Room, locale: UiLocale = currentPreference
 export function doorLabel(door: Door, locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-/** Pages offered by search: visible routes only. Aliases, parameter routes and hidden features never appear. */
+const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner']);
+/**
+ * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
+ * never appear; parked Protocol rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
+ * mode, except the Merchant home, which is how a Personal account finds the merchant set-up.
+ */
 export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   return rooms.filter(
     (room) =>
       !room.hidden &&
       !room.alias &&
-      !['team', 'parked'].includes(room.area) &&
-      // Public marketing pages are not part of the signed-in app; Help is the one public page customers look for.
-      (room.area !== 'public' || room.path === '/help') &&
+      room.area !== 'team' &&
+      // Public marketing pages are not part of the signed-in app; Help and the public extras customers once could not reach are.
+      (room.area !== 'public' || publicSearchable.has(room.path)) &&
       !isHiddenPath(room.path) &&
-      (!room.business || mode === 'Business') &&
+      (!room.business || mode === 'Business' || room.path === '/pay/merchant') &&
       words.every((word) =>
         `${room.title} ${room.description} ${room.door ?? ''} ${roomTitle(room, locale)} ${roomDescription(room, locale)} ${room.door ? doorLabel(room.door, locale) : ''}`
           .toLowerCase()

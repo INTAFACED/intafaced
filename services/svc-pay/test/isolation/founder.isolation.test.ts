@@ -22,7 +22,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import type { Context } from '@intafaced/contracts';
 import { findUnguardedFounderProcedures } from '../../src/namespaces/index.js';
 import { ADMIN_SCOPES, callRest, callTrpc, createWorld, ctxOf, keyOf, principal, sessionOf, type Outcome, type World } from './fixture.js';
-import { FOUNDER_EXTRA, FOUNDER_FLAG_OFF, FOUNDER_INPUTS, FOUNDER_PREFIXES } from './procedures.js';
+import { COMPLIANCE_PROCS, FOUNDER_EXTRA, FOUNDER_FLAG_OFF, FOUNDER_INPUTS, FOUNDER_PREFIXES } from './procedures.js';
 
 type Verdict = 'allowed' | 'refused' | 'unavailable' | `other:${string}`;
 
@@ -293,6 +293,60 @@ describe('G: founder-only procedures', () => {
           prefix,
         ).toBe(true);
     });
+    it('compliance decides are mounted beside decideKyb and are not founder-only paths', () => {
+      const all = Object.keys((w.appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+      for (const path of COMPLIANCE_PROCS) {
+        expect(all, path).toContain(path);
+        expect(FOUNDER_PREFIXES.some((prefix) => path.startsWith(prefix))).toBe(false);
+        expect((FOUNDER_EXTRA as readonly string[]).includes(path)).toBe(false);
+      }
+    });
+    it('merchant sessions, API keys, and callers without admin:compliance are refused on every compliance procedure', async () => {
+      const inputFor = (path: string): unknown => {
+        const merchantId = w.e.A.merchantId;
+        if (path === 'kyb.decisionBinding') return { merchantId };
+        if (path === 'kyb.decide') {
+          return { merchantId, decision: 'rejected', reason: 'isolation drill', approvalId: 'appr-1', operationId: 'op-1' };
+        }
+        if (path === 'merchant.decideKyb') {
+          return { merchantId, decision: 'rejected', approvalId: 'appr-1', operationId: 'op-1' };
+        }
+        return {
+          merchantId,
+          requestId: randomUUID(),
+          decision: 'rejected',
+          reason: 'isolation drill',
+          expectedChangeHash: `sha256:${'a'.repeat(64)}`,
+          approvalId: 'appr-1',
+          operationId: 'op-1',
+        };
+      };
+      const callers = [
+        ctxOf(sessionOf(w.e.A.userId)),
+        ctxOf(keyOf(w.e.A.userId)),
+        ctxOf(sessionOf(w.e.B.userId, { scopes: ['admin:read'] })),
+        ctxOf(sessionOf(w.e.B.userId, { scopes: ['admin:write'] })),
+        ctxOf(keyOf(w.founderUserId, { scopes: ADMIN_SCOPES })),
+        ctxOf(null),
+      ];
+      for (const ctx of callers) {
+        const got: Record<string, Verdict> = {};
+        for (const path of COMPLIANCE_PROCS) got[path] = verdict(await callTrpc(w, ctx, path, inputFor(path)));
+        expect(got).toEqual(Object.fromEntries(COMPLIANCE_PROCS.map((path) => [path, 'refused'])));
+      }
+    });
+    it('an admin:compliance session can read the KYB decision binding without founder authority', async () => {
+      const operator = sessionOf(randomUUID(), { scopes: ['admin:compliance'] });
+      const o = await callTrpc(w, ctxOf(operator), 'kyb.decisionBinding', { merchantId: w.e.A.merchantId });
+      expect(o.kind).toBe('ok');
+      if (o.kind !== 'ok') return;
+      const view = o.value as { merchantId: string; identityHash: string };
+      expect(view.merchantId).toBe(w.e.A.merchantId);
+      expect(view.identityHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(view).not.toHaveProperty('profileVersion');
+      const foreign = await callTrpc(w, ctxOf(sessionOf(w.e.B.userId)), 'kyb.decisionBinding', { merchantId: w.e.A.merchantId });
+      expect(foreign).toMatchObject({ kind: 'error', code: 'FORBIDDEN' });
+    });
     it('the self-guarded operator surfaces are pinned: a new accountControls.* / merchantState.* procedure must be added to FOUNDER_EXTRA', () => {
       const all = Object.keys((w.appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
       const operatorish = all.filter((p) => p.startsWith('accountControls.') || p.startsWith('merchantState.')).sort();
@@ -387,7 +441,7 @@ describe('G: founder-only procedures', () => {
         'createPayRouter(pay, rails, userMoney, subMerchants',
         'createMerchantStateRouter(',
         'createKybPspRouter(',
-        'createSubMerchantRouter(subMerchants, pay)',
+        'createSubMerchantRouter(subMerchants, pay, sql)',
         'new MerchantAccountControls(sql, founderAuthority',
         'createMetricsRuntime({ sql, pay, trees: subMerchants, rails })',
         'registerPublicPayRest(app',
