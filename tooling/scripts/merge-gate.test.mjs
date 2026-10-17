@@ -115,11 +115,11 @@ test('collapseChecks keeps the latest attempt per workflow+name, and does not me
   assert.equal(out.find((c) => c.name === 'B').bucket, 'pending');
 });
 
-test('ci path filter: docs-only is skipped, code and the doctrine file are not', () => {
-  assert.equal(ciWouldRun(['docs/a.md', 'README.md', 'NOTICE', 'LICENSE', 'docs/deep/x.png']), false);
+test('ci path filter: docs-only runs, and so do code and the doctrine file', () => {
+  assert.equal(ciWouldRun(['docs/a.md', 'README.md', 'NOTICE', 'LICENSE', 'docs/deep/x.png']), true);
   assert.equal(ciWouldRun(['docs/a.md', 'services/svc-pay/src/a.ts']), true);
   assert.equal(ciWouldRun(['INTAFACED_DEFINITIVE_BUILD.md']), true);
-  assert.equal(ciWouldRun(['packages/x/README.md']), false);
+  assert.equal(ciWouldRun(['packages/x/README.md']), true);
 });
 
 test('agent-rule files are never docs-only, even though they are markdown', () => {
@@ -279,19 +279,17 @@ test('a cancelled check on the PR counts as failing', () => {
   assert.equal(r.pass, false);
 });
 
-test('docs-only PR with CI skipped passes on what reported and says so; a failing Docs format check blocks it', () => {
+test('docs-only PR with CI absent fails, and a failing Docs format check still blocks', () => {
   const r = evaluate({ checks: REQ_OK, mainFailing: new Set(), files: ['docs/x.md'], title: 'docs: x', ciPresent: false });
-  assert.equal(r.pass, true);
-  assert.equal(r.docsOnly, true);
-  const text = renderComment({ verdict: 'PASS', head: HEAD, pr: 7, main: null, checks: REQ_OK, evalResult: r });
-  assert.match(text, /Docs-only PR.*no tests ran.*Gitleaks, Dependency audit.*a failing one would have blocked it/);
-  assert.doesNotMatch(text, /two required checks only|Gitleaks and Dependency audit checks only/);
+  assert.equal(r.pass, false);
+  assert.equal(r.docsOnly, false);
+  assert.match(r.reasons.join(), /CI never started/);
   const bad = evaluate({
     checks: [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
     mainFailing: new Set(),
     files: ['docs/x.md'],
     title: 'docs: x',
-    ciPresent: false,
+    ciPresent: true,
   });
   assert.equal(bad.pass, false);
   assert.deepEqual(
@@ -547,16 +545,12 @@ test('runGate: times out instead of hanging', async () => {
   await assert.rejects(runGate(opts({ timeoutMin: 1 }), { gh, ...clock() }), /not finished after 1 min.*Format/);
 });
 
-test('runGate: docs-only PR reporting only the required checks passes', async () => {
-  const { gh, calls } = fakeGh({ pr: basePr({ title: 'docs: notes' }), files: ['docs/notes.md'], checks: REQ_OK, prRuns: [] });
-  const r = await runGate(opts(), { gh, ...clock() });
-  assert.equal(r.code, 0);
-  assert.equal(r.evalResult.docsOnly, true);
-  assert.equal(
-    calls.some((x) => x.args[0] === 'run' && x.args.includes('ci.yml')),
-    false,
-    'no main lookup needed',
-  );
+test('runGate: a docs-only PR whose CI never ran does not pass', async () => {
+  const { gh } = fakeGh({ pr: basePr({ title: 'docs: notes' }), files: ['docs/notes.md'], checks: REQ_OK, prRuns: [] });
+  const r = await runGate(opts({ ciGraceSec: 10 }), { gh, ...clock() });
+  assert.equal(r.code, 1);
+  assert.equal(r.evalResult.docsOnly, false);
+  assert.match(r.evalResult.reasons.join(), /CI never started/);
 });
 
 test('runGate: an AGENTS.md-only PR whose CI never ran does not pass as docs-only', async () => {
@@ -613,19 +607,19 @@ test('a FAIL verdict never says the docs-only PR "passed"', () => {
     mainFailing: new Set(),
     files: ['docs/x.md'],
     title: 'docs: x',
-    ciPresent: false,
+    ciPresent: true,
   });
   const text = renderComment({
     verdict: 'FAIL',
     head: HEAD,
     pr: 7,
     main: null,
-    checks: r.checks ?? [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
+    checks: [...REQ_OK, chk('Prettier (docs)', 'fail', 'Docs format')],
     evalResult: r,
   });
   assert.match(text, /Merge gate: FAIL/);
   assert.doesNotMatch(text, /Passed on the checks/);
-  assert.match(text, /Checks that reported/);
+  assert.match(text, /NEW failures/);
 });
 
 // ---- "Tests (full)": the test-name ratchet against a window of main's recent runs ---------------------------------------

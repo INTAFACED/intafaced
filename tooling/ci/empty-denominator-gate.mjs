@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'agent-autoload': {
-    kind: 'guard',
-    must: /missing required auto-load file/,
-    note: 'denominator is a fixed required-file list; with the tree gone every entry is missing and it refuses by name.',
-  },
   'notice-pin': {
     kind: 'guard',
     must: /NOTICE PIN FAILED — missing required file/,

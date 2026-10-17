@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { roleHasPermission, type MerchantPermission, type TeamRole } from './merchant-ops/roles.js';
 
 /** Reads a team member may hold. Owner access is decided before this is asked. */
-export type MerchantReadPermission = 'payments.read' | 'settlements.read' | 'halts.read';
+export type MerchantReadPermission = 'payments.read' | 'settlements.read' | 'halts.read' | 'profile.read';
 
 const STORED_ROLES = new Set<TeamRole>(['admin', 'finance', 'developer', 'viewer']);
 
