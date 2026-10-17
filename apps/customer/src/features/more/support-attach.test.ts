@@ -7,6 +7,15 @@ describe('reading a file to attach', () => {
     expect(read).toEqual({ ok: true, contentType: 'image/png', bodyBase64: 'aGkh', byteLength: 3 });
   });
 
+  it('refuses a file too big to pass the gateway without reading it', async () => {
+    const huge = {
+      size: 24 * 1024 * 1024 + 1,
+      type: 'video/mp4',
+      arrayBuffer: () => Promise.reject(new Error('must not read')),
+    } as unknown as Blob;
+    expect(await readAttachment(huge)).toEqual({ ok: false, reason: 'tooLarge' });
+  });
+
   it('falls back to a generic type when the browser reports none', async () => {
     const read = await readAttachment(new Blob(['x']));
     expect(read).toMatchObject({ ok: true, contentType: 'application/octet-stream' });

@@ -222,7 +222,7 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
   const id = ticket.id;
   const input = useRef<HTMLInputElement>(null);
   const fileId = useId();
-  const [problem, setProblem] = useState<'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | null>(null),
+  const [problem, setProblem] = useState<'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | null>(null),
     [attached, setAttached] = useState<{ id: string; contentType: string; byteLength: number }[]>([]);
   return (
     <>
@@ -238,7 +238,10 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
           const file = input.current?.files?.[0];
           if (!file) return setProblem('attachNoFile');
           const read = await readAttachment(file);
-          if (!read.ok) return setProblem(read.reason === 'empty' ? 'attachEmpty' : 'attachUnreadable');
+          if (!read.ok)
+            return setProblem(
+              read.reason === 'empty' ? 'attachEmpty' : read.reason === 'tooLarge' ? 'refuseAttachLarge' : 'attachUnreadable',
+            );
           setProblem(null);
           const clientRequestId = `attach:${crypto.randomUUID()}`;
           action.stage({

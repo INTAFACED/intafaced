@@ -40,6 +40,8 @@ export function supportRefusalKey(failure: Pick<Failure, 'reason' | 'message' | 
   if (failure.reason === 'forbidden') return 'refuseForbidden';
   const named = SUPPORT_CODE.exec(failure.message)?.[0] ?? (failure.code && SUPPORT_CODE.test(failure.code) ? failure.code : null);
   if (named) return BY_CODE[named] ?? 'refuseGeneric';
+  // The gateway refuses an oversized body before the service sees it.
+  if (failure.status === 413) return 'refuseAttachLarge';
   if (failure.code === 'NOT_FOUND') return 'refuseNotFound';
   if (failure.code === 'CONFLICT') return 'refuseConflict';
   return null;

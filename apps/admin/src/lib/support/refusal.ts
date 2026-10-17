@@ -34,7 +34,7 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
   },
   'support.transition_illegal': {
     title: 'svc-support does not allow that status change',
-    body: 'Open and in-progress tickets can move to any other status except themselves. A resolved ticket can reopen or close. A closed ticket stays closed.',
+    body: 'Open and pending tickets can move to any other status except themselves. A resolved ticket can reopen or close. A closed ticket stays closed.',
     next: 'Pick a status the page offers, or read the ticket to see where it is now.',
   },
   'support.comment.terminal': {
