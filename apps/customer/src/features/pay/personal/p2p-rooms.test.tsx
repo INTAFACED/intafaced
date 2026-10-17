@@ -346,3 +346,26 @@ it('shows the available line only on the selling side of the order form', () => 
   const buying = renderToString(<TakeOfferPanel offer={offer} pay={payFor(BUYER)} userId={BUYER} />);
   expect(buying).not.toContain('take-available');
 });
+
+it('shows a dash, not 0%, while a trader’s only trades are still open', () => {
+  const open = renderToString(<CounterpartyMetrics data={reputation({ tradesTotal: 1, completed: 0, cancelled: 0 })} />);
+  expect(open).toContain('—');
+  expect(open).toContain('No finished trades yet');
+  expect(open).not.toContain('0%');
+  expect(open).not.toContain('0 of 1');
+  const cancelled = renderToString(<CounterpartyMetrics data={reputation({ tradesTotal: 2, completed: 0, cancelled: 2 })} />);
+  expect(cancelled).toContain('0%');
+  expect(cancelled).toContain('No completed trades yet');
+});
+
+it('says a maker has no finished orders yet instead of a 0% record on the board', () => {
+  const out = renderToString(
+    <TraderSummary record={{ ok: true, data: reputation({ tradesTotal: 3, completed: 0, cancelled: 0, completionRate: 0 }) }} />,
+  );
+  expect(out).toContain('3 orders · none finished yet');
+  expect(out).not.toContain('0%');
+  const cancelledOnly = renderToString(
+    <TraderSummary record={{ ok: true, data: reputation({ tradesTotal: 2, completed: 0, cancelled: 2, completionRate: 0 }) }} />,
+  );
+  expect(cancelledOnly).toContain('0%');
+});

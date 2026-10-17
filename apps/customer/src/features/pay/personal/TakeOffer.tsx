@@ -178,11 +178,13 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
   const check = checkTake(offer, amount);
+  const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
   const selling = takerRole(offer) === 'seller';
   const wantsBalance = selling && !own && Boolean(userId);
   const [available, setAvailable] = useState<ApiResult<string> | 'loading' | null>(null);
+  // While an earlier take is held its escrow may already have used part of the balance, so the figure can't judge a retry.
   const over =
-    wantsBalance && check.kind === 'ok' && available !== null && available !== 'loading' && available.ok
+    wantsBalance && !pay.guard.status(journalKey) && check.kind === 'ok' && available !== null && available !== 'loading' && available.ok
       ? exceedsAvailable(amount, available.data)
       : false;
   // A quantity above what the seller has is refused here, before any quote is asked for.
@@ -192,7 +194,6 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     (labels.resource.status === 'ready' ? labels.resource.data.find((entry) => entry.methodId === methodId)?.label : undefined) ?? methodId;
   const traders = useTraders(pay, own ? [] : [offer.makerId]);
   const requestKey = request.ok ? `${request.request.offerId}|${request.request.amount}|${request.request.method}` : null;
-  const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
   const mounted = useRef(true);
   const reviewToken = useRef(0);
   const [, notify] = useState(0);
@@ -487,7 +488,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
               offer={offer}
               quote={review.quote}
               methodLabel={methodLabel(review.request.method)}
-              counterparty={<TraderName record={traders[offer.makerId.toLowerCase()]} />}
+              counterparty={<TraderName record={traders[offer.makerId.toLowerCase()] ?? null} />}
             />
             {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
             <div className="actions">

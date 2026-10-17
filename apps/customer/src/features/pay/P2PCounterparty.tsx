@@ -32,6 +32,9 @@ export function CounterpartyMetrics({ data }: { data: Reputation }) {
   const count = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 });
   const percent = new Intl.NumberFormat(requestedLocale, { style: 'percent', maximumFractionDigits: 2 });
   const noTrades = data.tradesTotal === 0;
+  // Trades are counted when escrowed but completed or cancelled only when they finish, so until one finishes the rate is
+  // 0% of nothing: a dash, not a bad record.
+  const noFinished = data.completed + data.cancelled === 0;
   const noReleases = data.completed === 0;
   return (
     <div className="p2p-counterparty-metrics">
@@ -40,12 +43,12 @@ export function CounterpartyMetrics({ data }: { data: Reputation }) {
           <Copy k="completion" />
         </h3>
         <strong data-counterparty-metric="completion" lang={requestedLocale}>
-          {noTrades ? '—' : percent.format(data.completionRate)}
+          {noFinished ? '—' : percent.format(data.completionRate)}
         </strong>
         <div className="p2p-counterparty-basis">
           <p>
-            {noTrades ? (
-              <Copy k="noTradesYet" />
+            {noFinished ? (
+              <Copy k={noTrades ? 'noTradesYet' : 'noFinishedYet'} />
             ) : (
               <Copy k="completedBasis" params={{ completed: count.format(data.completed), total: count.format(data.tradesTotal) }} />
             )}
@@ -76,7 +79,7 @@ export function CounterpartyMetrics({ data }: { data: Reputation }) {
         <div className="p2p-counterparty-basis">
           {noReleases ? (
             <p>
-              <Copy k={noTrades ? 'noTradesYet' : 'noReleasesYet'} />
+              <Copy k={noTrades ? 'noTradesYet' : noFinished ? 'noFinishedYet' : 'noReleasesYet'} />
             </p>
           ) : (
             <>

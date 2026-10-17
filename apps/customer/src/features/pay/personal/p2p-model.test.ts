@@ -381,15 +381,17 @@ describe('an order priced differently from the review', () => {
 
 describe('who is on the other side', () => {
   it('summarises a maker only from the returned record', () => {
-    expect(makerSummary({ tradesTotal: 0, completed: 0, completionRate: 0, avgReleaseSecs: 0 })).toEqual({ kind: 'new' });
-    expect(makerSummary({ tradesTotal: 10, completed: 9, completionRate: 0.9, avgReleaseSecs: 120 })).toEqual({
+    expect(makerSummary({ tradesTotal: 0, completed: 0, cancelled: 0, completionRate: 0, avgReleaseSecs: 0 })).toEqual({ kind: 'new' });
+    expect(makerSummary({ tradesTotal: 10, completed: 9, cancelled: 1, completionRate: 0.9, avgReleaseSecs: 120 })).toEqual({
       kind: 'record',
       orders: 10,
       completionRate: 0.9,
       releaseSecs: 120,
     });
     // Orders but none completed: there is no release time to average, so none is shown.
-    expect(makerSummary({ tradesTotal: 3, completed: 0, completionRate: 0, avgReleaseSecs: 0 })).toMatchObject({ releaseSecs: null });
+    expect(makerSummary({ tradesTotal: 3, completed: 0, cancelled: 3, completionRate: 0, avgReleaseSecs: 0 })).toMatchObject({
+      releaseSecs: null,
+    });
   });
   it('splits a duration into its two largest units', () => {
     expect(splitDuration(45)).toEqual({ unit: 'seconds', major: 45, minor: null });
@@ -425,5 +427,14 @@ describe('placedNotice', () => {
   });
   it('puts a moved price first when a resend placed it at another price', () => {
     expect(placedNotice({ heldReference: 'aaaa', trade: { ...trade, price: '0.93' }, quote, placedNow: true })).toBe('moved');
+  });
+});
+
+describe('makerSummary with unfinished trades', () => {
+  const base = { tradesTotal: 0, completed: 0, cancelled: 0, completionRate: 0, avgReleaseSecs: 0 };
+  it('has three states: new, only open trades, and a finished record', () => {
+    expect(makerSummary(base)).toEqual({ kind: 'new' });
+    expect(makerSummary({ ...base, tradesTotal: 1 })).toEqual({ kind: 'unfinished', orders: 1 });
+    expect(makerSummary({ ...base, tradesTotal: 2, cancelled: 2 })).toMatchObject({ kind: 'record', completionRate: 0, releaseSecs: null });
   });
 });

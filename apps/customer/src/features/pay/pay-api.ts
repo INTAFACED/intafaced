@@ -323,7 +323,6 @@ function sendContextChanged() {
   return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.send_context_changed', reason: 'aborted' });
 }
 
-const isNotFound = (result: { reason: string; code?: string }) => result.reason === 'not_mounted' || result.code === 'p2p.trade_not_found';
 /** Only the service's own "no such order" answer. A bare 404 (a route that is not mounted) proves nothing about the order. */
 const isTradeAbsent = (result: { code?: string }) => result.code === 'p2p.trade_not_found';
 
@@ -491,7 +490,9 @@ export function createPersonalPayApi(
       if (denied) return denied;
       const result = await createMoneyClient(api).balances(signal);
       if (!result.ok) return result;
-      const key = Object.keys(result.data.balances).find((name) => name.toLowerCase() === asset.toLowerCase());
+      // The lock draws from the asset exactly as the order names it; another casing is only a fallback.
+      const names = Object.keys(result.data.balances);
+      const key = names.find((name) => name === asset) ?? names.find((name) => name.toLowerCase() === asset.toLowerCase());
       return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
     reputation: async (counterparty: string, signal?: AbortSignal) => {
@@ -805,7 +806,9 @@ export function createPersonalPayApi(
           if (!tradeId || !s.id.safeParse(tradeId).success) return takeRefusal('pay.take_unconfirmed', 'uncertain');
           const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
           if (!latest.ok)
-            return isNotFound(latest) ? takeRefusal('pay.take_not_found', 'uncertain') : takeRefusal('pay.take_unconfirmed', 'uncertain');
+            return isTradeAbsent(latest)
+              ? takeRefusal('pay.take_not_found', 'uncertain')
+              : takeRefusal('pay.take_unconfirmed', 'uncertain');
           return tradeMatchesTake(latest.data, offer, me, null, tradeId) ? latest : takeRefusal('pay.take_unconfirmed', 'uncertain');
         },
         () => p2pCurrent() && frameCurrent(),

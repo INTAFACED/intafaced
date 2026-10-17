@@ -524,6 +524,11 @@ describe('the seller’s available balance', () => {
     const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
     expect(await pay.availableBalance('USDT')).toEqual({ ok: true, data: '530.152142' });
   });
+  it('uses the asset exactly as named before another casing', async () => {
+    const svc = balance({ usdt: { free: '5', used: '0', total: '5' }, USDT: { free: '9', used: '0', total: '9' } });
+    const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
+    expect(await pay.availableBalance('USDT')).toEqual({ ok: true, data: '9' });
+  });
   it('treats an asset the read does not list as none held', async () => {
     const svc = balance({ BTC: { free: '1', used: '0', total: '1' } });
     const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
@@ -538,5 +543,26 @@ describe('the seller’s available balance', () => {
       reason: 'unauthorized',
     });
     expect(out.calls).toHaveLength(0);
+  });
+});
+
+describe('looking up an earlier order', () => {
+  async function checked(response: () => Response) {
+    let posts = 0;
+    const svc = service({
+      'offers.get': () => ok(offer()),
+      'trades.quote': () => ok(quote()),
+      'trades.take': () => (++posts, refusal(503, 'gateway.timeout')),
+      'trades.get': response,
+    });
+    const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
+    await pay.takeOffer(offer(), asked(), reviewed());
+    return pay.reconcileTake(offer());
+  }
+  it('says “not found” only for the service’s own answer', async () => {
+    expect(await checked(() => refusal(404, 'p2p.trade_not_found'))).toMatchObject({ ok: false, code: 'pay.take_not_found' });
+  });
+  it('calls a bare 404 unconfirmed', async () => {
+    expect(await checked(() => new Response('', { status: 404 }))).toMatchObject({ ok: false, code: 'pay.take_unconfirmed' });
   });
 });

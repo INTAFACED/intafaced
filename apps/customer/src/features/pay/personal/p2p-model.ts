@@ -475,13 +475,19 @@ export function placedNotice(input: {
 
 // ── Who is on the other side ────────────────────────────────────────────────────────────────────────────────────
 
-export type MakerSummary = { kind: 'new' } | { kind: 'record'; orders: number; completionRate: number; releaseSecs: number | null };
+export type MakerSummary =
+  | { kind: 'new' }
+  | { kind: 'unfinished'; orders: number }
+  | { kind: 'record'; orders: number; completionRate: number; releaseSecs: number | null };
 
 /** What to say about a maker from the reputation the service returned. Only returned fields; nothing is derived or filled in. */
 export function makerSummary(
-  reputation: Pick<Reputation, 'tradesTotal' | 'completed' | 'completionRate' | 'avgReleaseSecs'>,
+  reputation: Pick<Reputation, 'tradesTotal' | 'completed' | 'cancelled' | 'completionRate' | 'avgReleaseSecs'>,
 ): MakerSummary {
   if (reputation.tradesTotal === 0) return { kind: 'new' };
+  // Trades are counted when they are escrowed, but completed and cancelled only when they finish, so a trader whose
+  // trades are all still open has a rate of 0% that says nothing about how they trade.
+  if (reputation.completed + reputation.cancelled === 0) return { kind: 'unfinished', orders: reputation.tradesTotal };
   return {
     kind: 'record',
     orders: reputation.tradesTotal,
