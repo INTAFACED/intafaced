@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,7 +117,10 @@ describe('paper strategies survive a new connection to the same database', () =>
       await reopened.end({ timeout: 5 });
     }
 
-    const probe = spawnSync('pnpm', ['exec', 'tsx', join(HERE, 'reopen-probe.ts')], {
+    // A second OS process, not a second pnpm. `pnpm test` already holds the
+    // workspace, and a nested `pnpm exec` on that runner exceeds the 5s default.
+    const tsxCli = createRequire(join(SERVICE, 'package.json')).resolve('tsx/cli');
+    const probe = spawnSync(process.execPath, [tsxCli, join(HERE, 'reopen-probe.ts')], {
       cwd: SERVICE,
       encoding: 'utf8',
       env: {
