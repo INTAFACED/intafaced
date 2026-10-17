@@ -30,6 +30,7 @@ import {
   assertLoanResumePendingLimit,
 } from './job-batch-limit.js';
 import { requireInternalJobHmac } from './internal-job-hmac.js';
+import { startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -523,6 +524,33 @@ await app.register(fastifyTRPCPlugin, {
   } satisfies FastifyTRPCPluginOptions<BankRouter>['trpcOptions'],
 });
 
+/**
+ * Lost ledger acknowledgements stay pending until these three jobs run.
+ * The other money jobs stay operator endpoints. This timer is the caller.
+ * Its lock client is a single connection, not a slot on the request pool:
+ * the job bodies take their own loan locks on `sql`.
+ */
+const recoveryEnabled = env.BANK_RECOVERY_JOBS_INTERVAL_MS != null && env.BANK_RECOVERY_JOBS_BATCH_LIMIT != null;
+const recoveryLock = recoveryEnabled
+  ? postgres(env.DATABASE_URL, {
+      max: 1,
+      ssl: env.DATABASE_SSL ? 'require' : false,
+      connection: { application_name: `${env.SERVICE_NAME}-recovery` },
+      onnotice: () => undefined,
+    })
+  : undefined;
+const recoveryJobs = startBankRecoveryJobs({
+  config: { intervalMs: env.BANK_RECOVERY_JOBS_INTERVAL_MS, batchLimit: env.BANK_RECOVERY_JOBS_BATCH_LIMIT },
+  lock: recoveryLock,
+  loans: bank.loans,
+  earn: bank.earn,
+  onWarn: (message) => app.log.warn(message),
+  onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
+  onResult: (name, counts) =>
+    app.log.info({ job: name, scanned: counts.scanned, resolved: counts.resolved, stillUnknown: counts.stillUnknown }, 'bank recovery job'),
+  onSkip: (message) => app.log.info(message),
+});
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 if (!env.IDENTITY_URL) {
   app.log.warn(
@@ -550,6 +578,7 @@ app.log.info(
     rampProgrammeSimulated: rampProgramme.simulated,
     rampFiatLeg: rampProgramme.fiatLeg,
     rampFiatVia: rampProgramme.fiatVia,
+    recoveryJobs: recoveryJobs.list().length > 0,
   },
   'svc-bank ready',
 );
@@ -557,8 +586,10 @@ app.log.info(
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      recoveryJobs.stop();
       await app.close();
       await bus.close();
+      if (recoveryLock) await recoveryLock.end({ timeout: 5 });
       await sql.end({ timeout: 5 });
       process.exit(0);
     })();

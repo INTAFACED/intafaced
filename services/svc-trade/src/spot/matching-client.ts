@@ -25,7 +25,7 @@ import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
 export type EngineOrderType = 'market' | 'limit' | 'stop' | 'stop_limit' | 'option';
 export type EngineSide = 'buy' | 'sell';
-export type EngineTif = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
+export type EngineTif = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'MOC' | 'GTD' | 'GTT';
 
 export interface EngineSubmitRequest {
   readonly orderId: string;

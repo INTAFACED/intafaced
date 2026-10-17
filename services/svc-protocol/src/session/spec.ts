@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { decodeAbiParameters, encodeAbiParameters, isAddress, keccak256, toFunctionSelector, getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
+import { swapMinOutFloor } from '../amm/slippage.js';
 
 /**
  * SESSION KEY SCOPE — the TypeScript half of `contracts/SessionKeyLib.sol`.
@@ -106,9 +107,11 @@ export function isOutboundTransferSelector(selector: Hex): boolean {
  * (c) in FORBIDDEN_SIGNATURES, or (d) exempt with a written reason.
  * `erc20-recipient-scope.test.ts` re-runs that sweep, so a new function with an
  * address input fails the build until someone classifies it. The sweep covers
- * contracts in `contracts/out` only: a venue outside this repo is not covered,
- * and an amount cap (what a session may spend, as opposed to where it goes) is
- * a separate, unbuilt control.
+ * contracts in `contracts/out` only: a venue outside this repo is not covered.
+ * Swap slippage is not stored in the on-chain spec (that hash is the contract's).
+ * `evaluateSessionCall` refuses a `swapExactIn` whose `minAmountOut` is not at
+ * least a fresh quote times one minus the configured slippage. An amount cap
+ * on what a session may spend is still a separate, unbuilt control.
  *
  * Mirrors `SessionKeyLib.recipientOffset`. `spec.test.ts` asserts every selector
  * and byte offset (4 + 32 * recipientArg) against the Solidity source.
@@ -153,6 +156,68 @@ export const TARGET_ARG_OFFSETS: ReadonlyMap<Hex, number> = new Map(
 export const RECIPIENT_OFFSETS: ReadonlyMap<Hex, number> = new Map(
   RECIPIENT_SCOPED_CALLS.map((c) => [toFunctionSelector(c.signature).toLowerCase() as Hex, 4 + 32 * c.recipientArg]),
 );
+
+const POOL_SWAP_EXACT_IN = toFunctionSelector('swapExactIn(address,uint256,uint256,address)').toLowerCase();
+const ROUTER_SWAP_EXACT_IN = toFunctionSelector('swapExactIn(address,address,uint256,uint256,address)').toLowerCase();
+
+/** A decoded `swapExactIn`. `pool` is the call target for the pool form. */
+export type SwapExactInCall =
+  | { readonly kind: 'pool'; readonly tokenIn: Address; readonly amountIn: bigint; readonly minAmountOut: bigint }
+  | {
+      readonly kind: 'router';
+      readonly pool: Address;
+      readonly tokenIn: Address;
+      readonly amountIn: bigint;
+      readonly minAmountOut: bigint;
+    };
+
+function hexWord(data: Hex, argIndex: number): string | null {
+  const start = 2 + (4 + 32 * argIndex) * 2;
+  const end = start + 64;
+  if (data.length < end) return null;
+  return data.slice(start, end).toLowerCase();
+}
+
+function uintAt(data: Hex, argIndex: number): bigint | null {
+  const word = hexWord(data, argIndex);
+  return word == null ? null : BigInt(`0x${word}`);
+}
+
+function addressAt(data: Hex, argIndex: number): Address | null {
+  const word = hexWord(data, argIndex);
+  if (word == null || !word.startsWith('0'.repeat(24))) return null;
+  try {
+    return toChecksum(`0x${word.slice(24)}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pool and router `swapExactIn` calldata.
+ * `null` is some other selector. `'truncated'` is a swap whose words are
+ * missing or whose address words are not clean — fail closed, do not quote it.
+ */
+export function readSwapExactInCall(data: Hex): SwapExactInCall | 'truncated' | null {
+  if (data.length < 10) return null;
+  const selector = data.slice(0, 10).toLowerCase();
+  if (selector === POOL_SWAP_EXACT_IN) {
+    const tokenIn = addressAt(data, 0);
+    const amountIn = uintAt(data, 1);
+    const minAmountOut = uintAt(data, 2);
+    if (tokenIn == null || amountIn == null || minAmountOut == null) return 'truncated';
+    return { kind: 'pool', tokenIn, amountIn, minAmountOut };
+  }
+  if (selector === ROUTER_SWAP_EXACT_IN) {
+    const pool = addressAt(data, 0);
+    const tokenIn = addressAt(data, 1);
+    const amountIn = uintAt(data, 2);
+    const minAmountOut = uintAt(data, 3);
+    if (pool == null || tokenIn == null || amountIn == null || minAmountOut == null) return 'truncated';
+    return { kind: 'router', pool, tokenIn, amountIn, minAmountOut };
+  }
+  return null;
+}
 
 // ── The spec ────────────────────────────────────────────────────────────────
 
@@ -410,6 +475,8 @@ export type SessionCallCode =
   | 'session.recipient_calldata_too_short'
   | 'session.target_arg_not_allowed'
   | 'session.target_arg_calldata_too_short'
+  | 'session.slippage_unbounded'
+  | 'session.swap_min_out_below_bound'
   | 'session.spend_limit_exceeded';
 
 export interface SessionCallDecision {
@@ -429,6 +496,12 @@ export interface SessionCallQuery {
   /** Cumulative native value already moved under this session, from the chain. */
   spentWei: bigint;
   now: number;
+  /**
+   * Fresh quote and the configured slippage for a `swapExactIn` in `data`.
+   * Omitted on a swap means the slippage is unbounded. This evaluator does
+   * not invent either number — the service computes the quote from the pool.
+   */
+  swapBound?: { readonly quoteOut: bigint; readonly slippageBps: number };
 }
 
 /**
@@ -513,6 +586,33 @@ export function evaluateSessionCall(q: SessionCallQuery): SessionCallDecision {
       return deny(
         'session.target_arg_not_allowed',
         `${selector} trusts the contract at 0x${word}, which is not one of this session's targets. A session may only route through contracts its owner allowed.`,
+      );
+    }
+  }
+
+  // A swap with no floor, or a floor the integer bps cannot express, is
+  // unbounded. Recipient and target-arg rules already ran, so a stranger
+  // is still refused as a recipient before this branch.
+  const swap = readSwapExactInCall(q.data);
+  if (swap === 'truncated') {
+    return deny(
+      'session.slippage_unbounded',
+      `${selector} is a swap whose slippage cannot be read. A session swap needs a bounded minAmountOut.`,
+    );
+  }
+  if (swap) {
+    const floor = q.swapBound == null ? null : swapMinOutFloor(q.swapBound.quoteOut, q.swapBound.slippageBps);
+    if (floor == null || q.swapBound == null) {
+      return deny(
+        'session.slippage_unbounded',
+        `swapExactIn minAmountOut ${swap.minAmountOut.toString()} is not bounded by a fresh quote and a configured slippage.`,
+      );
+    }
+    if (swap.minAmountOut < floor) {
+      return deny(
+        'session.swap_min_out_below_bound',
+        `minAmountOut ${swap.minAmountOut.toString()} is below the slippage floor ${floor.toString()} ` +
+          `(quote ${q.swapBound.quoteOut.toString()} at ${q.swapBound.slippageBps} bps).`,
       );
     }
   }

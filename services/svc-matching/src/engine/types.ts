@@ -181,6 +181,7 @@ export const REJECT_CODES = [
   'invalid_tif',
   'duplicate_order_id',
   'post_only_would_cross',
+  'moc_would_take',
   'fok_unfillable',
   'engine_disabled',
   'order_not_found',

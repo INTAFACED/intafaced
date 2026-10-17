@@ -109,7 +109,7 @@ async function login(page, path = '/uc/safe') {
 const region = (page, name = 'Where you’re signed in') => page.getByRole('region', { name, exact: true });
 const seatButton = (page, id = one) => region(page).getByRole('button', { name: 'Sign out session ' + id, exact: true });
 const unknown = (page) => region(page).getByRole('region', { name: 'Original revoke is not confirmed', exact: true });
-const receipt = (page) => region(page).getByRole('region', { name: 'Session revocation response', exact: true });
+const receipt = (page) => region(page).getByRole('region', { name: 'Sign-out result', exact: true });
 async function send(page) {
   await page.getByRole('dialog').getByRole('button', { name: 'Sign out this session', exact: true }).click();
 }
@@ -165,7 +165,7 @@ test('native matching false is no live change and not recovery of an earlier req
   await login(page);
   await seatButton(page).click();
   await send(page);
-  await expect(receipt(page)).toContainText('This response changed no live seat');
+  await expect(receipt(page)).toContainText('This result changed no session');
   await expect(receipt(page)).toContainText(one);
   expect(await marker(page)).toBeNull();
   expect(state.writes).toHaveLength(1);
@@ -229,7 +229,7 @@ test('native explicit live window is bounded50 100 150 200 with no cursor or com
     await region(page).getByRole('button', { name: 'Show more', exact: true }).click();
     await expect.poll(() => state.reads.filter((r) => r.procedure === 'listSessions').at(-1)?.input.limit).toBe(n);
   }
-  await expect(region(page)).toContainText('older sessions may be outside this window');
+  await expect(region(page)).toContainText('older sessions may not be listed');
   await expect(region(page).getByRole('button', { name: 'Show more', exact: true })).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });
@@ -241,7 +241,7 @@ for (const changed of ['absent', 'createdAt'])
     state.listSessions = (route, input, reply) =>
       reply({ userId: owner, sessions: changed === 'absent' ? [] : [{ id: one, createdAt: older, revoked: false }] });
     await send(page);
-    await expect(region(page)).toContainText('The original session changed or is outside this live window.');
+    await expect(region(page)).toContainText('The session changed or is no longer in the list.');
     expect(state.writes).toEqual([]);
     expect(await marker(page)).toBeNull();
   });
@@ -596,7 +596,7 @@ test('native known response with failed journal removal stays honest and blocks 
   }, key);
   await send(page);
   await expect(receipt(page)).toContainText('The service revoked the selected session.');
-  await expect(region(page).getByRole('region', { name: 'Response received; saved guard retained', exact: true })).toContainText(one);
+  await expect(region(page).getByRole('region', { name: 'Result received; browser record kept', exact: true })).toContainText(one);
   await expect(unknown(page)).toHaveCount(0);
   await expect(seatButton(page, two)).toBeDisabled();
   const original = await marker(page);

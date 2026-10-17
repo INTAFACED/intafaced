@@ -1,0 +1,278 @@
+/*
+ * Copy and Bots rooms. Only --if-* tokens; layout only (every control, table and chip comes from @intafaced/ui).
+ * The whole file is in `@layer components`.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .cb-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-bottom: 96px;
+    color: var(--if-fg);
+    font-family: var(--if-font-ui);
+  }
+  .cb-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-bottom: 1px solid var(--if-line);
+    padding-top: 8px;
+  }
+  .cb-modes a {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    color: var(--if-fg-2);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .cb-modes a:hover {
+    color: var(--if-fg);
+    background: var(--if-hover);
+  }
+  .cb-modes a[aria-current='page'] {
+    color: var(--if-fg);
+    background: var(--if-field);
+  }
+  .cb-modes a:focus-visible {
+    outline: 2px solid var(--if-lime);
+    outline-offset: 2px;
+  }
+  .cb-meta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .cb-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0;
+    padding: 12px 16px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: var(--if-panel);
+    color: var(--if-fg-2);
+    font-size: 14px;
+    line-height: 20px;
+  }
+  .cb-note[data-tone='warn'] {
+    border-color: var(--if-warn);
+  }
+  .cb-note > svg {
+    flex: none;
+    margin-top: 2px;
+    color: var(--if-warn-text);
+  }
+  .cb-note > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .cb-note-title {
+    margin: 0;
+    color: var(--if-fg);
+    font-weight: 600;
+  }
+  .cb-note-body,
+  .cb-note-ref {
+    margin: 4px 0 0;
+  }
+  .cb-note-ref {
+    font-size: 12px;
+    color: var(--if-fg-3);
+  }
+  .cb-reasons {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    list-style: disc;
+  }
+  .cb-wrap {
+    display: block;
+    padding: 8px 0;
+    white-space: normal;
+    line-height: 20px;
+  }
+  .cb-toolbar > :first-child {
+    width: min(360px, 100%);
+  }
+  .cb-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .cb-switch,
+  .cb-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--if-fg);
+    font-size: 14px;
+  }
+  .cb-dialog {
+    max-width: 560px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+  }
+  .cb-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .cb-fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .cb-checklist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .cb-checklist label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+  }
+  .cb-label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--if-fg-2);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+  }
+  .cb-selectfield {
+    display: flex;
+    flex-direction: column;
+  }
+  .cb-error {
+    margin: 0;
+    color: var(--if-error-text);
+    font-size: 12px;
+  }
+  .cb-h3 {
+    margin: 16px 0 4px;
+    color: var(--if-fg);
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+  }
+  .cb-cost {
+    padding: 8px 12px 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .cb-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .cb-why {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: var(--if-fg-2);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .cb-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  .cb-progress progress {
+    flex: 1;
+    height: 8px;
+    accent-color: var(--if-lime);
+  }
+  .cb-mono {
+    font-family: var(--if-font-mono);
+    font-size: 12px;
+  }
+  .cb-statuscell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .cb-statuscell small {
+    color: var(--if-fg-2);
+    font-size: 12px;
+    line-height: 16px;
+    white-space: normal;
+  }
+  .cb-byid {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+    max-width: 520px;
+  }
+  .cb-byid > :first-child {
+    flex: 1;
+  }
+
+  /*
+   * Cost boxes sit in a dialog about 450 px wide on a desktop and the width of the screen on a phone. The kit's KeyValue lays its
+   * rows on a two-column grid (label | value). Here the labels are long and the values are sentences, so the value column shrank to
+   * a few letters (one word per line on a desktop, clipped at 390 px). Stack label over value at every width.
+   * The kit sets its grid with utility classes, which sit in a later layer than this file, so these overrides need !important.
+   */
+  .cb-cost [data-slot='key-value'] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .cb-cost [data-slot='key-value-row'] {
+    grid-column: 1 / -1 !important;
+    padding-block: 8px;
+  }
+  .cb-cost [data-slot='key-value-row'] dd {
+    text-align: left !important;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 640px) {
+    /* Notes with an action button (Check what happened, Try again, Dismiss): put the button under the text, not beside a one-word-wide column. */
+    .cb-note {
+      flex-wrap: wrap;
+    }
+    .cb-note > div {
+      flex: 1 1 14rem;
+    }
+  }
+
+  /*
+   * The bot catalogue gives its first four columns fixed widths (1080 px) and leaves the Action column to share the rest, but the
+   * kit's minWidth for it is 1000 px. Below about 1220 px of room the Action column got 0 px and its buttons (Set up, Not built,
+   * See strategies) sat outside the scroll area where nobody could reach them. Keep 140 px for that column so the table scrolls
+   * sideways with the button inside it. minWidth is an inline style, so this needs !important.
+   */
+  .cb-page [data-slot='table-scroll'] > table:has(> colgroup > col:nth-child(5):last-child:not([style])) {
+    min-width: 1220px !important;
+  }
+
+  /*
+   * Empty and error rows span the whole table, which is wider than the screen on a phone, so their text was laid out across the
+   * full width and cut off at the edge (the blocker sentence under "No leaders are listed" ended mid-word). Pin the message to the
+   * left edge of the scroll area and stop it at the width of the screen.
+   */
+  .cb-page [data-slot='table-empty-row'] > td > *,
+  .cb-page [data-slot='table-error-row'] > td > * {
+    position: sticky;
+    left: 0;
+    width: min(100%, calc(100vw - 2 * var(--if-gutter)));
+  }
+}

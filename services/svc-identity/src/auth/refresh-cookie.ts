@@ -23,12 +23,18 @@
  *   and logout.
  * - `auth.refresh` and `auth.logout` read this cookie when the body omits
  *   `refreshToken`. A body `refreshToken` still wins (API and mobile).
- * - The JSON always includes `refreshToken`, including when the request
- *   sends `Origin`. The customer app requires the field. Hiding it from the
- *   page is a later change that must land with, or after, that app change.
- *   The cookie is still set either way.
+ * - A browser session (`Origin` present, `bag.browser`) omits `refreshToken`
+ *   from the JSON on every path that returns a session: register, founder
+ *   register, login (password and TOTP), passkey verify, and refresh. The
+ *   token is only in this cookie. A request with no Origin still includes
+ *   `refreshToken` in the JSON. The cookie is set either way.
+ * - Cookie-bearing refresh and logout at the edge need an Origin on the
+ *   allowlist or the header `x-session-request: 1`. Missing both is HTTP 403
+ *   `auth.csrf_origin_required` and does not rotate or revoke. An Origin
+ *   outside the allowlist is HTTP 403 `edge.origin_not_allowed`. An empty
+ *   allowlist matches no Origin.
  * - Refuse codes: `auth.session_invalid`, `auth.session_reused` (HTTP 401,
- *   `error.data.intafacedCode`). Edge CSRF: `edge.origin_not_allowed` (HTTP 403).
+ *   `error.data.intafacedCode`).
  */
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
