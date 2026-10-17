@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { assertTestDatabase } from '@intafaced/db';
+import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { PostgresDeliveryStore, PostgresTargetStore } from '../channel-store.js';
 import { type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
@@ -24,7 +24,7 @@ import { encodeRecentCursor } from './recent.js';
  * It never drops or truncates a table. Cleanup deletes only this file's ids.
  */
 
-const URL = process.env.TEST_DATABASE_URL;
+const URL = process.env.TEST_DATABASE_URL_NOTIFY ?? process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', '..', 'drizzle');
 const USER = 'n0t1f7be-1111-4111-8111-111111111111';
@@ -35,8 +35,13 @@ const PAGE_USER = 'n0t1f7be-5555-4555-8555-555555555555';
 const RELEASE_USER = 'n0t1f7be-6666-4666-8666-666666666666';
 const PAGE_OTHER = 'n0t1f7be-7777-4777-8777-777777777777';
 
-/** Unset means this file is not the caller. */
-const client: Sql | null = URL ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
+/**
+ * Neither URL means this file is not the caller (`describe.skipIf` skips).
+ * A set URL is probed with `postgresAvailable`: a dead local database skips,
+ * and CI / REQUIRE_POSTGRES throws instead of skipping.
+ */
+const available = URL ? await postgresAvailable(URL) : false;
+const client: Sql | null = URL && available ? postgres(URL, { max: 2, onnotice: () => undefined }) : null;
 
 /**
  * The lead shared database is named `test`. CI and compose use `*_test`.
@@ -49,29 +54,52 @@ async function assertNotifyPrefsDatabase(db: Sql): Promise<void> {
   await assertTestDatabase(db, 'svc-notify notify-prefs.pg.test');
 }
 
+const REQUIRED_TABLES = [
+  'notify.topic_prefs',
+  'notify.digest_prefs',
+  'notify.digest_holds',
+  'notify.digest_summaries',
+  'notify.preference_commands',
+  'notify.notices',
+  'notify.notice_approval_uses',
+] as const;
+
+/**
+ * Sibling suites apply 0000-0004 at import and ignore errors. Replaying 0002
+ * inside a transaction then aborts this file (`delivered_at` is already
+ * `accepted_at`). Apply each file the same way they do, then refuse a schema
+ * that is still missing a table this file reads or writes.
+ */
 async function applyMigrations(db: Sql): Promise<void> {
   await assertNotifyPrefsDatabase(db);
-  await db`CREATE SCHEMA IF NOT EXISTS notify`;
-  await db`
-    CREATE TABLE IF NOT EXISTS notify.__migrations (
-      name text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
   const files = readdirSync(migrationsDir)
     .filter((file) => file.endsWith('.sql') && !file.endsWith('.down.sql'))
     .sort();
   for (const file of files) {
     const body = readFileSync(join(migrationsDir, file), 'utf8');
-    await db.begin(async (tx) => {
-      const claimed = await tx<{ name: string }[]>`
-        INSERT INTO notify.__migrations (name) VALUES (${file})
-        ON CONFLICT (name) DO NOTHING
-        RETURNING name
-      `;
-      if (claimed.length === 0) return;
-      await tx.unsafe(body);
-    });
+    await db.unsafe(body).catch(() => undefined);
+  }
+  await assertMigratedShape(db);
+}
+
+async function assertMigratedShape(db: Sql): Promise<void> {
+  const missing: string[] = [];
+  for (const name of REQUIRED_TABLES) {
+    const rows = await db<{ rel: string | null }[]>`SELECT to_regclass(${name}) AS rel`;
+    if (rows[0]?.rel == null) missing.push(name);
+  }
+  const accepted = await db<{ present: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = to_regclass('notify.deliveries')
+        AND attname = 'accepted_at'
+        AND NOT attisdropped
+    ) AS present
+  `;
+  if (!accepted[0]?.present) missing.push('notify.deliveries.accepted_at');
+  if (missing.length > 0) {
+    throw new Error(`notify-prefs.pg.test: migrations did not leave a usable schema. Missing: ${missing.join(', ')}.`);
   }
 }
 
@@ -116,7 +144,7 @@ class OneApproval implements NoticeApprovalConsumer {
 }
 
 function db(): Sql {
-  if (!client) throw new Error('TEST_DATABASE_URL is unset');
+  if (!client) throw new Error('TEST_DATABASE_URL_NOTIFY and TEST_DATABASE_URL are unset');
   return client;
 }
 
@@ -149,7 +177,7 @@ function channelStatus() {
   ]).status();
 }
 
-describe.skipIf(!URL)('notify prefs on the shared test database', () => {
+describe.skipIf(!URL || !available)('notify prefs on the shared test database', () => {
   it('keeps one account topic mute invisible to another, and replays the first snapshot', async () => {
     const account = new AccountPrefs(
       new PostgresTopicPrefStore(db()),
