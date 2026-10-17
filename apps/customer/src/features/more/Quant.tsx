@@ -6,11 +6,17 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, TextArea, useAction } from './common';
+import { Details, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { refusalCopy } from '../../data/refusals';
 import {
+  COST_MODELS,
+  type CostKey,
+  HYPOTHESES,
+  HYPOTHESIS_COPY,
+  MODEL_COPY,
+  draftStrategyNames,
   historicalResultSchema,
   matchesHistoricalRequest,
   utcInput,
@@ -18,9 +24,8 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { QuantLibrary } from './QuantLibrary';
 import { QuantLibraryClosed, QuantSaveOff } from './QuantSaveOff';
-import { emptyDraft, readDraft, readsSharedLibrary, writeDraft } from './quant-draft';
+import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
@@ -31,16 +36,6 @@ const stamp = z.object({
   claimLabel: z.enum(['Paper — not live performance', 'Historical simulation — not a forecast', 'Shadow — not live performance']),
   live: z.literal(false),
   simulated: z.literal(true),
-});
-const block = z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: decimalSchema });
-const strategy = stamp.extend({
-  id: z.string(),
-  name: z.string(),
-  language: z.literal('javascript'),
-  source: z.string(),
-  cash: signedDecimalSchema,
-  blocks: z.array(block),
-  risk: z.object({ maxDrawdown: signedDecimalSchema, maxNotional: signedDecimalSchema, kill: signedDecimalSchema }),
 });
 const runSchema = stamp.extend({
   ok: z.literal(true),
@@ -55,6 +50,10 @@ const runSchema = stamp.extend({
   venue: z.literal('internal'),
   venueVault: z.enum(['unset', 'set']),
 });
+/** The plain-English name of a cost model; an unknown model from the service is shown as received. */
+function modelLabel(t: (key: (typeof MODEL_COPY)[keyof typeof MODEL_COPY]) => string, kind: string) {
+  return kind in MODEL_COPY ? t(MODEL_COPY[kind as keyof typeof MODEL_COPY]) : kind;
+}
 export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'backtest'; paper?: boolean }) {
   const api = useApi(),
     { userId } = useSession(),
@@ -68,7 +67,6 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [drawdown, setDrawdown] = useState(draftStart.drawdown),
     [notional, setNotional] = useState(draftStart.notional),
     [kill, setKill] = useState(draftStart.kill),
-    [limit, setLimit] = useState(50),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
     [bt, setBt] = useState<HistoricalSnapshot | null>(null),
     [strategyId, setStrategyId] = useState(''),
@@ -77,17 +75,23 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [isTo, setIsTo] = useState(''),
     [oosFrom, setOosFrom] = useState(''),
     [oosTo, setOosTo] = useState(''),
-    [verdict, setVerdict] = useState('inconclusive'),
+    [verdict, setVerdict] = useState<(typeof HYPOTHESES)[number]>('inconclusive'),
     [variants, setVariants] = useState(''),
     [evidence, setEvidence] = useState({ fees: '', slippage: '', latency: '' }),
-    [models, setModels] = useState({ fees: 'venue-schedule', slippage: 'order-book-replay', latency: 'measured-distribution' });
+    [models, setModels] = useState<Record<CostKey, string>>({
+      fees: 'venue-schedule',
+      slippage: 'order-book-replay',
+      latency: 'measured-distribution',
+    });
   const { Copy, t, languageFor, directionFor } = analysisCopy.useCopy();
   const draft = useRef<HTMLDivElement>(null);
-  const [invalid, setInvalid] = useState(false);
+  // Backtest picks from the named draft kept on this device; the shared library is closed, so it is never read.
+  const [studioDraft] = useState(() => (mode === 'backtest' ? readDraft(userId ?? null) : null));
+  const strategyNames = draftStrategyNames(studioDraft);
   const [lastAttempt, setLastAttempt] = useState<{ request: HistoricalRequest; view: object; result: ApiResult<unknown> } | null>(null);
   const windows = [isFrom, isTo, oosFrom, oosTo].map(utcInput);
   const validAnalysis = Boolean(
-    strategyId.trim() &&
+    strategyNames.includes(strategyId) &&
     symbol.trim() &&
     symbol.trim().length <= 32 &&
     windows.every(Boolean) &&
@@ -120,13 +124,6 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
         { signal },
       ),
     'quant-capabilities',
-  );
-  const saved = useResource(
-    (signal) =>
-      readsSharedLibrary(mode)
-        ? api.query('quant', 'studio.list', { limit }, z.object({ strategies: z.array(strategy) }), { signal })
-        : Promise.resolve({ ok: true as const, data: { strategies: [] } }),
-    `quant-saved:${mode}:${limit}`,
   );
   const validCash = signedDecimalSchema.safeParse(cash).success;
   useEffect(() => {
@@ -403,27 +400,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 <p className="muted">
                   <Copy k="fullStrategy" />
                 </p>
-                <details className="quant-catalogue">
-                  <summary>
-                    <Copy k="catalogue" />
-                  </summary>
-                  {readsSharedLibrary(mode) ? (
-                    <Saved resource={saved} limit={limit} setLimit={setLimit} onPick={(s) => setStrategyId(s.id)} />
-                  ) : (
-                    <QuantLibraryClosed />
-                  )}
-                </details>
                 <p className="muted">
                   <Copy k="utc" />
                 </p>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (!validAnalysis || action.disabled) {
-                      setInvalid(true);
-                      return;
-                    }
-                    setInvalid(false);
+                    if (!validAnalysis || action.disabled) return;
                     const request: HistoricalRequest = {
                       strategyId: strategyId.trim(),
                       symbol: symbol.trim(),
@@ -433,7 +416,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                         outOfSampleFrom: windows[2]!,
                         outOfSampleTo: windows[3]!,
                       },
-                      outOfSampleStatus: verdict as HistoricalRequest['outOfSampleStatus'],
+                      outOfSampleStatus: verdict,
                       strategyVariantCount: Number(variants),
                       costModel: {
                         fees: { kind: models.fees, source: evidence.fees.trim() },
@@ -455,7 +438,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                           </p>
                           <Details
                             items={[
-                              [copyText('quant.strategy'), <span lang="zxx">{request.strategyId}</span>],
+                              [copyText('quant.strategy'), request.strategyId],
                               [copyText('quant.symbol'), <span lang="zxx">{request.symbol}</span>],
                               [
                                 copyText('quant.in.sample'),
@@ -465,14 +448,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                                 copyText('quant.out.of.sample'),
                                 <span lang="zxx">{request.walkForward.outOfSampleFrom + ' → ' + request.walkForward.outOfSampleTo}</span>,
                               ],
-                              [copyText('quant.evidence.verdict'), <span lang="zxx">{request.outOfSampleStatus}</span>],
+                              [t('verdict'), t(HYPOTHESIS_COPY[request.outOfSampleStatus])],
                               [analysisCopy.t('variants'), String(request.strategyVariantCount)],
                               ...(['fees', 'slippage', 'latency'] as const).map(
                                 (key) =>
                                   [
                                     analysisCopy.t(key),
                                     <span lang="und">
-                                      {request.costModel[key].kind} · {request.costModel[key].source}
+                                      {modelLabel(t, request.costModel[key].kind)} · {request.costModel[key].source}
                                     </span>,
                                   ] as [string, ReactNode],
                               ),
@@ -503,12 +486,32 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     });
                   }}
                 >
-                  <Field
-                    label={copyText('quant.strategy.id')}
-                    value={strategyId}
-                    onChange={(e) => setStrategyId(e.target.value)}
-                    required
-                  />
+                  {strategyNames.length ? (
+                    <>
+                      <Select
+                        label={t('strategyLabel')}
+                        value={strategyId}
+                        onChange={setStrategyId}
+                        options={[
+                          { value: '', label: t('strategyChoose') },
+                          ...strategyNames.map((name) => ({ value: name, label: name })),
+                        ]}
+                      />
+                      <p className="muted">
+                        <Copy k="strategyNote" />
+                      </p>
+                    </>
+                  ) : (
+                    <div className="field" role="group" aria-label={t('strategyLabel')}>
+                      <span>{t('strategyLabel')}</span>
+                      <p className="muted">
+                        <Copy k={studioDraft ? 'strategyUnnamed' : 'strategyNone'} />{' '}
+                        <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                          <Copy k="strategyOpenStudio" />
+                        </a>
+                      </p>
+                    </div>
+                  )}
                   <Field
                     label={copyText('quant.historical.symbol')}
                     value={symbol}
@@ -534,11 +537,14 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     ))}
                   </div>
                   <Select
-                    label={copyText('quant.evidence.based.out.of.sample.verdict')}
+                    label={t('hypothesis')}
                     value={verdict}
-                    onChange={setVerdict}
-                    options={['passed', 'failed', 'inconclusive']}
+                    onChange={(value) => setVerdict(value as (typeof HYPOTHESES)[number])}
+                    options={HYPOTHESES.map((value) => ({ value, label: t(HYPOTHESIS_COPY[value]) }))}
                   />
+                  <p className="muted">
+                    <Copy k="hypothesisNote" />
+                  </p>
                   <Field
                     label={copyText('quant.number.of.strategy.variants.tested')}
                     value={variants}
@@ -550,31 +556,29 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                     <fieldset key={key} className="quant-cost-fields">
                       <legend>{t(key)}</legend>
                       <Select
-                        label={copyText('quant.model', { value1: key })}
+                        label={t(`${key}Model`)}
                         value={models[key]}
                         onChange={(value) => setModels((v) => ({ ...v, [key]: value }))}
-                        options={
-                          key === 'fees'
-                            ? ['venue-schedule', 'tiered-venue-schedule']
-                            : key === 'slippage'
-                              ? ['order-book-replay', 'measured-impact']
-                              : ['measured-distribution', 'event-replay']
-                        }
+                        options={COST_MODELS[key].map((value) => ({ value, label: modelLabel(t, value) }))}
                       />
                       <Field
-                        label={copyText('quant.evidence.source', { value1: key })}
+                        label={t(`${key}Source`)}
                         value={evidence[key]}
                         onChange={(e) => setEvidence((v) => ({ ...v, [key]: e.target.value }))}
                         required
                       />
                     </fieldset>
                   ))}
-                  {invalid && (
-                    <p role="alert">
+                  {!validAnalysis && (
+                    <p className="muted" id="quant-backtest-reason">
                       <Copy k="invalid" />
                     </p>
                   )}
-                  <Button type="submit" disabled={action.disabled || !validAnalysis}>
+                  <Button
+                    type="submit"
+                    disabled={action.disabled || !validAnalysis}
+                    aria-describedby={validAnalysis ? undefined : 'quant-backtest-reason'}
+                  >
                     <Copy k="review" />
                   </Button>
                 </form>
@@ -586,31 +590,5 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
       {mode !== 'backtest' && action.feedback}
       {action.dialog}
     </div>
-  );
-}
-function Saved({
-  resource,
-  limit,
-  setLimit,
-  onPick,
-}: {
-  resource: ReturnType<typeof useResource<{ strategies: z.infer<typeof strategy>[] }>>;
-  limit: number;
-  setLimit: (n: number) => void;
-  onPick: (s: z.infer<typeof strategy>) => void;
-}) {
-  return (
-    <Read resource={resource.resource} retry={resource.reload} empty={copyText('quant.no.strategies.are.saved')}>
-      {(data) => (
-        <QuantLibrary
-          strategies={data.strategies}
-          onPick={(picked) => {
-            const full = data.strategies.find((row) => row.id === picked.id);
-            if (full) onPick(full);
-          }}
-          footer={<Limit count={data.strategies.length} limit={limit} cap={50} onChange={setLimit} />}
-        />
-      )}
-    </Read>
   );
 }
