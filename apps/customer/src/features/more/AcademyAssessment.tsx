@@ -293,8 +293,11 @@ function Quiz({ assessment, onReload }: { assessment: AssessmentData; onReload: 
     else if (outcome.kind === 'unconfirmed') {
       firstReplyLost.current = true;
       setProblem({ kind: 'unconfirmed', failure: outcome.failure });
+    } else if (firstReplyLost.current && academyCodeOf(outcome.failure) === null) {
+      // Not Academy's answer (sign-in, access, a cut connection): the first send may still have landed, so stay locked.
+      setProblem({ kind: 'unconfirmed', failure: outcome.failure });
     } else {
-      // A typed refusal means Academy stored nothing under this reference, so there is no lost reply to account for.
+      // An Academy-coded refusal means Academy stored nothing under this reference, so there is no lost reply to account for.
       firstReplyLost.current = false;
       setProblem({ kind: 'failure', failure: outcome.failure });
     }
