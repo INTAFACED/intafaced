@@ -45,7 +45,7 @@ describe('freeze and close on a card', () => {
   it('are not offered when no card programme is connected, and say so', () => {
     const html = render({ changeable: false });
     expect(html).not.toContain('<button');
-    expect(html).toContain('once a card programme is connected');
+    expect(html).toContain('needs a card programme, and none is connected here');
   });
 });
 
