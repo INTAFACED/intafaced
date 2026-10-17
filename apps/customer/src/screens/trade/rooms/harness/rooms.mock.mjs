@@ -127,7 +127,7 @@ function optionPreview(draft, market) {
  *   exec.parents     TEST parents known to the service, by id (running / partial / halted)
  * Returns the live state so a scenario can steer it: `mock.state.greeks = 'refused'`, `mock.state.abortOnce.set('rfq.accept', { landed: false })`.
  */
-export async function installMock(page, { room, now, optionsPolicy = 'paper', schedulerOn = true } = {}) {
+export async function installMock(page, { room, now, optionsPolicy = 'paper', schedulerOn = true, emptyChain = false } = {}) {
   const exchange = new Exchange();
   const calls = [];
   const errors = [];
@@ -141,7 +141,7 @@ export async function installMock(page, { room, now, optionsPolicy = 'paper', sc
   };
 
   exchange.balances = JSON.parse(JSON.stringify(TEST_BALANCES));
-  if (room === 'options') exchange.opts.markets = testChain;
+  if (room === 'options') exchange.opts.markets = emptyChain ? [] : testChain;
   else exchange.opts.markets = [wireSpot(TEST_MARKET)];
   if (room === 'execution') {
     exchange.open = [TEST_ORDERS.scaledOpen, TEST_ORDERS.manual, TEST_ORDERS.algoChild].map((o) => ({ ...o }));

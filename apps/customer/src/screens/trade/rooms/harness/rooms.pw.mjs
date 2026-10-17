@@ -90,6 +90,18 @@ test.describe('Options', () => {
     await clean(page, mock);
   });
 
+  // The blocker sentence must wrap on the page, not sit cut off inside a sideways-scrolling table.
+  test('chain: no contract listed shows the blocker as a readable block', async ({ page }) => {
+    const mock = await start(page, 'options', { at: OTC_NOW, emptyChain: true });
+    await expect(page.getByText('No option contract is listed')).toBeVisible();
+    await expect(grid(page, 'Option contracts')).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, 'page scrolls sideways at 390').toBeLessThanOrEqual(1);
+    await shot(page, 'options-01b-chain-empty', { phone: true });
+    await clean(page, mock);
+  });
+
   test('ticket: review a paper contract, cost block, confirm, order lands', async ({ page }) => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     await grid(page, 'Option contracts').getByText('TEST-BTC-25DEC26-60000-C').click();
