@@ -85,7 +85,10 @@ function signedHeaders(p: Principal = principal(), region = 'DE'): Record<string
 
 type WireBody = {
   result?: { data?: unknown };
-  error?: { message?: string; data?: { code?: string; httpStatus?: number } };
+  error?: {
+    message?: string;
+    data?: { code?: string; httpStatus?: number; cause?: { code?: string }; blockers?: { code: string }[] };
+  };
 };
 
 function stubTrade(overrides: Partial<TradeService> = {}): TradeService {
@@ -425,7 +428,13 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
     };
     expect(payload.feeSharePublished).toBe(false);
     expect(payload.jurisdictionPublished).toBe(false);
-    expect(payload.residual).toMatch(/leader fee share/);
+    expect(payload).not.toHaveProperty('residual');
+    expect((payload as { blockers?: { code: string }[] }).blockers?.map((b) => b.code)).toEqual([
+      'trade.copy_fee_share_blank',
+      'trade.copy_jurisdiction_blank',
+      'trade.copy_place_disabled',
+    ]);
+    expect(JSON.stringify(payload)).not.toMatch(/DIRECTION|D26-|§|leader_share_bps/);
     await app.close();
   });
 
@@ -447,6 +456,9 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
 
     expect(statusCode).toBe(412);
     expect(body.error!.message).toMatch(/served regions/i);
+    expect(body.error!.message).not.toMatch(/DIRECTION|D26-|§|leader_share_bps/);
+    expect(body.error!.data?.cause?.code).toBe('trade.copy_jurisdiction_blank');
+    expect(body.error!.data?.blockers).toEqual([{ code: 'trade.copy_jurisdiction_blank' }, { code: 'trade.copy_place_disabled' }]);
     await app.close();
   });
 

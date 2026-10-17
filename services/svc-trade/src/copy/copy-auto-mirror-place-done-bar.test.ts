@@ -17,7 +17,7 @@ import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
 import { CopyService } from '../controls/test-admission.js';
-import { COPY_AUTO_MIRROR_PLACE_SOCKET, COPY_PLACE_DISABLED_RESIDUAL, copyLimitPriceFromPlan, copyMirrorClientOrderId } from './index.js';
+import { COPY_AUTO_MIRROR_PLACE_SOCKET, copyLimitPriceFromPlan, copyMirrorClientOrderId } from './index.js';
 
 const SECRET = 'copy-auto-mirror-place-done-bar-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -97,7 +97,8 @@ describe('trade.copy placeMirror Done-bar', () => {
       .copy.deskStatus();
     expect(status.autoMirrorPlace.published).toBe(false);
     expect(status.autoMirrorPlace.socket).toBe(COPY_AUTO_MIRROR_PLACE_SOCKET);
-    expect(status.residuals.autoMirrorPlace).toBe(COPY_PLACE_DISABLED_RESIDUAL);
+    expect(status.blockers.map((b) => b.code)).toContain('trade.copy_place_disabled');
+    expect(status).not.toHaveProperty('residuals');
   });
 
   it('flag off: planMirror is real; placeMirror refuses and never invents a fill', async () => {
@@ -210,7 +211,7 @@ describe('trade.copy placeMirror Done-bar', () => {
 
     const status = await caller.copy.deskStatus();
     expect(status.autoMirrorPlace.published).toBe(true);
-    expect(status.residuals.autoMirrorPlace).toBeNull();
+    expect(status.blockers.map((b) => b.code)).not.toContain('trade.copy_place_disabled');
 
     const result = await caller.copy.placeMirror({
       followId: follow.followId,
