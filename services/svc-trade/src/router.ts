@@ -432,47 +432,48 @@ interface StoredPlaceAttempt {
   outcome: PlaceAttemptOutcome;
   reason: string | null;
   orderId: string | null;
-  order: OrderRecord | null;
-  refusal: unknown;
 }
 
 /**
- * First custodial place for a user and clientOrderId. A refusal is kept so an
- * officer can read it. An in-flight row stays `unknown` until the place returns
- * an order or a definite refusal. A timeout does not become a fill.
+ * Latest custodial place for a user and clientOrderId. An officer reads this
+ * record. It does not decide the customer's answer. A new key past `maxRows`
+ * drops the oldest row. Writing the same key again replaces the row and does
+ * not add a second clientOrderId entry.
  */
-class PlaceAttemptBook {
+export class PlaceAttemptBook {
   private readonly byKey = new Map<string, StoredPlaceAttempt>();
   private readonly byClientOrderId = new Map<string, string[]>();
+
+  constructor(private readonly maxRows = 10_000) {}
 
   private key(userId: string, clientOrderId: string): string {
     return `${userId}\0${clientOrderId}`;
   }
 
-  get(userId: string, clientOrderId: string): StoredPlaceAttempt | undefined {
-    return this.byKey.get(this.key(userId, clientOrderId));
-  }
-
-  /** First write wins. A later call for the same pair sees the stored row. */
-  insertOnce(row: StoredPlaceAttempt): StoredPlaceAttempt {
-    const key = this.key(row.userId, row.clientOrderId);
-    const existing = this.byKey.get(key);
-    if (existing) return existing;
-    this.byKey.set(key, row);
-    const keys = this.byClientOrderId.get(row.clientOrderId) ?? [];
-    keys.push(key);
-    this.byClientOrderId.set(row.clientOrderId, keys);
-    return row;
-  }
-
-  save(row: StoredPlaceAttempt): void {
+  /** Latest write wins. A repeat for the same user and clientOrderId replaces the row. */
+  record(row: StoredPlaceAttempt): void {
     const key = this.key(row.userId, row.clientOrderId);
     if (!this.byKey.has(key)) {
+      if (this.byKey.size >= this.maxRows) this.evictOldest();
       const keys = this.byClientOrderId.get(row.clientOrderId) ?? [];
       keys.push(key);
       this.byClientOrderId.set(row.clientOrderId, keys);
     }
     this.byKey.set(key, row);
+  }
+
+  private evictOldest(): void {
+    const oldest = this.byKey.keys().next();
+    if (oldest.done) return;
+    const key = oldest.value;
+    const row = this.byKey.get(key);
+    this.byKey.delete(key);
+    if (!row) return;
+    const keys = this.byClientOrderId.get(row.clientOrderId);
+    if (!keys) return;
+    const remaining = keys.filter((item) => item !== key);
+    if (remaining.length === 0) this.byClientOrderId.delete(row.clientOrderId);
+    else this.byClientOrderId.set(row.clientOrderId, remaining);
   }
 
   lookup(clientOrderId: string): StoredPlaceAttempt {
@@ -498,14 +499,6 @@ function presentPlaceAttempt(row: StoredPlaceAttempt) {
     reason: row.reason,
     orderId: row.orderId,
   };
-}
-
-function replayPlaceAttempt(prior: StoredPlaceAttempt) {
-  if (prior.outcome === 'accepted' && prior.order) return presentOrder(prior.order);
-  if (prior.outcome === 'unknown' || !(prior.refusal instanceof Error)) {
-    throw new TradeError('place outcome is unknown', 'trade.hold_unknown');
-  }
-  throw prior.refusal;
 }
 
 function isPlaceTimeout(err: unknown): boolean {
@@ -545,9 +538,11 @@ function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal 
 }
 
 /**
- * Record the place, then hold. Tier `none` is `tier.insufficient` and never
- * calls `placeOrder`. A second call with the same clientOrderId replays the
- * first row. A timeout leaves `unknown` and returns no order.
+ * Record the place, then hold. Tier below `basic` is `tier.insufficient` and
+ * never calls `placeOrder`. A jurisdiction refusal is recorded and thrown the
+ * same way. Every other call reaches `placeOrder`. The book stores the latest
+ * outcome and does not answer the retry. A timeout stays `unknown` and returns
+ * no order.
  */
 async function placeAttributedOrder(
   ctx: Context & { principal: Principal },
@@ -556,55 +551,39 @@ async function placeAttributedOrder(
   book: PlaceAttemptBook,
 ) {
   const principal = ctx.principal;
-  const prior = book.get(principal.userId, input.clientOrderId);
-  if (prior) return replayPlaceAttempt(prior);
-
-  const blank = {
+  const base = {
     userId: principal.userId,
     tier: principal.tier,
     clientOrderId: input.clientOrderId,
-    orderId: null,
-    order: null,
+    orderId: null as string | null,
   };
 
   if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
-    let refusal: AuthError | undefined;
-    try {
-      requireTier(principal, 'basic');
-    } catch (err) {
-      if (err instanceof AuthError && err.code === 'tier.insufficient') refusal = err;
-      else throw err;
-    }
-    const row = book.insertOnce({
-      ...blank,
+    book.record({
+      ...base,
       outcome: 'refused',
       reason: 'tier.insufficient',
-      refusal: refusal ?? new AuthError('Verification tier "basic" is required', 'tier.insufficient'),
     });
-    return replayPlaceAttempt(row);
+    requireTier(principal, 'basic');
+    throw new AuthError('Verification tier "basic" is required', 'tier.insufficient');
   }
 
   try {
     refuseCustodialTradeJurisdiction(ctx);
   } catch (err) {
-    const row = book.insertOnce({
-      ...blank,
+    book.record({
+      ...base,
       outcome: 'refused',
       reason: refusalReason(err),
-      refusal: err,
     });
-    if (row.refusal !== err) return replayPlaceAttempt(row);
     throw err;
   }
 
-  const pending: StoredPlaceAttempt = {
-    ...blank,
+  book.record({
+    ...base,
     outcome: 'unknown',
     reason: null,
-    refusal: null,
-  };
-  const claimed = book.insertOnce(pending);
-  if (claimed !== pending) return replayPlaceAttempt(claimed);
+  });
 
   try {
     const order = await trade.placeOrder(principal, {
@@ -617,26 +596,28 @@ async function placeAttributedOrder(
       clientOrderId: input.clientOrderId,
       subAccountId: input.subAccountId,
     });
-    book.save({
-      ...pending,
+    book.record({
+      ...base,
       outcome: 'accepted',
       reason: null,
       orderId: order.id,
-      order,
-      refusal: null,
     });
     return presentOrder(order);
   } catch (err) {
     if (isPlaceTimeout(err)) {
+      book.record({
+        ...base,
+        outcome: 'unknown',
+        reason: null,
+        orderId: null,
+      });
       throw new TradeError('place outcome is unknown', 'trade.hold_unknown');
     }
-    book.save({
-      ...pending,
+    book.record({
+      ...base,
       outcome: 'refused',
       reason: refusalReason(err),
-      refusal: err,
       orderId: null,
-      order: null,
     });
     throw err;
   }
@@ -678,6 +659,7 @@ export function createTradeRouter(
       /**
        * THE MONEY PATH. `trade:write`, then `placeAttributedOrder`: tier and
        * jurisdiction are recorded against clientOrderId before any hold.
+       * The book is a record the officer reads. `placeOrder` decides a retry.
        * The middleware does not take `{ module: 'trade' }` — that gate throws
        * before the attempt row exists, so a tier refusal would be invisible.
        */
@@ -714,7 +696,7 @@ export function createTradeRouter(
         .output(orderOutput)
         .mutation(({ ctx, input }) => guard(() => placeAttributedOrder(ctx, input, trade, placeAttempts))),
 
-      /** Risk officer read of the first place attempt for a clientOrderId. No hold. */
+      /** Risk officer read of the latest place attempt for a clientOrderId. No hold. */
       placeAttempt: scopedProcedure('admin:read')
         .input(z.object({ clientOrderId: z.string().min(1).max(64) }).strict())
         .output(placeAttemptOutput)
