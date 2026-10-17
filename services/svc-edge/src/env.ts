@@ -91,6 +91,14 @@ const schema = baseEnvSchema
       MATCHING_URL: z.string().url().optional(),
 
       /**
+       * Signs operator control calls to svc-matching as `svc-edge`.
+       * Unset refuses `matching_credential_unconfigured` and names this key.
+       * Not the fleet service secret: this process still cannot sign as
+       * svc-trade, and a blank value is not replaced with one.
+       */
+      MATCHING_S2S_SECRET: z.string().min(32).optional(),
+
+      /**
        * Dedicated read key matching IDENTITY_EDGE_AUTHORITY_SECRET in identity.
        * Only currentAuthority POST and key metadata GET are authorized.
        * Missing key refuses authenticated forwarding; anonymous intake stays usable.

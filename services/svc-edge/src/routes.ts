@@ -158,9 +158,34 @@ export const OUTSIDE_THE_DOOR: Readonly<Record<string, string>> = {
    */
   ledger: 'the money plane is halted with POST /admin/ledger/freeze (durable, attributed, admin:treasury) — not with a module flag',
 
-  /** Service-to-service only (#50/#55), no published port, no browser path. */
-  matching: 'svc-matching serves no browser traffic and is not proxied by this edge; halt `trade` to stop new risk',
+  /**
+   * Still absent from `UPSTREAMS`. A browser must not open an arbitrary
+   * matching path. Named operator procedures live in `matching-proxy.ts`
+   * (`MATCHING_OPERATOR_EDGE_PATHS`). Halt `trade` to stop new order risk
+   * at this door; that is a different switch from a matching halt.
+   */
+  matching:
+    'svc-matching is not in the catch-all proxy. Operators reach named controls through /admin/trade-ops/matching and /admin/trade-ops/surveillance. Halt `trade` to stop new order risk at this door',
 };
+
+/**
+ * Operator procedures for the trade desk. Data only — `matching-proxy.ts`
+ * registers them. Matching stays out of `UPSTREAMS` so an unknown matching
+ * path is still 404, including adjudicate and fine.
+ */
+export const MATCHING_OPERATOR_EDGE_PATHS = {
+  halt: '/admin/trade-ops/matching/markets/:marketId/halt',
+  resume: '/admin/trade-ops/matching/markets/:marketId/resume',
+  reduceOnlyOn: '/admin/trade-ops/matching/markets/:marketId/reduce-only',
+  reduceOnlyOff: '/admin/trade-ops/matching/markets/:marketId/reduce-only/off',
+  postOnlyOn: '/admin/trade-ops/matching/markets/:marketId/post-only',
+  postOnlyOff: '/admin/trade-ops/matching/markets/:marketId/post-only/off',
+  delist: '/admin/trade-ops/matching/markets/:marketId/delist',
+  haltAll: '/admin/trade-ops/matching/halt-all',
+  resumeAll: '/admin/trade-ops/matching/resume-all',
+  health: '/admin/trade-ops/matching/health',
+  surveillanceCases: '/admin/trade-ops/surveillance/cases',
+} as const;
 
 export interface Resolved {
   readonly upstream: Upstream;
