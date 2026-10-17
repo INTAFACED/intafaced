@@ -226,6 +226,18 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+function localOperatorIds() {
+  try {
+    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
+    return ['a', 'b']
+      .map((k) => ops[k]?.userId)
+      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
+      .join(',');
+  } catch {
+    return '';
+  }
+}
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
@@ -714,6 +726,11 @@ function serviceDefs(secrets) {
         // Opening a market needs a two-person approval that matching consumes from identity
         // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
         IDENTITY_URL: urlOf('identity'),
+        // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
+        // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
+        // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
+        // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
+        ...(localOperatorIds() ? { MATCHING_OPERATOR_IDS: localOperatorIds() } : {}),
       }),
     },
     {

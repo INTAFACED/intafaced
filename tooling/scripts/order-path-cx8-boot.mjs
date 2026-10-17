@@ -267,18 +267,6 @@ async function main() {
 
   writeFileSync(join(ROOT, '.data/matching/engine_journal.ndjson'), '');
 
-  // Matching first (no DB)
-  start('matching', 'node', ['services/svc-matching/dist/index.js'], {
-    ...common,
-    ...cx8RoleEnv('matching'),
-    SERVICE_NAME: 'svc-matching',
-    HTTP_HOST: '127.0.0.1',
-    HTTP_PORT: '4005',
-    MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
-    // Matching consumes the two-person approval that opens a market at identity.
-    IDENTITY_URL: 'http://127.0.0.1:4002',
-  });
-
   start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
     ...common,
     ...cx8RoleEnv('ledger'),
@@ -291,12 +279,30 @@ async function main() {
 
   startIdentity();
 
-  await waitHealth('http://127.0.0.1:4005', 'matching');
   await waitHealth('http://127.0.0.1:4001', 'ledger');
   await waitHealth('http://127.0.0.1:4002', 'identity');
 
   // Opening a market is founder-only at identity: make the two smoke operators founders first.
   const founders = await enrolFoundersAndRestartIdentity();
+
+  // Matching boots only now, after the founders exist: it refuses to boot without at least two distinct
+  // operator ids (MATCHING_OPERATOR_IDS, #4724), and the only ids this rig has are the two smoke founders
+  // enrolled above. Nothing before this point talks to matching (the enrolment is identity-only), and the
+  // journal is empty, so there is nothing to restart. The smoke opens the market with operatorId = the
+  // requester and confirmOperatorId = the approver, both in this list.
+  start('matching', 'node', ['services/svc-matching/dist/index.js'], {
+    ...common,
+    ...cx8RoleEnv('matching'),
+    SERVICE_NAME: 'svc-matching',
+    HTTP_HOST: '127.0.0.1',
+    HTTP_PORT: '4005',
+    MATCHING_JOURNAL_PATH: join(ROOT, '.data/matching/engine_journal.ndjson'),
+    // SMOKE RIG ONLY — the two throwaway smoke founders' user ids, fresh each run; not real operators
+    MATCHING_OPERATOR_IDS: founders.map((f) => f.userId).join(','),
+    // Matching consumes the two-person approval that opens a market at identity.
+    IDENTITY_URL: 'http://127.0.0.1:4002',
+  });
+  await waitHealth('http://127.0.0.1:4005', 'matching');
 
   start('trade', 'node', ['services/svc-trade/dist/index.js'], {
     ...common,

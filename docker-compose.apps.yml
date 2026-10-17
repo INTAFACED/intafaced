@@ -473,6 +473,14 @@ services:
       # Public rulebook version (M00 / R-A7). EMPTY default — do not invent a
       # string. Blank → GET /rulebook unpublished. Host `.env` can pin.
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+      # Operators who may propose and approve venue actions (open, halt, ...).
+      # Comma-separated identity user ids, at least two distinct; whitespace is
+      # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
+      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # host `.env` entry stops the container instead of leaving markets with no
+      # reachable halt. Host `.env` publishes it. `docker compose config` stays
+      # valid because the variable has an empty default.
+      MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:

@@ -64,7 +64,11 @@ async function mount(): Promise<{ app: FastifyInstance; engine: MatchingEngine }
     snapshotEvery: 0,
   });
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return { app, engine };
 }
@@ -229,7 +233,7 @@ describe('POST /markets/:marketId/post-only/resume', () => {
     expect(blocked.json().accepted).toBe(false);
 
     const resume = await post(app, `/markets/${MARKET}/post-only/resume`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -238,7 +242,7 @@ describe('POST /markets/:marketId/post-only/resume', () => {
     expect(resume.json()).toMatchObject({
       accepted: true,
       postOnly: false,
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       rejected: null,
     });
