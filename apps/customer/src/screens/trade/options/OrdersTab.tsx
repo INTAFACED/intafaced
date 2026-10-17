@@ -59,6 +59,7 @@ function Section({
         onRetry={load.status === 'error' ? load.retry : undefined}
         errorState={<EmptyState variant="refused" title={title} reason={emptyText} />}
         emptyState={<EmptyState title={emptyText} />}
+        minWidth={columns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0)}
         maxHeight={320}
       />
     </section>
@@ -133,20 +134,28 @@ export function OrdersTab({
   };
 
   const base: TableColumn<Order>[] = [
-    { id: 'symbol', header: t('Contract'), value: (o) => o.symbol, cell: (o) => <span className="font-mono">{o.symbol}</span> },
-    { id: 'side', header: t('Side'), cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
-    { id: 'type', header: t('Type'), cell: () => t('Limit') },
+    { id: 'symbol', header: t('Contract'), width: 210, value: (o) => o.symbol, cell: (o) => <span className="font-mono">{o.symbol}</span> },
+    { id: 'side', header: t('Side'), width: 56, cell: (o) => (o.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'type', header: t('Type'), width: 64, cell: () => t('Limit') },
     {
       id: 'price',
       header: t('Price'),
+      width: 100,
       numeric: true,
       value: (o) => o.price,
       cell: (o) => fmtPrice(o.price, markets.get(o.symbol)?.precision.price),
     },
-    { id: 'size', header: t('Size'), numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
-    { id: 'filled', header: t('Filled'), numeric: true, value: (o) => o.filled, cell: (o) => fmtAmount(o.filled, { places: 8 }) },
-    { id: 'state', header: t('State'), cell: stateOf },
-    { id: 'created', header: t('Created'), cell: (o) => formatAsOf(o.timestamp) },
+    { id: 'size', header: t('Size'), width: 90, numeric: true, value: (o) => o.amount, cell: (o) => fmtAmount(o.amount, { places: 8 }) },
+    {
+      id: 'filled',
+      header: t('Filled'),
+      width: 90,
+      numeric: true,
+      value: (o) => o.filled,
+      cell: (o) => fmtAmount(o.filled, { places: 8 }),
+    },
+    { id: 'state', header: t('State'), width: 130, cell: stateOf },
+    { id: 'created', header: t('Created'), width: 120, cell: (o) => formatAsOf(o.timestamp) },
   ];
   const openColumns: TableColumn<Order>[] = [
     ...base,
@@ -154,6 +163,7 @@ export function OrdersTab({
       id: 'actions',
       header: t('Actions'),
       headerLabel: t('Actions'),
+      width: 260,
       align: 'end',
       cell: (o) => (
         <span className="inline-flex items-center gap-2">

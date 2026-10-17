@@ -54,12 +54,18 @@ export function AlgoList({
   if (empty) return <EmptyState variant="empty" size="inline" title={t('No schedules known')} reason={t('No schedules known reason')} />;
 
   const columns: TableColumn<ParentRead>[] = [
-    { id: 'market', header: t('Market'), pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
-    { id: 'side', header: t('Side'), value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
-    { id: 'kind', header: t('Kind'), cell: (r) => (r.ok ? <Badge variant="outline">{r.parent.kind.toUpperCase()}</Badge> : null) },
+    { id: 'market', header: t('Market'), width: 96, pin: 'start', value: (r) => (r.ok ? r.parent.symbol : r.id) },
+    { id: 'side', header: t('Side'), width: 56, value: (r) => (r.ok ? (r.parent.side === 'buy' ? t('Buy') : t('Sell')) : null) },
+    {
+      id: 'kind',
+      header: t('Kind'),
+      width: 64,
+      cell: (r) => (r.ok ? <Badge variant="outline">{r.parent.kind.toUpperCase()}</Badge> : null),
+    },
     {
       id: 'total',
       header: t('Total'),
+      width: 76,
       numeric: true,
       value: (r) => (r.ok ? r.parent.totalQty : null),
       cell: (r) => (r.ok ? fmtAmount(r.parent.totalQty) : null),
@@ -67,6 +73,7 @@ export function AlgoList({
     {
       id: 'filled',
       header: t('Filled'),
+      width: 76,
       numeric: true,
       value: (r) => (r.ok ? (r.progress?.filledQty ?? null) : null),
       cell: (r) => (r.ok && r.progress ? fmtAmount(r.progress.filledQty) : null),
@@ -74,6 +81,7 @@ export function AlgoList({
     {
       id: 'progress',
       header: t('Progress'),
+      width: 120,
       cell: (r) => {
         const pct = r.ok ? pctOf(r) : null;
         if (pct === null) return null;
@@ -90,21 +98,28 @@ export function AlgoList({
     {
       id: 'slices',
       header: t('Slices'),
+      width: 70,
       cell: (r) => (r.ok ? `${r.progress?.childrenEmitted ?? r.parent.childrenEmitted} / ${r.parent.slicesPlanned}` : null),
     },
     {
       id: 'misses',
       header: t('Misses'),
+      width: 64,
       numeric: true,
       value: (r) => (r.ok ? String(r.progress?.missesRecorded ?? r.parent.missesRecorded) : null),
     },
-    { id: 'status', header: t('Status'), width: 220, cell: (r) => <StatusCell row={r} /> },
-    { id: 'next', header: t('Next slice'), value: (r) => (r.ok && r.parent.status === 'active' ? when(r.parent.nextDueAt) : null) },
-    { id: 'ends', header: t('Ends'), value: (r) => (r.ok ? when(r.parent.projectedEndsAt) : null) },
+    { id: 'status', header: t('Status'), width: 200, cell: (r) => <StatusCell row={r} /> },
+    {
+      id: 'next',
+      header: t('Next slice'),
+      width: 116,
+      value: (r) => (r.ok && r.parent.status === 'active' ? when(r.parent.nextDueAt) : null),
+    },
+    { id: 'ends', header: t('Ends'), width: 116, value: (r) => (r.ok ? when(r.parent.projectedEndsAt) : null) },
     {
       id: 'actions',
       header: t('Actions'),
-      width: 270,
+      width: 170,
       cell: (r) => {
         if (!r.ok) return null;
         const { parent } = r;
@@ -149,6 +164,7 @@ export function AlgoList({
             columns={columns}
             rows={rows}
             getRowId={(r) => r.id}
+            minWidth={columns.reduce((sum, column) => sum + (typeof column.width === 'number' ? column.width : 0), 0)}
             selection="single"
             selectedIds={selectedId ? new Set([selectedId]) : undefined}
             onSelectionChange={(ids) => {
