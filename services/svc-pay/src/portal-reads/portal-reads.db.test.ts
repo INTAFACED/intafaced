@@ -582,13 +582,13 @@ describe('merchant portal reads', () => {
     });
 
     const captureTx = await ledger.getTxByKey(`payment.capture:${payment.id}`);
-    const settleTx = await ledger.getTxByKey(`settlement:${mine.id}:2026-08-01:USDT`);
+    const settlementPosting = await ledger.getTxByKey(`settlement:${mine.id}:2026-08-01:USDT`);
     const holdTx = await ledger.getTxByKey(`pay.proceeds.payout.hold:${settlement.id}:0`);
     expect(captureTx).not.toBeNull();
-    expect(settleTx).not.toBeNull();
+    expect(settlementPosting).not.toBeNull();
     expect(holdTx).not.toBeNull();
-    expect(captureTx!.postedAt.getTime()).toBeLessThan(settleTx!.postedAt.getTime());
-    expect(settleTx!.postedAt.getTime()).toBeLessThan(holdTx!.postedAt.getTime());
+    expect(captureTx!.postedAt.getTime()).toBeLessThan(settlementPosting!.postedAt.getTime());
+    expect(settlementPosting!.postedAt.getTime()).toBeLessThan(holdTx!.postedAt.getTime());
 
     const settledOnly = await owner.merchant.statement.list({
       merchantId: mine.id,
@@ -621,7 +621,7 @@ describe('merchant portal reads', () => {
     const payoutOnly = await owner.merchant.statement.list({
       merchantId: mine.id,
       limit: 20,
-      from: new Date(settleTx!.postedAt.getTime() + 1).toISOString(),
+      from: new Date(settlementPosting!.postedAt.getTime() + 1).toISOString(),
       to: new Date(holdTx!.postedAt.getTime() + 60_000).toISOString(),
     });
     expect(payoutOnly.runningBalances).toBe('within_range');
