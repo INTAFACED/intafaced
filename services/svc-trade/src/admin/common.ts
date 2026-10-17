@@ -1,6 +1,7 @@
 /**
- * Shared pieces for the trade operator desk: permission, exact decimals,
- * append-only audit, idempotent requests, and two-person approval consumption.
+ * Shared pieces for the trade operator desk: reads are `admin:read`, writes
+ * are `admin:write`, exact decimals, append-only audit, idempotent requests,
+ * and two-person approval consumption.
  * Money stays a decimal string. A blank config refuses; it is never filled in.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -8,6 +9,7 @@ import type { Sql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
 
 export const OPERATOR_PERMISSION = 'admin:read' as const;
+export const OPERATOR_WRITE_PERMISSION = 'admin:write' as const;
 
 export class TradeOpsError extends Error {
   constructor(
@@ -21,6 +23,10 @@ export class TradeOpsError extends Error {
 
 export function requireOperator(principal: Principal): void {
   requireScope(principal, OPERATOR_PERMISSION);
+}
+
+export function requireOperatorWrite(principal: Principal): void {
+  requireScope(principal, OPERATOR_WRITE_PERMISSION);
 }
 
 const DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;

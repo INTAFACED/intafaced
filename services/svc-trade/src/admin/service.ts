@@ -1,13 +1,15 @@
 /**
- * Operator procedures the trade desk calls. Permission is `admin:read`, the
- * same scope as GET /api/v1/admin/orders/open. Every read of an account writes
- * one append-only audit row. Money figures stay exact decimal strings.
+ * Operator procedures the trade desk calls. Reads are `admin:read`, the same
+ * scope as GET /api/v1/admin/orders/open. Writes are `admin:write`. Every read
+ * of an account writes one append-only audit row. Money figures stay exact
+ * decimal strings.
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, orderHoldAccount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
 import type { ReconcileResult } from '../spot/types.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../spot/hold-outcome.js';
 import { parseConfiguredMaxLeverage, LEVERAGE_CAP_UNSET } from '../futures/initial-margin.js';
 import { recipeInsuranceAccount } from '../futures/insurance-bound.js';
 import {
@@ -24,6 +26,7 @@ import {
   reconcileJobsEnabled,
   requireClientRequestId,
   requireOperator,
+  requireOperatorWrite,
   requireReason,
   signExportRef,
   storeRequest,
@@ -85,7 +88,7 @@ export class TradeOpsAdmin {
     scope: string;
     results: Array<{ orderId: string; ok: true; status: 'cancelled' } | { orderId: string; ok: false; code: string }>;
   }> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
     const clientRequestId = requireClientRequestId(input.clientRequestId);
     const market = input.market?.trim() || null;
@@ -256,7 +259,7 @@ export class TradeOpsAdmin {
     principal: Principal,
     input: { market: string; limits: RiskLimits; expectedVersion: string; reason: string; approvalId: string },
   ): Promise<RiskVersion> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
     const limits = validateLimits(input.limits);
     const current = await currentRisk(this.deps.sql, input.market);
@@ -500,12 +503,61 @@ export class TradeOpsAdmin {
     return result;
   }
 
-  async getExport(principal: Principal, id: string): Promise<{ id: string; kind: string; rowCount: number; csv: string }> {
-    requireOperator(principal);
-    const [row] = await this.deps.sql<Array<{ id: string; kind: string; row_count: number; csv: string; operator_id: string }>>`
-      SELECT id, kind, row_count, csv, operator_id FROM trade.operator_export_jobs WHERE id = ${id}`;
+  private async loadExportJob(id: string): Promise<{
+    id: string;
+    kind: string;
+    rowCount: number;
+    csv: string;
+    createdAt: Date;
+    operatorId: string;
+  }> {
+    const [row] = await this.deps.sql<
+      Array<{ id: string; kind: string; row_count: number; csv: string; created_at: Date; operator_id: string }>
+    >`
+      SELECT id, kind, row_count, csv, created_at, operator_id FROM trade.operator_export_jobs WHERE id = ${id}`;
     if (!row) throw new TradeOpsError('export_not_found', `export ${id} not found`);
-    return { id: row.id, kind: row.kind, rowCount: row.row_count, csv: row.csv };
+    return {
+      id: row.id,
+      kind: row.kind,
+      rowCount: row.row_count,
+      csv: row.csv,
+      createdAt: row.created_at,
+      operatorId: row.operator_id,
+    };
+  }
+
+  async getExport(
+    principal: Principal,
+    id: string,
+  ): Promise<{
+    id: string;
+    kind: string;
+    rowCount: number;
+    createdAt: string;
+    downloadRef: string | null;
+    refusal: string | null;
+  }> {
+    requireOperator(principal);
+    const job = await this.loadExportJob(id);
+    const key = readExportSigningKey();
+    const downloadRef = key ? signExportRef(job.id, exportExpiry(nowOf(this.deps)), key) : null;
+    await writeOperatorAudit(this.deps.sql, {
+      kind: 'exports.get',
+      operatorId: principal.userId,
+      accountId: null,
+      objectId: job.id,
+      approverId: null,
+      reason: null,
+      detail: { kind: job.kind, rowCount: job.rowCount, signed: downloadRef != null },
+    });
+    return {
+      id: job.id,
+      kind: job.kind,
+      rowCount: job.rowCount,
+      createdAt: job.createdAt.toISOString(),
+      downloadRef,
+      refusal: key ? null : 'export_signing_key_unset',
+    };
   }
 
   async downloadExport(principal: Principal, ref: string): Promise<{ id: string; csv: string }> {
@@ -513,7 +565,7 @@ export class TradeOpsAdmin {
     const key = readExportSigningKey();
     if (!key) throw new TradeOpsError('export_signing_key_unset', 'TRADE_OPERATOR_EXPORT_SIGNING_KEY is unset');
     const opened = openExportRef(ref, key, nowOf(this.deps).getTime());
-    const job = await this.getExport(principal, opened.id);
+    const job = await this.loadExportJob(opened.id);
     await writeOperatorAudit(this.deps.sql, {
       kind: 'exports.download',
       operatorId: principal.userId,
@@ -679,7 +731,7 @@ export class TradeOpsAdmin {
     principal: Principal,
     input: { market: string; enabled: boolean; approvalId: string; clientRequestId: string },
   ): Promise<{ market: string; enabled: boolean; version: string }> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const clientRequestId = requireClientRequestId(input.clientRequestId);
     const fingerprint = payloadHash({ kind: 'mm_seed', market: input.market, enabled: input.enabled });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'mm_seed', fingerprint);
@@ -717,11 +769,31 @@ export class TradeOpsAdmin {
   }
 
   async reconcile(principal: Principal, input: { orderId: string; clientRequestId: string }): Promise<ReconcileResult> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     const clientRequestId = requireClientRequestId(input.clientRequestId);
     const fingerprint = payloadHash({ kind: 'reconcile', orderId: input.orderId });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'reconcile', fingerprint);
     if (prior) return prior as ReconcileResult;
+    const [live] = await this.deps.sql<Array<{ status: string; updated_at: Date; in_flight: boolean; seconds_left: string }>>`
+      SELECT status::text AS status,
+             updated_at,
+             (updated_at > now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})) AS in_flight,
+             GREATEST(0, CEIL(${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS}::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::text AS seconds_left
+        FROM trade.orders
+       WHERE id = ${input.orderId}`;
+    if (live && (live.status === 'pending' || live.status === 'hold_unknown') && live.in_flight) {
+      const secondsLeft = live.seconds_left;
+      await writeOperatorAudit(this.deps.sql, {
+        kind: 'orders.reconcile_refused',
+        operatorId: principal.userId,
+        accountId: null,
+        objectId: input.orderId,
+        approverId: null,
+        reason: `${secondsLeft}s left`,
+        detail: { code: 'reconcile_order_in_flight', status: live.status, secondsLeft },
+      });
+      throw new TradeOpsError('reconcile_order_in_flight', `order ${input.orderId} hold may still be in flight; ${secondsLeft}s left`);
+    }
     const verdict = await this.deps.reconcileOrder(input.orderId);
     await storeRequest(this.deps.sql, clientRequestId, 'reconcile', fingerprint, verdict);
     await writeOperatorAudit(this.deps.sql, {
@@ -737,7 +809,7 @@ export class TradeOpsAdmin {
   }
 
   async startReconcileSweep(principal: Principal, input: { clientRequestId: string }): Promise<never> {
-    requireOperator(principal);
+    requireOperatorWrite(principal);
     requireClientRequestId(input.clientRequestId);
     if (!reconcileJobsEnabled()) {
       throw new TradeOpsError('reconcile_jobs_disabled', 'TRADE_RECONCILE_JOBS_ENABLED is off; the flag stays off');

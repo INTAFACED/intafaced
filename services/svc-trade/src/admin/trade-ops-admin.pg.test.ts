@@ -17,6 +17,7 @@ import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHE
 import { TradingControls } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
+import { tradeOpsAdminRouter } from './router.js';
 import { bindTradingRestrictApprovals } from './trading-restrict.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,7 @@ const BOB = '22222222-2222-4222-8222-222222222222';
 const OP = '33333333-3333-4333-8333-333333333333';
 const APPROVER = '44444444-4444-4444-8444-444444444444';
 const operator = () => principalFor(OP, ['admin:read']);
+const operatorWriter = () => principalFor(OP, ['admin:read', 'admin:write']);
 const customer = () => principalFor(ALICE, ['trade:read']);
 const BLANK_LIMITS = { collar: null, fatFinger: null, slippageCap: null, throttle: null, circuitBreaker: null };
 
@@ -198,7 +200,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.mass_cancel', scope, reason },
     });
-    const first = await admin.massCancel(operator(), {
+    const first = await admin.massCancel(operatorWriter(), {
       market: marketId,
       reason,
       approvalId: 'appr-cancel',
@@ -209,7 +211,7 @@ describe('trade operator procedures', () => {
     expect(await held(ALICE, a.id)).toBe('0');
     expect(await held(BOB, b.id)).toBe('0');
     expect(await held(ALICE, other.id)).toBe('50');
-    const again = await admin.massCancel(operator(), {
+    const again = await admin.massCancel(operatorWriter(), {
       market: marketId,
       reason,
       approvalId: 'appr-cancel',
@@ -231,7 +233,7 @@ describe('trade operator procedures', () => {
     });
     const reason = 'should not run';
     await expect(
-      admin.massCancel(operator(), { market: marketId, reason, approvalId: 'missing', clientRequestId: 'c1' }),
+      admin.massCancel(operatorWriter(), { market: marketId, reason, approvalId: 'missing', clientRequestId: 'c1' }),
     ).rejects.toMatchObject({ code: 'approval_missing' });
     allow({
       approvalId: 'bad-hash',
@@ -241,7 +243,7 @@ describe('trade operator procedures', () => {
       body: { actionType: 'trade.mass_cancel', scope: 'nope', reason },
     });
     await expect(
-      admin.massCancel(operator(), { market: marketId, reason, approvalId: 'bad-hash', clientRequestId: 'c2' }),
+      admin.massCancel(operatorWriter(), { market: marketId, reason, approvalId: 'bad-hash', clientRequestId: 'c2' }),
     ).rejects.toMatchObject({ code: 'approval_mismatch' });
     const scope = `market:${marketId}|account:`;
     allow({
@@ -251,7 +253,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.mass_cancel', scope, reason: 'real clear' },
     });
-    await admin.massCancel(operator(), {
+    await admin.massCancel(operatorWriter(), {
       market: marketId,
       reason: 'real clear',
       approvalId: 'once',
@@ -267,7 +269,7 @@ describe('trade operator procedures', () => {
       clientOrderId: 'later',
     });
     await expect(
-      admin.massCancel(operator(), { market: marketId, reason: 'real clear', approvalId: 'once', clientRequestId: 'c4' }),
+      admin.massCancel(operatorWriter(), { market: marketId, reason: 'real clear', approvalId: 'once', clientRequestId: 'c4' }),
     ).rejects.toMatchObject({ code: 'approval_reused' });
     expect((await trade.findOrder(later.id))?.status).toBe('open');
     expect((await trade.findOrder(order.id))?.status).toBe('cancelled');
@@ -310,7 +312,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.mass_cancel', scope, reason },
     });
-    const result = await local.massCancel(operator(), {
+    const result = await local.massCancel(operatorWriter(), {
       market: marketId,
       reason,
       approvalId: 'partial',
@@ -323,7 +325,9 @@ describe('trade operator procedures', () => {
   });
 
   it('refuses a whole-venue cancel and a session without admin:read', async () => {
-    await expect(admin.massCancel(operator(), { reason: 'everything', approvalId: 'x', clientRequestId: 'venue' })).rejects.toMatchObject({
+    await expect(
+      admin.massCancel(operatorWriter(), { reason: 'everything', approvalId: 'x', clientRequestId: 'venue' }),
+    ).rejects.toMatchObject({
       code: 'mass_cancel_venue_refused',
     });
     await expect(
@@ -334,7 +338,7 @@ describe('trade operator procedures', () => {
   it('refuses a stale or unapproved risk write and keeps every version', async () => {
     const reason = 'publish the fat-finger ceiling';
     await expect(
-      admin.riskSet(operator(), {
+      admin.riskSet(operatorWriter(), {
         market: marketId,
         limits: { ...BLANK_LIMITS, fatFinger: '50' },
         expectedVersion: '0',
@@ -351,7 +355,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    const first = await admin.riskSet(operator(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-1' });
+    const first = await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-1' });
     expect(first.version).toBe('1');
     expect(first.fatFinger).toBe('50');
     expect(first.collar).toBeNull();
@@ -363,7 +367,7 @@ describe('trade operator procedures', () => {
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
     await expect(
-      admin.riskSet(operator(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-stale' }),
+      admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-stale' }),
     ).rejects.toMatchObject({ code: 'risk_limit_stale' });
     const next = { ...BLANK_LIMITS, fatFinger: '80' };
     allow({
@@ -373,7 +377,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '1',
       body: { actionType: 'trade.risk_set', market: marketId, limits: next, expectedVersion: '1', reason },
     });
-    await admin.riskSet(operator(), { market: marketId, limits: next, expectedVersion: '1', reason, approvalId: 'risk-2' });
+    await admin.riskSet(operatorWriter(), { market: marketId, limits: next, expectedVersion: '1', reason, approvalId: 'risk-2' });
     const history = await admin.riskHistory(operator(), marketId);
     expect(history.map((row) => row.version)).toEqual(['1', '2']);
     expect(history.every((row) => row.operatorId === OP && row.approverId === APPROVER)).toBe(true);
@@ -390,7 +394,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    await admin.riskSet(operator(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-order' });
+    await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-order' });
     await fund(ALICE, '1000');
     await expect(
       trade.placeOrder(principalFor(ALICE), {
@@ -512,7 +516,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    await admin.riskSet(operator(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'feed-risk' });
+    await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'feed-risk' });
     const scope = `market:${marketId}|account:`;
     const cancelReason = 'clear nothing';
     allow({
@@ -522,7 +526,7 @@ describe('trade operator procedures', () => {
       expectedVersion: '0',
       body: { actionType: 'trade.mass_cancel', scope, reason: cancelReason },
     });
-    await admin.massCancel(operator(), {
+    await admin.massCancel(operatorWriter(), {
       market: marketId,
       reason: cancelReason,
       approvalId: 'feed-cancel',
@@ -586,7 +590,7 @@ describe('trade operator procedures', () => {
     expect(report.fillQty).toBe('0.4');
     expect(report.enabled).toBe(false);
     await expect(
-      admin.setSeed(operator(), { market: marketId, enabled: true, approvalId: 'nope', clientRequestId: 'seed-1' }),
+      admin.setSeed(operatorWriter(), { market: marketId, enabled: true, approvalId: 'nope', clientRequestId: 'seed-1' }),
     ).rejects.toMatchObject({ code: 'approval_missing' });
     expect(await admin.seedEnabled(marketId)).toBe(false);
     const [versionRow] = await db.sql<Array<{ version: string | null }>>`
@@ -599,7 +603,12 @@ describe('trade operator procedures', () => {
       expectedVersion: version,
       body: { actionType: 'trade.mm_seed', market: marketId, enabled: true, expectedVersion: version },
     });
-    const set = await admin.setSeed(operator(), { market: marketId, enabled: true, approvalId: 'seed-ok', clientRequestId: 'seed-2' });
+    const set = await admin.setSeed(operatorWriter(), {
+      market: marketId,
+      enabled: true,
+      approvalId: 'seed-ok',
+      clientRequestId: 'seed-2',
+    });
     expect(set.enabled).toBe(true);
     expect(await admin.seedEnabled(marketId)).toBe(true);
   });
@@ -616,13 +625,13 @@ describe('trade operator procedures', () => {
       clientOrderId: 'drift',
     });
     matching.scriptCancelMiss(order.id);
-    const verdict = await admin.reconcile(operator(), { orderId: order.id, clientRequestId: 'recon-1' });
+    const verdict = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-1' });
     expect(verdict.case).toBe('open_hold_no_engine');
     expect(verdict.action).toBe('released');
     expect(await held(ALICE, order.id)).toBe('0');
-    const replay = await admin.reconcile(operator(), { orderId: order.id, clientRequestId: 'recon-1' });
+    const replay = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-1' });
     expect(replay).toEqual(verdict);
-    await expect(admin.startReconcileSweep(operator(), { clientRequestId: 'sweep-1' })).rejects.toMatchObject({
+    await expect(admin.startReconcileSweep(operatorWriter(), { clientRequestId: 'sweep-1' })).rejects.toMatchObject({
       code: 'reconcile_jobs_disabled',
     });
     expect(process.env.TRADE_RECONCILE_JOBS_ENABLED ?? '').not.toBe('true');
@@ -687,5 +696,120 @@ describe('trade operator procedures', () => {
       outcome: 'changed',
       after: { restricted: true, version: '3' },
     });
+  });
+
+  it('refuses operator writes that hold only admin:read and changes nothing', async () => {
+    await fund(ALICE, '1000');
+    const order = await trade.placeOrder(principalFor(ALICE), {
+      marketId,
+      side: 'buy',
+      type: 'limit',
+      qty: amt('1'),
+      price: amt('10'),
+      clientOrderId: 'read-only-hold',
+    });
+    expect(await held(ALICE, order.id)).toBe('10');
+    const reader = operator();
+    await expect(
+      admin.massCancel(reader, { market: marketId, reason: 'read only', approvalId: 'x', clientRequestId: 'ro-cancel' }),
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(
+      admin.riskSet(reader, {
+        market: marketId,
+        limits: { ...BLANK_LIMITS, fatFinger: '1' },
+        expectedVersion: '0',
+        reason: 'read only',
+        approvalId: 'x',
+      }),
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(
+      admin.setSeed(reader, { market: marketId, enabled: true, approvalId: 'x', clientRequestId: 'ro-seed' }),
+    ).rejects.toBeInstanceOf(AuthError);
+    await expect(admin.reconcile(reader, { orderId: order.id, clientRequestId: 'ro-recon' })).rejects.toBeInstanceOf(AuthError);
+    await expect(admin.startReconcileSweep(reader, { clientRequestId: 'ro-sweep' })).rejects.toBeInstanceOf(AuthError);
+    expect((await trade.findOrder(order.id))?.status).toBe('open');
+    expect(await held(ALICE, order.id)).toBe('10');
+    const [risk] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_risk_limits`;
+    const [seed] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_mm_seed`;
+    const [requests] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_requests`;
+    expect(risk?.n).toBe('0');
+    expect(seed?.n).toBe('0');
+    expect(requests?.n).toBe('0');
+  });
+
+  it('router refuses risk.set on admin:read and serves risk.get', async () => {
+    const caller = tradeOpsAdminRouter(admin).createCaller({
+      principal: principalFor(OP, ['admin:read']),
+      region: 'XX',
+      service: null,
+      requestId: randomUUID(),
+    });
+    await expect(
+      caller.risk.set({
+        market: marketId,
+        limits: BLANK_LIMITS,
+        expectedVersion: '0',
+        reason: 'read only set',
+        approvalId: 'router-risk',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const [risk] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_risk_limits`;
+    expect(risk?.n).toBe('0');
+    await expect(caller.risk.get({ market: marketId })).resolves.toMatchObject({
+      marketId,
+      version: '0',
+      fatFinger: null,
+      collar: null,
+    });
+  });
+
+  it('refuses reconcile of a pending order still inside the hold in-flight bound', async () => {
+    const orderId = randomUUID();
+    await db.sql`INSERT INTO trade.orders (
+      id, user_id, market_id, client_order_id, side, type, price, qty, status, tif, hold_asset, hold_amount, updated_at
+    ) VALUES (
+      ${orderId}, ${ALICE}, ${marketId}, 'inflight', 'buy', 'limit', 10, 1, 'pending', 'GTC', 'USDT', 10, now()
+    )`;
+    await expect(admin.reconcile(operatorWriter(), { orderId, clientRequestId: 'inflight-1' })).rejects.toMatchObject({
+      code: 'reconcile_order_in_flight',
+      message: expect.stringMatching(/\d+s left/),
+    });
+    const [still] = await db.sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${orderId}`;
+    expect(still?.status).toBe('pending');
+    const [requests] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_requests`;
+    const [refused] = await db.sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n FROM trade.operator_audit WHERE kind = 'orders.reconcile_refused'`;
+    expect(requests?.n).toBe('0');
+    expect(refused?.n).toBe('1');
+    await db.sql`UPDATE trade.orders SET updated_at = now() - interval '8 minutes' WHERE id = ${orderId}`;
+    const verdict = await admin.reconcile(operatorWriter(), { orderId, clientRequestId: 'inflight-1' });
+    expect(verdict.case).toBe('orphan_pending');
+  });
+
+  it('returns an export download reference and never the csv', async () => {
+    process.env.TRADE_OPERATOR_EXPORT_CAP = '10';
+    process.env.TRADE_OPERATOR_EXPORT_SIGNING_KEY = 'test-export-key';
+    await db.sql`INSERT INTO trade.orders (
+      id, user_id, market_id, client_order_id, side, type, price, qty, status, tif, hold_asset, hold_amount
+    ) VALUES (
+      ${randomUUID()}, ${ALICE}, ${marketId}, 'csv-1', 'buy', 'limit', 10, 1, 'cancelled', 'GTC', 'USDT', 10
+    )`;
+    const created = await admin.createExport(operator(), { kind: 'orders', filters: { market: marketId }, clientRequestId: 'exp-get' });
+    const before = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_audit WHERE kind = 'exports.get'`;
+    const got = await admin.getExport(operator(), created.id);
+    expect(got).not.toHaveProperty('csv');
+    expect(got.downloadRef).toEqual(expect.any(String));
+    expect(got.refusal).toBeNull();
+    expect(got).toMatchObject({ id: created.id, kind: 'orders', rowCount: 1 });
+    expect(got.createdAt).toMatch(/^\d{4}-/);
+    const file = await admin.downloadExport(operator(), got.downloadRef ?? '');
+    expect(file.csv.length).toBeGreaterThan(0);
+    const after = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_audit WHERE kind = 'exports.get'`;
+    expect(Number(after[0]?.n) - Number(before[0]?.n ?? 0)).toBe(1);
+    delete process.env.TRADE_OPERATOR_EXPORT_SIGNING_KEY;
+    const unsigned = await admin.getExport(operator(), created.id);
+    expect(unsigned).not.toHaveProperty('csv');
+    expect(unsigned.downloadRef).toBeNull();
+    expect(unsigned.refusal).toBe('export_signing_key_unset');
   });
 });

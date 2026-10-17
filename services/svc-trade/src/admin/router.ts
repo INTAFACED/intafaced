@@ -1,6 +1,7 @@
 /**
- * tRPC surface the trade operator desk calls. Procedures exist even when the
- * service is unwired: they refuse `trade_ops_admin_unconfigured`.
+ * tRPC surface the trade operator desk calls. Reads are `admin:read`.
+ * Writes are `admin:write`. Procedures exist even when the service is
+ * unwired: they refuse `trade_ops_admin_unconfigured`.
  */
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
@@ -44,6 +45,7 @@ function fail(error: unknown): never {
 
 export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
   const operator = scopedProcedure('admin:read');
+  const operatorWrite = scopedProcedure('admin:write');
   const ready = (): TradeOpsAdmin => {
     if (!admin) {
       throw new TRPCError({
@@ -55,7 +57,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
   };
   return router({
     orders: router({
-      massCancel: operator
+      massCancel: operatorWrite
         .input(
           z.object({
             market: nullableText,
@@ -82,11 +84,11 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
           }),
         )
         .query(({ ctx, input }) => ready().listOrders(ctx.principal, input).catch(fail)),
-      reconcile: operator
+      reconcile: operatorWrite
         .input(z.object({ orderId: id, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().reconcile(ctx.principal, input).catch(fail)),
       reconcileStatus: operator.query(({ ctx }) => ready().reconcileStatus(ctx.principal).catch(fail)),
-      startReconcileSweep: operator
+      startReconcileSweep: operatorWrite
         .input(z.object({ clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().startReconcileSweep(ctx.principal, input).catch(fail)),
     }),
@@ -97,7 +99,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       history: operator
         .input(z.object({ market: id }).strict())
         .query(({ ctx, input }) => ready().riskHistory(ctx.principal, input.market).catch(fail)),
-      set: operator
+      set: operatorWrite
         .input(
           z.object({
             market: id,
@@ -155,7 +157,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       seedReport: operator
         .input(z.object({ market: id, from: z.string().nullish(), to: z.string().nullish() }))
         .query(({ ctx, input }) => ready().seedReport(ctx.principal, input).catch(fail)),
-      setSeed: operator
+      setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
     }),
