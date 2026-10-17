@@ -91,6 +91,63 @@ export function createIdentityApprovalClient(baseUrl: string, internalSecret: st
   };
 }
 
+/** Identity action type for a dispute ruling. Operator audience: svc-p2p is already an operator target. */
+export const DISPUTE_RESOLVE_ACTION = 'p2p.dispute_resolve';
+
+/**
+ * Hash of the ruling the second person approved.
+ * `winner` is `buyer` on release and `seller` on refund. `note` is the ruling note, or `''` when none was sent.
+ * Key order is fixed: actionType, disputeId, winner, note.
+ */
+export function disputeResolvePayloadHash(input: { disputeId: string; winner: 'buyer' | 'seller'; note: string }): string {
+  return p2pActionPayloadHash(DISPUTE_RESOLVE_ACTION, {
+    disputeId: input.disputeId,
+    winner: input.winner,
+    note: input.note,
+  });
+}
+
+export interface DisputeResolveApproval {
+  readonly approvalId: string;
+  readonly operationId: string;
+  readonly disputeId: string;
+  readonly winner: 'buyer' | 'seller';
+  readonly note: string;
+}
+
+/**
+ * Consume `p2p.dispute_resolve` bound to this dispute and this ruling.
+ * The caller runs this inside the ruling transaction, before commit and before the ledger post.
+ */
+export async function consumeDisputeResolveApproval(
+  approvals: ActionApprovalConsumer,
+  input: DisputeResolveApproval,
+): Promise<{ approverId: string; requesterId: string }> {
+  const consumed = await approvals.consume({
+    approvalId: input.approvalId,
+    operationId: input.operationId,
+    payloadHash: disputeResolvePayloadHash(input),
+    targetService: 'svc-p2p',
+    targetId: input.disputeId,
+    expectedVersion: '1',
+  });
+  if (consumed.actionType !== DISPUTE_RESOLVE_ACTION) {
+    throw new ActionApprovalConsumeError('approval is not p2p.dispute_resolve for this dispute', 'action_approval.consume_failed');
+  }
+  if (consumed.targetId !== input.disputeId || consumed.payloadHash !== disputeResolvePayloadHash(input)) {
+    throw new ActionApprovalConsumeError('payload hash does not match the approved action', 'action_approval.consume_failed');
+  }
+  const approverId = consumed.approverId?.trim() ?? '';
+  const requesterId = consumed.requesterId.trim();
+  if (!approverId || approverId.toLowerCase() === requesterId.toLowerCase()) {
+    throw new ActionApprovalConsumeError(
+      'consumed approval has no distinct approver; the requester does not confirm the ruling',
+      'action_approval.consume_failed',
+    );
+  }
+  return { approverId, requesterId };
+}
+
 export function readApprovalIds(cmd: { readonly approvalId?: string | null; readonly operationId?: string | null }): {
   readonly approvalId: string;
   readonly operationId: string;

@@ -12,8 +12,8 @@ import type { RecipeName } from '@intafaced/ledger-client';
  *   · `subAccountTransfer` — `RECIPE_MATRIX` cites svc-identity `router.ts`,
  *     which only mentions the recipe in a comment. Nothing posts it.
  *   · `orderHoldAmend` — svc-trade `qty-up-amend.ts` no longer calls it.
- *   · `marketMakerSeedFund`, insurance top-up, chargeback shortfall/won/
- *     recovered, listing fee, premium placement — tests or parked sockets.
+ *   · `marketMakerSeedFund`, insurance top-up, listing fee, premium placement
+ *     — tests or parked sockets.
  *   · svc-mining-pool — it can build a client; no production `recipes.` call.
  *
  * `feeCharge` is the exception to the recipe's own module. The registry sample
@@ -75,6 +75,9 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-pay': {
     chargebackOpen: g('pay', 'services/svc-pay/src/chargeback-ledger.ts'),
+    chargebackShortfall: g('pay', 'services/svc-pay/src/chargeback-ledger.ts'),
+    chargebackShortfallRecovered: g('pay', 'services/svc-pay/src/chargeback-ledger.ts'),
+    chargebackWon: g('pay', 'services/svc-pay/src/chargeback-ledger.ts'),
     deposit: g('ledger', 'services/svc-pay/src/user-money-service.ts'),
     depositReverse: g('ledger', 'services/svc-pay/src/rails/deposit-reorg.ts'),
     fxConversion: g('pay', 'services/svc-pay/src/conversion/service.ts'),

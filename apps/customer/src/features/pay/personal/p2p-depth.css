@@ -194,3 +194,21 @@
   gap: var(--spacing-8);
   margin-top: var(--spacing-12);
 }
+
+.p2p-quote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  min-width: 0;
+  padding: var(--spacing-16);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-8);
+}
+.p2p-quote h4 {
+  font-size: var(--text-14);
+  color: var(--color-muted);
+}
+.p2p-take .failure {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

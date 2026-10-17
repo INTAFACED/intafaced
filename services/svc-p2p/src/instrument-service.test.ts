@@ -1082,6 +1082,7 @@ describe('svc-p2p payment instruments', () => {
         health: undefined,
         'fiat.list': undefined,
         'offers.list': { limit: 50 },
+        'offers.page': { limit: 50 },
         'offers.get': { offerId: offer.id },
         'offers.create': {
           side: 'sell',
@@ -1091,7 +1092,20 @@ describe('svc-p2p payment instruments', () => {
           price: '1',
           minAmount: '10',
           maxAmount: '100',
+          idempotencyKey: 'leak-sweep-create',
         },
+        'offers.update': { offerId: offer.id, idempotencyKey: 'leak-sweep-update', terms: 'probe' },
+        'trades.quote': { offerId: offer.id, amount: '10', method: METHOD },
+        'trades.export': { from: '2020-01-01T00:00:00.000Z', to: '2030-01-01T00:00:00.000Z' },
+        'chat.messages.list': { tradeId: trade.id, limit: 50 },
+        'chat.messages.send': { tradeId: trade.id, text: 'probe', clientId: 'leak-sweep-chat' },
+        'chat.unread': { tradeId: trade.id },
+        'disputes.mine': { limit: 50 },
+        'contacts.list': undefined,
+        'contacts.follow': { peerId: SELLER, idempotencyKey: 'leak-sweep-follow' },
+        'contacts.unfollow': { peerId: SELLER, idempotencyKey: 'leak-sweep-unfollow' },
+        'contacts.block': { peerId: SELLER, idempotencyKey: 'leak-sweep-block' },
+        'contacts.unblock': { peerId: SELLER, idempotencyKey: 'leak-sweep-unblock' },
         'offers.close': { offerId: offer.id },
         'offers.pause': { offerId: offer.id },
         'offers.resume': { offerId: offer.id },
@@ -1191,6 +1205,18 @@ describe('svc-p2p payment instruments', () => {
         'rfq.get': { quoteId: crypto.randomUUID() },
         'rfq.allocate': { quoteId: crypto.randomUUID(), allocations: [{ receivingAccount: 'probe' }] },
         'rfq.giveUp': { quoteId: crypto.randomUUID(), receivingAccount: 'probe' },
+        // Considered. Manual escalation writes the actor and re-arms the trade
+        // deadline. It joins no instrument table and moves no money. A stranger
+        // is not a moderator, so the door refuses before any row is read.
+        'disputes.escalate': { disputeId: crypto.randomUUID(), reason: 'probe', clientRequestId: 'probe-escalate' },
+        // Considered. Operator reads (admin:compliance). The row lists are
+        // explicit columns: offer and trade terms, never payment-instrument
+        // details, chat text, or a sealed field. A stranger holds neither
+        // admin:compliance nor a moderator allowlist entry.
+        'ops.offers': { status: 'active', limit: 1 },
+        'ops.trades': { status: 'escrowed', limit: 1 },
+        'ops.counts': undefined,
+        'ops.disputeRate24h': undefined,
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

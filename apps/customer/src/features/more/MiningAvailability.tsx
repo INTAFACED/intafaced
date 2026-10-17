@@ -105,9 +105,6 @@ function MiningStatusRoom({ status }: { status: Status }) {
                         </dt>
                         <dd>
                           <Copy k={s[key].status === 'configured' ? 'configured' : 'absent'} />
-                          <small lang="und" dir="ltr">
-                            {s[key].code}
-                          </small>
                         </dd>
                       </div>
                     ))}

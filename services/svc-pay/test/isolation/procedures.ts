@@ -362,7 +362,17 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   {
     path: 'merchant.setPayoutDestination',
     scope: 'pay:write',
-    own: 'ok',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.destination_step_up_required',
+    input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
+  },
+  {
+    path: 'merchant.payoutDestinations.change',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.destination_step_up_required',
     input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
   },
   { path: 'merchant.submitKyb', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },

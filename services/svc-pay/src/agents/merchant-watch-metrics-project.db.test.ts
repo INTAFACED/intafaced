@@ -7,16 +7,21 @@
  * `pay.*` SQL stays on `pay`). Local without that env starts Testcontainers
  * `postgres:16-alpine`. Docker/PG down is a failed suite, not a green skip.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { listProjectedPayMetrics } from './merchant-watch-metrics-project.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const migrations = [readFileSync(join(here, '..', '..', 'drizzle', '0000_pay_init.sql'), 'utf8')];
+const drizzleDir = join(here, '..', '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
@@ -71,7 +76,7 @@ describe('listProjectedPayMetrics window interval', () => {
 
   beforeEach(async () => {
     if (!db || !sql) throw new Error('H8a: svc-pay merchant-watch projection PG was not opened');
-    await sql`TRUNCATE pay.payment_events, pay.payments, pay.merchants RESTART IDENTITY CASCADE`;
+    await truncatePayForTest(sql, 'pay', 'TRUNCATE pay.payment_events, pay.payments, pay.merchants RESTART IDENTITY CASCADE');
   });
 
   afterAll(async () => {

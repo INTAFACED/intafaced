@@ -21,7 +21,8 @@ const en = {
   replyRetainedBody: 'The service replied to the original action, but this device kept the saved record. Retry only the local cleanup.',
   originalBody: 'A new action stays blocked until the original state can be checked.',
   ownerWindow: 'Your active offers on the board. Paused offers aren’t shown here.',
-  window: 'Showing offers you can trade on now. Paused and older offers aren’t listed.',
+  window:
+    'Showing open offers. Paused and older offers aren’t listed. Your own offers are marked “Your offer”; you can’t place orders on them.',
   originalStorage: 'Offer recovery references could not be read on this device. Keep this browser profile and contact Support.',
   role: 'Maker {side} {asset}',
   sells: 'sells',
@@ -52,7 +53,8 @@ const es = {
     'El servicio respondió a la acción original, pero este dispositivo conservó el registro guardado. Reintenta solo la limpieza local.',
   originalBody: 'Una nueva acción sigue bloqueada hasta que se pueda comprobar el estado original.',
   ownerWindow: 'Tus ofertas activas en el tablón. Aquí no se muestran las ofertas en pausa.',
-  window: 'Se muestran las ofertas con las que puedes operar ahora. Las ofertas en pausa y las antiguas no aparecen.',
+  window:
+    'Se muestran las ofertas abiertas. Las ofertas en pausa y las antiguas no aparecen. Tus propias ofertas llevan la etiqueta «Tu oferta»; no puedes hacer pedidos sobre ellas.',
   originalStorage:
     'No se pudieron leer las referencias de recuperación de ofertas en este dispositivo. Conserva este perfil del navegador y contacta con Soporte.',
   role: 'El creador {side} {asset}',
@@ -84,7 +86,8 @@ const fr = {
     'Le service a répondu à l’action d’origine, mais cet appareil a conservé l’enregistrement sauvegardé. Réessayez uniquement le nettoyage local.',
   originalBody: 'Toute nouvelle action reste bloquée jusqu’à la vérification de l’état initial.',
   ownerWindow: 'Vos offres actives sur le tableau. Les offres en pause ne sont pas affichées ici.',
-  window: 'Offres sur lesquelles vous pouvez échanger maintenant. Les offres en pause et les plus anciennes ne sont pas listées.',
+  window:
+    'Offres ouvertes affichées. Les offres en pause et les plus anciennes ne sont pas listées. Vos propres offres portent la mention « Votre offre » ; vous ne pouvez pas passer commande sur elles.',
   originalStorage:
     'Les références de récupération des offres n’ont pas pu être lues sur cet appareil. Conservez ce profil de navigateur et contactez l’Assistance.',
   role: 'Le créateur {side} {asset}',

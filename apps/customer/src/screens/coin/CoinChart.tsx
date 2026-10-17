@@ -30,10 +30,18 @@ interface ChartApiLike {
   addSeries(definition: unknown, options?: Record<string, unknown>): SeriesApi;
   remove(): void;
   applyOptions(options: Record<string, unknown>): void;
-  timeScale(): { fitContent(): void };
+  timeScale(): {
+    fitContent(): void;
+    setVisibleLogicalRange(range: { from: number; to: number }): void;
+  };
   subscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
   unsubscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
 }
+/** Pixels kept free left of the first candle: a High or Low label on it is centred there, and half of it would be cut off. */
+const LEFT_ROOM_PX = 40;
+/** Must match the time scale's `rightOffset` below. */
+const RIGHT_OFFSET_BARS = 8;
+
 interface Marker {
   time: number;
   position: 'aboveBar' | 'belowBar';
@@ -125,10 +133,11 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
           borderVisible: false,
           timeVisible: true,
           secondsVisible: false,
-          fixLeftEdge: true,
+          // Not fixed: the fit below leaves a little empty space on the left, so a label on the first candle fits.
+          fixLeftEdge: false,
           // Room on the right so a High or Low label near the latest price is not cut off at the edge.
           fixRightEdge: false,
-          rightOffset: 8,
+          rightOffset: RIGHT_OFFSET_BARS,
           tickMarkFormatter: (seconds: number, kind: number) => tickMark(seconds, kind, latest.current.zone),
         },
         crosshair: {
@@ -189,7 +198,13 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
     if (plan.kind === 'reset') {
       series.setData(candles.map(toLinePoint));
       if (fittedFor.current !== resetKey) {
-        chart.current?.timeScale().fitContent();
+        const scale = chart.current?.timeScale();
+        const width = host.current?.clientWidth ?? 0;
+        if (scale && width > LEFT_ROOM_PX * 2 && candles.length > 1) {
+          // All candles plus the right offset, with LEFT_ROOM_PX of empty space before the first one.
+          const span = candles.length - 1 + RIGHT_OFFSET_BARS;
+          scale.setVisibleLogicalRange({ from: -(LEFT_ROOM_PX * span) / (width - LEFT_ROOM_PX), to: span });
+        } else scale?.fitContent();
         fittedFor.current = resetKey;
       }
     } else {

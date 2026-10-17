@@ -16,7 +16,7 @@ import {
   presentCcxtOrder,
   presentCcxtOrderCost,
   presentCcxtTradingFee,
-  presentTradingFees,
+  presentAdminFees,
   registerPrivateRest,
   suppliedPriceFields,
   toCcxtOrderStatus,
@@ -225,14 +225,6 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.taker).toBe('0.002');
     expect(wire.percentage).toBe(true);
     expect(typeof wire.maker).toBe('string');
-  });
-
-  it('presentTradingFees keys by symbol and returns {} when listing is empty', () => {
-    expect(presentTradingFees([])).toEqual({});
-    const m = fakeMarket({ symbol: 'ETH/USDT', makerBps: 5, takerBps: 15 });
-    const fees = presentTradingFees([m]);
-    expect(Object.keys(fees)).toEqual(['ETH/USDT']);
-    expect(tradingFeeSchema.safeParse(fees['ETH/USDT']).success).toBe(true);
   });
 
   it('presentCcxtBalances maps available→free and hold/escrow/stake/collateral→used', () => {
@@ -568,9 +560,13 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
-  it('admin fees requires admin:read and preserves configured decimal strings', async () => {
+  const PUBLISHED = parseFeeScheduleJson(
+    JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10', perpetual: { makerBps: '2', takerBps: '5' } }),
+  );
+
+  it('admin fees requires admin:read and returns the charged schedule, not the listing-row bps', async () => {
     const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
-    const app = await build(deps({ markets: async () => [rich] }));
+    const app = await build(deps({ markets: async () => [rich], feeSchedule: PUBLISHED }));
     const denied = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/fees',
@@ -585,9 +581,48 @@ describe('private REST — mount boundary + order write path', () => {
     });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json()).toEqual({
-      'BTC/USDT': { symbol: 'BTC/USDT', maker: '0.001', taker: '0.002', percentage: true },
+      source: 'TRADE_FEE_SCHEDULE',
+      version: 'desk',
+      markets: [
+        {
+          symbol: 'BTC/USDT',
+          kind: 'spot',
+          product: 'spot',
+          charged: { makerBps: '8', takerBps: '10', makerRate: '0.0008', takerRate: '0.001' },
+          refusal: null,
+        },
+      ],
     });
     await app.close();
+  });
+
+  it('admin fees refuses with trade.fee_schedule_blank when the schedule is unpublished', async () => {
+    const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
+    const app = await build(deps({ markets: async () => [rich], feeSchedule: parseFeeScheduleJson('') }));
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/fees',
+      headers: signedHeaders(principal({ scopes: ['admin:read'] })),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.fee_schedule_blank' });
+    expect(JSON.stringify(res.json())).not.toMatch(/"10"|"20"/);
+    await app.close();
+  });
+
+  it('presentAdminFees reads the perpetual block for futures and refuses options and a missing perpetual block', () => {
+    const futures = fakeMarket({ symbol: 'BTC-PERP', kind: 'futures', makerBps: 10, takerBps: 20 });
+    const options = fakeMarket({ symbol: 'BTC-OPT', kind: 'options', makerBps: 10, takerBps: 20 });
+    const published = PUBLISHED as Extract<typeof PUBLISHED, { published: true }>;
+    const rows = presentAdminFees([futures, options], published).markets;
+    expect(rows[0]).toMatchObject({
+      product: 'perpetual',
+      charged: { makerBps: '2', takerBps: '5', makerRate: '0.0002', takerRate: '0.0005' },
+    });
+    expect(rows[1]).toMatchObject({ product: null, charged: null, refusal: 'trade.fee_product_unpublished' });
+    const noPerp = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v', makerBps: '8', takerBps: '10' }));
+    const none = presentAdminFees([futures], noPerp as Extract<typeof noPerp, { published: true }>).markets;
+    expect(none[0]).toMatchObject({ charged: null, refusal: 'trade.fee_product_unpublished' });
   });
 
   it('filters open orders by symbol when provided', async () => {

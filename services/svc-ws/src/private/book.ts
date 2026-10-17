@@ -13,6 +13,14 @@ import type { PrivateOrderUpdate, PrivatePositionUpdate } from './hub.js';
 export interface PrivateBookPort {
   listOpenOrders(input: { accessToken: string; userId: string }): Promise<readonly PrivateOrderUpdate[]>;
   listOpenPositions(input: { accessToken: string; userId: string }): Promise<readonly PrivatePositionUpdate[]>;
+  /**
+   * Strict open-positions read for the positions-stream seed.
+   * Throws {@link PrivateBookError} on a failed fetch, timeout, non-2xx,
+   * unparseable JSON, a non-array body, or any row `parseOpenPosition` refuses.
+   * Optional so a port that only lists still compiles. The positions seed stays
+   * unwired when this method is absent — a cold subscribe then refuses.
+   */
+  readOpenPositions?(input: { accessToken: string; userId: string }): Promise<readonly unknown[]>;
 }
 
 export class PrivateBookError extends Error {
@@ -201,6 +209,36 @@ export class HttpPrivateBookPort implements PrivateBookPort {
       return parseOpenPositionList(body, input.userId);
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Same `GET /api/v1/positions` as {@link listOpenPositions}, but a miss is a
+   * throw. The positions stream must not store that miss as an empty book.
+   * Returns the raw JSON rows after every row has passed `parseOpenPosition`.
+   */
+  async readOpenPositions(input: { accessToken: string; userId: string }): Promise<readonly unknown[]> {
+    const body = await this.#getStrict('/api/v1/positions', input.accessToken);
+    if (!Array.isArray(body)) throw new PrivateBookError('open positions body is not an array');
+    for (const row of body) parseOpenPosition(row, input.userId);
+    return body;
+  }
+
+  async #getStrict(path: string, accessToken: string): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await this.#fetch(`${this.#baseUrl}${path}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(this.#timeoutMs),
+      });
+    } catch (err) {
+      throw new PrivateBookError(err instanceof Error ? err.message : 'open positions read failed');
+    }
+    if (!response.ok) throw new PrivateBookError(`open positions read failed: HTTP ${response.status}`);
+    try {
+      return await response.json();
+    } catch {
+      throw new PrivateBookError('open positions body is not JSON');
     }
   }
 

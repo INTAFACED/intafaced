@@ -29,6 +29,9 @@ const en = {
   recipientsOlderBody: 'None among your latest activity. Look further back to check.',
   recipientsNote: 'Taken from your payments and from payments sent on this device.',
   payAgain: 'Pay {who}',
+  recipientUnknown: 'Sent · recipient not shown by the bank',
+  recipientUnknownNote:
+    'The bank does not say who received these payments, and this device has no record of them. Open the receipt for details.',
 } as const;
 
 const es = {
@@ -59,6 +62,9 @@ const es = {
   recipientsOlderBody: 'Ninguno en tu actividad más reciente. Mira más atrás para comprobarlo.',
   recipientsNote: 'Procede de tus pagos y de los pagos enviados desde este dispositivo.',
   payAgain: 'Pagar a {who}',
+  recipientUnknown: 'Enviado · el banco no muestra al destinatario',
+  recipientUnknownNote:
+    'El banco no indica quién recibió estos pagos y este dispositivo no tiene constancia de ellos. Abre el recibo para ver los detalles.',
 } as const;
 
 const fr = {
@@ -89,6 +95,9 @@ const fr = {
   recipientsOlderBody: 'Aucun dans votre activité récente. Remontez plus loin pour vérifier.',
   recipientsNote: 'Tiré de vos paiements et des paiements envoyés depuis cet appareil.',
   payAgain: 'Payer {who}',
+  recipientUnknown: 'Envoyé · destinataire non indiqué par la banque',
+  recipientUnknownNote:
+    'La banque n’indique pas qui a reçu ces paiements et cet appareil n’en garde aucune trace. Ouvrez le reçu pour plus de détails.',
 } as const;
 
 export const recentCopy = defineCopy('pay.recent', en, { es, fr });

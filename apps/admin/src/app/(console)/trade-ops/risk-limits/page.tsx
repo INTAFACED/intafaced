@@ -2,11 +2,12 @@ import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { BlockerPanel, ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { DeskPage } from '@/components/trade-ops/desk-page';
+import { FeeScheduleNote } from '@/components/trade-ops/fee-schedule-note';
 import { RiskLimitsChecks } from '@/components/trade-ops/risk-limits-checks';
 import { RiskLimitsEdit } from '@/components/trade-ops/risk-limits-edit';
 import { RiskLimitsTable } from '@/components/trade-ops/risk-limits-table';
 import { BLOCKERS } from '@/lib/trade-ops/blockers';
-import { readMarkets } from '@/lib/trade-ops/reads';
+import { readEffectiveFees, readMarkets } from '@/lib/trade-ops/reads';
 import { FUTURES_NOTE } from '@/lib/trade-ops/risk-limits-model';
 
 /** Risk limits room: the limits the desk can read per market, the engine checks it cannot read, and a built (blocked) edit form. */
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
 export default async function RiskLimitsPage() {
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const markets = await readMarkets(ctx);
+  const [markets, fees] = await Promise.all([readMarkets(ctx), readEffectiveFees(ctx)]);
 
   return (
     <DeskPage
@@ -28,7 +29,10 @@ export default async function RiskLimitsPage() {
       <div className="flex flex-col gap-6">
         <PageSection title="Limits per market (readable)">
           {markets.kind === 'ok' ? (
-            <RiskLimitsTable markets={markets.data} />
+            <div className="flex flex-col gap-3">
+              <FeeScheduleNote fees={fees} />
+              <RiskLimitsTable markets={markets.data} fees={fees} />
+            </div>
           ) : (
             <ReadProblem outcome={markets} title="Market limits not read" />
           )}

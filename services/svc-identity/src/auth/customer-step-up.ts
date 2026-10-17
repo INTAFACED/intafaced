@@ -26,6 +26,7 @@ import {
   CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS,
   SAME_PERSON_APPROVAL_TTL_SECONDS,
   bindCustomerStepUp,
+  samePersonTargetService,
   type CustomerStepUpBeginInput,
   type CustomerStepUpBindFailure,
 } from '@intafaced/contracts';
@@ -186,7 +187,7 @@ export class CustomerStepUpService {
             requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at,
             kind, session_id
           ) VALUES (
-            ${approvalId}, ${row.scope}, ${'svc-bank'}, ${row.scope}, ${'1'}, ${row.payloadHash},
+            ${approvalId}, ${row.scope}, ${samePersonTargetService(row.scope)}, ${row.scope}, ${'1'}, ${row.payloadHash},
             ${row.userId}, ${row.userId}, ${'step-up-v1'}, ${approvalId}, ${'APPROVED'},
             ${now}, ${expiresAt}, ${now}, ${null}, ${'same_person'}, ${row.sessionId}
           )

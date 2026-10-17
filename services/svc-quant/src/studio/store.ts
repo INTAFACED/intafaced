@@ -1,8 +1,9 @@
 /**
  * In-process strategy book, keyed by account.
  *
- * svc-quant has no DATABASE_URL and posts no ledger rows. Rows live until the
- * process exits. Durable per-account storage is QUANTDEPTH's job.
+ * Process map kept for the quarantine unit test. The studio router does not
+ * use it. Durable rows go through StrategyRepository (Postgres in the process
+ * that has DATABASE_URL). This map is still not a money book.
  *
  * A blank account id is owner-unknown. Those rows are quarantined: no user
  * list, get, or clone returns them. Nothing on disk is loaded at boot, so the

@@ -1,8 +1,10 @@
+import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
+  FOUNDER_SESSION_SCOPE_ALLOWLIST,
   issueAccessToken,
   scopesForFounderSession,
   SESSION_SCOPES,
@@ -122,7 +124,10 @@ export class AuthError extends Error {
       | 'auth.request_stale'
       | 'auth.request_tampered'
       | 'auth.request_replay'
-      | 'auth.ip_allowlist_required',
+      | 'auth.ip_allowlist_required'
+      | 'auth.payee_email_unconfirmed'
+      | 'auth.payee_phone_unverified'
+      | 'auth.payee_phone_unset',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -367,6 +372,10 @@ export class AuthService {
   private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
   private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
+  /** Lead-published founder grant. Blank grants nothing. */
+  private founderSessionScopes: readonly Scope[] = [];
+  /** The config string whose sha256 is written on each founder issuance. */
+  private founderSessionConfigValue = '';
 
   constructor(
     private readonly sql: Sql,
@@ -465,23 +474,76 @@ export class AuthService {
     this.founderDirectory = directory;
   }
 
-  private async founderScopesOn(base: readonly Scope[], userId: string, mfa: boolean, query?: Sql): Promise<Scope[]> {
+  /**
+   * The lead's founder-session grant. Blank grants nothing. A scope outside
+   * the allowlist is refused here as well as at env parse.
+   */
+  useFounderSessionScopes(input: { readonly scopes: readonly Scope[]; readonly configValue: string } | undefined): void {
+    const scopes = input?.scopes ?? [];
+    for (const scope of scopes) {
+      if (!(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope)) {
+        throw new Error(`identity.founder_scope_invalid: ${scope}`);
+      }
+    }
+    this.founderSessionScopes = [...scopes];
+    this.founderSessionConfigValue = input?.configValue ?? '';
+  }
+
+  private founderConfigHash(): string {
+    return createHash('sha256').update(this.founderSessionConfigValue).digest('hex');
+  }
+
+  private async founderScopesOn(
+    base: readonly Scope[],
+    userId: string,
+    mfa: boolean,
+    query: Sql | undefined,
+    gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
+  ): Promise<{ scopes: Scope[]; founder: boolean; granted: Scope[] }> {
     let founder = false;
     try {
       founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
     } catch {
       founder = false;
     }
-    return scopesForFounderSession(base, { founder, mfa });
+    const scopes = scopesForFounderSession(base, {
+      founder,
+      mfa,
+      apiKey: gates.apiKey === true,
+      subAccount: gates.subAccount === true,
+      configured: this.founderSessionScopes,
+    });
+    const granted = scopes.filter(
+      (scope) => (FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope) && !base.includes(scope),
+    );
+    return { scopes, founder, granted };
+  }
+
+  /** One audit row for a live founder issuance. A non-founder writes nothing. */
+  private async recordFounderScopeGrant(
+    query: Sql,
+    userId: string,
+    sessionId: string,
+    founder: boolean,
+    granted: readonly Scope[],
+  ): Promise<void> {
+    if (!founder) return;
+    await query`
+      INSERT INTO founder_session_scope_audit (audit_id, user_id, session_id, scopes, config_hash)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${[...granted]}, ${this.founderConfigHash()})
+    `;
   }
 
   /**
-   * Session scopes, the owner pay grant, then founder desk scopes.
+   * Session scopes, the owner pay grant, then the configured founder grant.
    * The pay lookup is a network call. Do not call this inside a session transaction.
+   * Step-up does not call this: a step-up token never receives founder scopes.
    */
-  private async scopesFor(userId: string, mfa: boolean, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+  private async scopesFor(userId: string, mfa: boolean, sessionId: string, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
     const pay = await this.scopesForNewAccessToken(userId);
-    return this.founderScopesOn([...pay, ...extra], userId, mfa, query);
+    const decided = await this.founderScopesOn([...pay, ...extra], userId, mfa, query, {});
+    await this.recordFounderScopeGrant(query ?? this.sql, userId, sessionId, decided.founder, decided.granted);
+    return decided.scopes;
   }
 
   private resetDeps() {
@@ -732,7 +794,7 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesFor(userId, options.mfa);
+    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
@@ -813,7 +875,9 @@ export class AuthService {
       const tier = await this.kycTier(session.user_id, tx);
       // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
       const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
-      const scopes = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx);
+      const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
+      await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
+      const scopes = decided.scopes;
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
@@ -1522,6 +1586,106 @@ export class AuthService {
     return row ? { userId: row.id, handle: row.handle } : null;
   }
 
+  /**
+   * Exact email or phone, and only when that person opted in and the address
+   * is verified. Frozen, closed, unknown, unverified and "did not consent"
+   * are the same null. The row's email and phone are not returned.
+   */
+  async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
+    const rows =
+      'email' in query
+        ? await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE email = ${query.email}
+               AND status = 'active'
+               AND payee_email_consent = true
+               AND email_verified_at IS NOT NULL
+             LIMIT 1`
+        : await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE phone = ${query.phone}
+               AND status = 'active'
+               AND payee_phone_consent = true
+               AND phone_verified_at IS NOT NULL
+             LIMIT 1`;
+    const row = rows[0];
+    return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
+  /**
+   * The signed-in user turns email or phone discovery on or off, and may set
+   * their own phone. The phone number is stored and never written to the audit.
+   */
+  async setPayeeSearchConsent(
+    userId: string,
+    input: { emailConsent?: boolean; phoneConsent?: boolean; phone?: string | null },
+  ): Promise<{ emailConsent: boolean; phoneConsent: boolean; phoneOnFile: boolean }> {
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<
+        Array<{
+          phone: string | null;
+          payee_email_consent: boolean;
+          payee_phone_consent: boolean;
+          status: string;
+          email_verified_at: Date | string | null;
+          phone_verified_at: Date | string | null;
+        }>
+      >`
+        SELECT phone, payee_email_consent, payee_phone_consent, status, email_verified_at, phone_verified_at
+          FROM users WHERE id = ${userId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row || row.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+      let phone = row.phone;
+      let emailConsent = row.payee_email_consent;
+      let phoneConsent = row.payee_phone_consent;
+      let phoneVerifiedAt = row.phone_verified_at;
+      let phoneEvent: 'phone_set' | 'phone_cleared' | null = null;
+      if (input.phone === null) {
+        if (phone !== null) phoneEvent = 'phone_cleared';
+        phone = null;
+        phoneConsent = false;
+        phoneVerifiedAt = null;
+      } else if (typeof input.phone === 'string') {
+        phone = input.phone;
+        phoneEvent = 'phone_set';
+        phoneConsent = false;
+        phoneVerifiedAt = null;
+      }
+      if (input.emailConsent !== undefined) emailConsent = input.emailConsent;
+      if (input.phoneConsent !== undefined) phoneConsent = input.phoneConsent;
+      if (emailConsent && row.email_verified_at == null) {
+        throw new AuthError('Confirm your email before people can find you by it', 'auth.payee_email_unconfirmed');
+      }
+      if (phoneConsent && phoneVerifiedAt == null) {
+        throw new AuthError('Verify your phone before people can find you by it', 'auth.payee_phone_unverified');
+      }
+      if (phoneConsent && phone === null) {
+        throw new AuthError('Add a phone number before people can find you by it', 'auth.payee_phone_unset');
+      }
+      await tx`
+        UPDATE users
+           SET phone = ${phone},
+               phone_verified_at = ${phoneVerifiedAt},
+               payee_email_consent = ${emailConsent},
+               payee_phone_consent = ${phoneConsent},
+               updated_at = now()
+         WHERE id = ${userId}
+      `;
+      await tx`
+        INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+        VALUES (${userId}, 'consent', ${emailConsent}, ${phoneConsent})
+      `;
+      if (phoneEvent) {
+        await tx`
+          INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+          VALUES (${userId}, ${phoneEvent}, ${emailConsent}, ${phoneConsent})
+        `;
+      }
+      return { emailConsent, phoneConsent, phoneOnFile: phone !== null };
+    });
+  }
+
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {
     return transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
@@ -1767,7 +1931,11 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes = await this.scopesFor(input.userId, true, STEP_UP_SCOPES);
+    // A step-up token carries the withdraw scope only. Founder desk scopes stay
+    // on the interactive session and are re-read at the next refresh.
+    const pay = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...pay];
+    for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },

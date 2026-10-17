@@ -1,9 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Field, Input, SegmentedControl, Table, type TableColumn } from '@intafaced/ui';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
-import { BLOCKERS } from '@/lib/trade-ops/blockers';
 import {
   isPayloadHash,
   knownRequester,
@@ -14,7 +13,6 @@ import {
 } from '@/lib/trade-ops/approvals';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import type { ActionApproval } from '@intafaced/contracts';
-import { BlockerPanel } from './blocker-panel';
 import { ConfirmAction } from './confirm-action';
 import { OutcomeNotice } from './outcome-notice';
 import { recordApproval, useApprovalLog } from './approvals-log';
@@ -22,8 +20,8 @@ import { recordApproval, useApprovalLog } from './approvals-log';
 const VERB_LABEL = { propose: 'Propose', approve: 'Approve', reject: 'Reject', revoke: 'Revoke' } as const;
 
 /**
- * Panel (c): the approval queue. Identity cannot list pending approvals or read one back (blocker
- * approvals_list_missing), so the operator acts on an approval BY ID: the proposer hands over the id.
+ * Panel (c): the approval queue. Identity lists the approvals this operator may decide (`actionApproval.list`, view
+ * `pending`); picking one fills in its id and hash, and the operator can still act on an id the proposer handed over.
  * Approve / reject / revoke are real calls. The requester can never approve or reject their own request:
  * this form refuses it first (when it knows who proposed it) and the service refuses it again.
  */
@@ -94,7 +92,13 @@ export function ApprovalsQueue({ sessionUserId }: { sessionUserId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <BlockerPanel blocker={BLOCKERS.approvals_list_missing} title="The queue cannot be listed" size="inline" />
+      <PendingList
+        onPick={(a) => {
+          setApprovalId(a.approvalId);
+          setHash(a.payloadHash);
+          setRequesterTyped(a.requesterId);
+        }}
+      />
       <p className="text-sm text-fg-2">
         Act on an approval by its id. You are signed in as <code className="if-num text-xs">{sessionUserId}</code>; you cannot approve or
         reject a request you proposed yourself.
@@ -258,5 +262,54 @@ function HashHelper({ onHash }: { onHash: (hash: string) => void }) {
         {result?.kind === 'ok' ? <span className="if-num text-xs text-fg-2">{result.data.payloadHash}</span> : null}
       </div>
     </details>
+  );
+}
+
+/** Approvals waiting for this operator, straight from identity. A failed read says so; it never shows an empty queue. */
+function PendingList({ onPick }: { onPick: (a: ActionApproval) => void }) {
+  const [out, setOut] = useState<Outcome<{ approvals: readonly ActionApproval[]; pageFull: boolean }> | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function load() {
+    setBusy(true);
+    setOut(await tradeOpsAction('approvals', { action: 'list', view: 'pending' }));
+    setBusy(false);
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+  const columns: TableColumn<ActionApproval>[] = [
+    { id: 'action', header: 'Action', value: (a) => a.actionType, width: 180 },
+    { id: 'target', header: 'Target', value: (a) => a.targetId },
+    { id: 'by', header: 'Proposed by', value: (a) => a.requesterId },
+    { id: 'status', header: 'Status', value: (a) => a.status, width: 110 },
+  ];
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="flex items-center gap-2 text-sm font-medium text-fg">
+        Waiting for a decision
+        <Button type="button" size={28} variant="secondary" shape="rounded" loading={busy} onClick={load}>
+          Refresh
+        </Button>
+      </h3>
+      {out && out.kind !== 'ok' ? <OutcomeNotice outcome={out} /> : null}
+      {out?.kind === 'ok' ? (
+        <>
+          {out.data.pageFull ? <p className="text-xs text-warn">Only the first 50 are listed; more may be waiting.</p> : null}
+          <Table
+            label="Approvals waiting for this operator"
+            density="dense"
+            columns={columns}
+            rows={out.data.approvals}
+            getRowId={(a) => a.approvalId}
+            maxHeight={240}
+            onRowActivate={onPick}
+            emptyState={<p className="p-4 text-sm text-fg-2">Identity lists nothing waiting for you.</p>}
+          />
+          <p className="text-xs text-fg-3">
+            Pick a row to fill in its id and hash. You still check the hash against what the proposer showed you.
+          </p>
+        </>
+      ) : null}
+    </div>
   );
 }

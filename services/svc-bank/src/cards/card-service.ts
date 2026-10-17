@@ -211,6 +211,8 @@ export interface CardRecord {
   replacesCardId: string | null;
   replacedByCardId: string | null;
   replaceReason: CardReplaceReason | null;
+  /** `operator` is a freeze the owner cannot lift. Null when the card is not frozen that way, or the owner froze it. */
+  frozenBy: 'owner' | 'operator' | null;
 }
 
 export interface CardShippingAddress {
@@ -495,7 +497,7 @@ export class CardService {
         ${cardType}, ${shipping === null ? null : JSON.stringify(shipping)}::jsonb
       )
       ON CONFLICT (issuer, issuer_ref) DO NOTHING
-      RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason
+      RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by
     `;
 
     // A redelivered issue is the same card, not a second one drawing on the same
@@ -514,7 +516,7 @@ export class CardService {
 
   async card(cardId: string): Promise<CardRecord> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE id = ${cardId}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE id = ${cardId}
     `;
     const row = rows[0];
     if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
@@ -524,7 +526,7 @@ export class CardService {
   async cardsOf(userId: string, limit?: number): Promise<CardRecord[]> {
     const page = assertCardsListLimit(limit);
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}
     `;
     return rows.map(toCard);
@@ -542,10 +544,103 @@ export class CardService {
     if (card.status === 'closed' && status !== 'closed') {
       throw new BankError('A closed card cannot be reopened', 'bank.card_not_active');
     }
+    if (card.frozenBy === 'operator' && status === 'active') {
+      throw new BankError(
+        'An operator froze this card. The owner cannot lift that freeze (bank.card_operator_frozen)',
+        'bank.card_operator_frozen',
+      );
+    }
+    if (card.frozenBy === 'operator' && status === 'frozen') return card;
 
     await this.issuer.setStatus({ cardId: card.id, issuerRef: card.issuerRef, status });
-    await this.sql`UPDATE bank.cards SET status = ${status}, updated_at = now() WHERE id = ${cardId}`;
+    const frozenBy = status === 'frozen' ? 'owner' : null;
+    await this.sql`UPDATE bank.cards SET status = ${status}, frozen_by = ${frozenBy}, updated_at = now() WHERE id = ${cardId}`;
     return this.card(cardId);
+  }
+
+  /**
+   * Operator freeze or unfreeze. The client id is the idempotency key.
+   * The approval is consumed only on the first new command, and only after a
+   * replay of the same terms has been ruled out, so a lost reply does not
+   * spend a second approval. A refused approval changes nothing.
+   */
+  async setOperatorStatus(input: {
+    cardId: string;
+    status: 'frozen' | 'active';
+    reason: string;
+    clientRequestId: string;
+    consume: () => Promise<void>;
+  }): Promise<{ cardId: string; status: 'frozen' | 'active'; frozenBy: 'operator' | null }> {
+    const reason = input.reason.trim();
+    if (reason.length < 10) {
+      throw new BankError(
+        'An operator card change needs a reason of at least 10 characters (bank.ops_reason_too_short)',
+        'bank.ops_reason_too_short',
+      );
+    }
+    const prior = await this.operatorCommand(this.sql, input.clientRequestId);
+    if (prior) return this.replayOperatorCommand(prior, input.cardId, input.status, reason);
+
+    await input.consume();
+
+    return transaction(this.sql, async (tx) => {
+      const raced = await this.operatorCommand(tx, input.clientRequestId);
+      if (raced) return this.replayOperatorCommand(raced, input.cardId, input.status, reason);
+
+      const rows = await tx<CardRow[]>`
+        SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by
+          FROM bank.cards WHERE id = ${input.cardId}
+         FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new BankError(`Card ${input.cardId} not found`, 'bank.card_not_found');
+      const card = toCard(row);
+      if (card.status === 'closed') throw new BankError('A closed card cannot be reopened', 'bank.card_not_active');
+
+      await this.issuer.setStatus({ cardId: card.id, issuerRef: card.issuerRef, status: input.status });
+      const frozenBy = input.status === 'frozen' ? 'operator' : null;
+      await tx`UPDATE bank.cards SET status = ${input.status}, frozen_by = ${frozenBy}, updated_at = now() WHERE id = ${card.id}`;
+      await tx`
+        INSERT INTO bank.card_operator_commands (client_request_id, card_id, target_status, reason, result_status, frozen_by)
+        VALUES (${input.clientRequestId}, ${card.id}, ${input.status}, ${reason}, ${input.status}, ${frozenBy})
+      `;
+      return { cardId: card.id, status: input.status, frozenBy };
+    });
+  }
+
+  async countProgramme(): Promise<{ issued: number; active: number; frozen: number }> {
+    const rows = await this.sql<Array<{ issued: number; active: number; frozen: number }>>`
+      SELECT count(*)::int AS issued,
+             count(*) FILTER (WHERE status = 'active')::int AS active,
+             count(*) FILTER (WHERE status = 'frozen')::int AS frozen
+        FROM bank.cards
+    `;
+    const row = rows[0];
+    return { issued: Number(row?.issued ?? 0), active: Number(row?.active ?? 0), frozen: Number(row?.frozen ?? 0) };
+  }
+
+  async authorisationDays(
+    from: Date,
+    to: Date,
+  ): Promise<Array<{ day: string; assetId: string; decision: 'approved' | 'declined'; amount: Amount; count: number }>> {
+    const rows = await this.sql<Array<{ day: string; asset_id: string; decision: 'approved' | 'declined'; amount: string; count: number }>>`
+      SELECT to_char(a.decided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+             c.asset_id,
+             a.decision::text AS decision,
+             COALESCE(SUM(a.amount), 0)::text AS amount,
+             count(*)::int AS count
+        FROM bank.card_authorizations a
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE a.decided_at >= ${from} AND a.decided_at < ${to}
+       GROUP BY 1, 2, 3
+    `;
+    return rows.map((row) => ({
+      day: row.day,
+      assetId: row.asset_id,
+      decision: row.decision,
+      amount: parseAmount(row.amount),
+      count: Number(row.count),
+    }));
   }
 
   /**
@@ -1560,7 +1655,7 @@ export class CardService {
 
   private async cardByIssuerRef(issuer: string, issuerRef: string): Promise<CardRow | undefined> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
     `;
     return rows[0];
   }
@@ -1863,6 +1958,33 @@ export class CardService {
     return new Date(this.clock().getTime() + SECRET_TTL_MS).toISOString();
   }
 
+  private async operatorCommand(
+    sql: Sql,
+    clientRequestId: string,
+  ): Promise<{ card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null } | null> {
+    const rows = await sql<
+      Array<{ card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null }>
+    >`
+      SELECT card_id, target_status, reason, result_status, frozen_by
+        FROM bank.card_operator_commands
+       WHERE client_request_id = ${clientRequestId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private replayOperatorCommand(
+    prior: { card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null },
+    cardId: string,
+    status: 'frozen' | 'active',
+    reason: string,
+  ): { cardId: string; status: 'frozen' | 'active'; frozenBy: 'operator' | null } {
+    if (prior.card_id !== cardId || prior.target_status !== status || prior.reason !== reason) {
+      throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
+    }
+    const result = prior.result_status === 'active' ? 'active' : 'frozen';
+    return { cardId: prior.card_id, status: result, frozenBy: prior.frozen_by === 'operator' ? 'operator' : null };
+  }
+
   private async ownedCard(cardId: string, userId: string): Promise<CardRecord> {
     const card = await this.card(cardId);
     if (card.userId !== userId) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
@@ -1871,7 +1993,7 @@ export class CardService {
 
   private async cardOrNull(cardId: string): Promise<CardRecord | null> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason FROM bank.cards WHERE id = ${cardId}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE id = ${cardId}
     `;
     const row = rows[0];
     return row ? toCard(row) : null;
@@ -2004,6 +2126,7 @@ interface CardRow {
   replaces_card_id: string | null;
   replaced_by_card_id: string | null;
   replace_reason: string | null;
+  frozen_by: string | null;
 }
 
 interface AuthorizationRow {
@@ -2057,6 +2180,7 @@ function toCard(row: CardRow): CardRecord {
     replacedByCardId: row.replaced_by_card_id,
     replaceReason:
       row.replace_reason === 'lost' || row.replace_reason === 'stolen' || row.replace_reason === 'damaged' ? row.replace_reason : null,
+    frozenBy: row.frozen_by === 'owner' || row.frozen_by === 'operator' ? row.frozen_by : null,
   };
 }
 

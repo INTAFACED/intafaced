@@ -783,3 +783,25 @@ export function planSkipCountAtMost(plan: readonly DeliveryDecision[], n: number
   if (!Number.isFinite(n)) return false;
   return planSkipCount(plan) <= n;
 }
+
+/**
+ * Topics the service already writes as the first segment of `kind`
+ * (`trade.fill`, `bank.margin_call`, …). A kind outside this list has no
+ * per-topic choice.
+ */
+export const NOTIFY_TOPICS = ['trade', 'p2p', 'identity', 'bank', 'token', 'agents'] as const;
+export type NotifyTopic = (typeof NOTIFY_TOPICS)[number];
+
+export function isNotifyTopic(value: string): value is NotifyTopic {
+  return (NOTIFY_TOPICS as readonly string[]).includes(value);
+}
+
+export function topicFromKind(kind: string): NotifyTopic | null {
+  const prefix = kind.split('.')[0] ?? '';
+  return isNotifyTopic(prefix) ? prefix : null;
+}
+
+/** No stored row means the topic is enabled. `false` is an explicit mute. */
+export function topicPrefEnabled(stored: boolean | undefined): boolean {
+  return stored !== false;
+}

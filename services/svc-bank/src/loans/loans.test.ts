@@ -82,6 +82,7 @@ const LOANS_MIGRATION = readFileSync(join(here, '..', '..', 'drizzle', '0002_ban
 const OPENING_COLLATERAL = readFileSync(join(here, '..', '..', 'drizzle', '0008_loan_opening_collateral.sql'), 'utf8');
 const RESERVE_FUNDINGS = readFileSync(join(here, '..', '..', 'drizzle', '0009_loan_reserve_fundings.sql'), 'utf8');
 const SETTLED_HAS_TX = readFileSync(join(here, '..', '..', 'drizzle', '0017_loan_settled_has_ledger_tx.sql'), 'utf8');
+const OPS_READS = readFileSync(join(here, '..', '..', 'drizzle', '0040_bank_ops_reads.sql'), 'utf8');
 
 const BORROWER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -1014,7 +1015,7 @@ describe('svc-bank loans PG-hard', () => {
     db = await createTestDatabase({
       service: 'bank',
       url: admin.url,
-      migrations: [BANK_INIT, POSITION_PENDING, LOANS_MIGRATION, OPENING_COLLATERAL, RESERVE_FUNDINGS, SETTLED_HAS_TX],
+      migrations: [BANK_INIT, POSITION_PENDING, LOANS_MIGRATION, OPENING_COLLATERAL, RESERVE_FUNDINGS, SETTLED_HAS_TX, OPS_READS],
     });
     sql = db.sql;
   }, 120_000);

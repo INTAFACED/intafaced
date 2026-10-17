@@ -102,6 +102,20 @@ const WITH_PREREQ: ProgrammeDefinition[] = [
   { slug: 'sovereign', prerequisites: [] },
 ];
 
+/** TEST certificates so the prerequisite case can enrol a path. Not owner content. */
+const TEST_MARKETS_CERT = {
+  id: 'test-markets-v1',
+  title: 'TEST Markets',
+  path: 'markets' as const,
+  requiredItemSlugs: ['markets-reading-the-book'],
+};
+const TEST_BUILDER_CERT = {
+  id: 'test-builder-v1',
+  title: 'TEST Builder',
+  path: 'builder' as const,
+  requiredItemSlugs: ['builder-first-automation'],
+};
+
 const TIMED_VIDEO: VideoSpineEntry = {
   slug: 'foundations-risk-first',
   title: 'Risk first',
@@ -173,7 +187,7 @@ describe('academy customer learning reads and writes', () => {
   });
 
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
-    const gated = service({ programmeCatalog: WITH_PREREQ });
+    const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
       code: 'academy.prerequisite_unmet',
       message: expect.stringContaining('foundations'),
@@ -185,7 +199,7 @@ describe('academy customer learning reads and writes', () => {
     await gated.enrollCertPath({ userId: USER, pathSlug: 'foundations' });
     await gated.enrollCertPath({ userId: USER, pathSlug: 'markets' });
     expect((await gated.myEnrollments(USER)).map((row) => row.pathSlug).sort()).toEqual(['foundations', 'markets']);
-    const open = service();
+    const open = service({ certCatalog: [FOUNDATIONS_V1, TEST_BUILDER_CERT] });
     await open.enrollCertPath({ userId: OTHER, pathSlug: 'builder' });
     expect((await open.myEnrollments(OTHER)).map((row) => row.pathSlug)).toEqual(['builder']);
   });

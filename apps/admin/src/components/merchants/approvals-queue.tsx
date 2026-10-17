@@ -69,6 +69,9 @@ export function ApprovalsTable({
                 ) : null}
                 <td className="mp-right mp-num" data-label="Payout">
                   {approvalAmountText(a)}
+                  <a className="mp-sub mp-block" href={`/approvals/${a.approvalId}`}>
+                    Details
+                  </a>
                 </td>
                 <td data-label="Status">
                   <StatusChip spec={payoutApprovalChip(a.status)} />

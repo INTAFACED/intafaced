@@ -84,6 +84,8 @@ const migrations = [
   '0012_p2p_dispute_resolution_match.sql',
   '0013_p2p_dispute_ruling_frozen.sql',
   '0014_p2p_escrow_lock_attempts.sql',
+  '0015_p2p_customer_depth.sql',
+  '0016_p2p_ops_escalation.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';
@@ -173,6 +175,9 @@ function stubInstruments() {
 function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     listOffers: async () => [],
+    listOfferBoard: async () => ({ offers: [], nextCursor: null }),
+    releasedTradeCounts: async () => new Map<string, number>(),
+    tradesInWindow: async () => 0,
     ...overrides,
   } as unknown as P2pService;
 }
@@ -334,6 +339,7 @@ describe('D26-P2-01f refuse-closed defaults (no invent)', () => {
       minAmount: '10',
       maxAmount: '500',
       methods: [METHOD],
+      idempotencyKey: 'kms-refuse-key',
     });
     expect(statusCode).toBe(412);
     expect(body.error!.message).toBe('p2p.instrument_kms_required');

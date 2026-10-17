@@ -67,6 +67,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Your positions changed while closing',
     body: 'Nothing was closed. Refresh the follow and check your positions.',
   },
+  'trade.copy_flatten_partial': {
+    title: 'Only some positions were closed',
+    body: 'Part of your copied positions was closed and the rest is still open. Refresh the follow, then close what remains yourself on the spot desk.',
+  },
   'trade.copy_flatten_unavailable': {
     title: 'Closing copied positions isn’t available yet',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',

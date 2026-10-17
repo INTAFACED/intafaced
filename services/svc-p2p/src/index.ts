@@ -24,13 +24,17 @@ import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
 import { SqlBlockQuoteStore } from './block-rfq-store.js';
 import { isModerationConfigured, parseModeratorUserIds } from './moderation-auth.js';
 import { moderationOnPublicDoor } from './moderation-honesty.js';
 import { P2pErasure } from './erasure.js';
+import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { instrumentKeyHealth } from './instrument-key-provider.js';
+import { createLocalTestKeyProvider } from './local-test-kms.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -45,6 +49,9 @@ registerProcessHooks(
     environment: env.APP_ENV,
   }),
 );
+
+// Local-test stand-ins refuse unless APP_ENV is exactly dev/test. Unset is not dev.
+assertNoLocalTestFixtures(process.env);
 
 /**
  * svc-p2p — peer-to-peer trading with escrow (§6.2).
@@ -93,8 +100,14 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 // Where the buyer is told to send the fiat, and the record of who ever looked.
 // Constructed before P2pService because a P2pService without one would lock
 // escrow against a payment nobody could make.
+// A set local-test flag that misses a check throws here and the process exits.
+// Unset returns null: no provider, no key file, no log line.
+const instrumentKeyProvider = createLocalTestKeyProvider(process.env);
+const instrumentKey = instrumentKeyHealth(instrumentKeyProvider?.kind);
+
 const instruments = new InstrumentService(sql, {
   retentionDays: publishedInstrumentRetentionDays(env.P2P_INSTRUMENT_RETENTION_DAYS),
+  keyProvider: instrumentKeyProvider,
 });
 
 /**
@@ -166,7 +179,15 @@ export const appRouter = createP2pRouter(
   p2p,
   instruments,
   erasure,
-  { moderatorUserIds, offerLimits, blockRfq, approvals: actionApprovals },
+  {
+    moderatorUserIds,
+    offerLimits,
+    blockRfq,
+    approvals: actionApprovals,
+    instrumentKeyProvider: instrumentKey.instrumentKeyProvider,
+    opsReads: new OpsReads(sql),
+    disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
+  },
   merchants,
 );
 export type AppRouter = typeof appRouter;
@@ -187,8 +208,8 @@ app.get('/health', async () => ({
   /** False until env ceilings arm Stage 2 — badge must not imply a higher limit when none is set. */
   offerLimitsConfigured: limitsConfigured(offerLimits),
   offerLimitsPosture: offerLimitsPosture(offerLimits),
-  /** False until OWNER KMS is wired. A flag that unblocked plaintext is not encryption. */
-  instrumentKmsConfigured: false,
+  /** False until OWNER KMS is wired. A local-test seal is not that KMS. */
+  ...instrumentKey,
 }));
 app.get('/ready', async () => ({
   ready: true,
@@ -196,7 +217,7 @@ app.get('/ready', async () => ({
   ...moderationPublic,
   offerLimitsConfigured: limitsConfigured(offerLimits),
   offerLimitsPosture: offerLimitsPosture(offerLimits),
-  instrumentKmsConfigured: false,
+  ...instrumentKey,
 }));
 
 /**

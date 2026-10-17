@@ -111,6 +111,20 @@ export const payReserveSchema = z
   })
   .strict();
 
+/**
+ * Founder-desk label while packages/ledger-client has no merchant rolling-reserve
+ * recipe. The percentage may still be stored on a tier or an old profile row.
+ * It is not money held on the ledger.
+ */
+export const PAY_RESERVE_NOT_ENFORCED = 'not enforced: reserve ledger unwired' as const;
+
+/** Read shape. `enforcement` is present only when a percentage is configured. Writes stay on `payReserveSchema`. */
+export const payReserveViewSchema = payReserveSchema
+  .extend({
+    enforcement: z.literal(PAY_RESERVE_NOT_ENFORCED).optional(),
+  })
+  .strict();
+
 /** What a merchant (or operator drill-down) reads. A null section is unconfigured and refuses money movement. */
 export const merchantControlProfileSchema = z
   .object({
@@ -119,7 +133,7 @@ export const merchantControlProfileSchema = z
     archetypeId: payMerchantArchetypeIdSchema.nullable(),
     caps: z.array(payCapSchema).max(32).nullable(),
     pricing: z.array(payPricingRuleSchema).max(32).nullable(),
-    reserve: payReserveSchema.nullable(),
+    reserve: payReserveViewSchema.nullable(),
     version: payVersionSchema,
     updatedAt: payTimestampSchema.nullable(),
   })
@@ -211,10 +225,22 @@ export const merchantControlApprovalListInputSchema = z
   })
   .strict();
 
+/**
+ * Headroom still approvable today for one asset. `remaining` is an exact decimal
+ * string. Null means no daily payout limit is configured: approval refuses.
+ */
+export const dailyPayoutRemainingSchema = z
+  .object({
+    assetCode: payAssetCodeSchema,
+    remaining: payAmountStringSchema.nullable(),
+  })
+  .strict();
+
 export const merchantControlApprovalPageSchema = z
   .object({
     items: z.array(payoutApprovalSchema),
     nextCursor: z.string().nullable(),
+    dailyPayoutRemaining: z.array(dailyPayoutRemainingSchema).max(232),
   })
   .strict();
 

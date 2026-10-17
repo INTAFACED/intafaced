@@ -1,3 +1,4 @@
+import { isServiceNotConnected } from '../../shared/api';
 import type { AuditStatus, ChainStatus, DexHealth, IndexerStatus, ProtocolHealth } from './api';
 
 /**
@@ -32,7 +33,32 @@ export function networkLabel(chainId: number | null | undefined): { name: string
   return known ? { ...known, known: true } : { name: 'Unrecognised network', note: 'Not confirmed as INTACHAIN.', known: false };
 }
 
-export type Source<T> = { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string };
+/** `code` is the gateway's own refusal code when there was one. */
+export type Source<T> =
+  { status: 'loading' } | { status: 'ok'; data: T } | { status: 'down'; reason: string; message: string; code?: string };
+
+/** The gateway's "this service is not connected in this environment" answer; the shared client owns the rule. */
+export { isServiceNotConnected };
+
+/** What the chain status says went wrong, in plain words. The service's own text carries an RPC address and spec references, so it is never shown. */
+export function chainReasonWords(refusalCode: string | null | undefined): string {
+  if (refusalCode === 'protocol.chain_unreachable') return 'The network did not answer.';
+  if (refusalCode === 'protocol.contract_not_deployed') return 'The contracts are not on this network.';
+  return 'The network gave no usable answer.';
+}
+
+/**
+ * A reason is dropped into a sentence of ours, so it loses its own full stop and any bare HTTP code:
+ * "The service refused this request (502)." becomes "The service refused this request", never "(…(502).)."
+ */
+export function plainReason(text: string): string {
+  return text
+    .replace(/\s*\(\s*\d{3}\s*\)/g, '')
+    .trim()
+    .replace(/[\s.!?;:,…]+$/u, '');
+}
+/** A reason that continues a sentence of ours: no full stop, no bare code, and no capital letter in the middle of the sentence. */
+const inSentence = (text: string): string => plainReason(text).replace(/^([A-Z])(?=[a-z])/, (letter) => letter.toLowerCase());
 
 export interface ProtocolSnapshot {
   chain: Source<ChainStatus>;
@@ -61,6 +87,9 @@ export type BlockerCode =
   | 'no_chain_service'
   | 'no_bridge_service'
   | 'source_down'
+  | 'source_no_reply'
+  | 'source_checking'
+  | 'source_not_connected'
   | 'chain_unreachable'
   | 'chain_mismatch'
   | 'suite_missing'
@@ -92,6 +121,15 @@ const sourceName = {
   health: 'service health',
 };
 
+/** The service behind each source, as the "not connected" sentence names it. */
+const serviceName = {
+  chain: 'Protocol',
+  audit: 'Protocol',
+  indexer: 'indexer',
+  dex: 'DEX',
+  health: 'Protocol',
+};
+
 type Check = (snap: ProtocolSnapshot, p1Go: boolean) => Blocker | null;
 
 /** A source that has not answered cannot clear a blocker, so "unknown" blocks exactly like "no". */
@@ -102,10 +140,14 @@ function needs<K extends keyof ProtocolSnapshot>(
   return (snap) => {
     const source = snap[key] as Source<never>;
     if (source.status === 'ok') return then(source.data as never, snap);
-    return blocker('source_down', {
-      source: sourceName[key],
-      reason: source.status === 'down' ? source.message : 'still checking',
-    });
+    if (source.status === 'down' && isServiceNotConnected(source.code))
+      return blocker('source_not_connected', { service: serviceName[key] });
+    // Still loading: not confirmed yet, so it blocks like "no".
+    if (source.status !== 'down') return blocker('source_checking', { source: sourceName[key] });
+    // An unreachable source's message is the generic "didn't answer, try again", which repeats the sentence and
+    // offers a button the blocker list doesn't have: say which service did not answer instead.
+    if (source.reason === 'unreachable') return blocker('source_no_reply', { source: sourceName[key], service: serviceName[key] });
+    return blocker('source_down', { source: sourceName[key], reason: inSentence(source.message) });
   };
 }
 
@@ -115,7 +157,7 @@ const always =
   () =>
     blocker(code);
 const chainUp = needs('chain', (c) => {
-  if (!c.reachable) return blocker('chain_unreachable', { reason: c.reason ?? c.refusalCode ?? 'no reason returned' });
+  if (!c.reachable) return blocker('chain_unreachable', { reason: chainReasonWords(c.refusalCode) });
   if (c.observedChainId !== null && c.observedChainId !== c.configuredChainId)
     return blocker('chain_mismatch', { configured: String(c.configuredChainId), observed: String(c.observedChainId) });
   return null;
@@ -128,7 +170,7 @@ const venue = needs('indexer', (i) =>
   i.clob.live && i.clob.kind === 'sovereign-venue' ? null : blocker('venue_not_live', { kind: i.clob.kind }),
 );
 const finality = needs('indexer', (i) => {
-  if (i.halted) return blocker('indexer_halted', { reason: i.halted.reason });
+  if (i.halted) return blocker('indexer_halted', { reason: inSentence(i.halted.reason) });
   if (i.finalizedHeight === null) return blocker('finality_unset');
   if (i.behindBy === null) return blocker('behind_unknown');
   return null;

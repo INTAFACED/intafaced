@@ -31,6 +31,22 @@ export function requireOfframpCoolingHours(raw: string | undefined): number {
 const MS_PER_HOUR = 60 * 60 * 1000;
 
 /**
+ * List view of the owner window. Unset, blank, or not an integer is null —
+ * the list still returns the destination and names `bank.offramp_cooling_unset`
+ * instead of inventing 24 hours. Sending money still uses `requireOfframpCoolingHours`.
+ */
+export function readOfframpCoolingHours(raw: string | undefined): number | null {
+  const trimmed = raw?.trim() ?? '';
+  if (!/^[0-9]+$/.test(trimmed)) return null;
+  return Number.parseInt(trimmed, 10);
+}
+
+/** When the cooling window ends. Zero hours ends at `updatedAt` (no wait). */
+export function coolingOffEndsAt(hours: number, updatedAt: Date): Date {
+  return new Date(updatedAt.getTime() + hours * MS_PER_HOUR);
+}
+
+/**
  * Dest last-changed must be at least `hours` old. Zero hours is no wait.
  * Inside the window → `bank.offramp_cooling_active`. Caller must already
  * have a dest row; missing dest is `bank.withdraw_destination_missing`.

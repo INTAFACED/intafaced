@@ -2,9 +2,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { lockFounderControls } from './founder-control-lock.js';
+import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
-  accountControlInputSchema,
+  TRADE_OPS_OPERATOR_PERMISSION,
+  TRADING_RESTRICT_ACTION_TYPE,
+  TRADING_RESTRICT_TARGET_SERVICE,
+} from '../auth/action-approval-audience.js';
+import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
+import { lockFounderControls } from './founder-control-lock.js';
+import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
+import {
+  identityAccountControlInputSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlResultSchema,
@@ -12,7 +20,7 @@ import {
   currentAuthorityResultSchema,
   accountOperatorEntitlementSchema,
   type AccountOperatorEntitlement,
-  type AccountControlInput,
+  type IdentityAccountControlInput,
   type AccountControlResult,
   type AccountControlState,
   type Context,
@@ -139,6 +147,8 @@ export type EntitlementChangeResult = {
   code?: 'operator.denied' | 'mfa.required' | 'restriction.version_conflict' | 'request.conflict' | 'restore.not_permitted';
 };
 
+function fingerprint(actorId: string | null, input: IdentityAccountControlInput): string;
+function fingerprint(actorId: string | null, input: unknown): string;
 function fingerprint(actorId: string | null, input: unknown): string {
   return createHash('sha256').update(JSON.stringify({ actorId, input })).digest('hex');
 }
@@ -149,12 +159,30 @@ function storageError(error: unknown): FounderControlError {
     : new FounderControlError('identity.controls_unavailable', 'Founder control storage is unavailable');
 }
 
-/** One implementation owns entitlement checks, transaction ordering and immutable history. */
+/** Canonical payload hash for `trading.restrict`. Same function the trade desk uses (`founderChangeHash`). */
+export function tradingRestrictPayloadHash(input: {
+  readonly userId: string;
+  readonly action: 'restrict' | 'restore';
+  readonly reason: string;
+  readonly expectedVersion: string;
+}): string {
+  return founderChangeHash(
+    {
+      area: 'trading',
+      userId: input.userId.toLowerCase(),
+      action: input.action,
+      reason: input.reason.trim(),
+    },
+    input.expectedVersion,
+  );
+}
+
 export class FounderControls {
   private configured = false;
   constructor(
     private readonly sql: Sql,
     private readonly pair: readonly [string, string] | null,
+    private readonly options: { readonly tradingRestrictRequiresApproval?: boolean } = {},
   ) {}
 
   readiness() {
@@ -263,11 +291,17 @@ export class FounderControls {
     return row ? { conflict: row.fingerprint !== hash, result: row.result } : null;
   }
 
-  async change(context: Context, raw: AccountControlInput): Promise<AccountControlResult> {
-    const input = accountControlInputSchema.parse(raw);
-    if (input.target.area !== 'identity') throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
+  async change(context: Context, raw: IdentityAccountControlInput): Promise<AccountControlResult> {
+    const input = identityAccountControlInputSchema.parse(raw);
     input.requestId = input.requestId.toLowerCase();
-    input.target.userId = input.target.userId.toLowerCase();
+    if (input.target.area !== 'merchant') input.target.userId = input.target.userId.toLowerCase();
+    if (input.target.area === 'trading') {
+      if (this.options.tradingRestrictRequiresApproval !== true) {
+        throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
+      }
+      return this.changeTrading(context, input);
+    }
+    if (input.target.area !== 'identity') throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
     const targetId = input.target.userId;
     const actorId = context.principal?.userId ?? null;
     const hash = fingerprint(actorId, input);
@@ -295,7 +329,7 @@ export class FounderControls {
           let result: AccountControlResult;
           if (actor.refusal) {
             result = refused(actor.refusal);
-            await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId);
+            await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, { fourEyes: false });
             return result;
           }
           // Re-authenticate before looking up any original result, including retries.
@@ -341,7 +375,7 @@ export class FounderControls {
               }
             }
           }
-          await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId);
+          await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, { fourEyes: false });
           if (!previous)
             await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
           return result;
@@ -352,6 +386,175 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /**
+   * Trading restriction. The flag is off unless the lead turns it on: off keeps the old refusal
+   * (identity does not alter trading) and is handled in `change` before this method.
+   * On: a trade-ops operator applies the change only with a bound, unconsumed approval, in this transaction.
+   */
+  private async changeTrading(context: Context, input: IdentityAccountControlInput): Promise<AccountControlResult> {
+    if (input.target.area !== 'trading') throw new FounderControlError('operator.denied', 'Identity controls cannot alter another module');
+    const principal = context.principal;
+    const actorId = principal?.userId.toLowerCase() ?? null;
+    const targetId = input.target.userId.toLowerCase();
+    const hash = fingerprint(actorId, input);
+    const door = this.tradeOpsRefusal(context);
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const occurredAt = clock!.at.toISOString();
+          const auditId = randomUUID();
+          const common = {
+            auditId,
+            requestId: input.requestId,
+            target: { area: 'trading' as const, userId: targetId },
+            action: input.action,
+            reason: input.reason,
+            occurredAt,
+            actorUserId: actorId,
+          };
+          const refuse = (
+            code:
+              | 'operator.denied'
+              | 'mfa.required'
+              | 'target.not_found'
+              | 'request.conflict'
+              | 'restriction_no_four_eyes'
+              | 'restriction_approval_mismatch'
+              | 'restriction_approval_consumed',
+            current: AccountControlState | null,
+          ) =>
+            accountControlResultSchema.parse({
+              ...common,
+              outcome: 'refused',
+              changed: false,
+              code,
+              current: code === 'operator.denied' || code === 'mfa.required' ? null : current,
+            });
+          if (door) {
+            const result = refuse(door, null);
+            await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, { fourEyes: false, area: 'trading' });
+            return result;
+          }
+          const sessionId = principal!.sid;
+          const [session] = await tx<
+            Array<{ revoked: boolean; mfa: boolean; expires_at: Date }>
+          >`SELECT revoked, mfa, expires_at FROM sessions WHERE id = ${sessionId} AND user_id = ${actorId} FOR UPDATE`;
+          if (!session || session.revoked || !session.mfa || session.expires_at.getTime() <= Date.now()) {
+            const code = session && !session.mfa ? 'mfa.required' : 'operator.denied';
+            const result = refuse(code, null);
+            await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, { fourEyes: false, area: 'trading' });
+            return result;
+          }
+          const previous = await this.replay(tx, input.requestId, hash);
+          if (previous && !previous.conflict) return accountControlResultSchema.parse(previous.result);
+          const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${targetId} FOR UPDATE`;
+          const [stateRow] = await tx<
+            Array<{ restricted: boolean; version: string }>
+          >`SELECT restricted, version::text FROM trading_restrictions WHERE user_id = ${targetId} FOR UPDATE`;
+          const before: AccountControlState = {
+            target: { area: 'trading', userId: targetId },
+            version: stateRow?.version ?? '0',
+            restricted: stateRow?.restricted ?? false,
+          };
+          let result: AccountControlResult;
+          if (previous) result = refuse('request.conflict', user ? before : null);
+          else if (!user) result = refuse('target.not_found', null);
+          else if (before.version !== input.expectedVersion)
+            result = accountControlResultSchema.parse({
+              ...common,
+              outcome: 'conflict',
+              changed: false,
+              actorUserId: actorId!,
+              code: 'restriction.version_conflict',
+              current: before,
+            });
+          else if (!input.approvalId) result = refuse('restriction_no_four_eyes', before);
+          else {
+            const approval = await sqlGetApprovalForUpdate(tx, input.approvalId);
+            const payloadHash = tradingRestrictPayloadHash({
+              userId: targetId,
+              action: input.action,
+              reason: input.reason,
+              expectedVersion: input.expectedVersion,
+            });
+            const bound = approval !== null && this.tradingApprovalBound(approval, targetId, payloadHash, input.expectedVersion, clock!.at);
+            if (approval?.status === 'CONSUMED') result = refuse('restriction_approval_consumed', before);
+            else if (!bound || approval === null) result = refuse('restriction_approval_mismatch', before);
+            else {
+              const consumed = await sqlCasConsume(tx, {
+                approvalId: approval.approvalId,
+                operationId: approval.operationId,
+                payloadHash: approval.payloadHash,
+                targetService: approval.targetService,
+                targetId: approval.targetId,
+                expectedVersion: approval.expectedVersion,
+                now: clock!.at,
+                requestId: input.requestId,
+                consumedByService: TRADING_RESTRICT_TARGET_SERVICE,
+                consumedByPrincipal: actorId,
+              });
+              if (!consumed) result = refuse('restriction_approval_consumed', before);
+              else {
+                const restricted = input.action === 'restrict';
+                const changed = before.restricted !== restricted;
+                const after: AccountControlState = {
+                  ...before,
+                  restricted,
+                  version: changed ? (BigInt(before.version) + 1n).toString() : before.version,
+                };
+                await tx`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${targetId}, ${restricted}, ${after.version}::bigint)
+                  ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version, updated_at = now()`;
+                result = changed
+                  ? accountControlResultSchema.parse({ ...common, actorUserId: actorId!, outcome: 'changed', changed: true, before, after })
+                  : accountControlResultSchema.parse({ ...common, actorUserId: actorId!, outcome: 'noop', changed: false, before, after });
+              }
+            }
+          }
+          const fourEyes = result.outcome === 'changed' || result.outcome === 'noop';
+          await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, {
+            fourEyes,
+            area: 'trading',
+            ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+          });
+          if (!previous)
+            await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
+          return result;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  private tradeOpsRefusal(context: Context): 'operator.denied' | 'mfa.required' | null {
+    const principal = context.principal;
+    if (!principal || context.service !== null || principal.kid || principal.sub_account || principal.expiresAt.getTime() <= Date.now())
+      return 'operator.denied';
+    if (!principal.mfa) return 'mfa.required';
+    if (!principal.scopes.includes(TRADE_OPS_OPERATOR_PERMISSION)) return 'operator.denied';
+    return null;
+  }
+
+  private tradingApprovalBound(approval: StoredApproval, userId: string, payloadHash: string, expectedVersion: string, now: Date): boolean {
+    return (
+      approval.actionType === TRADING_RESTRICT_ACTION_TYPE &&
+      approval.targetService === TRADING_RESTRICT_TARGET_SERVICE &&
+      approval.targetId.toLowerCase() === userId &&
+      approval.payloadHash === payloadHash &&
+      approval.expectedVersion === expectedVersion &&
+      approval.status === 'APPROVED' &&
+      approval.kind !== 'same_person' &&
+      approval.approverId !== null &&
+      approval.approverId.toLowerCase() !== approval.requesterId.toLowerCase() &&
+      approval.expiresAt.getTime() > now.getTime()
+    );
   }
 
   async entitlement(userId: string): Promise<FounderEntitlement> {
@@ -556,6 +759,21 @@ export class FounderControls {
     } catch (error) {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
+    }
+  }
+
+  async listRestricted(
+    context: Context,
+    input: { area?: 'identity' | 'trading' | undefined; limit?: number | null | undefined; cursor?: string | undefined },
+  ): Promise<RestrictedAccountPage> {
+    assertRestrictedListReader(context);
+    try {
+      return await listRestrictedAccounts(this.sql, input);
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : null;
+      if (code === '42P01' || code === '42703') throw storageError(error);
+      throw error;
     }
   }
 

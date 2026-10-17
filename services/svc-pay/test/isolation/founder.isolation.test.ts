@@ -129,9 +129,9 @@ describe('G: founder-only procedures', () => {
     expect(w.identity.calls.length).toBe(paths.length);
   });
 
-  it('HARNESS SANITY: the sweep would see a leak (an admin:read-scoped procedure answers an admin-scoped key)', async () => {
+  it('HARNESS SANITY: the sweep would see a leak (an admin:read-scoped procedure answers an interactive admin session)', async () => {
     const leaky = router({ leak: scopedProcedure('admin:read').query(() => 'every merchant volume') });
-    const caller = leaky.createCaller(ctxOf(keyOf(w.founderUserId, { scopes: ADMIN_SCOPES })));
+    const caller = leaky.createCaller(ctxOf(sessionOf(w.founderUserId, { scopes: ADMIN_SCOPES })));
     const o = await caller.leak().then(
       (value): Outcome => ({ kind: 'ok', value }),
       (e: { code: string; message: string }): Outcome => ({ kind: 'error', code: e.code, message: e.message, causeCode: undefined }),

@@ -24,6 +24,7 @@ import {
   InsufficientFundsError,
   InvalidEntryError,
   LedgerError,
+  insuranceFund,
   merchantClearing,
   merchantProceeds,
   mulBps,
@@ -34,7 +35,10 @@ import {
   type Amount,
   type LedgerClient,
   type LedgerTx,
+  type PostRequest,
 } from '@intafaced/ledger-client';
+import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProbe } from './sandbox-ledger-guard.js';
+import { isSandboxRailId } from './sandbox-key-routing.js';
 import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
 import type { PaymentIntent, RailAdapter, RailEvent, RailResult, RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
@@ -52,7 +56,6 @@ import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from './me
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
-  assertPersistableDestination,
   PayoutDestinationMissingError,
   type MerchantPayoutDestinations,
 } from './merchant-payout-destination.js';
@@ -60,6 +63,7 @@ import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-le
 import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
 import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
+import { assertPayoutReserveWired } from './control/reserve.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
 import {
   finalizePayoutIdentity,
@@ -71,7 +75,17 @@ import {
   stable,
   type IdentityPayoutAdmissionPort,
 } from './payout-admission.js';
-import { disputeOpeningKey, postDisputeOpening } from './chargeback-ledger.js';
+import {
+  chargebackKeys,
+  disputeOpeningKey,
+  postDisputeOpening,
+  postDisputeShortfall,
+  postDisputeShortfallRecovered,
+  postDisputeWon,
+  type ChargebackPostInput,
+  type ChargebackShortfallPostInput,
+} from './chargeback-ledger.js';
+import { CHARGEBACK_LEDGER_EFFECT_EVENT, chargebackLedgerEffect, type ChargebackLedgerEffect } from './chargeback-ledger-effect.js';
 import { recordRailDisputeDeadline } from './merchant-ops/dispute-deadlines.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import {
@@ -79,9 +93,13 @@ import {
   DisputeCaseError,
   isTerminalDisputeStatus,
   railOutcomeConflicts,
+  refuseChargebackNothingToReverse,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
+  type DisputeCaseStatus,
   type DisputeCaseStore,
   type RailResolutionOutcome,
 } from './fraud/dispute-case.js';
@@ -248,6 +266,12 @@ export type PayErrorCode =
   | 'pay.refund_id_conflict'
   /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
   | 'pay.chargeback_plan_conflict'
+  /** Merchant pots cannot cover the dispute and the insurance fund cannot cover the rest. */
+  | 'pay.chargeback_shortfall_unfunded'
+  /** A won or lost ledger post failed. The dispute row was not moved. */
+  | 'pay.chargeback_ledger_failed'
+  /** The outcome lock was not acquired within 2s. Nothing was posted and the rail can redeliver. */
+  | 'pay.chargeback_outcome_busy'
   /**
    * A pending settlement window has already frozen this payment into its set.
    * Pre-settlement refunds would drain clearing under the frozen gross and let
@@ -309,6 +333,8 @@ export type PayErrorCode =
   | 'pay.payout_destination_not_found'
   /** Remove refused: a payout that still names this destination has not finished. */
   | 'pay.payout_destination_in_flight'
+  /** Remove refused: a verified destination changes only through step-up plus the hold. */
+  | 'pay.payout_destination_verified_locked'
   /** Refund list page size unpublished. Blank is not 50. */
   | 'pay.refund_list_limit_unset'
   /** Statement page size unpublished. Blank is not 50. */
@@ -351,6 +377,12 @@ export type PayErrorCode =
    */
   | 'pay.sandbox_looks_live'
   /**
+   * A sandbox key, or a payment created with one, named a recipe whose
+   * accounts are the live book (clearing, proceeds, the owner's balance,
+   * house fees, the insurance fund, or a live rail). NOTHING WAS POSTED.
+   */
+  | 'pay.sandbox_live_account_refused'
+  /**
    * Payment has no rail id, so `mode` cannot be disclosed. Refusing is the
    * safe direction — defaulting missing rail to `live` is the lie.
    */
@@ -363,8 +395,20 @@ export type PayErrorCode =
    */
   | 'pay.destination_kind_mismatch'
   | 'pay.invalid_destination_ref'
-  /** Crypto payout has no stored EVM dest — refused BEFORE withdrawHold. */
+  /** Crypto payout has no stored verified dest — refused BEFORE withdrawHold. */
   | 'pay.payout_destination_missing'
+  /** settlement.payout named a destination. A payout cannot choose or change one. */
+  | 'pay.payout_destination_not_allowed'
+  /** PAY_DESTINATION_HOLD_SECONDS is blank. A destination change is refused. */
+  | 'pay.destination_hold_unset'
+  /** Destination add/change had no usable step-up approval. */
+  | 'pay.destination_step_up_required'
+  /** An API key cannot add or change a payout destination. */
+  | 'pay.destination_api_key_refused'
+  /** The session is not interactive (no MFA, or a sub-account). */
+  | 'pay.destination_session_required'
+  /** The caller is not an owner or admin of this merchant. */
+  | 'pay.destination_role_forbidden'
   | 'pay.subscription_not_found'
   /** mandate.list page size unpublished. Blank is not 50. */
   | 'pay.subscription_mandate_list_limit_unset'
@@ -956,6 +1000,13 @@ export interface PayServiceOptions {
   readonly identityAuthorityGuard?: OwnerIdentityAuthorityPort;
   /** Test failpoint after durable payout admission, before money leaves available. */
   readonly afterPayoutAdmission?: () => void | Promise<void>;
+
+  /**
+   * How many chargeback outcome locks this process may hold at once.
+   * Must stay below the pool size: the lock connection cannot serve the queries
+   * the outcome itself runs. Omitted means 1, so a test pool is never filled by waiters.
+   */
+  readonly chargebackOutcomeSlots?: number;
 }
 
 /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
@@ -1181,6 +1232,10 @@ export class PayService {
   private readonly guards: PayGuards;
   private readonly haltStore: PayHaltStore | undefined;
   private readonly disputeCases: DisputeCaseStore;
+  private readonly chargebackOutcomeSlots: number;
+  private chargebackOutcomeHeld: number;
+  private readonly chargebackOutcomeWaiters: Array<() => void>;
+  private readonly chargebackOutcomeTails: Map<string, Promise<void>>;
 
   constructor(
     private readonly sql: Sql,
@@ -1212,6 +1267,15 @@ export class PayService {
     this.guards = options.guards ?? NOOP_GUARDS;
     this.haltStore = options.haltStore;
     this.disputeCases = options.disputeCases ?? defaultDisputeCaseStore;
+    this.chargebackOutcomeSlots = chargebackOutcomeSlotCount(options.chargebackOutcomeSlots);
+    this.chargebackOutcomeHeld = 0;
+    this.chargebackOutcomeWaiters = [];
+    this.chargebackOutcomeTails = new Map();
+  }
+
+  /** The book `payoutSettlement` reads. Tests use it to store a verified destination. */
+  destinationBook(): MerchantPayoutDestinations {
+    return this.payoutDestinations;
   }
 
   /**
@@ -2575,8 +2639,26 @@ export class PayService {
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    /**
+     * From the API key. `sandbox` is copied onto the created event and never
+     * updated. Absent is not sandbox: a session or an in-process fixture is
+     * not a sandbox credential.
+     */
+    keyEnv?: 'live' | 'sandbox';
   }): Promise<PaymentView> {
     if (input.amount <= 0n) throw new PayError('Payment amount must be positive', 'pay.invalid_amount');
+
+    // A sandbox key on a live rail is refused here, before the rail lookup, the
+    // guard, admission, and the insert. REST already resolves that key onto
+    // card-sandbox. This method does not reroute: a blank or unknown rail is
+    // not a sandbox rail, and naming a live rail must not create a row.
+    if (input.keyEnv === 'sandbox' && !isSandboxRailId(input.railAdapter)) {
+      throw new PayError(
+        'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+        'pay.sandbox_live_account_refused',
+        { railAdapter: input.railAdapter },
+      );
+    }
 
     // Resolved now so an unknown or incapable rail fails before a payment row
     // exists, rather than at authorize time with a buyer watching.
@@ -2604,7 +2686,7 @@ export class PayService {
         // Merchant lock and the guard already ran in admitPaymentOperation.
         const existing = await this.existingPaymentCreation(tx, input, paymentId);
         if (existing) return existing;
-        const row = await insertPayment(tx, { ...input, id: paymentId });
+        const row = await insertPayment(tx, { ...input, id: paymentId, sandbox: input.keyEnv === 'sandbox' });
         return { ...toPayment(row), capturedAmount: 0n, refundedAmount: 0n };
       },
     );
@@ -2683,6 +2765,7 @@ export class PayService {
       customerRef: input.customerRef ?? null,
       instrument: input.instrument ?? null,
       metadata: input.metadata ?? {},
+      ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
     };
     if (
       current.merchant_id !== input.merchantId.toLowerCase() ||
@@ -2765,6 +2848,17 @@ export class PayService {
               row.rail_adapter !== original.rail_adapter)
           )
             throw new PayError('Authorization payload changed after admission', 'pay.identity_admission_conflict');
+
+          // A flagged payment on a live rail never reaches the rail. createPayment
+          // refuses the same pair first. This catches a row inserted without that
+          // check. Nothing is posted and authorize is not called.
+          if ((await this.paymentIsSandbox(tx, row.id)) && !isSandboxRailId(row.rail_adapter)) {
+            throw new PayError(
+              'A sandbox API key cannot create a payment on a live rail. NOTHING WAS ATTEMPTED.',
+              'pay.sandbox_live_account_refused',
+              { railAdapter: row.rail_adapter },
+            );
+          }
 
           const adapter = this.rails.require(row.rail_adapter, 'authorize');
 
@@ -2860,7 +2954,12 @@ export class PayService {
    */
   async capture(
     paymentId: string,
-    options: { amount?: Amount; identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
+    options: {
+      amount?: Amount;
+      identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
+      /** The caller's API key. A sandbox key cannot capture into the live book. */
+      keyEnv?: 'sandbox';
+    } = {},
   ): Promise<PaymentView> {
     const original = await readPayment(this.sql, paymentId);
     if (['captured', 'settled'].includes(original.status)) return this.getPayment(paymentId);
@@ -2928,6 +3027,20 @@ export class PayService {
           if (!row.rail_ref) {
             throw new PayError(`Payment ${row.id} has no rail reference to capture`, 'pay.invalid_transition');
           }
+
+          // Before the rail and before the ledger. A sandbox key's capture
+          // recipe debits live clearing; refusing here posts nothing.
+          this.refuseSandboxLive(
+            options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
+            recipes.paymentCapture({
+              paymentId: row.id,
+              merchantId: row.merchant_id,
+              assetId: row.currency,
+              amount: authorized,
+              rail: row.rail_adapter,
+              railRef: row.rail_ref,
+            }),
+          );
 
           const adapter = this.rails.require(row.rail_adapter, 'capture');
           const railRef = row.rail_ref;
@@ -3069,13 +3182,13 @@ export class PayService {
    * can journal the outbound chain send under a stable key; "send it again and
    * hope" is how one refund becomes two.
    */
-  async refund(paymentId: string, amount: Amount, options: { refundId?: string } = {}): Promise<PaymentView> {
+  async refund(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' } = {}): Promise<PaymentView> {
     return withMoneySpan('pay.refund', { operation: 'refund', paymentId, amount: formatAmount(amount) }, async () =>
       this.refundInner(paymentId, amount, options),
     );
   }
 
-  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string }): Promise<PaymentView> {
+  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
     if (amount <= 0n) throw new PayError('Refund amount must be positive', 'pay.invalid_amount');
 
     // ── Phase 1: debit the merchant, and commit the fact that we are about to
@@ -3274,6 +3387,10 @@ export class PayService {
           });
 
         let posted: LedgerTx;
+        this.refuseSandboxLive(
+          options.keyEnv === 'sandbox' || (await this.paymentIsSandbox(tx, row.id)),
+          refundRequest(source, settledPot),
+        );
         try {
           posted = await postPayLedger(this.ledger, refundRequest(source, settledPot));
         } catch (error) {
@@ -3364,6 +3481,7 @@ export class PayService {
         if (!result.ok) {
           // Put the merchant's money back. Its own business key, so a retry of
           // the reversal finds the reversal rather than the refund.
+          this.refuseSandboxLive(await this.paymentIsSandbox(tx, row.id), recipes.paymentRefundReverse(refundInput));
           await postPayLedger(this.ledger, recipes.paymentRefundReverse(refundInput));
           await appendEvent(tx, row.id, 'refund.reversed', {
             refundId: prepared.refundId,
@@ -3665,65 +3783,141 @@ export class PayService {
         break;
       case 'dispute.opened': {
         // Post the opening recipe via ledger-client, or named refuse. Never claim
-        // posted without a tx id. Shortfall/won stay unwired (no invented cover).
+        // posted without a tx id. An unfunded shortfall is a named refuse: the
+        // dispute is still recorded and a later lost or closed delivery can book it.
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
           const assetId = event.assetId ?? payment.currency;
-          const wire = await this.postChargebackOpenOrRefuse({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-          });
-          let marked = false;
-          if (payment.status === 'settled' || payment.status === 'captured') {
-            await this.markDisputed(payment.id, {
+          await this.withChargebackOutcomeLock(disputeId, async () => {
+            const current = await this.disputeCases.get(disputeId);
+            // A late open must not debit a dispute that already closed.
+            if (current && isTerminalDisputeStatus(current.status)) {
+              applied = true;
+              return;
+            }
+            const wire = await this.postChargebackOpenOrRefuse({
               disputeId,
-              reasonCode: event.reasonCode ?? null,
-              ledgerWire: wire.ledgerPost ? 'posted' : 'refused',
-              ledgerTxId: wire.ledgerPost?.txId ?? null,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
             });
-            marked = true;
-          }
-          await this.disputeCases.open({
-            disputeId,
-            paymentId: payment.id,
-            merchantId: payment.merchant_id,
-            amount,
-            assetId,
-            reasonCode: event.reasonCode ?? null,
-            paymentMarkedDisputed: marked,
-            ledgerPost: wire.ledgerPost,
-            ledgerRefuse: wire.ledgerRefuse,
+            let marked = false;
+            if (payment.status === 'settled' || payment.status === 'captured') {
+              await this.markDisputed(payment.id, {
+                disputeId,
+                reasonCode: event.reasonCode ?? null,
+                ledgerWire: wire.ledgerPost ? 'posted' : 'refused',
+                ledgerTxId: wire.ledgerPost?.txId ?? null,
+              });
+              marked = true;
+            }
+            await this.disputeCases.open({
+              disputeId,
+              paymentId: payment.id,
+              merchantId: payment.merchant_id,
+              amount,
+              assetId,
+              reasonCode: event.reasonCode ?? null,
+              paymentMarkedDisputed: marked,
+              ledgerPost: wire.ledgerPost,
+              ledgerRefuse: wire.ledgerRefuse,
+            });
+            await recordRailDisputeDeadline(this.sql, {
+              merchantId: payment.merchant_id,
+              disputeId,
+              evidenceDueBy: event.evidenceDueBy ?? null,
+              railEventId: deliveryKey,
+            });
+            applied = true;
           });
-          await recordRailDisputeDeadline(this.sql, {
-            merchantId: payment.merchant_id,
-            disputeId,
-            evidenceDueBy: event.evidenceDueBy ?? null,
-            railEventId: deliveryKey,
-          });
-          applied = true;
         }
         break;
       }
       case 'dispute.won':
       case 'dispute.lost':
       case 'dispute.closed': {
-        // Won returns value only through the opening's pots; lost posts nothing
-        // further. Neither path picks a pot from the payment's current status.
-        // The opening (and its replay) already chose it in `chargebackSettledPot`.
+        // Lost and closed finalise the opening debit (clearing, then merchant
+        // balance, then the recipe's shortfall). Won reverses a debit that was
+        // already booked. A ledger error throws before the case moves.
         const disputeId = event.disputeId?.trim();
         if (disputeId) {
           const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
+          const amountExplicit = event.amount !== undefined;
+          const assetId = event.assetId ?? payment.currency;
           try {
-            const resolved = await this.disputeCases.applyRailResolution({
-              disputeId,
-              railEventId: deliveryKey,
-              outcome,
-            });
-            if (resolved) {
+            await this.withChargebackOutcomeLock(disputeId, async () => {
+              const current = await this.disputeCases.get(disputeId);
+              const amount = event.amount !== undefined ? formatAmount(event.amount) : current ? current.amount : payment.amount;
+              if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
+                await recordDisputeOutcomeConflict(this.sql, {
+                  merchantId: payment.merchant_id,
+                  disputeId,
+                  railEventId: deliveryKey,
+                  railId: adapter.id,
+                  storedStatus: current.status,
+                  outcome,
+                });
+              } else {
+                let booked: ChargebackLedgerEffect;
+                try {
+                  booked = await this.bookDisputeResolution({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    outcome,
+                    amountExplicit,
+                  });
+                } catch (err) {
+                  if (!(err instanceof PayError) || err.code !== 'pay.chargeback_plan_conflict') throw err;
+                  await this.recordChargebackPlanConflict({
+                    merchantId: payment.merchant_id,
+                    disputeId,
+                    paymentId: payment.id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    railEventId: deliveryKey,
+                    railId: adapter.id,
+                    storedStatus: current?.status ?? 'open',
+                    outcome,
+                    evidenceDueBy: event.evidenceDueBy ?? null,
+                  });
+                  applied = true;
+                  return;
+                }
+                if (!current) {
+                  const txId = booked.openingTxId ?? booked.shortfallTxId ?? booked.wonTxId ?? booked.recoveredTxId;
+                  await this.disputeCases.open({
+                    disputeId,
+                    paymentId: payment.id,
+                    merchantId: payment.merchant_id,
+                    amount,
+                    assetId,
+                    reasonCode: event.reasonCode ?? null,
+                    paymentMarkedDisputed: false,
+                    ...(txId
+                      ? { ledgerPost: { txId } }
+                      : { ledgerRefuse: refuseChargebackNothingToReverse({ disputeId, paymentId: payment.id }) }),
+                  });
+                }
+                if (payment.status === 'settled' || payment.status === 'captured') {
+                  await this.markDisputed(payment.id, {
+                    disputeId,
+                    reasonCode: event.reasonCode ?? null,
+                    ledgerWire: booked.openingTxId || booked.shortfallTxId ? 'posted' : 'refused',
+                    ledgerTxId: booked.openingTxId ?? booked.shortfallTxId,
+                  });
+                }
+                await this.disputeCases.applyRailResolution({
+                  disputeId,
+                  railEventId: deliveryKey,
+                  outcome,
+                });
+              }
               await recordRailDisputeDeadline(this.sql, {
                 merchantId: payment.merchant_id,
                 disputeId,
@@ -3731,11 +3925,12 @@ export class PayService {
                 railEventId: deliveryKey,
               });
               applied = true;
-            }
+            });
           } catch (err) {
             // A closed case stays closed. A different later outcome is recorded
             // for founders and this delivery still succeeds, so the rail does
-            // not retry a refusal it cannot repair.
+            // not retry a refusal it cannot repair. A ledger refusal is not that
+            // case: it propagates and the dispute row stays where it was.
             if (!(err instanceof DisputeCaseError) || err.code !== 'pay.dispute_closed') throw err;
             const current = await this.disputeCases.get(disputeId);
             if (!current || !isTerminalDisputeStatus(current.status)) throw err;
@@ -3874,7 +4069,23 @@ export class PayService {
     /** Defaults to the UTC day named by `window`. */
     from?: Date;
     to?: Date;
+    /** A sandbox key cannot freeze or post a live settlement. */
+    keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
+    if (input.keyEnv === 'sandbox') {
+      // The amounts name the recipe's accounts. They are not posted.
+      this.refuseSandboxLive(
+        true,
+        recipes.merchantSettlement({
+          merchantId: input.merchantId,
+          merchantUserId: input.merchantId,
+          window: input.window,
+          assetId: input.assetId,
+          gross: 2n,
+          fee: 1n,
+        }),
+      );
+    }
     return withMoneySpan(
       'pay.settleWindow',
       { operation: 'settlement', merchantId: input.merchantId, window: input.window, assetId: input.assetId },
@@ -3994,6 +4205,7 @@ export class PayService {
           gross,
           fee: fees,
         });
+        if (await this.settlementIncludesSandbox(tx, row.id)) this.refuseSandboxLive(true, settlementPost);
         const bookInput = {
           merchantId: row.merchant_id,
           merchantUserId: merchant.userId,
@@ -4163,6 +4375,10 @@ export class PayService {
              AND EXISTS (
                SELECT 1 FROM pay.payment_events c
                 WHERE c.payment_id = p.id AND c.event = 'captured' AND c.ts >= ${from} AND c.ts < ${to}
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pay.payment_events sb
+                WHERE sb.payment_id = p.id AND sb.event = 'created' AND sb.payload->>'sandbox' = 'true'
              )
            ORDER BY p.id
            FOR UPDATE OF p
@@ -4403,7 +4619,12 @@ export class PayService {
     railId: string;
     destination?: { kind: string; ref: string };
     identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
+    /** A sandbox key cannot enter a live payout. */
+    keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
+    if (input.destination !== undefined) {
+      throw new PayError('A payout cannot name a destination', 'pay.payout_destination_not_allowed');
+    }
     return withMoneySpan(
       'pay.payoutSettlement',
       { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
@@ -4414,9 +4635,6 @@ export class PayService {
           if (admission) {
             if (
               admission.rail_id !== input.railId ||
-              (input.destination &&
-                (input.destination.kind.trim() !== admission.destination_kind ||
-                  input.destination.ref.trim() !== admission.destination_ref)) ||
               parseAmount(admission.net) !== settlement.net ||
               admission.asset_id !== settlement.assetId ||
               admission.window !== settlement.window ||
@@ -4431,6 +4649,19 @@ export class PayService {
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
+          if (input.keyEnv === 'sandbox' || (await this.settlementIncludesSandbox(connection, settlement.id))) {
+            // Before the admission and before the hold. Both payout books name a live account.
+            this.refuseSandboxLive(
+              true,
+              recipes.merchantProceedsPayoutSettle({
+                merchantId: settlement.merchantId,
+                assetId: settlement.assetId,
+                amount: settlement.net,
+                rail: input.railId,
+                withdrawalId: `${settlement.id}:${settlement.payoutAttempts}`,
+              }),
+            );
+          }
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
           // Classified before the admission exists. An unrecognised book must
@@ -4438,6 +4669,12 @@ export class PayService {
           // has that row; its book is read below, once, for the plan.
           let payoutBook: 'legacy' | 'proceeds' | undefined;
           if (!admission) {
+            // A resumed admission finishes under the net it was admitted with.
+            // A fresh payout for a reserved merchant is refused before any admission:
+            // a percentage already on the merchant (tier, or an override written before
+            // set_reserve refused) must not leave as the full net. No recipe can hold
+            // the reserved part, so nothing is admitted and no hold is posted.
+            await assertPayoutReserveWired(connection, settlement.merchantId);
             const held = payoutHoldKeys(settlement.id, settlement.payoutAttempts);
             if ((await this.ledger.getTxByKey(held.legacy)) || (await this.ledger.getTxByKey(held.proceeds)))
               throw new PayError('Original payout owner record is missing', 'pay.payout_admission_missing');
@@ -4449,7 +4686,7 @@ export class PayService {
               window: settlement.window,
               assetId: settlement.assetId,
             });
-            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination, connection);
+            const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);
             admission = await insertPayoutAdmission(
               connection,
               {
@@ -4480,9 +4717,6 @@ export class PayService {
                   Number(locked[0].payout_attempts) !== settlement.payoutAttempts
                 )
                   throw new PayError('Settlement changed before admission', 'pay.payout_recovery_conflict');
-                if (adapter.id === 'crypto-native' && input.destination) {
-                  await this.payoutDestinations.persist({ merchantId: merchant.id, railId: adapter.id, ...destination, connection: tx });
-                }
                 await this.guards.beforePayoutAdmit({
                   tx,
                   settlementId: settlement.id,
@@ -4827,51 +5061,24 @@ export class PayService {
   }
 
   /**
-   * Resolve the original destination without writing before the merchant guard.
-   * Crypto-native stores an offered destination inside admission preparation.
-   * Refuse closed if no destination is offered or stored.
-   * Does not invent a PSP. Does not live-wire bank-payout.
+   * The stored verified destination for this rail. An offered destination is
+   * refused before this runs. Unverified rows (saved by payouts before D-142)
+   * are not payable. Does not write. Does not invent a PSP.
    */
-  private async resolvePayoutDestination(
-    railId: string,
-    merchantId: string,
-    offered?: { kind: string; ref: string },
-    connection?: Sql,
-  ): Promise<{ kind: string; ref: string }> {
-    if (railId === 'crypto-native') {
-      try {
-        if (offered) {
-          return assertPersistableDestination(railId, offered);
-        }
-        const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
-        assertPayoutDestinationKind(railId, stored);
-        return stored;
-      } catch (err) {
-        if (err instanceof PayoutDestinationMissingError) {
-          throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
-        }
-        if (err instanceof DestinationKindError) {
-          throw new PayError(err.message, err.code);
-        }
-        throw err;
-      }
-    }
-
-    if (!offered) {
-      throw new PayError(`Merchant ${merchantId} has no payout destination for rail ${railId}`, 'pay.payout_destination_missing', {
-        merchantId,
-        railId,
-      });
-    }
+  private async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
     try {
-      assertPayoutDestinationKind(railId, offered);
+      const stored = await this.payoutDestinations.require({ merchantId, railId, connection });
+      assertPayoutDestinationKind(railId, stored);
+      return stored;
     } catch (err) {
+      if (err instanceof PayoutDestinationMissingError) {
+        throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
+      }
       if (err instanceof DestinationKindError) {
         throw new PayError(err.message, err.code);
       }
       throw err;
     }
-    return offered;
   }
 
   async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
@@ -5071,9 +5278,9 @@ export class PayService {
   }
 
   /**
-   * Post the sole chargeback-open recipe. The recipe owns the legs; this
-   * service only reads the two real pots and applies its documented
-   * clearing-first split. No shortfall policy is invented here.
+   * Post the opening debit: clearing first, then the settled merchant pot,
+   * then `chargebackShortfall` for what those two cannot cover. The recipe
+   * owns the legs. No fee is added.
    */
   async openChargeback(input: {
     disputeId: string;
@@ -5081,12 +5288,31 @@ export class PayService {
     merchantId: string;
     amount: string;
     assetId: string;
-  }): Promise<{ txId: string }> {
+    /** A sandbox key cannot open a chargeback against live pots. */
+    keyEnv?: 'sandbox';
+  }): Promise<{ txId: string; openingTxId: string | null; shortfallTxId: string | null }> {
     const payment = await this.getPayment(input.paymentId);
     const merchant = await this.getMerchant(input.merchantId);
     if (payment.merchantId !== input.merchantId) throw new PayError('Payment does not belong to merchant', 'pay.payment_not_found');
     if (payment.assetId !== input.assetId) throw new PayError('Chargeback asset does not match payment', 'pay.invalid_amount');
     const amount = parseAmount(input.amount);
+    if (amount <= 0n) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox' || (await this.paymentIsSandbox(this.sql, input.paymentId))) {
+      // Opening, shortfall, won, and recovery all name a live pot. Refuse before any of them post.
+      this.refuseSandboxLive(
+        true,
+        sandboxChargebackOpeningProbe({
+          disputeId: input.disputeId,
+          paymentId: input.paymentId,
+          merchantId: input.merchantId,
+          merchantUserId: merchant.userId,
+          assetId: input.assetId,
+          rail: payment.railAdapter,
+          fromClearing: amount,
+          fromMerchantBalance: 0n,
+        }),
+      );
+    }
     // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
     // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
@@ -5099,18 +5325,27 @@ export class PayService {
           ? (await this.ledger.balance(userAvailable(merchant.userId, input.assetId))).amount
           : await this.merchantBalance(input.merchantId, input.assetId);
       const fromClearing = clearing < amount ? clearing : amount;
-      const fromMerchantBalance = amount - fromClearing;
-      if (fromMerchantBalance > available) {
-        throw new PayError('Merchant balances cannot cover chargeback', 'pay.invalid_amount');
+      const rest = amount - fromClearing;
+      const fromMerchantBalance = rest < available ? rest : available;
+      const shortfall = rest - fromMerchantBalance;
+      if (shortfall > 0n) {
+        const fund = (await this.ledger.balance(insuranceFund(input.assetId))).amount;
+        if (fund < shortfall) {
+          throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
+            disputeId: input.disputeId,
+            shortfall: formatAmount(shortfall),
+            fund: formatAmount(fund),
+          });
+        }
       }
-      return { fromClearing, fromMerchantBalance };
+      return { fromClearing, fromMerchantBalance, shortfall };
     };
     // At most one re-plan: a STORED plan that the ledger refuses for funds is stale (money moved since it was planned and
     // nothing was booked under the key), so it is retired and the split recomputed from live balances once. A plan computed
     // in this very call that is still refused is a real shortfall: retire it and let the caller see the refusal.
     for (let attempt = 0; ; attempt += 1) {
-      const plan = await this.chargebackSplit(input.paymentId, input.disputeId, amount, compute);
-      const request = {
+      const plan = await this.chargebackSplit(input.paymentId, input.disputeId, amount, settledPot, compute);
+      const request: ChargebackPostInput = {
         disputeId: input.disputeId,
         paymentId: input.paymentId,
         merchantId: input.merchantId,
@@ -5119,21 +5354,87 @@ export class PayService {
         rail: payment.railAdapter,
         fromClearing: plan.fromClearing,
         fromMerchantBalance: plan.fromMerchantBalance,
-        ...(settledPot === 'user' ? { settledPot: 'user' as const } : {}),
+        ...(plan.settledPot === 'user' ? { settledPot: 'user' as const } : {}),
       };
+      const shortfallRequest: ChargebackShortfallPostInput = {
+        disputeId: input.disputeId,
+        paymentId: input.paymentId,
+        merchantId: input.merchantId,
+        assetId: input.assetId,
+        rail: payment.railAdapter,
+        amount: plan.shortfall,
+      };
+      const covered = plan.fromClearing + plan.fromMerchantBalance;
       try {
-        const posted = await postDisputeOpening(this.ledger, request);
+        if (plan.shortfall > 0n) {
+          const shortfallBooked = await this.chargebackBookedTx(chargebackKeys(input.disputeId).shortfall);
+          if (!shortfallBooked) {
+            const fund = (await this.ledger.balance(insuranceFund(input.assetId))).amount;
+            if (fund < plan.shortfall) {
+              const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
+              const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
+              if (!openingBooked) {
+                await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
+                if (plan.replayed && attempt === 0) continue;
+              }
+              await this.throwUnfundedChargebackShortfall({
+                paymentId: input.paymentId,
+                disputeId: input.disputeId,
+                openingTxId: openingBooked?.id ?? null,
+                shortfall: formatAmount(plan.shortfall),
+                fund: formatAmount(fund),
+              });
+            }
+          }
+        }
+        let openingTxId: string | null = null;
+        if (covered > 0n) {
+          const posted = await postDisputeOpening(this.ledger, request);
+          openingTxId = posted.txId;
+        }
         // A concurrent delivery whose post was refused for funds may have voided this plan just before this post landed.
         await this.ensureChargebackPlanLive(input.paymentId, input.disputeId, plan);
-        return posted;
+        let shortfallTxId: string | null = null;
+        if (plan.shortfall > 0n) {
+          shortfallTxId = (await postDisputeShortfall(this.ledger, shortfallRequest)).txId;
+        }
+        const txId = openingTxId ?? shortfallTxId;
+        if (!txId) throw new PayError('Chargeback amount must be positive', 'pay.invalid_amount');
+        await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
+          openingTxId,
+          shortfallTxId,
+          wonTxId: null,
+          recoveredTxId: null,
+        });
+        return { txId, openingTxId, shortfallTxId };
       } catch (e) {
-        // Insufficient funds proves nothing was posted under the dispute key: both ledger engines resolve the idempotency
-        // key before they validate the body, so a key that had committed would have returned its transaction. Any other
-        // failure (a 5xx, a timeout, an unknown outcome) may have committed: keep the plan and replay it.
+        // Insufficient funds proves the refused post did not commit under its key: both ledger engines resolve the
+        // idempotency key before they validate the body, so a key that had committed would have returned its transaction.
+        // An opening that did commit, with the shortfall still refused, is recorded above. Any other failure (a 5xx,
+        // a timeout, an unknown outcome) may have committed: keep the plan and replay it.
+        if (e instanceof PayError) throw e;
         if (!isInsufficientFunds(e)) throw e;
-        const booked = await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, disputeOpeningKey(request));
+        const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
+        const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
+        if (openingBooked && plan.shortfall > 0n) {
+          await this.throwUnfundedChargebackShortfall({
+            paymentId: input.paymentId,
+            disputeId: input.disputeId,
+            openingTxId: openingBooked.id,
+          });
+        }
+        const booked = await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
         // Another delivery booked this very plan while ours was being refused: the book already has the opening.
-        if (booked) return { txId: booked.id };
+        if (booked) {
+          const shortfallTxId = plan.shortfall > 0n ? (await postDisputeShortfall(this.ledger, shortfallRequest)).txId : null;
+          await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
+            openingTxId: booked.id,
+            shortfallTxId,
+            wonTxId: null,
+            recoveredTxId: null,
+          });
+          return { txId: booked.id, openingTxId: booked.id, shortfallTxId };
+        }
         if (plan.replayed && attempt === 0) continue;
         throw e;
       }
@@ -5150,7 +5451,8 @@ export class PayService {
     paymentId: string,
     disputeId: string,
     amount: Amount,
-    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount }>,
+    settledPot: 'proceeds' | 'user',
+    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
   ): Promise<ChargebackSplit> {
     const decode = (planned: ChargebackPlan, replayed: boolean): ChargebackSplit => {
       if (parseAmount(planned.amount) !== amount) {
@@ -5158,9 +5460,12 @@ export class PayService {
           disputeId,
         });
       }
+      const pot = planned.settledPot === 'user' || planned.settledPot === 'proceeds' ? planned.settledPot : settledPot;
       return {
         fromClearing: parseAmount(planned.fromClearing),
         fromMerchantBalance: parseAmount(planned.fromMerchantBalance),
+        shortfall: planned.shortfall === undefined ? 0n : parseAmount(planned.shortfall),
+        settledPot: pot,
         planSeq: planned.seq,
         amount: planned.amount,
         replayed,
@@ -5173,11 +5478,14 @@ export class PayService {
     // Pot reads sit outside the lock. Another delivery can commit the plan and post before
     // `compute` runs, so the pots this split would use are already empty. That is the booked
     // opening, not a shortfall: replay the stored plan. A real shortfall has no plan to replay.
-    let split: { fromClearing: Amount; fromMerchantBalance: Amount };
+    let split: { fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount };
     try {
       split = await compute();
     } catch (e) {
-      if (!(e instanceof PayError) || e.code !== 'pay.invalid_amount') throw e;
+      // Empty pots after another delivery already posted are not a shortfall.
+      // A real unfunded shortfall has no plan to replay.
+      const racedCode = e instanceof PayError && (e.code === 'pay.invalid_amount' || e.code === 'pay.chargeback_shortfall_unfunded');
+      if (!racedCode) throw e;
       const raced = await readLivePlan(this.sql, paymentId, disputeId);
       if (raced) return decode(raced, true);
       throw e;
@@ -5190,6 +5498,8 @@ export class PayService {
         amount: formatAmount(amount),
         fromClearing: formatAmount(split.fromClearing),
         fromMerchantBalance: formatAmount(split.fromMerchantBalance),
+        shortfall: formatAmount(split.shortfall),
+        settledPot,
       };
       const [row] = await tx<Array<{ seq: string }>>`
         INSERT INTO pay.payment_events (payment_id, event, payload)
@@ -5241,13 +5551,313 @@ export class PayService {
         amount: plan.amount,
         fromClearing: formatAmount(plan.fromClearing),
         fromMerchantBalance: formatAmount(plan.fromMerchantBalance),
+        shortfall: formatAmount(plan.shortfall),
+        settledPot: plan.settledPot,
       });
     });
   }
 
   /**
-   * Webhook door: post the opening recipe or named refuse. Cover-fail does not
-   * invent shortfall. Other ledger faults still throw so the rail can retry.
+   * Lost and closed finalise the opening debit. Won reverses only a debit
+   * that is already on the book. A ledger error is a typed refusal and does
+   * not move the dispute row (the caller posts the case after this returns).
+   */
+  private async bookDisputeResolution(input: {
+    disputeId: string;
+    paymentId: string;
+    merchantId: string;
+    amount: string;
+    assetId: string;
+    outcome: 'won' | 'lost' | 'closed';
+    /** True when the rail event named an amount. Absent means return the stored plan in full. */
+    amountExplicit?: boolean;
+  }): Promise<ChargebackLedgerEffect> {
+    try {
+      if (input.outcome === 'won') return await this.reverseChargeback(input);
+      const posted = await this.openChargeback(input);
+      return chargebackLedgerEffect({
+        openingTxId: posted.openingTxId,
+        shortfallTxId: posted.shortfallTxId,
+        wonTxId: null,
+        recoveredTxId: null,
+      });
+    } catch (e) {
+      throw this.chargebackLedgerRefusal(e);
+    }
+  }
+
+  /** Return booked chargeback value. A missing opening is not a credit. */
+  private async reverseChargeback(input: {
+    disputeId: string;
+    paymentId: string;
+    merchantId: string;
+    amount: string;
+    assetId: string;
+    amountExplicit?: boolean;
+  }): Promise<ChargebackLedgerEffect> {
+    if (await this.paymentIsSandbox(this.sql, input.paymentId)) {
+      const flagged = await this.getPayment(input.paymentId);
+      this.refuseSandboxLive(
+        true,
+        sandboxChargebackWonProbe({
+          disputeId: input.disputeId,
+          paymentId: input.paymentId,
+          merchantId: input.merchantId,
+          merchantUserId: input.merchantId,
+          assetId: input.assetId,
+          rail: flagged.railAdapter,
+          fromClearing: 1n,
+          fromMerchantBalance: 0n,
+        }),
+      );
+    }
+    const payment = await this.getPayment(input.paymentId);
+    const merchant = await this.getMerchant(input.merchantId);
+    const plan = await readLivePlan(this.sql, input.paymentId, input.disputeId);
+    if (input.amountExplicit && plan && parseAmount(input.amount) !== parseAmount(plan.amount)) {
+      throw new PayError(`Dispute ${input.disputeId} won for a different amount than its opening plan`, 'pay.chargeback_plan_conflict', {
+        disputeId: input.disputeId,
+      });
+    }
+    const keys = chargebackKeys(input.disputeId);
+    const openingTx = await this.chargebackBookedTx(keys.open);
+    const shortfallTx = await this.chargebackBookedTx(keys.shortfall);
+    if (!plan || (!openingTx && !shortfallTx)) {
+      const none = chargebackLedgerEffect({ openingTxId: null, shortfallTxId: null, wonTxId: null, recoveredTxId: null });
+      await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, none);
+      return none;
+    }
+    const settledPot =
+      plan.settledPot === 'user' || plan.settledPot === 'proceeds'
+        ? plan.settledPot
+        : await this.chargebackSettledPot(payment.id, merchant.userId);
+    const fromClearing = parseAmount(plan.fromClearing);
+    const fromMerchantBalance = parseAmount(plan.fromMerchantBalance);
+    const shortfall = plan.shortfall === undefined ? 0n : parseAmount(plan.shortfall);
+    const legs: ChargebackPostInput = {
+      disputeId: input.disputeId,
+      paymentId: input.paymentId,
+      merchantId: input.merchantId,
+      merchantUserId: merchant.userId,
+      assetId: input.assetId,
+      rail: payment.railAdapter,
+      fromClearing,
+      fromMerchantBalance,
+      ...(settledPot === 'user' ? { settledPot: 'user' as const } : {}),
+    };
+    const shortfallLeg: ChargebackShortfallPostInput = {
+      disputeId: input.disputeId,
+      paymentId: input.paymentId,
+      merchantId: input.merchantId,
+      assetId: input.assetId,
+      rail: payment.railAdapter,
+      amount: shortfall,
+    };
+    // The fund is repaid before the merchant is. Each key replays the original.
+    let recoveredTxId: string | null = null;
+    if (shortfall > 0n && shortfallTx) {
+      recoveredTxId = (await postDisputeShortfallRecovered(this.ledger, shortfallLeg)).txId;
+    }
+    let wonTxId: string | null = null;
+    if (fromClearing + fromMerchantBalance > 0n && openingTx) {
+      wonTxId = (await postDisputeWon(this.ledger, legs)).txId;
+    }
+    const effect = chargebackLedgerEffect({
+      openingTxId: openingTx?.id ?? null,
+      shortfallTxId: shortfallTx?.id ?? null,
+      wonTxId,
+      recoveredTxId,
+    });
+    await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, effect);
+    return effect;
+  }
+
+  private chargebackLedgerRefusal(e: unknown): PayError {
+    if (e instanceof PayError) return e;
+    const ledgerCode = e instanceof LedgerError ? e.code : undefined;
+    const message = e instanceof Error ? e.message : 'Chargeback ledger post failed';
+    return new PayError(message, 'pay.chargeback_ledger_failed', ledgerCode ? { ledgerCode } : undefined);
+  }
+
+  /**
+   * The fund cannot cover the shortfall. When the opening is already booked, record that
+   * transaction before throwing so the case is not told that nothing moved.
+   */
+  private async throwUnfundedChargebackShortfall(input: {
+    paymentId: string;
+    disputeId: string;
+    openingTxId: string | null;
+    shortfall?: string;
+    fund?: string;
+  }): Promise<never> {
+    const detail: Record<string, unknown> = { disputeId: input.disputeId };
+    if (input.shortfall !== undefined) detail.shortfall = input.shortfall;
+    if (input.fund !== undefined) detail.fund = input.fund;
+    if (input.openingTxId) {
+      await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
+        openingTxId: input.openingTxId,
+        shortfallTxId: null,
+        wonTxId: null,
+        recoveredTxId: null,
+      });
+      detail.openingTxId = input.openingTxId;
+    }
+    throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', detail);
+  }
+
+  private async recordChargebackLedgerEffect(
+    paymentId: string,
+    disputeId: string,
+    effect: Parameters<typeof chargebackLedgerEffect>[0],
+  ): Promise<void> {
+    await appendEvent(this.sql, paymentId, CHARGEBACK_LEDGER_EFFECT_EVENT, {
+      disputeId,
+      ...chargebackLedgerEffect(effect),
+    });
+  }
+
+  /**
+   * One outcome at a time per dispute. A second delivery of the same dispute waits in this
+   * process and holds no connection. Distinct disputes share a slot count that stays below
+   * the pool, so the lock connection is never the last one. The Postgres advisory lock still
+   * serialises other processes. Taken before `pay.chargeback.plan:<disputeId>`, which the
+   * booking transactions acquire on their own connection. Those transactions never take this key.
+   */
+  private async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return this.enqueueChargebackOutcome(disputeId, () => this.withChargebackOutcomeSlot(() => this.lockChargebackOutcome(disputeId, fn)));
+  }
+
+  /** Same-dispute deliveries queue here. The tail is dropped once it settles and nothing newer replaced it. */
+  private enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.chargebackOutcomeTails.get(disputeId) ?? Promise.resolve();
+    const gate = previous.then(
+      () => undefined,
+      () => undefined,
+    );
+    const result = gate.then(run);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.chargebackOutcomeTails.set(disputeId, tail);
+    void tail.finally(() => {
+      if (this.chargebackOutcomeTails.get(disputeId) === tail) this.chargebackOutcomeTails.delete(disputeId);
+    });
+    return result;
+  }
+
+  /** Waiting for a slot holds no connection. */
+  private async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
+    await this.acquireChargebackOutcomeSlot();
+    try {
+      return await run();
+    } finally {
+      this.releaseChargebackOutcomeSlot();
+    }
+  }
+
+  private acquireChargebackOutcomeSlot(): Promise<void> {
+    if (this.chargebackOutcomeHeld < this.chargebackOutcomeSlots) {
+      this.chargebackOutcomeHeld += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.chargebackOutcomeWaiters.push(() => resolve());
+    });
+  }
+
+  private releaseChargebackOutcomeSlot(): void {
+    const next = this.chargebackOutcomeWaiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.chargebackOutcomeHeld -= 1;
+  }
+
+  private async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await tx`SET LOCAL lock_timeout = '2s'`;
+          await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.outcome:${disputeId}`}))`;
+          return fn();
+        },
+        { isolation: 'read committed', maxAttempts: 1 },
+      );
+    } catch (err) {
+      if (postgresErrorCode(err) === '55P03') {
+        throw new PayError('Chargeback outcome lock is busy; nothing was posted', 'pay.chargeback_outcome_busy', { disputeId });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Not-found is null. A transport or validation error is `pay.chargeback_ledger_failed`,
+   * never "not booked", so a plan is not voided and a won credit is not skipped.
+   */
+  private async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
+    try {
+      return await this.ledger.getTxByKey(key);
+    } catch (e) {
+      throw this.chargebackLedgerRefusal(e);
+    }
+  }
+
+  /**
+   * The rail named an amount the stored plan does not match. Post nothing, leave the case
+   * where it is, and record the conflict so this delivery is not retried forever.
+   */
+  private async recordChargebackPlanConflict(input: {
+    merchantId: string;
+    disputeId: string;
+    paymentId: string;
+    amount: string;
+    assetId: string;
+    reasonCode: string | null;
+    railEventId: string;
+    railId: string;
+    storedStatus: DisputeCaseStatus;
+    outcome: RailResolutionOutcome;
+    evidenceDueBy: Date | null;
+  }): Promise<void> {
+    await recordDisputeOutcomeConflict(this.sql, {
+      merchantId: input.merchantId,
+      disputeId: input.disputeId,
+      railEventId: input.railEventId,
+      railId: input.railId,
+      storedStatus: input.storedStatus,
+      outcome: input.outcome,
+      reason: 'the rail amount does not match the opening already planned for this dispute; no value moved',
+    });
+    const current = await this.disputeCases.get(input.disputeId);
+    if (!current) {
+      await this.disputeCases.open({
+        disputeId: input.disputeId,
+        paymentId: input.paymentId,
+        merchantId: input.merchantId,
+        amount: input.amount,
+        assetId: input.assetId,
+        reasonCode: input.reasonCode,
+        paymentMarkedDisputed: false,
+        ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }),
+      });
+    }
+    await recordRailDisputeDeadline(this.sql, {
+      merchantId: input.merchantId,
+      disputeId: input.disputeId,
+      evidenceDueBy: input.evidenceDueBy,
+      railEventId: input.railEventId,
+    });
+  }
+
+  /**
+   * Webhook door: post the opening recipe or named refuse. An unfunded shortfall
+   * is a named refuse so the dispute is recorded; a later lost or closed delivery
+   * books it once the fund can cover. A funds refusal of the opening post itself
+   * is still the named uncovered refuse.
    */
   private async postChargebackOpenOrRefuse(input: {
     disputeId: string;
@@ -5265,6 +5875,19 @@ export class PayService {
       // A redelivery that names another amount cannot be fixed by redelivering: record the case and name the conflict.
       if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
         return { ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }) };
+      }
+      if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+        const openingTxId = openingTxIdFromDetail(e.detail);
+        if (openingTxId) {
+          return {
+            ledgerPost: { txId: openingTxId },
+            ledgerRefuse: refuseChargebackOpeningPostedShortfallUnfunded({
+              disputeId: input.disputeId,
+              paymentId: input.paymentId,
+            }),
+          };
+        }
+        return { ledgerRefuse: refuseChargebackShortfallUnfunded({ disputeId: input.disputeId, paymentId: input.paymentId }) };
       }
       throw e;
     }
@@ -5314,7 +5937,7 @@ export class PayService {
     return setDefaultMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
 
-  /** Owner write. Refuses while a payout that names this destination is in flight. */
+  /** Unverified rows only. A verified destination is refused. An in-flight payout still blocks an unverified row. */
   removePayoutDestination(input: { merchantId: string; destinationId: string }) {
     return removeMerchantPayoutDestination(this.sql, input, (message, code) => this.portalFail(message, code));
   }
@@ -5335,6 +5958,49 @@ export class PayService {
 
   listStatement(input: Parameters<typeof listMerchantStatement>[2]) {
     return listMerchantStatement(this.sql, this.ledger, input, (message, code) => this.portalFail(message, code));
+  }
+
+  /**
+   * Sandbox flag from the created event. Absent is not sandbox. The event is
+   * insert-only, so a later call cannot clear it.
+   */
+  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+    const rows = await sql<Array<{ sandbox: string | null }>>`
+      SELECT payload->>'sandbox' AS sandbox
+        FROM pay.payment_events
+       WHERE payment_id = ${paymentId} AND event = 'created'
+       LIMIT 1
+    `;
+    return rows[0]?.sandbox === 'true';
+  }
+
+  /** True when a frozen window contains a payment created with a sandbox key. */
+  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+    const rows = await sql<Array<{ ok: number }>>`
+      SELECT 1 AS ok
+        FROM pay.payment_events inc
+        JOIN pay.payment_events created
+          ON created.payment_id = inc.payment_id AND created.event = 'created'
+       WHERE inc.event = 'settlement.included'
+         AND inc.payload->>'settlementId' = ${settlementId}
+         AND created.payload->>'sandbox' = 'true'
+       LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
+  /** Refuse before `ledger.post` when a sandbox flag would touch a live account. */
+  private refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
+    if (!sandbox) return;
+    const live = liveAccountsIn(request);
+    if (live.length === 0) return;
+    throw new PayError('A sandbox payment cannot post to a live ledger account. NOTHING WAS POSTED.', 'pay.sandbox_live_account_refused', {
+      accounts: live.map((account) =>
+        account.purpose
+          ? `${account.ownerType}:${account.ownerId}:${account.kind}:${account.purpose}`
+          : `${account.ownerType}:${account.ownerId}:${account.kind}`,
+      ),
+    });
   }
 
   /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
@@ -5366,6 +6032,7 @@ function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0
     instrument: input.instrument ?? null,
     customerRef: input.customerRef ?? null,
     metadata: input.metadata ?? {},
+    ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
   };
 }
 async function insertPayment(
@@ -5381,6 +6048,8 @@ async function insertPayment(
     instrument?: PaymentIntent['instrument'];
     customerRef?: string;
     metadata?: Record<string, string>;
+    /** Immutable. Written only when the creating key was sandbox. */
+    sandbox?: boolean;
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
@@ -5405,6 +6074,7 @@ async function insertPayment(
     // by accident.
     instrument: input.instrument ?? null,
     metadata: input.metadata ?? {},
+    ...(input.sandbox ? { sandbox: true } : {}),
   });
 
   return row;
@@ -5538,15 +6208,44 @@ function isInsufficientFunds(e: unknown): boolean {
   return e instanceof InsufficientFundsError || (e instanceof LedgerError && e.code === 'ledger.insufficient_funds');
 }
 
+/** Absent means one slot. A non-positive count would wait forever and hold the pool. */
+function chargebackOutcomeSlotCount(slots: number | undefined): number {
+  const value = slots ?? 1;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error('pay.chargeback_outcome_slots: chargebackOutcomeSlots must be an integer of at least 1');
+  }
+  return value;
+}
+
+function postgresErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function openingTxIdFromDetail(detail: Record<string, unknown> | undefined): string | null {
+  const id = detail?.openingTxId;
+  return typeof id === 'string' && id.trim().length > 0 ? id : null;
+}
+
 type ChargebackSplit = {
   fromClearing: Amount;
   fromMerchantBalance: Amount;
+  shortfall: Amount;
+  settledPot: 'proceeds' | 'user';
   planSeq: string;
   amount: string;
   replayed: boolean;
 };
 
-type ChargebackPlan = { amount: string; fromClearing: string; fromMerchantBalance: string; seq: string };
+type ChargebackPlan = {
+  amount: string;
+  fromClearing: string;
+  fromMerchantBalance: string;
+  shortfall?: string;
+  settledPot?: 'proceeds' | 'user';
+  seq: string;
+};
 
 /**
  * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`

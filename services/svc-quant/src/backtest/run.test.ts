@@ -39,6 +39,7 @@ const honest = {
   environment: 'backtest' as const,
   costModel,
   strategyVariantCount: 1,
+  strategyVersion: 1,
 };
 
 describe('backtest.run — event-level, walk-forward, lake fills', () => {

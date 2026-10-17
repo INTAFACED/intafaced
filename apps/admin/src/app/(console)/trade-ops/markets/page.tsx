@@ -2,6 +2,7 @@ import { PageSection } from '@/components/trade-ops/kit';
 import { requireFounderPage } from '@/lib/founder-page';
 import { DeskPage } from '@/components/trade-ops/desk-page';
 import { ReadProblem } from '@/components/trade-ops/blocker-panel';
+import { FeeScheduleNote } from '@/components/trade-ops/fee-schedule-note';
 import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { MarketsTable } from '@/components/trade-ops/markets-table';
 import { loadMarkets, ORDER_READ_LIMIT } from '@/lib/trade-ops/markets-load';
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
 export default async function MarketsPage() {
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const { markets, orders, views, lifecycleCapped } = await loadMarkets(ctx);
+  const { markets, orders, fees, views, lifecycleCapped } = await loadMarkets(ctx);
 
   const asOf = oldestAsOf([markets.kind === 'ok' ? markets.asOf : null, orders.kind === 'ok' ? orders.asOf : null]);
   const lifecycleReads = views.map((v) => v.lifecycle);
@@ -62,6 +63,7 @@ export default async function MarketsPage() {
               {lifecycleCapped ? ' More markets exist than are read at once.' : ''}
             </p>
           ) : null}
+          <FeeScheduleNote fees={fees} />
           <PageSection title={`Markets (${views.length})`}>
             <MarketsTable rows={views} />
           </PageSection>

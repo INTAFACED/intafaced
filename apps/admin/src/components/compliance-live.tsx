@@ -11,6 +11,8 @@ import {
   type QueueItem,
 } from '@/lib/compliance/model';
 import './desk.css';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
+import { actorRef, codeWords } from '@/lib/desk/words';
 
 /**
  * LIVE COMPLIANCE STATE — what svc-edge says right now, with an as-of time.
@@ -57,7 +59,7 @@ export function ComplianceLiveView(p: ComplianceViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRead} disabled={p.loading}>
           {p.loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{read ? `As of ${read.asOf} (when this console read svc-edge)` : 'No read yet'}</span>
+        <span className="dk-asof">{read ? `As of ${formatAsOf(read.asOf)} (when this console read svc-edge)` : 'No read yet'}</span>
       </div>
       {!read && <p className="dk-why">svc-edge could not be read. Nothing is shown rather than a guess.</p>}
 
@@ -123,7 +125,7 @@ export function ComplianceLiveView(p: ComplianceViewProps) {
                       <td className="dk-packet">{item.id}</td>
                       <td>{item.kind}</td>
                       <td className="dk-packet">{item.subjectId}</td>
-                      <td>{item.openedAt}</td>
+                      <td>{formatWhen(item.openedAt)}</td>
                       <td>
                         <div className="dk-row">
                           <button type="button" className="adm-btn" onClick={() => p.onPick({ item, status: 'cleared' })}>
@@ -242,10 +244,10 @@ export function ComplianceLiveView(p: ComplianceViewProps) {
                 <tbody>
                   {read.queue.data.recentAudit.map((a, i) => (
                     <tr key={`${a.at}-${i}`}>
-                      <td>{a.at}</td>
+                      <td>{formatWhen(a.at)}</td>
                       <td className="dk-packet">{a.itemId}</td>
-                      <td>{a.ok ? (a.status ?? 'recorded') : `refused${a.code ? ` (${a.code})` : ''}`}</td>
-                      <td>{a.actor ?? '—'}</td>
+                      <td>{a.ok ? (a.status ?? 'recorded') : `refused${a.code ? ` (${codeWords(a.code)})` : ''}`}</td>
+                      <td>{actorRef(a.actor)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -868,9 +868,14 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_p2p', secrets),
         LEDGER_URL: urlOf('ledger'),
         IDENTITY_URL: urlOf('identity'),
-        // The house fee (P2P_FEE_BPS) and offer caps are owner-unpublished money numbers: left unset, so the
-        // service refuses those steps by name. The clocks below have no default and the service will not boot
-        // without them; they are LOCAL TEST values (the figures the service's own messages name), not owner decisions.
+        // Offer caps stay unset (owner-unpublished). P2P_FEE_BPS=0 is an explicit LOCAL TEST free cut:
+        // parseOwnerIntegerEnv accepts 0, and trades.take posts a 0 bps cut instead of refusing fee_bps_unset.
+        // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
+        // values (the figures the service's own messages name), not owner decisions.
+        // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
+        LOCAL_TEST_KMS: '1',
+        LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
+        P2P_FEE_BPS: '0',
         P2P_ESCROW_DEADLINE_SECONDS: '120',
         P2P_PAYMENT_DEADLINE_SECONDS: '900',
         P2P_RELEASE_DEADLINE_SECONDS: '1800',
@@ -1388,6 +1393,15 @@ async function cmdRestart(names) {
   await cmdStart([]);
 }
 
+// The local customer server does not start svc-ws and does not read
+// CUSTOMER_WS_URL into a proxy. The typed refusal names that key. Wiring the
+// upstream is the local-stack owner's job; this default stays a refusal.
+const WS_UPSTREAM_REFUSAL = {
+  code: 'ws.upstream_unset',
+  key: 'CUSTOMER_WS_URL',
+  message: 'CUSTOMER_WS_URL is not wired. The local test stack has no WebSocket upstream and does not start svc-ws.',
+};
+
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
 const MIME = {
@@ -1442,12 +1456,7 @@ function serveCustomer(port = PORTS.customer) {
 
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
-      return send(
-        res,
-        503,
-        'application/json',
-        JSON.stringify({ error: 'ws_not_started', message: 'The WebSocket service is not part of the local test stack.' }),
-      );
+      return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
     }
     if (p.startsWith('/api/')) {
       const headers = {};
@@ -1524,9 +1533,13 @@ function serveCustomer(port = PORTS.customer) {
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
-  // No WebSocket service: refuse upgrades instead of hanging.
+  // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
+  // does not start svc-ws or proxy when that key is set.
   server.on('upgrade', (req, socket) => {
-    socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    const body = JSON.stringify(WS_UPSTREAM_REFUSAL);
+    socket.end(
+      `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
   });
   server.listen(port, HOST);
 }
@@ -1654,22 +1667,41 @@ async function cmdFund(rawArgs) {
   say(`  available ${bal.amount} ${asset}   (read back from svc-ledger)`);
 }
 
+/** Env each local service would get. Starts nothing. Placeholder secrets only. */
+export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
+  return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
+}
+
+function runningAsCli() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
 // ── Entry ───────────────────────────────────────────────────────────────────
 
-const [cmd = 'start', ...rest] = process.argv.slice(2);
-if (cmd === '__serve-customer')
-  serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
-else if (cmd === 'start' && rest[0] === 'customer-dist')
-  cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
-else if (cmd === 'start') await cmdStart(rest);
-else if (cmd === 'stop') await cmdStop(rest);
-else if (cmd === 'plan') cmdPlan(rest);
-else if (cmd === 'restart') await cmdRestart(rest);
-else if (cmd === 'fund') await cmdFund(rest);
-else if (cmd === 'customer-dist') cmdCustomerDist(rest);
-else if (cmd === 'status') {
-  const ok = await healthTable({ gateMarket: true });
-  say('');
-  say(`  ${describeCustomerDist()}`);
-  process.exit(ok ? 0 : 1);
-} else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+if (runningAsCli()) await runCli();
+
+async function runCli() {
+  const [cmd = 'start', ...rest] = process.argv.slice(2);
+  if (cmd === '__serve-customer')
+    serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === 'start' && rest[0] === 'customer-dist')
+    cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
+  else if (cmd === 'start') await cmdStart(rest);
+  else if (cmd === 'stop') await cmdStop(rest);
+  else if (cmd === 'plan') cmdPlan(rest);
+  else if (cmd === 'restart') await cmdRestart(rest);
+  else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+  else if (cmd === 'status') {
+    const ok = await healthTable({ gateMarket: true });
+    say('');
+    say(`  ${describeCustomerDist()}`);
+    process.exit(ok ? 0 : 1);
+  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+}

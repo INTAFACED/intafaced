@@ -66,3 +66,19 @@ export function recentRecipients(items: readonly ActivityItem[], remembered: rea
  * `none`: everything was read and there is no payment.
  */
 export const paymentsEmpty = (hasMore: boolean): 'older' | 'none' => (hasMore ? 'older' : 'none');
+
+/**
+ * Payments sent where neither the bank nor this device can say who received them. They are real sends, so Recent recipients
+ * must not read as empty beside them; the screen labels each one honestly instead of guessing a name.
+ */
+export function unnamedSends(items: readonly ActivityItem[], limit = 3): ActivityItem[] {
+  const seen = new Set<string>();
+  const rows: ActivityItem[] = [];
+  for (const item of items) {
+    if (item.kind !== 'transfer_out' || counterpartyHandle(item) || seen.has(item.id)) continue;
+    seen.add(item.id);
+    rows.push(item);
+    if (rows.length >= limit) break;
+  }
+  return rows;
+}
