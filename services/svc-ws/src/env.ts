@@ -40,6 +40,12 @@ const schema = baseEnvSchema
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-ws'),
+      /**
+       * Same customer origins as svc-edge (`EDGE_ALLOWED_ORIGINS`). Blank uses
+       * the dev default outside staging/prod and a closed list in those envs.
+       * Checked on private and drop-copy upgrades, not on the public tape.
+       */
+      EDGE_ALLOWED_ORIGINS: z.string().optional(),
       /** Optional private-read authority; missing disables private upgrades only. */
       IDENTITY_URL: z.preprocess((v) => (typeof v === 'string' && !v.trim() ? undefined : v), z.string().optional()),
       IDENTITY_OWNERSHIP_SECRET: z.preprocess((v) => (typeof v === 'string' && !v.trim() ? undefined : v), z.string().optional()),
@@ -311,6 +317,7 @@ const schema = baseEnvSchema
 /** Keys this service's own schema layer declares (excludes shared base/nats/otel). */
 export const SVC_WS_OWN_ENV_KEYS = [
   'SERVICE_NAME',
+  'EDGE_ALLOWED_ORIGINS',
   'IDENTITY_URL',
   'IDENTITY_OWNERSHIP_SECRET',
   'HTTP_PORT',

@@ -279,6 +279,8 @@ services:
       EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-}
       EDGE_KILL_STATE_PATH: ${EDGE_KILL_STATE_PATH:-.data/edge-kill-state.json}
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
+      # Customer page origins. Blank → dev default outside staging/prod. Same name on svc-ws.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       IDENTITY_URL: http://svc-identity:4002
       TRADE_URL: http://svc-trade:4004
       TOKEN_URL: http://svc-token:4003
@@ -330,6 +332,8 @@ services:
       # Host `.env` can pin session refresh life; do not raise the compose
       # default above 2592000.
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      # Two-tab refresh grace. Default 10 seconds. 0 disables it. Ceiling 120.
+      REFRESH_REUSE_GRACE_SECONDS: ${REFRESH_REUSE_GRACE_SECONDS:-10}
       # Registration open? §11 drop sequence. Empty pass-through — blank refuses
       # identity.registration_open_unset. Owner-explicit true is allowed. Never invent true.
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-}
@@ -760,6 +764,8 @@ services:
       INTAFACED_SBE_JAVA: ${INTAFACED_SBE_JAVA:-/app/sbe-codec.jar}
       # 4014: 4013 is svc-indexer, and everything below it is taken.
       HTTP_PORT: '4014'
+      # Same customer origins as svc-edge. Blank → dev default, or closed in staging/prod.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       MATCHING_URL: http://svc-matching:4005
       # WHICH MARKETS EXIST, as opposed to which ones have traded.
       #

@@ -1,3 +1,5 @@
+'use client';
+
 /*
  * Base UI Toast, styled with INTAFACED tokens. Written for this repo from the Base UI
  * 1.8.0 Toast documentation (MIT, https://base-ui.com/react/components/toast); not copied

@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Field: label, hint and error text around one form control (usually an Input).
  * Built on Base UI's Field, so the label is tied to the control (for/id), and

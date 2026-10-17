@@ -54,6 +54,37 @@ export class PayoutList {
     },
   ) {
     assertPermission(caller, 'payouts.read');
+    return this.page(caller.merchantId, input);
+  }
+
+  /**
+   * Same settlement page as `list`, with no merchant fence. The founder router
+   * is the only caller. A merchant session never reaches this method.
+   */
+  async listAcross(input: {
+    limit?: number | undefined;
+    cursor?: string;
+    status?: PayoutListStatus;
+    assetId?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+  }) {
+    return this.page(null, input);
+  }
+
+  private async page(
+    merchantId: string | null,
+    input: {
+      limit?: number | undefined;
+      cursor?: string;
+      status?: PayoutListStatus;
+      assetId?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+    },
+  ) {
     const limit = requireLimit(input.limit);
     if (input.status && !STATUSES.includes(input.status)) throw new MerchantOpsError('pay.export_filter_invalid', 'bad_request');
     if (input.from && input.to && Date.parse(input.from) > Date.parse(input.to)) {
@@ -61,12 +92,13 @@ export class PayoutList {
     }
     const after = decodeCursor(input.cursor);
     const sql = this.sql;
-    const rows = await sql<PayoutRow[]>`
-      SELECT s.id::text AS id, s.window, s.asset_id, s.gross::text AS gross, s.fees::text AS fees, s.net::text AS net,
+    const rows = await sql<Array<PayoutRow & { merchant_id: string }>>`
+      SELECT s.id::text AS id, s.merchant_id::text AS merchant_id, s.window, s.asset_id, s.gross::text AS gross, s.fees::text AS fees, s.net::text AS net,
              s.status::text AS status, s.payout_method, s.payout_ref, s.created_at,
              to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
         FROM pay.settlements s
-       WHERE s.merchant_id = ${caller.merchantId}
+       WHERE true
+         ${merchantId ? sql`AND s.merchant_id = ${merchantId}` : sql``}
          ${input.status ? sql`AND s.status = ${input.status}::pay.settlement_status` : sql``}
          ${input.assetId ? sql`AND s.asset_id = ${input.assetId}` : sql``}
          ${input.search ? sql`AND s.id::text = lower(${input.search})` : sql``}
@@ -80,7 +112,7 @@ export class PayoutList {
       limit,
       (row) => ({
         id: row.id,
-        merchantId: caller.merchantId,
+        merchantId: row.merchant_id,
         window: row.window,
         assetId: row.asset_id,
         gross: money(row.gross),

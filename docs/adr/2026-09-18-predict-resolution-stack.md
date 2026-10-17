@@ -1,6 +1,6 @@
 # ADR: Predict resolution stack (spec before the market type)
 
-**Status:** **Accepted — 2026-09-18** as **spec**. Predict **code** stays unstarted until INTACORE exists (D-S-18).  
+**Status:** **Accepted — 2026-09-18** as **spec**. Predict **code** stays unstarted until INTACORE exists (D-S-18). **Updated 2026-10-13:** Nitro unparked INTACHAIN P1 and allowed Predict to start; see the rails ADR.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** Predict-resolution (doctrine §32 · D-S-18 done bar 5).  
 **Parent:** [`2026-08-04-predict-quant-connect-law.md`](2026-08-04-predict-quant-connect-law.md) · module map [`2026-09-18-intacore-module-map.md`](2026-09-18-intacore-module-map.md).  

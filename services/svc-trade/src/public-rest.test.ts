@@ -332,6 +332,14 @@ describe('public REST routes', () => {
     return app;
   }
 
+  it('GET /api/v1/time returns the public clock with no auth', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/time' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ serverTime: 1_700_000_000_000 });
+    await app.close();
+  });
+
   it('GET /api/v1/markets lists markets with no auth', async () => {
     const app = await build();
     const res = await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' });
