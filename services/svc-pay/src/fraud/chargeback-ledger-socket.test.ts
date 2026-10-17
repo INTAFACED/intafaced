@@ -6,6 +6,7 @@ import {
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
   CHARGEBACK_SHORTFALL_UNFUNDED_CODE,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
   refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
@@ -38,6 +39,14 @@ describe('chargeback ledger §13 socket (D26-P1-P5)', () => {
     expect(r.socket).toBe(CHARGEBACK_LEDGER_SOCKET_ID);
     expect(r.message).toMatch(/Insurance fund cannot cover/);
     expect(r.message).toMatch(/No opening and no shortfall were posted/);
+  });
+
+  it('names a booked opening whose shortfall was not posted', () => {
+    const r = refuseChargebackOpeningPostedShortfallUnfunded({ disputeId: 'dp_5', paymentId: 'pay_5' });
+    expect(r.code).toBe(CHARGEBACK_SHORTFALL_UNFUNDED_CODE);
+    expect(r.message).toMatch(/opening was posted/i);
+    expect(r.message).toMatch(/shortfall was not/i);
+    expect(r.message).not.toMatch(/No opening/);
   });
 
   it('names a plan conflict without moving value', () => {

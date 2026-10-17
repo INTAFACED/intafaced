@@ -90,6 +90,7 @@ import {
   isTerminalDisputeStatus,
   railOutcomeConflicts,
   refuseChargebackNothingToReverse,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
   refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
@@ -252,10 +253,12 @@ export type PayErrorCode =
   | 'pay.refund_id_conflict'
   /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
   | 'pay.chargeback_plan_conflict'
-  /** Merchant pots cannot cover the dispute and the insurance fund cannot cover the rest. Nothing was booked. */
+  /** Merchant pots cannot cover the dispute and the insurance fund cannot cover the rest. */
   | 'pay.chargeback_shortfall_unfunded'
   /** A won or lost ledger post failed. The dispute row was not moved. */
   | 'pay.chargeback_ledger_failed'
+  /** The outcome lock was not acquired within 2s. Nothing was posted and the rail can redeliver. */
+  | 'pay.chargeback_outcome_busy'
   /**
    * A pending settlement window has already frozen this payment into its set.
    * Pre-settlement refunds would drain clearing under the frozen gross and let
@@ -960,6 +963,13 @@ export interface PayServiceOptions {
   readonly identityAuthorityGuard?: OwnerIdentityAuthorityPort;
   /** Test failpoint after durable payout admission, before money leaves available. */
   readonly afterPayoutAdmission?: () => void | Promise<void>;
+
+  /**
+   * How many chargeback outcome locks this process may hold at once.
+   * Must stay below the pool size: the lock connection cannot serve the queries
+   * the outcome itself runs. Omitted means 1, so a test pool is never filled by waiters.
+   */
+  readonly chargebackOutcomeSlots?: number;
 }
 
 /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
@@ -1185,6 +1195,10 @@ export class PayService {
   private readonly guards: PayGuards;
   private readonly haltStore: PayHaltStore | undefined;
   private readonly disputeCases: DisputeCaseStore;
+  private readonly chargebackOutcomeSlots: number;
+  private chargebackOutcomeHeld: number;
+  private readonly chargebackOutcomeWaiters: Array<() => void>;
+  private readonly chargebackOutcomeTails: Map<string, Promise<void>>;
 
   constructor(
     private readonly sql: Sql,
@@ -1216,6 +1230,10 @@ export class PayService {
     this.guards = options.guards ?? NOOP_GUARDS;
     this.haltStore = options.haltStore;
     this.disputeCases = options.disputeCases ?? defaultDisputeCaseStore;
+    this.chargebackOutcomeSlots = chargebackOutcomeSlotCount(options.chargebackOutcomeSlots);
+    this.chargebackOutcomeHeld = 0;
+    this.chargebackOutcomeWaiters = [];
+    this.chargebackOutcomeTails = new Map();
   }
 
   /**
@@ -3717,11 +3735,11 @@ export class PayService {
         if (disputeId) {
           const outcome: RailResolutionOutcome = event.type === 'dispute.won' ? 'won' : event.type === 'dispute.lost' ? 'lost' : 'closed';
           const amountExplicit = event.amount !== undefined;
-          const amount = event.amount === undefined ? payment.amount : formatAmount(event.amount);
           const assetId = event.assetId ?? payment.currency;
           try {
             await this.withChargebackOutcomeLock(disputeId, async () => {
               const current = await this.disputeCases.get(disputeId);
+              const amount = event.amount !== undefined ? formatAmount(event.amount) : current ? current.amount : payment.amount;
               if (current && isTerminalDisputeStatus(current.status) && railOutcomeConflicts(current.status, outcome)) {
                 await recordDisputeOutcomeConflict(this.sql, {
                   merchantId: payment.merchant_id,
@@ -5040,8 +5058,10 @@ export class PayService {
                 await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
                 if (plan.replayed && attempt === 0) continue;
               }
-              throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
+              await this.throwUnfundedChargebackShortfall({
+                paymentId: input.paymentId,
                 disputeId: input.disputeId,
+                openingTxId: openingBooked?.id ?? null,
                 shortfall: formatAmount(plan.shortfall),
                 fund: formatAmount(fund),
               });
@@ -5069,16 +5089,19 @@ export class PayService {
         });
         return { txId, openingTxId, shortfallTxId };
       } catch (e) {
-        // Insufficient funds proves nothing was posted under the dispute key: both ledger engines resolve the idempotency
-        // key before they validate the body, so a key that had committed would have returned its transaction. Any other
-        // failure (a 5xx, a timeout, an unknown outcome) may have committed: keep the plan and replay it.
+        // Insufficient funds proves the refused post did not commit under its key: both ledger engines resolve the
+        // idempotency key before they validate the body, so a key that had committed would have returned its transaction.
+        // An opening that did commit, with the shortfall still refused, is recorded above. Any other failure (a 5xx,
+        // a timeout, an unknown outcome) may have committed: keep the plan and replay it.
         if (e instanceof PayError) throw e;
         if (!isInsufficientFunds(e)) throw e;
         const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
         const openingBooked = covered > 0n ? await this.chargebackBookedTx(openingKey) : null;
         if (openingBooked && plan.shortfall > 0n) {
-          throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
+          await this.throwUnfundedChargebackShortfall({
+            paymentId: input.paymentId,
             disputeId: input.disputeId,
+            openingTxId: openingBooked.id,
           });
         }
         const booked = await this.voidChargebackPlan(input.paymentId, input.disputeId, plan.planSeq, openingKey);
@@ -5321,6 +5344,32 @@ export class PayService {
     return new PayError(message, 'pay.chargeback_ledger_failed', ledgerCode ? { ledgerCode } : undefined);
   }
 
+  /**
+   * The fund cannot cover the shortfall. When the opening is already booked, record that
+   * transaction before throwing so the case is not told that nothing moved.
+   */
+  private async throwUnfundedChargebackShortfall(input: {
+    paymentId: string;
+    disputeId: string;
+    openingTxId: string | null;
+    shortfall?: string;
+    fund?: string;
+  }): Promise<never> {
+    const detail: Record<string, unknown> = { disputeId: input.disputeId };
+    if (input.shortfall !== undefined) detail.shortfall = input.shortfall;
+    if (input.fund !== undefined) detail.fund = input.fund;
+    if (input.openingTxId) {
+      await this.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
+        openingTxId: input.openingTxId,
+        shortfallTxId: null,
+        wonTxId: null,
+        recoveredTxId: null,
+      });
+      detail.openingTxId = input.openingTxId;
+    }
+    throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', detail);
+  }
+
   private async recordChargebackLedgerEffect(
     paymentId: string,
     disputeId: string,
@@ -5333,18 +5382,81 @@ export class PayService {
   }
 
   /**
-   * One outcome at a time per dispute. Taken before `pay.chargeback.plan:<disputeId>`, which the
+   * One outcome at a time per dispute. A second delivery of the same dispute waits in this
+   * process and holds no connection. Distinct disputes share a slot count that stays below
+   * the pool, so the lock connection is never the last one. The Postgres advisory lock still
+   * serialises other processes. Taken before `pay.chargeback.plan:<disputeId>`, which the
    * booking transactions acquire on their own connection. Those transactions never take this key.
    */
   private async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
-    return transaction(
-      this.sql,
-      async (tx) => {
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.outcome:${disputeId}`}))`;
-        return fn();
-      },
-      { isolation: 'read committed', maxAttempts: 1 },
+    return this.enqueueChargebackOutcome(disputeId, () => this.withChargebackOutcomeSlot(() => this.lockChargebackOutcome(disputeId, fn)));
+  }
+
+  /** Same-dispute deliveries queue here. The tail is dropped once it settles and nothing newer replaced it. */
+  private enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.chargebackOutcomeTails.get(disputeId) ?? Promise.resolve();
+    const gate = previous.then(
+      () => undefined,
+      () => undefined,
     );
+    const result = gate.then(run);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.chargebackOutcomeTails.set(disputeId, tail);
+    void tail.finally(() => {
+      if (this.chargebackOutcomeTails.get(disputeId) === tail) this.chargebackOutcomeTails.delete(disputeId);
+    });
+    return result;
+  }
+
+  /** Waiting for a slot holds no connection. */
+  private async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
+    await this.acquireChargebackOutcomeSlot();
+    try {
+      return await run();
+    } finally {
+      this.releaseChargebackOutcomeSlot();
+    }
+  }
+
+  private acquireChargebackOutcomeSlot(): Promise<void> {
+    if (this.chargebackOutcomeHeld < this.chargebackOutcomeSlots) {
+      this.chargebackOutcomeHeld += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.chargebackOutcomeWaiters.push(() => resolve());
+    });
+  }
+
+  private releaseChargebackOutcomeSlot(): void {
+    const next = this.chargebackOutcomeWaiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    this.chargebackOutcomeHeld -= 1;
+  }
+
+  private async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await tx`SET LOCAL lock_timeout = '2s'`;
+          await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.chargeback.outcome:${disputeId}`}))`;
+          return fn();
+        },
+        { isolation: 'read committed', maxAttempts: 1 },
+      );
+    } catch (err) {
+      if (postgresErrorCode(err) === '55P03') {
+        throw new PayError('Chargeback outcome lock is busy; nothing was posted', 'pay.chargeback_outcome_busy', { disputeId });
+      }
+      throw err;
+    }
   }
 
   /**
@@ -5430,6 +5542,16 @@ export class PayService {
         return { ledgerRefuse: refuseChargebackPlanConflict({ disputeId: input.disputeId, paymentId: input.paymentId }) };
       }
       if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+        const openingTxId = openingTxIdFromDetail(e.detail);
+        if (openingTxId) {
+          return {
+            ledgerPost: { txId: openingTxId },
+            ledgerRefuse: refuseChargebackOpeningPostedShortfallUnfunded({
+              disputeId: input.disputeId,
+              paymentId: input.paymentId,
+            }),
+          };
+        }
         return { ledgerRefuse: refuseChargebackShortfallUnfunded({ disputeId: input.disputeId, paymentId: input.paymentId }) };
       }
       throw e;
@@ -5692,6 +5814,26 @@ async function countEvents(sql: Sql, paymentId: string, event: string): Promise<
 /** The ledger refused for want of funds: the HTTP client rebuilds the subclass, but any LedgerError carrying the code counts. */
 function isInsufficientFunds(e: unknown): boolean {
   return e instanceof InsufficientFundsError || (e instanceof LedgerError && e.code === 'ledger.insufficient_funds');
+}
+
+/** Absent means one slot. A non-positive count would wait forever and hold the pool. */
+function chargebackOutcomeSlotCount(slots: number | undefined): number {
+  const value = slots ?? 1;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error('pay.chargeback_outcome_slots: chargebackOutcomeSlots must be an integer of at least 1');
+  }
+  return value;
+}
+
+function postgresErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function openingTxIdFromDetail(detail: Record<string, unknown> | undefined): string | null {
+  const id = detail?.openingTxId;
+  return typeof id === 'string' && id.trim().length > 0 ? id : null;
 }
 
 type ChargebackSplit = {

@@ -22,6 +22,7 @@ export {
   CHARGEBACK_LEDGER_SOCKET_ID,
   CHARGEBACK_LEDGER_UNCOVERED_CODE,
   refuseChargebackLedgerPost,
+  refuseChargebackOpeningPostedShortfallUnfunded,
   refuseChargebackPlanConflict,
   CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE,
   refuseChargebackShortfallUnfunded,

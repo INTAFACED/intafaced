@@ -2136,6 +2136,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.kyb_profile_unbound':
       case 'pay.chargeback_shortfall_unfunded':
       case 'pay.chargeback_ledger_failed':
+      case 'pay.chargeback_outcome_busy':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

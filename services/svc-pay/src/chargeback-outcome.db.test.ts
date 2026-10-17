@@ -1,11 +1,12 @@
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import postgres from 'postgres';
 import { founderDisputeListSchema } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
+  InsufficientFundsError,
   MemoryLedger,
   formatAmount,
   insuranceFund,
@@ -77,6 +78,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
+  let outcomePool: postgres.Sql | undefined;
   let sql!: TestDatabase['sql'];
   let ledger: MemoryLedger;
   let pay: PayService;
@@ -109,9 +111,20 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
   }, 30_000);
 
   afterAll(async () => {
+    await outcomePool?.end({ timeout: 5 });
     await db?.drop();
     await adminStop();
   }, 30_000);
+
+  function dedicatedOutcomePool(): postgres.Sql {
+    if (!db) throw new Error('test database is not open');
+    outcomePool ??= postgres(db.url, {
+      max: 2,
+      connection: { search_path: 'pay,public' },
+      onnotice: () => undefined,
+    });
+    return outcomePool;
+  }
 
   function signed(payload: Record<string, unknown>) {
     const body = JSON.stringify(payload);
@@ -150,8 +163,21 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
     return { merchantId: merchant.id, payment };
   }
 
-  function deliver(payment: PaymentView, type: string, disputeId: string, id: string, amount = '40') {
-    return pay.handleWebhook('card-sandbox', signed({ id, type, ref: payment.railRef, amount, assetId: 'USDT', disputeId }));
+  function deliver(payment: PaymentView, type: string, disputeId: string, id: string, amount?: string) {
+    const payload: Record<string, unknown> = { id, type, ref: payment.railRef, assetId: 'USDT', disputeId };
+    if (amount !== undefined) payload.amount = amount;
+    return pay.handleWebhook('card-sandbox', signed(payload));
+  }
+
+  function debitTotal(book: MemoryLedger, reason: string): bigint {
+    let sum = 0n;
+    for (const tx of book.journal()) {
+      if (tx.reason !== reason) continue;
+      for (const entry of tx.entries) {
+        if (entry.direction === 'debit') sum += entry.amount;
+      }
+    }
+    return sum;
   }
 
   it('a lost dispute debits merchant proceeds by the disputed amount and conserves value', async () => {
@@ -411,6 +437,194 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
     expect(again.applied).toBe(true);
     expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
     expect((await store.get(disputeId))?.status).toBe('open');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  async function settleOn(service: PayService, amount = '100'): Promise<{ merchantId: string; payment: PaymentView }> {
+    const merchant = await service.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+    const created = await service.createPayment({
+      merchantId: merchant.id,
+      amount: amt(amount),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: 'tok_ok' },
+    });
+    const authorized = await service.authorize(created.id);
+    await service.capture(authorized.id);
+    await service.settleWindow({
+      merchantId: merchant.id,
+      window: `w-${merchant.id.slice(0, 8)}`,
+      assetId: 'USDT',
+      from: new Date(Date.now() - 24 * 3600_000),
+      to: new Date(Date.now() + 24 * 3600_000),
+    });
+    const payment = await service.getPayment(authorized.id);
+    if (!payment.railRef) throw new Error('settled card payment has no rail ref');
+    return { merchantId: merchant.id, payment };
+  }
+
+  function send(service: PayService, payment: PaymentView, type: string, disputeId: string, id: string, amount?: string) {
+    const payload: Record<string, unknown> = { id, type, ref: payment.railRef, assetId: 'USDT', disputeId };
+    if (amount !== undefined) payload.amount = amount;
+    return service.handleWebhook('card-sandbox', signed(payload));
+  }
+
+  function slottedPay(pool: postgres.Sql, book: MemoryLedger) {
+    const cases = new PostgresDisputeCaseStore(pool);
+    const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+    const service = new PayService(pool, book, new RailRegistry([card]), {
+      payoutDestinations: memoryPayoutDestinations(),
+      linkDefaultTtlDays: 30,
+      linkMaxTtlDays: 365,
+      checkoutSessionTtlSeconds: 900,
+      maxOpenSessionsPerLink: 25,
+      disputeCases: cases,
+      chargebackOutcomeSlots: 1,
+    });
+    return { cases, service };
+  }
+
+  it('three disputes can be won together on a two-connection pool', async () => {
+    const pool = dedicatedOutcomePool();
+    const book = new MemoryLedger();
+    const { service } = slottedPay(pool, book);
+    const { payment } = await settleOn(service);
+    const ids = ['dp-slot-a', 'dp-slot-b', 'dp-slot-c'];
+    for (const [index, disputeId] of ids.entries()) {
+      await send(service, payment, 'dispute.opened', disputeId, `evt-slot-open-${index}`, '30');
+    }
+    const results = await Promise.allSettled(
+      ids.map((disputeId, index) => send(service, payment, 'dispute.won', disputeId, `evt-slot-won-${index}`, '30')),
+    );
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    const won = book.journal().filter((tx) => tx.reason === 'pay.chargeback.won');
+    expect(won.map((tx) => tx.idempotencyKey).sort()).toEqual(ids.map((id) => `pay.chargeback.won:${id}`).sort());
+    expect(book.reconcile()).toEqual({ ok: true });
+  }, 15_000);
+
+  it('three won deliveries of one dispute settle on a two-connection pool', async () => {
+    const pool = dedicatedOutcomePool();
+    const book = new MemoryLedger();
+    const { cases, service } = slottedPay(pool, book);
+    const { payment } = await settleOn(service);
+    const disputeId = 'dp-slot-one';
+    await send(service, payment, 'dispute.opened', disputeId, 'evt-one-open', '40');
+    const results = await Promise.allSettled([
+      send(service, payment, 'dispute.won', disputeId, 'evt-one-a', '40'),
+      send(service, payment, 'dispute.won', disputeId, 'evt-one-b', '40'),
+      send(service, payment, 'dispute.won', disputeId, 'evt-one-c', '40'),
+    ]);
+    expect(results).toHaveLength(3);
+    expect(book.journal().filter((tx) => tx.reason === 'pay.chargeback.won')).toHaveLength(1);
+    expect((await cases.get(disputeId))?.status).toBe('won');
+    expect(book.reconcile()).toEqual({ ok: true });
+  }, 15_000);
+
+  it('a lost delivery with no amount books the recorded dispute amount after a refused open', async () => {
+    const { merchantId, payment } = await settled();
+    await ledger.post({
+      idempotencyKey: `test.drain:${payment.id}`,
+      module: 'pay',
+      reason: 'test.proceeds.spent',
+      entries: [
+        { account: merchantProceeds(merchantId, 'USDT'), direction: 'credit', amount: amt('70') },
+        { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('70') },
+      ],
+    });
+    expect(await proceedsOf(merchantId)).toBe('30');
+    const disputeId = 'dp-lost-recorded';
+    const opened = await deliver(payment, 'dispute.opened', disputeId, 'evt-rec-open', '40');
+    expect(opened.applied).toBe(true);
+    expect((await store.get(disputeId))?.ledgerWire).toBe('refused');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(0);
+    const before = amt(await proceedsOf(merchantId));
+    await ledger.post({
+      idempotencyKey: `test.insurance:${payment.id}`,
+      module: 'pay',
+      reason: 'test.insurance.funded',
+      entries: [
+        { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('40') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('40') },
+      ],
+    });
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-rec-lost');
+    expect(lost.applied).toBe(true);
+    const moved = debitTotal(ledger, 'pay.chargeback.opened') + debitTotal(ledger, 'pay.chargeback.shortfall.covered');
+    expect(formatAmount(moved)).toBe('40');
+    expect(before - amt(await proceedsOf(merchantId)) <= amt('40')).toBe(true);
+    expect((await store.get(disputeId))?.status).toBe('lost');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a lost delivery with no amount finalises the booked opening without a conflict', async () => {
+    const { merchantId, payment } = await settled();
+    const disputeId = 'dp-lost-no-amount';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-noamt-open', '40');
+    expect(await proceedsOf(merchantId)).toBe('60');
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-noamt-lost');
+    expect(lost.applied).toBe(true);
+    expect((await store.get(disputeId))?.status).toBe('lost');
+    const audit = await listControlAudit(sql, { limit: 10, merchantId, kind: 'pay.dispute_outcome_conflict' });
+    expect(audit.entries).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('records the opening when the shortfall post is refused for funds', async () => {
+    const { merchantId, payment } = await settled();
+    await ledger.post({
+      idempotencyKey: `test.drain:${payment.id}`,
+      module: 'pay',
+      reason: 'test.proceeds.spent',
+      entries: [
+        { account: merchantProceeds(merchantId, 'USDT'), direction: 'credit', amount: amt('70') },
+        { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('70') },
+      ],
+    });
+    await ledger.post({
+      idempotencyKey: `test.insurance:${payment.id}`,
+      module: 'pay',
+      reason: 'test.insurance.funded',
+      entries: [
+        { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('70') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('70') },
+      ],
+    });
+    const realPost = ledger.post.bind(ledger);
+    let refused = false;
+    ledger.post = async (request: PostRequest) => {
+      if (request.reason === 'pay.chargeback.shortfall.covered' && !refused) {
+        refused = true;
+        throw new InsufficientFundsError('house:insurance-fund', 'USDT', '70', '0');
+      }
+      return realPost(request);
+    };
+    const disputeId = 'dp-opening-kept';
+    const opened = await deliver(payment, 'dispute.opened', disputeId, 'evt-kept-open', '100');
+    expect(opened.applied).toBe(true);
+    const opening = ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened');
+    expect(opening).toHaveLength(1);
+    const row = await store.get(disputeId);
+    expect(row?.ledgerTxId).toBe(opening[0]!.id);
+    expect(row?.ledgerRefuse?.message ?? '').not.toContain('No opening');
+    const disputed = await sql<Array<{ payload: { ledgerTxId?: string | null } }>>`
+      SELECT payload FROM pay.payment_events
+       WHERE payment_id = ${payment.id} AND event = 'disputed'`;
+    expect(disputed[0]?.payload.ledgerTxId).toBe(opening[0]!.id);
+    const effects = await sql<Array<{ payload: { openingTxId?: string | null } }>>`
+      SELECT payload FROM pay.payment_events
+       WHERE payment_id = ${payment.id}
+         AND event = 'chargeback.ledger_effect'
+         AND payload->>'disputeId' = ${disputeId}`;
+    expect(effects).toHaveLength(1);
+    expect(effects[0]?.payload.openingTxId).toBe(opening[0]!.id);
+    ledger.post = realPost;
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-kept-lost', '100');
+    expect(lost.applied).toBe(true);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect((await store.get(disputeId))?.status).toBe('lost');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 });
