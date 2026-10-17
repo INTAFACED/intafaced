@@ -179,10 +179,17 @@ test.describe('Options', () => {
       .click();
     const result = page.getByRole('region', { name: 'Cancel all: result' });
     await expect(result.getByText('1 of 4 cancelled.')).toBeVisible();
+    await expect(result.getByText(/1 refused/)).toBeVisible();
     await expect(result.getByText(/1 unconfirmed/)).toBeVisible();
     await expect(result.getByText(/1 not sent/)).toBeVisible();
+    await expect(result.getByText(/still to go/)).toHaveCount(0);
     await expect(result.getByText('Unconfirmed: the order may still be live. Check Open orders.')).toBeVisible();
+    // The lost-answer order (price 510.0) is still a row in Open orders: nothing hid it.
+    const openOrders = page.getByRole('region', { name: 'Open orders' });
+    await expect(openOrders.getByRole('row').filter({ hasText: '510.0' })).toHaveCount(1);
     await shot(page, 'options-04d-cancel-all-mixed', { only: [1440, 900] });
+    await shot(page, 'options-04d-cancel-all-mixed-narrow', { only: [390, 844] });
+    await clean(page, mock);
   });
 
   test('ticket: a live contract is disabled with its reason', async ({ page }) => {

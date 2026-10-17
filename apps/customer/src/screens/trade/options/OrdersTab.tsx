@@ -25,7 +25,7 @@ import { asOfOf, useNow } from '../rooms/read';
 import { roomWords } from '../rooms/refusals';
 import { BLOCK_WORDS, type RoomWriter } from '../rooms/write';
 import { useDeskApi, useRefreshPrivate } from '../desk/data';
-import { CANCEL_BUCKET_ORDER, cancelCounts, type CancelBucket, type CancelRow } from './cancelAll';
+import { CANCEL_BUCKET_ORDER, bucketOf, cancelCounts, type CancelBucket, type CancelRow } from './cancelAll';
 import { optionsCopy } from './copy';
 import { RefusedRegion } from './shared';
 
@@ -85,7 +85,7 @@ export function OrdersTab({
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
-  const [batch, setBatch] = useState<{ total: number; rows: CancelRow[] } | null>(null);
+  const [batch, setBatch] = useState<{ total: number; rows: CancelRow[]; running: boolean } | null>(null);
 
   const note = (id: string, text: string) => setRowNote((prev) => ({ ...prev, [id]: text }));
 
@@ -102,23 +102,31 @@ export function OrdersTab({
     if (open.status !== 'ready') return;
     const targets = [...open.data];
     const rows: CancelRow[] = [];
-    setBatch({ total: targets.length, rows });
+    setBatch({ total: targets.length, rows, running: true });
     const record = (order: Order, bucket: CancelBucket, text: string) => {
       note(order.id, text);
       rows.push({ id: order.id, symbol: order.symbol, bucket, text });
-      setBatch({ total: targets.length, rows: [...rows] });
+      setBatch({ total: targets.length, rows: [...rows], running: true });
     };
-    for (const order of targets) {
-      const outcome = await writer.run({ kind: 'cancel', id: order.id, symbol: order.symbol, call: () => api.cancel(order) });
-      if (outcome.kind === 'done') record(order, 'cancelled', t('Cancelled row'));
-      else if (outcome.kind === 'refused') record(order, 'refused', outcome.words.body);
-      else if (outcome.kind === 'blocked') {
-        record(order, 'notSent', BLOCK_WORDS[outcome.reason]);
-        break;
-      } else {
-        if (outcome.kind === 'uncertain') record(order, 'unconfirmed', t('Cancel unconfirmed row'));
-        break;
+    try {
+      for (const order of targets) {
+        const outcome = await writer.run({ kind: 'cancel', id: order.id, symbol: order.symbol, call: () => api.cancel(order) });
+        const { bucket, stop } = bucketOf(outcome);
+        if (bucket) {
+          const text =
+            outcome.kind === 'done'
+              ? t('Cancelled row')
+              : outcome.kind === 'refused'
+                ? outcome.words.body
+                : outcome.kind === 'blocked'
+                  ? BLOCK_WORDS[outcome.reason]
+                  : t('Cancel unconfirmed row');
+          record(order, bucket, text);
+        }
+        if (stop) break;
       }
+    } finally {
+      setBatch({ total: targets.length, rows: [...rows], running: false });
     }
     refresh();
   }
@@ -224,7 +232,7 @@ export function OrdersTab({
           <h3 className="m-0 text-base font-medium text-fg">{t('Cancel all result title')}</h3>
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-sm text-fg">
             {CANCEL_BUCKET_ORDER.map((bucket) => {
-              const counts = cancelCounts(batch.rows, batch.total);
+              const counts = cancelCounts(batch.rows, batch.total, { running: batch.running });
               if (bucket !== 'cancelled' && counts[bucket] === 0) return null;
               return (
                 <li key={bucket}>
@@ -235,6 +243,11 @@ export function OrdersTab({
                 </li>
               );
             })}
+            {batch.running ? (
+              <li>
+                {t('Cancel all summary pending', { count: String(cancelCounts(batch.rows, batch.total, { running: true }).pending) })}
+              </li>
+            ) : null}
           </ul>
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-fg-2">
             {batch.rows.map((r) => (

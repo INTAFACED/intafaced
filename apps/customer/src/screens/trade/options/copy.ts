@@ -220,9 +220,10 @@ const messages = {
   'Cancel all summary cancelled': '{count} of {total} cancelled.',
   'Cancel all summary refused': '{count} refused by the service (reason shown on each row).',
   'Cancel all summary unconfirmed':
-    '{count} unconfirmed: no answer came back, so the order may still be live. Check Open orders; the service will reconcile it.',
+    '{count} unconfirmed: no answer came back, so the order may still be live. Use Check status on the order in Open orders before sending anything again.',
   'Cancel all summary notSent':
     '{count} not sent: the run stopped early, so these were never sent. Cancel them again once the blocker clears.',
+  'Cancel all summary pending': 'Cancelling: {count} still to go.',
   'Cancel unconfirmed row': 'Unconfirmed: the order may still be live. Check Open orders.',
   'Cancel blocked': 'Another request is in progress. Try again after it finishes.',
   'Checked order': 'Checked with the service: the order is {status}.',
