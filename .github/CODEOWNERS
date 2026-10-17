@@ -12,9 +12,8 @@
 # they accept, not before. Verify with:
 #   gh api /repos/Phantom-X-007/intafaced/codeowners/errors
 #
-# Requiring code-owner approval to merge needs GitHub Pro on a private repo
-# (CONTRIBUTING.md §1). Until then this file requests reviews; it does not
-# enforce them.
+# This file requests reviews; it does not enforce them. Merging follows
+# AGENTS.md ("Check, then merge"), not code-owner approval.
 
 *                                    @Phantom-X-007 @ZenYoda3
 
@@ -34,11 +33,8 @@
 # ── Jurisdiction and custody. Legal surface, not just code. ──────────────────
 /packages/config/src/jurisdiction.ts @Phantom-X-007 @ZenYoda3
 
-# ── Shehzad — Protocol Plane + INTACHAIN only (2026-08-04 reclaim) ───────────
-# Law: docs/GITHUB-OWNERSHIP-SHEHZAD.md · docs/THREE-WAY-DISTRIBUTION-2026-08-04.md
-# · docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md
-# Pay/bank reclaimed for Nitro agents (Class M). Agents must not implement
-# protocol/chain paths while shehzad002 owns tracker rows.
+# ── Protocol Plane + INTACHAIN: @shehzad002 is asked to review ───────────────
+# A review request is not an ownership claim. The rules in AGENTS.md apply.
 /services/svc-protocol/              @shehzad002 @Phantom-X-007 @ZenYoda3
 /services/svc-dex/                   @shehzad002 @Phantom-X-007 @ZenYoda3
 #
