@@ -109,6 +109,7 @@ describe('futures conditional orders', () => {
     placed = [];
     orders = createConditionalOrderService({
       sql,
+      triggerScheduled: true,
       publishedMark: async () => mark,
       closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
       placeLimit: async (input) => {
@@ -329,6 +330,7 @@ describe('futures conditional orders', () => {
 
     const refusing = createConditionalOrderService({
       sql,
+      triggerScheduled: true,
       publishedMark: async () => mark,
       closeQuantity: async () => {
         throw new Error('stop-limit must not close at the mark');
@@ -355,6 +357,7 @@ describe('futures conditional orders', () => {
     await openAlice('open-fail');
     const failing = createConditionalOrderService({
       sql,
+      triggerScheduled: true,
       publishedMark: async () => mark,
       closeQuantity: async () => {
         throw new FuturesError('close failed', 'trade.close_refused', 400);
@@ -439,6 +442,84 @@ describe('futures conditional orders', () => {
     await positions.close(ALICE, pos.id!);
     expect((await orders.get(ALICE, swapped.takeProfit!.id)).cancelReason).toBe('position_closed');
     expect((await orders.get(ALICE, swapped.stopLoss!.id)).cancelReason).toBe('position_closed');
+  });
+
+  it('refuses to arm a conditional order or a protection leg while the trigger job is not scheduled', async () => {
+    const pos = await openAlice('open-unscheduled');
+    const unscheduled = createConditionalOrderService({
+      sql,
+      triggerScheduled: false,
+      publishedMark: async () => mark,
+      closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
+      placeLimit: async () => ({ orderId: 'unused' }),
+    });
+
+    await expect(
+      unscheduled.create(ALICE, {
+        market: 'BTC/USDT:USDT',
+        kind: 'stop_market',
+        side: 'sell',
+        quantity: '1',
+        triggerPrice: '49000',
+        clientOrderId: 'off-stop',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.conditional_trigger_off', status: 503 });
+    expect(await conditionalCount()).toBe('0');
+
+    await expect(
+      unscheduled.replaceProtection(ALICE, pos.id!, {
+        takeProfit: '51000',
+        stopLoss: '49000',
+        clientRequestId: 'off-protect',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.conditional_trigger_off', status: 503 });
+    const [none] = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM trade.futures_protection_requests`;
+    expect(none?.n).toBe('0');
+
+    const armed = await orders.replaceProtection(ALICE, pos.id!, {
+      takeProfit: '51000',
+      stopLoss: '49000',
+      clientRequestId: 'on-protect',
+    });
+    expect(armed.takeProfit?.status).toBe('armed');
+    expect(armed.stopLoss?.status).toBe('armed');
+
+    await expect(
+      unscheduled.replaceProtection(ALICE, pos.id!, {
+        takeProfit: '52000',
+        stopLoss: '48000',
+        clientRequestId: 'off-replace',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.conditional_trigger_off' });
+    expect((await orders.get(ALICE, armed.takeProfit!.id)).status).toBe('armed');
+    expect((await orders.get(ALICE, armed.stopLoss!.id)).status).toBe('armed');
+    const [stillOne] = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM trade.futures_protection_requests`;
+    expect(stillOne?.n).toBe('1');
+
+    const cleared = await unscheduled.replaceProtection(ALICE, pos.id!, { clientRequestId: 'off-clear' });
+    expect(cleared.takeProfit).toBeNull();
+    expect(cleared.stopLoss).toBeNull();
+    expect((await orders.get(ALICE, armed.takeProfit!.id)).cancelReason).toBe('replaced');
+    expect((await orders.get(ALICE, armed.stopLoss!.id)).cancelReason).toBe('replaced');
+
+    const first = await orders.create(ALICE, {
+      market: 'BTC/USDT:USDT',
+      kind: 'stop_market',
+      side: 'sell',
+      quantity: '1',
+      triggerPrice: '49000',
+      clientOrderId: 'scheduled-replay',
+    });
+    const replay = await unscheduled.create(ALICE, {
+      market: 'BTC/USDT:USDT',
+      kind: 'stop_market',
+      side: 'sell',
+      quantity: '1',
+      triggerPrice: '49000',
+      clientOrderId: 'scheduled-replay',
+    });
+    expect(replay.replay).toBe(true);
+    expect(replay.order.id).toBe(first.order.id);
   });
 
   it('refuses a resting futures order and writes no row', async () => {

@@ -59,8 +59,13 @@ export interface ProtectionInput {
   readonly clientRequestId: unknown;
 }
 
+const TRIGGER_OFF =
+  'conditional orders cannot be armed: the trigger job is off (TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED / TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS)';
+
 export interface ConditionalOrderDeps {
   readonly sql: Sql;
+  /** False when the trigger job is off or its interval is blank. Required; there is no default. */
+  readonly triggerScheduled: boolean;
   /** Published mark as a decimal string. Null skips a trigger and refuses a trail or a protection replace. */
   publishedMark(marketId: string, symbol: string): Promise<string | null>;
   closeQuantity(userId: string, positionId: string, input: { quantity: Amount; clientCloseId: string }): Promise<unknown>;
@@ -252,6 +257,10 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       return { order: present(existing), replay: true };
     }
 
+    if (!deps.triggerScheduled) {
+      throw new FuturesError(TRIGGER_OFF, 'trade.conditional_trigger_off', 503);
+    }
+
     const position = await reducingPosition(userId, parsed.market, parsed.side);
     const size = parseAmount(position.size!);
     const lot = checkCloseQuantity({
@@ -389,6 +398,10 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           );
         }
         return prior.result;
+      }
+
+      if ((takeProfit != null || stopLoss != null) && !deps.triggerScheduled) {
+        throw new FuturesError(TRIGGER_OFF, 'trade.conditional_trigger_off', 503);
       }
 
       const markRaw = await deps.publishedMark(pos.market_id, pos.symbol);

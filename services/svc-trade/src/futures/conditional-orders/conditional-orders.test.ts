@@ -11,7 +11,7 @@ import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { FuturesError } from '../position-service.js';
-import { startConditionalOrderJobs } from './job.js';
+import { conditionalTriggerScheduled, startConditionalOrderJobs } from './job.js';
 import { CONDITIONAL_ORDERS_PATH, RESTING_ORDERS_PATH, registerConditionalOrdersRest } from './rest.js';
 import { FUTURES_RESTING_UNSUPPORTED, refuseFuturesRestingLimit } from './resting.js';
 import { nextTrail, triggerCrossed, validateConditional } from './validate.js';
@@ -128,6 +128,12 @@ describe('conditional job flag', () => {
     const blank = startConditionalOrderJobs({ config: { enabled: true, intervalMs: null }, evaluate: async () => undefined });
     expect(blank.host.list()).toEqual([]);
     blank.stop();
+  });
+
+  it('conditionalTriggerScheduled is true only when the flag is on and an interval is set', () => {
+    expect(conditionalTriggerScheduled({ enabled: false, intervalMs: 5000 })).toBe(false);
+    expect(conditionalTriggerScheduled({ enabled: true, intervalMs: null })).toBe(false);
+    expect(conditionalTriggerScheduled({ enabled: true, intervalMs: 5000 })).toBe(true);
   });
 });
 

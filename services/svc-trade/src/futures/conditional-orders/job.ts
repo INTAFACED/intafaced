@@ -26,9 +26,16 @@ export interface ConditionalJobsHandle {
   stop(): void;
 }
 
+/** True only when the flag is on and an interval is set. A blank interval is no trigger. */
+export function conditionalTriggerScheduled(
+  config: ConditionalJobsConfig,
+): config is ConditionalJobsConfig & { readonly intervalMs: number } {
+  return config.enabled === true && config.intervalMs != null;
+}
+
 export function startConditionalOrderJobs(deps: ConditionalJobsDeps): ConditionalJobsHandle {
   const host = createJobHost({ onError: deps.onError });
-  if (!deps.config.enabled || deps.config.intervalMs == null) {
+  if (!conditionalTriggerScheduled(deps.config)) {
     return { host, stop: () => host.stopAll() };
   }
   host.every('futures.conditional', deps.config.intervalMs, async () => {

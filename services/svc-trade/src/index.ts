@@ -21,6 +21,7 @@ import { createTradeRouter, type TradeRouter } from './router.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
+  conditionalTriggerScheduled,
   createConditionalOrderService,
   registerConditionalOrdersRest,
   refuseFuturesRestingLimit,
@@ -396,8 +397,13 @@ const positions = new PositionService(sql, ledger, {
     }
   },
 });
+const conditionalJobsConfig = {
+  enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
+  intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
+};
 const conditionalOrders = createConditionalOrderService({
   sql,
+  triggerScheduled: conditionalTriggerScheduled(conditionalJobsConfig),
   publishedMark: async (marketId, symbol) => {
     const mark = await futuresJobs.publicMark(marketId, symbol);
     return mark?.price ?? null;
@@ -406,10 +412,7 @@ const conditionalOrders = createConditionalOrderService({
   placeLimit: refuseFuturesRestingLimit,
 });
 const conditionalJobs = startConditionalOrderJobs({
-  config: {
-    enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
-    intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
-  },
+  config: conditionalJobsConfig,
   evaluate: () => conditionalOrders.evaluate({ enabled: true }),
   onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
 });
