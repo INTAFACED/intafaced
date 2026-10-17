@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack } from './local-test-state.mjs';
+import { assertActiveLocalStack, localStackState } from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -1728,8 +1728,88 @@ const MERCHANT_MONEY = new Set([
  * because that scope is withheld from every session (the same local stand-in
  * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
+/** Same file the local stack's identity process writes. */
+export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
+  return path.join(localStackState(home, env), 'email-outbox.log');
+}
+
+/**
+ * Newest LOCAL-TEST confirm link for this address, or null.
+ * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
+ */
+export function readLatestEmailConfirmToken(text, email) {
+  const want = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  let token = null;
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
+    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
+    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
+    if (!emailMatch || !linkMatch) continue;
+    if (emailMatch[1].toLowerCase() !== want) continue;
+    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
+    if (!q?.[1]) continue;
+    try {
+      token = decodeURIComponent(q[1]);
+    } catch {
+      token = null;
+    }
+  }
+  return token;
+}
+
+/** What the merchant step does with a session and an outbox. No database write. */
+export function planEmailConfirm({ emailVerified, outboxText, email }) {
+  if (emailVerified === true) return { action: 'already-confirmed', token: null };
+  const token = typeof outboxText === 'string' ? readLatestEmailConfirmToken(outboxText, email) : null;
+  return { action: 'confirm', token };
+}
+
+/**
+ * Confirm the seeded owner's email through auth.requestEmailConfirmation and
+ * auth.confirmEmail. The link is read from the local outbox. This never writes
+ * email_verified_at itself.
+ */
+async function confirmSeededOwnerEmail(user, record, outboxPath = localEmailOutboxPath()) {
+  const me = await call(user, 'q', 'identity', 'me');
+  if (!me.ok) {
+    record('merchant', 'email confirmation', 'refused', me.refusal);
+    return;
+  }
+  if (me.data?.emailVerified === true) {
+    record('merchant', 'email confirmation', 'exists', 'already confirmed');
+    return;
+  }
+  const requested = await call(user, 'm', 'identity', 'auth.requestEmailConfirmation');
+  if (!requested.ok) {
+    record('merchant', 'email confirmation', 'refused', requested.refusal);
+    return;
+  }
+  let text = '';
+  try {
+    text = fs.readFileSync(outboxPath, 'utf8');
+  } catch {
+    record('merchant', 'email confirmation', 'refused', 'LOCAL-TEST outbox has no confirm link for this account');
+    return;
+  }
+  const plan = planEmailConfirm({ emailVerified: false, outboxText: text, email: user.account.email });
+  if (!plan.token) {
+    record('merchant', 'email confirmation', 'refused', 'LOCAL-TEST outbox has no confirm link for this account');
+    return;
+  }
+  const confirmed = await call(user, 'm', 'identity', 'auth.confirmEmail', { token: plan.token });
+  record(
+    'merchant',
+    'email confirmation',
+    confirmed.ok ? 'created' : 'refused',
+    confirmed.ok ? 'confirmed through auth.confirmEmail' : confirmed.refusal,
+  );
+}
+
 async function populateMerchantStep(ctx) {
   const { user, record, secrets, log } = ctx;
+  await confirmSeededOwnerEmail(user, record);
   const me = await call(user, 'q', 'pay', 'merchant.me');
   if (!me.ok && isPayScopeRefusal(me.refusal)) {
     record(
