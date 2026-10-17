@@ -38,6 +38,7 @@ import '../features/pay/p2p-order-copy';
 import '../features/pay/personal/p2p-depth-copy';
 import '../features/public/help-copy';
 import '../features/pay/copy';
+import '../screens/coin/copy';
 import './ui-copy';
 
 /** Words that belong to engineers, not customers. A customer-facing sentence never needs them. */
@@ -115,6 +116,7 @@ const CHECKED = new Set([
   'pay.p2p.depth',
   'public.help',
   'shared.ui',
+  'customer.coin',
 ]);
 // pay.surface also holds merchant-portal sentences that are not part of this pass: only the personal and P2P ones are pinned.
 const PAY_SURFACE_KEYS = [

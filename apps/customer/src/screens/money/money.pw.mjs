@@ -548,14 +548,23 @@ test('Money lists the named accounts only when one of them holds something (crit
 
 const ALL = '/money/activity?tab=all';
 
-test('activity opens on Trades, built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
+test('activity opens on All, with Trades one tab along', async ({ page }) => {
+  await mock(page);
+  await open(page, '/money/activity');
+  await expect(page.locator('h1')).toHaveText('Activity');
+  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['All', 'Trades', 'Orders', 'Deposits', 'Transfers']);
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  await open(page, '/money/activity?tab=nonsense');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+});
+
+test('activity Trades tab is built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
-  await open(page, '/money/activity');
+  await open(page, '/money/activity?tab=trades');
   await expect(page.locator('h1')).toHaveText('Activity');
-  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['Trades', 'Orders', 'All', 'Deposits', 'Transfers']);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
   expect(await texts(page.locator('.money-trade-tab thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
   const rows = page.locator('.money-trade-tab tbody tr');
@@ -590,7 +599,7 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
   await open(page, '/money/activity?tab=trades&asset=BTC');
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
   await expect(chip('BTC')).toHaveText('BTC');
-  await open(page, '/money/activity?asset=USDT');
+  await open(page, '/money/activity?tab=trades&asset=USDT');
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
   await open(page, '/money/activity?tab=trades&asset=ETH');
   await expect(chip('ETH')).toBeVisible();
@@ -905,7 +914,7 @@ test('activity empty: a way forward', async ({ page }) => {
 
 test('Trades with no trades says so, and Orders with no orders says so', async ({ page }) => {
   await mock(page, { rest: { 'account/trades': () => [], 'orders/open': () => [], 'orders/closed': () => [] } });
-  await open(page, '/money/activity');
+  await open(page, '/money/activity?tab=trades');
   await expect(page.locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No trades yet');
   await open(page, '/money/activity?tab=orders');
   const blocks = page.locator('[data-slot="state-block"][data-kind="empty"]');
@@ -998,7 +1007,7 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     await page.screenshot({ path: join(shots, `activity-${size.width}x${size.height}.png`) });
   }
   // The Trades and Orders tabs do not scroll sideways either.
-  for (const tab of ['/money/activity', '/money/activity?tab=orders']) {
+  for (const tab of ['/money/activity?tab=trades', '/money/activity?tab=orders']) {
     await open(page, tab);
     await expect(page.locator('.money-trade-tab table').first()).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

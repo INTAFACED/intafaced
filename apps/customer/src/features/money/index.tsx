@@ -3,41 +3,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
-import { EmptyState, Page } from '../../shared/ui';
-import { MutationDialog, Section, type ActionSpec, type BankActionContext } from './components';
+import { MutationDialog, type ActionSpec, type BankActionContext } from './components';
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { Withdrawal } from './Withdrawal';
+import { WithdrawalAddresses } from './WithdrawalAddresses';
 import { Deposit } from './Deposit';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
 
-function CustodyUnavailable({ kind }: { kind: 'Withdraw' | 'Withdrawal addresses' }) {
-  const labelKeys = {
-    Withdraw: 'custody.withdraw',
-    'Withdrawal addresses': 'custody.addresses',
-  } as const;
-  const labelKey = labelKeys[kind];
-  const text =
-    kind === 'Withdraw'
-      ? copyText('index.live.custody.withdrawal.and.delivery.confirmation.are')
-      : copyText('index.live.custody.address.listing.and.address.verification');
-  return (
-    <Page eyebrow={copyText('index.money')} title={<Text k={labelKey} />}>
-      <Section title={copyText('index.is.unavailable', { value1: copyText(labelKey) })}>
-        <EmptyState title={copyText('index.custody.is.not.connected')}>{text}</EmptyState>
-        <div className="actions">
-          <a className="button button--secondary" href="/portfolio">
-            <Text k="index.back.to.holdings" />
-          </a>
-          <a className="text-link" href="/bank/ramps">
-            <Text k="index.inspect.bank.rail.capabilities" />
-          </a>
-        </div>
-      </Section>
-    </Page>
-  );
-}
 export function MoneyRoutes({ path }: { path: string }) {
   const { requestedLocale } = copy.useCopy();
   return (
@@ -144,7 +118,7 @@ function MoneyRooms({ path }: { path: string }) {
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/uc/recharge') content = <Deposit />;
-  else if (pathname === '/uc/withdraw/address') content = <CustodyUnavailable kind="Withdrawal addresses" />;
+  else if (pathname === '/uc/withdraw/address') content = <WithdrawalAddresses />;
   else if (pathname === '/uc/withdraw')
     content = (
       <Withdrawal key={`withdrawal:${context.epoch}`} context={{ current: sameReadContext }} search={new URL(context.href).search} />

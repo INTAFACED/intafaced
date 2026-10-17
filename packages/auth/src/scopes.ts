@@ -282,6 +282,25 @@ export type SessionScope = (typeof SESSION_SCOPE_LIST)[number];
 export const SESSION_SCOPES: readonly SessionScope[] = SESSION_SCOPE_LIST;
 
 /**
+ * Staff permissions a live founder session carries so the founder console can
+ * call support, notify, kill and ledger freeze as that founder.
+ *
+ * They are not in `SESSION_SCOPES`: an ordinary account must not receive them.
+ * `admin:write` and `admin:treasury` are added only after MFA. None of them may
+ * be copied onto an API key (`assertDelegatableScopes`).
+ */
+export const FOUNDER_DESK_SCOPES = ['support:ops', 'admin:read', 'admin:write', 'admin:treasury'] as const satisfies readonly Scope[];
+
+export function scopesForFounderSession(base: readonly Scope[], opts: { readonly founder: boolean; readonly mfa: boolean }): Scope[] {
+  if (!opts.founder) return [...base];
+  const grant: Scope[] = ['support:ops', 'admin:read'];
+  if (opts.mfa) grant.push('admin:write', 'admin:treasury');
+  const out = [...base];
+  for (const scope of grant) if (!out.includes(scope)) out.push(scope);
+  return out;
+}
+
+/**
  * Every scope a session does NOT get, and why.
  *
  * The type is the point. `Exclude<Scope, SessionScope>` means adding a scope to
@@ -338,10 +357,12 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
 
-  // Operator scopes. Never on a user session, whatever the account.
-  // `admin:compliance` is the sharp one: it approves KYC records, so a session
-  // carrying it could verify itself to `institutional` and walk into every
-  // custodial module in the OS.
+  // Operator scopes. Not in SESSION_SCOPES. The four founder desk scopes
+  // (`support:ops`, `admin:read`, `admin:write`, `admin:treasury`) are added
+  // only to a live founder's interactive session by `scopesForFounderSession`.
+  // `admin:compliance` never is: it approves KYC records, so a session carrying
+  // it could verify itself to `institutional` and walk into every custodial
+  // module in the OS.
   'admin:read': 'Operator scope',
   'admin:write': 'Operator scope',
   'admin:treasury': 'Operator scope, and interactive-only (§9)',
@@ -378,5 +399,9 @@ export function assertDelegatableScopes(requested: readonly string[], grantorSco
   const notHeld = requested.filter((s) => !held.has(s as Scope));
   if (notHeld.length > 0) {
     throw new Error(`Cannot grant scopes the granting session does not hold: ${notHeld.join(', ')}`);
+  }
+  const desk = requested.filter((s) => (FOUNDER_DESK_SCOPES as readonly string[]).includes(s));
+  if (desk.length > 0) {
+    throw new Error(`Founder desk scopes stay on the interactive founder session: ${desk.join(', ')}`);
   }
 }

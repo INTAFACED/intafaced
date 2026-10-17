@@ -175,9 +175,13 @@ try {
   );
 
   // The two stand-in operators (local-test-gates.mjs) get no welcome funds and are never picked as the founder.
+  // The local test founder pair is also not a customer.
   assert.equal(isSkippedAccount('local_test_operator_a'), true);
   assert.equal(isSkippedAccount('local_test_operator_b'), true);
   assert.equal(isSkippedAccount('local_test_operators_real_person'), false);
+  assert.equal(isSkippedAccount('local_test_founder_a'), true);
+  assert.equal(isSkippedAccount('local_test_founder_b'), true);
+  assert.deepEqual(pendingWelcomes({ users: [{ id: 'fa', handle: 'local_test_founder_a' }], ledgerAssets: ['USDT'], done: new Set() }), []);
   assert.equal(
     pickFounder([
       { id: 'f', handle: 'Luffy', email: 'a@b.c', createdAt: '2026-10-13 17:23:43' },
@@ -504,38 +508,63 @@ try {
   assert.equal(noMerchant.proposal, undefined);
 
   const half = enrolledLocalFounders({
-    founders: [{ key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true }],
+    founders: [
+      { key: 'a', handle: 'local_test_founder_a', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+    ],
   });
   assert.equal(half, null);
   const enrolled = enrolledLocalFounders({
     founders: [
-      { key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
-      { key: 'phantom', handle: 'local_phantom', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
-      {
-        key: 'operator',
-        handle: 'local_test_operator_a',
-        userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-        password: 'pw',
-        totpSecret: 'SECRET',
-        totpConfirmed: true,
-      },
+      { key: 'b', handle: 'local_test_founder_b', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      { key: 'a', handle: 'local_test_founder_a', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
     ],
   });
   assert.deepEqual(
     enrolled.map((f) => f.handle),
-    ['local_nitro', 'local_phantom'],
+    ['local_test_founder_a', 'local_test_founder_b'],
   );
   assert.equal(enrolledLocalFounders({ founders: [{ ...enrolled[0], totpConfirmed: false }, enrolled[1]] }), null);
+  assert.equal(
+    enrolledLocalFounders({
+      founders: [
+        ...enrolled,
+        {
+          key: 'operator',
+          handle: 'local_test_operator_a',
+          userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          password: 'pw',
+          totpSecret: 'SECRET',
+          totpConfirmed: true,
+        },
+      ],
+    }),
+    null,
+  );
+  assert.equal(
+    enrolledLocalFounders({
+      founders: [
+        { key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+        { key: 'phantom', handle: 'local_phantom', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      ],
+    }),
+    null,
+  );
 
   const sql = openKybApprovalSql(payloadHash);
   assert.ok(sql.includes(`payload_hash = '${payloadHash}'`));
   assert.ok(sql.includes("'PENDING'"));
   assert.equal(sql.includes(merchantId), false);
   assert.throws(() => openKybApprovalSql(merchantId), /not sha256/);
-  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: '/tmp/a' }), ['/tmp/a/.env.founder-secrets.local']);
-  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: 'relative' }), ['/tmp/a/.env.founder-secrets.local']);
+  assert.deepEqual(founderVaultFiles({ stateDir: '/tmp/stack-state' }), ['/tmp/stack-state/founders.json']);
+  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: '/tmp/a' }), []);
+  assert.deepEqual(founderVaultFiles({ stateDir: 'relative' }), []);
+  assert.equal(KYB_FOUNDERS_MISSING.includes('pnpm local:founder'), false);
+  assert.match(KYB_FOUNDERS_MISSING, /local_test_founder_a/);
+  assert.match(KYB_FOUNDERS_MISSING, /founders\.json/);
 
   const worldSrc = readFileSync(script, 'utf8');
+  assert.equal(worldSrc.includes('.env.founder-secrets.local'), false);
+  assert.equal(worldSrc.includes('pnpm local:founder'), false);
   const kybFn = worldSrc.slice(
     worldSrc.indexOf('async function decideKybByFounderPair'),
     worldSrc.indexOf('async function runMerchantAction'),

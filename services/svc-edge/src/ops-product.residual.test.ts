@@ -201,14 +201,22 @@ describe('U2 — compliance queue open product', () => {
         status: 'rejected',
         actor: '99999999-9999-4999-8999-999999999999',
         reason: 'identity evidence did not match',
+        approvalId: 'appr-hit-forge',
+        operationId: 'op-hit-forge',
       },
     });
 
     expect(disposition.statusCode).toBe(200);
-    expect(disposition.json()).toMatchObject({ ok: true, actor: OPERATOR });
+    expect(disposition.json()).toMatchObject({
+      ok: true,
+      actor: OPERATOR,
+      approverId: '44444444-4444-4444-8444-444444444444',
+    });
     expect(disposition.json().queue.recentAudit[0]).toMatchObject({
       itemId: 'hit-forge',
       actor: OPERATOR,
+      approverId: '44444444-4444-4444-8444-444444444444',
+      reason: 'identity evidence did not match',
     });
   });
 });

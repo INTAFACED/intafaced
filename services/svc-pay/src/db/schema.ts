@@ -479,8 +479,11 @@ export const withdrawals = pay.table(
 );
 
 /**
- * Shareable payment link (§6.1). The raw token is shown once; only the hash
- * is stored. Public resolve returns checkout intent, never merchant secrets.
+ * Shareable payment link (§6.1). The token is the public checkout credential.
+ * `token_hash` is what public resolve looks up. `checkout_token` is that same
+ * credential, stored so a merchant who can list the link can read the checkout
+ * path again. Null means the link was minted before the credential was kept.
+ * Public resolve returns checkout intent, never merchant secrets.
  */
 export const paymentLinks = pay.table(
   'payment_links',
@@ -492,6 +495,8 @@ export const paymentLinks = pay.table(
     profileId: uuid('profile_id').references(() => paymentProfiles.id),
     tokenHash: text('token_hash').notNull(),
     tokenPrefix: text('token_prefix').notNull(),
+    /** The checkout credential, when it was stored. Null on links minted before that. */
+    checkoutToken: text('checkout_token'),
     label: text('label').notNull(),
     amount: amount('amount'),
     currency: text('currency'),
@@ -518,7 +523,33 @@ export const paymentLinks = pay.table(
     expiresAt: tstz('expires_at'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('payment_links_token_hash_idx').on(t.tokenHash), index('payment_links_merchant_idx').on(t.merchantId)],
+  (t) => [
+    uniqueIndex('payment_links_token_hash_idx').on(t.tokenHash),
+    uniqueIndex('payment_links_checkout_token_uq')
+      .on(t.checkoutToken)
+      .where(sql`${t.checkoutToken} IS NOT NULL`),
+    index('payment_links_merchant_idx').on(t.merchantId),
+  ],
+);
+
+/**
+ * Idempotency-Key journal for merchant.createLink. Owner is the merchant.
+ * Same key and same body stores one link id. Same key and a different
+ * fingerprint is a conflict. A committed row always has link_id; the column
+ * is nullable only while the create transaction is still open.
+ */
+export const paymentLinkCreateIdempotency = pay.table(
+  'payment_link_create_idempotency',
+  {
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
+    linkId: uuid('link_id').references(() => paymentLinks.id),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'payment_link_create_idempotency_pkey', columns: [t.merchantId, t.idempotencyKey] })],
 );
 
 /**
@@ -965,6 +996,7 @@ export const schema = {
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,
+  paymentLinkCreateIdempotency,
   checkoutSessions,
   payments,
   paymentEvents,

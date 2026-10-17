@@ -96,6 +96,8 @@ const migrations = [
   // dispute.opened records a rail due date. Evidence metadata is the parent of the byte table.
   '0065_pay_merchant_dispute_responses.sql',
   '0083_pay_dispute_deadlines_evidence.sql',
+  // createPaymentLink stores checkout_token and the create idempotency journal.
+  '0087_pay_payment_link_checkout.sql',
   '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
@@ -4238,6 +4240,22 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         livePay.createPaymentLink({ merchantId: m.id, label: 'Invoice', amount: amt('10'), currency: 'USDT' }),
       ).rejects.toMatchObject({ code: 'pay.kyb_required' });
       expect(await sql`SELECT id FROM pay.payment_links WHERE merchant_id = ${m.id}`).toHaveLength(0);
+    });
+
+    it('live-only createPaymentLink refuses KYB before an unset lifetime, and does not keep the key', async () => {
+      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
+      const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
+      await expect(
+        livePay.createPaymentLink({
+          merchantId: m.id,
+          label: 'Invoice',
+          amount: amt('10'),
+          currency: 'USDT',
+          idempotencyKey: 'kyb-before-ttl',
+        }),
+      ).rejects.toMatchObject({ code: 'pay.kyb_required' });
+      expect(await sql`SELECT id FROM pay.payment_links WHERE merchant_id = ${m.id}`).toHaveLength(0);
+      expect(await sql`SELECT idempotency_key FROM pay.payment_link_create_idempotency WHERE merchant_id = ${m.id}`).toHaveLength(0);
     });
 
     it('reports an unknown session token as not found rather than an empty session', async () => {

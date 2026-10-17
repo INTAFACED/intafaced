@@ -10,7 +10,7 @@ export function DisabledAction({
 }: {
   label: ReactNode;
   reason: ReactNode;
-  variant?: 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost';
 }) {
   const id = useId();
   return (

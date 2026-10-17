@@ -13,6 +13,10 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   market: 'svc-market',
   agents: 'svc-agents',
   quant: 'svc-quant',
+  token: 'svc-token',
+  protocol: 'svc-protocol',
+  indexer: 'svc-indexer',
+  dex: 'svc-dex',
   identity: null,
   pay: null,
   support: null,
@@ -95,11 +99,49 @@ describe('the desks cover what the product order asks for', () => {
   });
   it('academy: content metrics, certificates and grant audit, ambassadors', () => {
     expect(sections('academy')).toEqual(expect.arrayContaining(['catalogue', 'certificates', 'ambassadors']));
+    const ambassadors = DESKS.academy.sections.find((s) => s.id === 'ambassadors')!;
+    expect(ambassadors.disabledActions).toEqual([]);
+    expect(ambassadors.sectionAction).toBe('academy.ambassador.appoint');
+    const residencies = ambassadors.reads.find((r) => r.id === 'academy.residencies')!;
+    expect(residencies.rowAction).toBe('academy.residency');
     const unavailable = DESKS.academy.sections.flatMap((s) => s.unavailable.map((u) => u.id));
     expect(unavailable).toEqual(expect.arrayContaining(['academy.enrolments', 'academy.grant-audit']));
   });
-  it('more: agents, quant, mining, launch, market, campaigns', () => {
-    expect(sections('more')).toEqual(expect.arrayContaining(['agents', 'quant', 'mining', 'launch', 'market', 'campaigns']));
+  it('more: agents, quant, mining, launch, market, token, campaigns', () => {
+    expect(sections('more')).toEqual(expect.arrayContaining(['agents', 'quant', 'mining', 'launch', 'market', 'token', 'campaigns']));
+  });
+  it('token: proposals, burned supply and the next emission epoch, each with a plain name and the founder-session wording', () => {
+    const token = DESKS.more.sections.find((s) => s.id === 'token')!;
+    expect(token.reads.map((r) => [r.id, r.procedure])).toEqual([
+      ['token.proposals', 'listProposals'],
+      ['token.burned', 'burnedSupply'],
+      ['token.epoch', 'nextEmissionEpoch'],
+    ]);
+    // svc-token refuses a missing page size, so the list asks for one explicitly.
+    expect(token.reads[0]!.input).toEqual({ limit: 50 });
+    for (const read of token.reads) {
+      expect(read.module).toBe('token');
+      expect(read.plainName, read.id).toBeTruthy();
+      expect(read.forbiddenText, read.id).toMatch(/^Your console session does not have .* permission yet/);
+    }
+    expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
+  });
+  it('protocol: chain, audit, indexer finality, DEX health and the blockers panel, read-only and never INTACHAIN or audited', () => {
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers']);
+    expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
+      'protocol.chainStatus',
+      'protocol.auditStatus',
+      'indexer.status',
+      'dex.health',
+      'protocol.health',
+    ]);
+    for (const read of allReads(DESKS.protocol)) expect(read.plainName, read.id).toBeTruthy();
+    expect(DESKS.protocol.sections.find((s) => s.id === 'blockers')!.panel).toBe('protocol.blockers');
+    const audit = allReads(DESKS.protocol).find((r) => r.id === 'protocol.audit')!;
+    expect(audit.columns.find((c) => c.key === 'audited')).toMatchObject({ kind: 'bool', mustBe: false });
+    // The kind of the audit package is pinned too, so the page can only ever describe the internal review.
+    expect(audit.columns.find((c) => c.key === 'kind')).toMatchObject({ mustBe: 'internal' });
+    expect(DESKS.protocol.module).toBe('protocol-ops');
   });
   it('a figure a service cannot give is never also a read: nothing is listed both ways', () => {
     for (const id of DESK_IDS) {
