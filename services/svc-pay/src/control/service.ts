@@ -19,6 +19,7 @@ import { ApprovalService } from './approvals.js';
 import { ChangeService } from './changes.js';
 import { readUsage } from './counters.js';
 import { ControlError } from './errors.js';
+import { RESERVE_NOT_ENFORCED } from './reserve.js';
 import {
   closeLimitRequest,
   listPendingLimitRequests,
@@ -119,7 +120,7 @@ export class ControlService {
       reserve:
         control.tier || control.profile?.reserveOverride !== undefined
           ? reserve
-            ? { rollingReserveBps: reserve.bps, holdDays: reserve.holdDays }
+            ? { rollingReserveBps: reserve.bps, holdDays: reserve.holdDays, enforcement: RESERVE_NOT_ENFORCED }
             : { rollingReserveBps: null, holdDays: null }
           : null,
       version: (control.profile?.version ?? 0n).toString(),

@@ -106,6 +106,13 @@ describe('payout maker-checker', () => {
         merchantId: id,
         change: { kind: 'set_tier', tierId: TEST_TIER.id, archetypeId: null },
       });
+      // TEST_TIER stores a rolling reserve. payoutSettlement refuses that until a
+      // ledger recipe exists, so these maker-checker cases clear it first.
+      await applyChange(changes, sql, {
+        scope: 'merchant',
+        merchantId: id,
+        change: { kind: 'set_reserve', reserve: { rollingReserveBps: null, holdDays: null } },
+      });
       await sql`INSERT INTO pay.merchant_payout_destinations (merchant_id, rail_id, kind, ref) VALUES (${id}, 'crypto-native', ${DEST_A.kind}, ${DEST_A.ref})`;
     }
     approvals = new ApprovalService(sql, { access: team(() => merchantId), now: () => clock });

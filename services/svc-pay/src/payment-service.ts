@@ -60,6 +60,7 @@ import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-le
 import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
 import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
+import { assertPayoutReserveWired } from './control/reserve.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
 import {
   finalizePayoutIdentity,
@@ -4431,6 +4432,10 @@ export class PayService {
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
+          // A reserve already on the merchant (tier or an override written before
+          // set_reserve refused) must not leave as the full net. No recipe can
+          // hold the reserved part, so the payout stops here: no admission, no hold.
+          await assertPayoutReserveWired(connection, settlement.merchantId);
           const adapter = this.rails.require(admission?.rail_id ?? input.railId, 'payout');
           assertRailMayMoveValue(adapter, 'payout', this.valueMovement);
           // Classified before the admission exists. An unrecognised book must

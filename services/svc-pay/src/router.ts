@@ -45,6 +45,8 @@ import {
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
 import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
+import { ControlError } from './control/errors.js';
+import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
 import type { MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
@@ -2074,6 +2076,8 @@ function toTrpcError(err: unknown): unknown {
   if (err instanceof PayGuardRefusal) {
     return new TRPCError({ code: err.kind === 'unavailable' ? 'SERVICE_UNAVAILABLE' : 'FORBIDDEN', message: err.code, cause: err });
   }
+  // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
+  if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
