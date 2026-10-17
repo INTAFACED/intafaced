@@ -46,8 +46,8 @@ async function loadDevChain() {
 }
 
 describe('suite account derivation', () => {
-  // viem's import dominates this test. Busy local runs took 4512ms and 5644ms,
-  // both past the 5000ms CI default. Budget is 5644 * 3, rounded up.
+  // viem's import dominates this test. Busy local runs took 4512ms and 5644ms.
+  // 5644ms is past the 5000ms CI default. Budget is 5644 * 3, rounded up.
   it('derives the HD seed once and returns the same account object', async () => {
     const { devAccount, suiteAccount } = await loadDevChain();
 
