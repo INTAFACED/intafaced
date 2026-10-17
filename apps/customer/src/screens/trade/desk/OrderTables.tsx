@@ -10,6 +10,8 @@ import { Button, fmtAmount, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusT
 import type { DeskMarket } from './market';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
+import { canEdit } from './EditOrder';
+import { orderTag } from './tif';
 
 /**
  * The order and trade tables shared by the desk's bottom strip and the Activity screen (Orders and Trades tabs), so the
@@ -20,6 +22,8 @@ import { placesOf, quotePlaces } from './text';
 export interface Precision {
   tickOf: (symbol: string) => string | undefined;
   lotOf: (symbol: string) => number;
+  /** The market's full rules, for the one thing that needs them (changing an order). */
+  marketOf: (symbol: string) => DeskMarket | undefined;
 }
 
 export function precisionOf(markets: readonly DeskMarket[], fallback?: DeskMarket): Precision {
@@ -27,6 +31,7 @@ export function precisionOf(markets: readonly DeskMarket[], fallback?: DeskMarke
   const same = (a: string, b: string) => a.replace('-', '/') === b.replace('-', '/');
   const find = (symbol: string) => markets.find((m) => same(m.symbol, symbol)) ?? fallback;
   return {
+    marketOf: find,
     tickOf: (symbol) => find(symbol)?.tickSize,
     lotOf: (symbol) => {
       const lot = find(symbol)?.lotSize;
@@ -44,6 +49,14 @@ export function Side({ side }: { side: 'buy' | 'sell' }) {
       {side === 'buy' ? t('Side buy') : t('Side sell')}
     </span>
   );
+}
+
+/** "Post only", "IOC" or "FOK" beside the order kind; a plain limit or market order carries no tag. */
+export function OrderTag({ order }: { order: Pick<Order, 'timeInForce' | 'postOnly'> }) {
+  const { t } = deskCopy.useCopy();
+  const tag = orderTag(order);
+  if (tag === null) return null;
+  return <span className="dk-tag">{tag === 'PO' ? t('Tag post only') : tag}</span>;
 }
 
 export function orderStatus(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t']) {
@@ -151,47 +164,95 @@ export function OrdersTable({
   withAction,
   precision,
   onChanged,
+  desk = false,
+  onEdit,
 }: {
   rows: Order[];
   withAction: boolean;
   precision: Precision;
   onChanged: () => void;
+  /** The desk's table: Edit beside Cancel on open orders, and Average price and Cost on past orders. Activity keeps its own columns. */
+  desk?: boolean;
+  /** Open the edit dialog for an order (the desk hosts the dialog above the table: a replacement removes the row). */
+  onEdit?: (order: Order) => void;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   return (
-    <table className="dk-table">
-      <thead>
-        <tr>
-          <th>{t('Time')}</th>
-          <th>{t('Pair')}</th>
-          <th>{t('Type')}</th>
-          <th>{t('Side')}</th>
-          <th className="dk-num">{t('Price')}</th>
-          <th className="dk-num">{t('Amount')}</th>
-          <th className="dk-num">{t('Filled')}</th>
-          <th>{withAction ? t('Action') : t('Status')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {byNewest(rows).map((order) => (
-          <tr key={order.id}>
-            <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
-            <td>{order.symbol}</td>
-            <td>{order.type === 'limit' ? t('Order type limit') : order.type === 'market' ? t('Order type market') : order.type}</td>
-            <td>
-              <Side side={order.side} />
-            </td>
-            <td className="dk-num if-num">
-              {order.price === null ? t('Market price word') : fmtPrice(order.price, precision.tickOf(order.symbol))}
-            </td>
-            <td className="dk-num if-num">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
-            <td className="dk-num if-num">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
-            <td>{withAction && !isTerminalOrder(order) ? <CancelButton order={order} onDone={onChanged} /> : orderStatus(order, t)}</td>
+    <>
+      <table className="dk-table">
+        <thead>
+          <tr>
+            <th>{t('Time')}</th>
+            <th>{t('Pair')}</th>
+            <th>{t('Type')}</th>
+            <th>{t('Side')}</th>
+            <th className="dk-num">{t('Price')}</th>
+            <th className="dk-num">{t('Amount')}</th>
+            <th className="dk-num">{t('Filled')}</th>
+            {withAction || !desk ? null : (
+              <>
+                <th className="dk-num">{t('Average price')}</th>
+                <th className="dk-num">{t('Cost')}</th>
+              </>
+            )}
+            <th>{withAction ? t('Action') : t('Status')}</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {byNewest(rows).map((order) => (
+            <tr key={order.id}>
+              <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
+              <td>{order.symbol}</td>
+              <td>
+                {order.type === 'limit' ? t('Order type limit') : order.type === 'market' ? t('Order type market') : order.type}
+                <OrderTag order={order} />
+              </td>
+              <td>
+                <Side side={order.side} />
+              </td>
+              <td className="dk-num if-num">
+                {order.price === null ? t('Market price word') : fmtPrice(order.price, precision.tickOf(order.symbol))}
+              </td>
+              <td className="dk-num if-num">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
+              <td className="dk-num if-num">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
+              {withAction || !desk ? null : (
+                <>
+                  <td className="dk-num if-num">{order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}</td>
+                  <td className="dk-num if-num">
+                    {order.cost === null ? '—' : fmtAmount(order.cost, { places: quotePlaces(quoteOf(order.symbol)), fixed: true })}{' '}
+                    {order.cost === null ? null : <span className="dk-unit">{quoteOf(order.symbol)}</span>}
+                  </td>
+                </>
+              )}
+              <td>
+                {withAction && !isTerminalOrder(order) ? (
+                  <span className="dk-bt-actions">
+                    {onEdit && canEdit(order) && precision.marketOf(order.symbol) ? (
+                      <Button
+                        variant="secondary"
+                        size={28}
+                        onClick={() => onEdit?.(order)}
+                        aria-label={t('Edit order label', {
+                          side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
+                          amount: fmtAmount(order.amount, { places: 8 }),
+                          asset: baseOf(order.symbol),
+                        })}
+                      >
+                        {t('Edit order')}
+                      </Button>
+                    ) : null}
+                    <CancelButton order={order} onDone={onChanged} />
+                  </span>
+                ) : (
+                  orderStatus(order, t)
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 

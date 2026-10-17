@@ -15,6 +15,7 @@ import {
   holdFor,
   protectionPriceFor,
   requireSupportedType,
+  sellProtectionPriceFor,
 } from './risk.js';
 import { previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
@@ -60,6 +61,8 @@ export interface SpotOrderPreviewRestDeps {
    * This is a depth peek — never submit.
    */
   bestAsk?(marketId: string): Promise<Amount | null>;
+  /** Best bid for market-sell protection. Absent/null → `trade.no_reference_price`. */
+  bestBid?(marketId: string): Promise<Amount | null>;
   spotEnabled: boolean;
   futuresEnabled: boolean;
   optionsSettlementLawStamped: boolean;
@@ -308,7 +311,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         pushError(refusals, error, 'protectionPrice');
       }
     } else if (orderType === 'market' && side === 'sell') {
-      fundingPrice = 0n;
+      const bid = deps.bestBid ? await deps.bestBid(market.id) : null;
+      try {
+        protectionPrice = sellProtectionPriceFor(market, bid ?? null, deps.slippageCapBps);
+        fundingPrice = 0n;
+      } catch (error) {
+        pushError(refusals, error, 'protectionPrice');
+      }
     }
 
     let holdAsset: string | null = null;

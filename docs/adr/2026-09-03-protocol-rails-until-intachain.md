@@ -70,3 +70,19 @@ At that point Nitro writes GO or NO-GO again on this ADR. Agents may raise the r
 **Venue (`socket.dex-venue-set`, issue #935):** the DEX quotes **INTAFACED's own pools on Base first**, through the indexer quote path. External Base liquidity is a later addition, not a substitute. Seed liquidity for those pools is a separate spending decision for Nitro; until then pools may run on testnet with labelled test funds.
 
 Phantom's "GO INTACHAIN P1" chat line is not a GO under this ADR (Phantom agreed, 2026-10-13).
+
+---
+
+## 2026-10-13 (later) — P1 GO: INTACHAIN is unparked for Shehzad (Nitro human decision)
+
+**This supersedes the NO-GO entry above.** Nitro lifted the three-condition re-decide trigger the same day: Shehzad may start INTACHAIN P1 whenever he chooses and is not held back on anything related to the chain. Nobody has to wait for the Protocol DEX swap proof first.
+
+**Now allowed (Shehzad):** `svc-chain`, Cosmos/CometBFT, native CLOB, INTAEVM, IFC gas/stake, INTACORE, and Predict as an INTACORE market type (`svc-predict`, the Predict app as a Protocol package). The Predict resolution ADR still decides the lifecycle before code.
+
+**Still true (honesty, not limits):** a testnet is labelled **not mainnet**; Base is never called "our chain"; `audited: false` until a paid firm; the house book (`svc-matching`) and the ledger stay Fiat-only, with no second ledger and no Predict balances through `packages/ledger-client`.
+
+**Still Nitro's, because they spend money or hold keys:** every economic number (fees, bonds, slash, Predict windows), Class X (mainnet keys, validator operators, sanctions-list content, go-live), the paid audit budget, RPC/gas float and pool seed liquidity.
+
+**Not decided here:** the banned alternatives in "Decision" item 4 (HIP-3, HyperEVM as protocol home, extra L3) stay banned until Nitro names them.
+
+**Path rule:** one PR owner per path. Nitro's lane keeps the customer shell, so Predict routes and nav are mounted by Nitro's lane from a contract Shehzad supplies.

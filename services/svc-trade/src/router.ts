@@ -15,12 +15,15 @@ import {
   publishedOpenOrdersLimit,
   type TradeService,
 } from './spot/trade-service.js';
-import { OtcError } from './otc/errors.js';
+import { otcDeskLawStatusLine, UNPUBLISHED_OTC_DESK_LAW } from './otc/desk-law.js';
+import { OTC_DESK_LAW_RESIDUAL, OtcError } from './otc/errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-routing.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
 import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_RESIDUAL } from './copy/auto-mirror-place.js';
+import { copyLawStatusLine } from './copy/fee-share-law.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './copy/errors.js';
+import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
@@ -611,10 +614,10 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
 
       deskStatus: scopedProcedure('trade:read', { module: 'trade' }).query(() => {
         if (!otc) {
-          const deskLaw = 'DIRECTION §8 RFQ spreads, staked-tier threshold, and principal-vs-maker are owner-only — refuse-closed';
+          const deskLaw = OTC_DESK_LAW_RESIDUAL;
           return {
             published: false,
-            statusLine: 'published=0 residual=DIRECTION_§8_refuse_closed',
+            statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
             residual: deskLaw,
             makerRouting: otcMakerRoutingStatus(),
             midFeed: otcMidFeedStatus(),
@@ -941,7 +944,7 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
             feeSharePublished: false,
             leaderShareBps: null,
             jurisdictionPublished: false,
-            statusLine: 'feeShare=0 residual=D26-P0-02_leader_share_bps jurisdiction=0 residual=D26-P0-15_jurisdiction',
+            statusLine: copyLawStatusLine({ published: false }, { published: false }),
             residual: COPY_LAW_RESIDUAL,
             residuals: {
               rates: COPY_FEE_SHARE_RESIDUAL,
@@ -976,11 +979,8 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
-              throw new CopyError(
-                'Copy is refuse-closed until owner publishes DIRECTION §8 / D26-P0-15 served-jurisdiction list',
-                'trade.copy_jurisdiction_blank',
-                COPY_JURISDICTION_RESIDUAL,
-              );
+              logRefusalSpec('trade.copy_jurisdiction_blank');
+              throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
             return copy.follow(ctx.principal, input);
           }),
@@ -1183,11 +1183,8 @@ export function createTradeRouter(trade: TradeService, otc?: OtcDeskService, cop
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
-              throw new CopyError(
-                'Copy fee-share is refuse-closed until owner publishes DIRECTION §8 / D26-P0-02 leader_share_bps',
-                'trade.copy_fee_share_blank',
-                COPY_FEE_SHARE_RESIDUAL,
-              );
+              logRefusalSpec('trade.copy_fee_share_blank');
+              throw new CopyError(COPY_FEE_SHARE_RESIDUAL, 'trade.copy_fee_share_blank', COPY_FEE_SHARE_RESIDUAL);
             }
             return copy.settleFeeShare(ctx.principal, input);
           }),

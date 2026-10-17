@@ -29,6 +29,11 @@ export const payPaymentListInputSchema = z
     assetId: payAssetCodeSchema.optional(),
     from: payTimestampSchema.optional(),
     to: payTimestampSchema.optional(),
+    /**
+     * Payments opened through this payment link. A link that is missing or
+     * belongs to another merchant is an empty page, not an error.
+     */
+    linkId: z.string().uuid().optional(),
   })
   .strict();
 

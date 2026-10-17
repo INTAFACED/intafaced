@@ -2,6 +2,7 @@ import { useState } from 'react';
 import './buy.css';
 import { BuyCard, ORDERS_HREF } from './BuyCard';
 import { buyCopy } from './copy';
+import { YourOrders } from './YourOrders';
 import type { ScreenProps } from '../../../app/screen-types';
 
 /** `?asset=BTC` picks the coin; `?side=sell` opens on Sell. Anything else is ignored. */
@@ -34,6 +35,7 @@ export default function TradeBuyScreen({ search }: ScreenProps) {
         </header>
         <BuyCard initialAsset={asset} initialSide={initialSide} onAssetChange={undefined} onSideChange={setSide} />
       </div>
+      <YourOrders />
     </div>
   );
 }

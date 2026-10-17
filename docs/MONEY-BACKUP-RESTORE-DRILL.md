@@ -33,16 +33,16 @@ Doctrine §0.6: the only book is `packages/ledger-client` + `svc-ledger`. A dump
 
 Dump **schema `ledger` only**, including sequences. On this host the live relations were:
 
-| Relation                   | Role                                                               |
-| -------------------------- | ------------------------------------------------------------------ |
-| `ledger.assets`            | Registered assets (scale / identity of the book)                   |
-| `ledger.accounts`          | Identity + denormalised `balance` cache                            |
-| `ledger.ledger_tx`         | Hash-chained journal (`seq`, `hash`, `previous_hash`)              |
-| `ledger.ledger_entries`    | Posting lines; replay source for `reconcileBalances`               |
-| `ledger.chain_tip`         | Singleton tip (`seq` + `hash`); posting lock target                |
-| `ledger.posting_freeze`    | Durable kill-switch                                                |
-| `ledger.balance_snapshots` | Hourly anchors (`writeSnapshots`) — large; include them            |
-| `ledger.__migrations`      | Drizzle history — restore without it and the next migrate will lie |
+| Relation                   | Role                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `ledger.assets`            | Registered assets (scale / identity of the book)                                                                                 |
+| `ledger.accounts`          | Identity + denormalised `balance` cache                                                                                          |
+| `ledger.ledger_tx`         | Hash-chained journal (`seq`, `hash`, `previous_hash`)                                                                            |
+| `ledger.ledger_entries`    | Posting lines; replay source for `reconcileBalances`                                                                             |
+| `ledger.chain_tip`         | Singleton tip (`seq` + `hash`); posting lock target                                                                              |
+| `ledger.posting_freeze`    | Durable kill-switch                                                                                                              |
+| `ledger.balance_snapshots` | Hourly anchors (`runSnapshotReconciliation`) — large; include them. `ledger.reconcile_runs` is the proof history; include it too |
+| `ledger.__migrations`      | Drizzle history — restore without it and the next migrate will lie                                                               |
 
 **Do not dump** `pgdata` volume files as the restore path. The exercised path is `pg_dump` / `pg_restore`.
 

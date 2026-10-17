@@ -417,6 +417,28 @@ export type BankErrorCode =
   | 'bank.business_list_limit_unset'
   /** business.pending page size unpublished. Blank is not 50 — never dump every pending approval. */
   | 'bank.business_pending_list_limit_unset'
+  /** business.approvals page size unpublished. Blank is not 50 — never dump every approval. */
+  | 'bank.business_approvals_list_limit_unset'
+  /** Identity has no directory for public handles (IDENTITY_URL unset, or the route is not published). */
+  | 'bank.business_directory_unset'
+  /** Identity did not answer the directory. Retry. */
+  | 'bank.business_directory_unavailable'
+  /** A person on the page has no public handle, so the page is not shown. */
+  | 'bank.business_directory_incomplete'
+  /** Recipient lookup budget for this caller is spent. */
+  | 'bank.business_directory_rate_limited'
+  /** The caller sent both a handle and an email, or neither. */
+  | 'bank.business_recipient_query'
+  /** Removing or demoting the only administrator. */
+  | 'bank.business_last_admin'
+  /** A close or threshold change of this kind is already waiting. */
+  | 'bank.business_change_pending'
+  /** Close while a payment is still waiting for a decision. */
+  | 'bank.business_close_blocked'
+  /** This teammate still has a payment waiting as its maker. Decide or cancel it before removal. */
+  | 'bank.business_member_has_pending'
+  /** business.approvals cursor could not be read. */
+  | 'bank.business_cursor_invalid'
   /** ramps.onramps page size unpublished. Blank is not 50 — never dump every on-ramp. */
   | 'bank.onramps_list_limit_unset'
   /** ramps.offramps page size unpublished. Blank is not 50 — never dump every off-ramp. */

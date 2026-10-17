@@ -1,4 +1,4 @@
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import {
   LedgerError,
   type AccountRef,
@@ -15,12 +15,20 @@ import {
   readFreeze,
   unpublishedFreezeOutbox,
   writeFreeze,
-  writeFreezeInTransaction,
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
-import { runReconciliation, type ReconciliationReport } from './ledger/reconcile.js';
+import {
+  readLastVerified,
+  countConsecutiveIncompleteRuns,
+  runSnapshotReconciliation,
+  type LastVerified,
+  type ReconciliationReport,
+  type ScheduledReconcileLedger,
+} from './ledger/reconcile.js';
+import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './ledger/reconcile-config.js';
+import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick.js';
 import { withMoneySpan, withSpan } from './tracing.js';
 
 /**
@@ -34,14 +42,15 @@ import { withMoneySpan, withSpan } from './tracing.js';
  * would be right until the moment a second replica moved the switch, which is
  * exactly the moment it matters.
  */
-export class LedgerService implements LedgerClient {
+export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
   private readonly bootPostingEnabled: boolean;
+  private readonly reconcileStatementTimeoutMs: number;
 
   constructor(
     private readonly sql: Sql,
     private readonly bus: EventBus,
-    options: { postingEnabled?: boolean } & IdempotencyConflictOptions = {},
+    options: { postingEnabled?: boolean; reconcileStatementTimeoutMs?: number } & IdempotencyConflictOptions = {},
   ) {
     this.engine = new PostgresLedger(sql, {
       ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
@@ -52,6 +61,7 @@ export class LedgerService implements LedgerClient {
           console.warn(JSON.stringify({ level: 'warn', service: 'svc-ledger', event: 'ledger.idempotency_mismatch', ...info }))),
     });
     this.bootPostingEnabled = options.postingEnabled ?? true;
+    this.reconcileStatementTimeoutMs = options.reconcileStatementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS;
   }
 
   async post(request: PostRequest): Promise<LedgerTx> {
@@ -271,12 +281,20 @@ export class LedgerService implements LedgerClient {
   }
 
   /**
-   * Run reconciliation. On failure the ledger freezes itself. A balance drift
-   * also pages — §4.2: "mismatch = page the operator, freeze the module that
-   * diverged". A chain break or an unbalanced asset is not that page: freeze,
-   * and do not describe a zero drift on an account that does not exist.
-   * Freezing is automatic because a book we cannot verify must not accept more
-   * writes while someone decides what to do about it.
+   * Run reconciliation. A completed mismatch freezes the ledger. A balance
+   * drift also pages — §4.2: "mismatch = page the operator, freeze the
+   * module that diverged". A chain break or an unbalanced asset is not that
+   * page: freeze, and do not describe a zero drift on an account that does not
+   * exist. An error that has not proved the book wrong does not freeze here.
+   *
+   * Same proof as the scheduled job: one REPEATABLE READ snapshot on its own
+   * connection, no `chain_tip` lock, per-run `statement_timeout`. Live posts
+   * therefore neither wait for it nor make it report a false `ok: false`.
+   *
+   * Anything other than a completed mismatch is incomplete. This call throws
+   * `ledger.reconcile_incomplete` and freezes nothing. The scheduled tick, not
+   * this call, freezes after N consecutive incomplete runs (`reconcile_unproven`),
+   * using the larger of this process's count and the durable streak.
    *
    * The freeze is written BEFORE the page, and awaited. If the bus is down,
    * a real drift's alarm fails to send and this throws — with the book already
@@ -285,50 +303,74 @@ export class LedgerService implements LedgerClient {
    */
   async reconcile(): Promise<ReconciliationReport> {
     return withSpan('ledger.reconcile', async () => {
-      const report = await runReconciliation(this.sql);
+      const run = await runSnapshotReconciliation(this.sql, { statementTimeoutMs: this.reconcileStatementTimeoutMs });
 
-      if (!report.ok) {
-        // Prefer a freeze under actor `reconciliation`. If an operator already
-        // halted the book, writeFreeze refuses the overwrite (STOP §4.2b #3) —
-        // catch that only and leave their reason standing. Any other freeze
-        // error must surface (raced / uninitialised). The freeze is already
-        // durable before a page is attempted.
-        try {
-          await this.freeze('reconciliation mismatch', 'reconciliation');
-        } catch (err) {
-          if (!(err instanceof LedgerError && err.code === 'ledger.freeze_attributed')) throw err;
-        }
-
-        await this.publishReconciliationDrift(report);
+      if (run.outcome === 'skipped') {
+        throw new LedgerError('a reconciliation is already running — try again when it has finished', 'ledger.reconcile_in_progress');
       }
-
-      return report;
+      if (run.outcome === 'incomplete') {
+        throw new LedgerError(
+          `reconciliation could not finish (${run.errorCode}) — the book was NOT frozen and is NOT verified; see INCIDENT-MONEY-PATH-RUNBOOK "reconcile incomplete"`,
+          'ledger.reconcile_incomplete',
+        );
+      }
+      if (run.outcome === 'mismatch') await this.handleReconciliationMismatch(run.report);
+      return run.report;
     });
   }
 
-  /** Scheduled proof owns this existing transaction; no pool query or BEGIN. */
-  async reconcileInTransaction(tx: TransactionSql): Promise<ReconciliationReport> {
-    return withSpan('ledger.reconcile', async () => {
-      const report = await runReconciliation(tx);
-      if (!report.ok) await this.haltReconciliationInTransaction(tx);
-      return report;
-    });
-  }
-
-  /** Both the switch and its intent commit before the posting lock is released. */
-  async haltReconciliationInTransaction(tx: TransactionSql): Promise<void> {
+  /**
+   * A completed failed proof already committed its halt with the mismatch run.
+   * Retry that freeze for the fallback where recording failed, publish the
+   * committed freeze intent, then emit the drift event.
+   *
+   * Prefer a freeze under actor `reconciliation`. If an operator already halted
+   * the book, writeFreeze refuses the overwrite (STOP §4.2b #3) — catch that
+   * only and leave their reason standing. Any other freeze error must surface
+   * (raced / uninitialised). The freeze is already durable before a page is
+   * attempted.
+   */
+  async handleReconciliationMismatch(report: ReconciliationReport): Promise<void> {
     try {
-      await writeFreezeInTransaction(tx, { frozen: true, reason: 'reconciliation mismatch', actor: 'reconciliation' });
-    } catch (error) {
-      if (!(error instanceof LedgerError && error.code === 'ledger.freeze_attributed')) throw error;
+      await this.freeze(RECONCILE_MISMATCH_REASON, RECONCILE_ACTOR);
+    } catch (err) {
+      if (!(err instanceof LedgerError && err.code === 'ledger.freeze_attributed')) throw err;
     }
+    await this.publishReconciliationDrift(report);
   }
 
-  /** Called only after the scheduled transaction committed, including proof throws. */
-  async publishReconciliationResult(report?: ReconciliationReport): Promise<void> {
-    if (report?.ok) return;
-    await this.publishUnpublishedFreezeOutbox();
-    if (report) await this.publishReconciliationDrift(report);
+  /**
+   * Announce one incomplete run. The scheduled tick calls this on every
+   * unfinished proof, including a TLS failure, a code-less error, and the run
+   * that then freezes for `reconcile_unproven`. No subscriber is wired; the
+   * event is the record.
+   */
+  async alertReconciliationIncomplete(alert: ReconcileIncompleteAlert): Promise<void> {
+    await this.bus.publish(
+      'ledgerReconciliationRunFailed',
+      {
+        errorCode: alert.errorCode,
+        phase: alert.phase,
+        consecutiveIncomplete: alert.consecutiveIncomplete,
+        runId: alert.runId,
+      },
+      {
+        idempotencyKey: `ledger.reconcile.incomplete:${alert.phase}:${alert.runId ?? 'unrecorded'}:${alert.consecutiveIncomplete}:${alert.errorCode}`,
+      },
+    );
+  }
+
+  /** When the book was last proved consistent. Backs `/health`, staleness reporting and the metric. */
+  lastVerified(): Promise<LastVerified> {
+    return readLastVerified(this.sql);
+  }
+
+  /**
+   * Incomplete runs after the latest ok or mismatch. Survives a process restart.
+   * An operator thaw does not write ok or mismatch, so it does not reset this.
+   */
+  consecutiveIncompleteRuns(): Promise<number> {
+    return countConsecutiveIncompleteRuns(this.sql);
   }
 
   private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {

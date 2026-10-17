@@ -24,8 +24,7 @@
     "@intafaced/exchange-contract": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/market-data": "workspace:*",
-    "@intafaced/venue-contracts": "workspace:*",
-    "zod": "^3.24.1"
+    "@intafaced/venue-contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
