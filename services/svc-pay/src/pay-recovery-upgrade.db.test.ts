@@ -12,7 +12,11 @@ const oldNames = readdirSync(dir)
   .sort();
 async function migrate(url: string, down = false) {
   return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    const child = spawn('pnpm', ['exec', 'tsx', 'scripts/migrate.ts', ...(down ? ['--down'] : [])], {
+    // One Node process per run. `pnpm exec tsx` boots three (pnpm, the tsx CLI,
+    // then the node it re-spawns), and three runs of that start-up cost (not the
+    // migrations, which take ~50 ms) were what pushed this test toward its
+    // timeout on a loaded CI runner. Same script, same flags, same DATABASE_URL.
+    const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/migrate.ts', ...(down ? ['--down'] : [])], {
       cwd: join(here, '..'),
       env: { ...process.env, DATABASE_URL: url },
       stdio: ['ignore', 'pipe', 'pipe'],

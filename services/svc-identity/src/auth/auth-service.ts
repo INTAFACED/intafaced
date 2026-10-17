@@ -99,7 +99,12 @@ export class AuthError extends Error {
       | 'auth.invite_invalid'
       | 'auth.invite_used'
       | 'auth.invite_expired'
-      | 'auth.founder_enrolment_closed',
+      | 'auth.founder_enrolment_closed'
+      | 'auth.request_unsigned'
+      | 'auth.request_stale'
+      | 'auth.request_tampered'
+      | 'auth.request_replay'
+      | 'auth.ip_allowlist_required',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -1122,7 +1127,17 @@ export class AuthService {
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
-  ): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    userId: string;
+    keyId: string;
+    scopes: string[];
+    mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
+  }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {

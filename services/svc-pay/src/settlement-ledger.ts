@@ -5,7 +5,7 @@ export type SettlementDestinationKind = 'bank' | 'crypto';
 export interface SettlementLedgerInput {
   settlementId: string;
   payoutAttempt: number;
-  merchantUserId: string;
+  merchantId: string;
   assetId: string;
   amount: Amount;
   railId: string;
@@ -21,14 +21,13 @@ export interface SettlementLedgerPlan {
 }
 
 /**
- * Builds the complete ledger side of a bank-or-crypto settlement payout.
+ * Builds the ledger side of a bank-or-crypto settlement payout.
  *
- * Both destinations have the same balance movement: merchant available → a
- * purpose-keyed hold → the selected rail boundary, or back to available if the
- * rail refuses. The rail adapter owns the bank/chain difference. Splitting that
- * movement into bank-specific and crypto-specific ledger entries would create
- * two books for one invariant, so this function may only compose the existing
- * ledger-client withdrawal recipes.
+ * Both destinations have the same balance movement: merchant proceeds → a
+ * purpose-keyed hold on that same owner → the selected rail boundary, or back
+ * to proceeds if the rail refuses. The rail adapter owns the bank/chain
+ * difference. This function composes the proceeds payout trio, not the
+ * personal `withdrawHold` recipes (those debit `userAvailable`).
  */
 export function settlementLedgerPlan(input: SettlementLedgerInput): SettlementLedgerPlan {
   if (input.destinationKind !== 'bank' && input.destinationKind !== 'crypto') {
@@ -36,8 +35,8 @@ export function settlementLedgerPlan(input: SettlementLedgerInput): SettlementLe
   }
 
   const withdrawalId = `${input.settlementId}:${input.payoutAttempt}`;
-  const withdrawal = {
-    userId: input.merchantUserId,
+  const payout = {
+    merchantId: input.merchantId,
     assetId: input.assetId,
     amount: input.amount,
     rail: input.railId,
@@ -47,8 +46,8 @@ export function settlementLedgerPlan(input: SettlementLedgerInput): SettlementLe
   return {
     withdrawalId,
     destinationKind: input.destinationKind,
-    hold: recipes.withdrawHold(withdrawal),
-    settle: recipes.withdrawSettle(withdrawal),
-    reverse: recipes.withdrawReverse(withdrawal),
+    hold: recipes.merchantProceedsPayoutHold(payout),
+    settle: recipes.merchantProceedsPayoutSettle(payout),
+    reverse: recipes.merchantProceedsPayoutReverse(payout),
   };
 }

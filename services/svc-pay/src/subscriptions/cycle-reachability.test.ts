@@ -312,7 +312,7 @@ describe('the subscription cycle surface is mounted and reachable', () => {
       signedHeaders(principal({ sub: STRANGER, userId: STRANGER })),
     );
 
-    expect(statusCode).toBe(403);
+    expect(statusCode).toBe(404);
     expect(pauseSubscription).not.toHaveBeenCalled();
     await app.close();
   });

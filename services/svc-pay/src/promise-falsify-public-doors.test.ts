@@ -181,7 +181,7 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
     getCheckoutSession: async () => {
       throw new PayError('checkout not exercised in this test', 'pay.checkout_session_not_found');
     },
-    listSettlements: async () => [],
+    listSettlements: async () => ({ items: [], nextCursor: null }),
     releasePendingSettlement: async () => {
       throw new PayError('not pending', 'pay.settlement_not_pending');
     },
@@ -367,7 +367,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
       signedHeaders(principal({ sub: STRANGER, userId: STRANGER })),
     );
 
-    expect(statusCode).toBe(403);
+    expect(statusCode).toBe(404);
     expect(settleWindow).not.toHaveBeenCalled();
     await app.close();
   });

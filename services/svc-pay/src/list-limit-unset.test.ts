@@ -237,7 +237,7 @@ describe('svc-pay list/history limit unset refuse', () => {
     const listLinksStart = pay.indexOf('async listPaymentLinks(');
     const listLinks = pay.slice(listLinksStart, pay.indexOf('async deactivatePaymentLink(', listLinksStart));
     expect(listLinks).toContain('assertPaymentLinkListLimit');
-    expect(listLinks).toContain('LIMIT ${page}');
+    expect(listLinks).toContain('LIMIT ${page + 1}');
     expect(listLinks).not.toMatch(/\?\? 50/);
     const listSetStart = pay.indexOf('async listSettlements(');
     const listSet = pay.slice(listSetStart, pay.indexOf('async getPayment(', listSetStart));
@@ -318,7 +318,7 @@ describe('svc-pay list/history limit unset refuse', () => {
   it('routers do not invent 50/100 when list/history omits limit', () => {
     const router = readFileSync(join(ROOT, 'services/svc-pay/src/router.ts'), 'utf8');
     const listLinksProc = router.slice(router.indexOf('listLinks: scopedProcedure'), router.indexOf('deactivateLink:'));
-    expect(listLinksProc).toContain('listPaymentLinks(input.merchantId, input.limit)');
+    expect(listLinksProc).toContain('listPaymentLinks(input.merchantId, input)');
     expect(listLinksProc).not.toMatch(/\?\? 50/);
     const payHist = router.slice(router.indexOf('history: scopedProcedure'), router.indexOf('settlement: router'));
     expect(payHist).toContain('pay.history(input.paymentId, input.limit)');
@@ -351,7 +351,7 @@ describe('svc-pay list/history limit unset refuse', () => {
 
     const rest = readFileSync(join(ROOT, 'services/svc-pay/src/public-rest.ts'), 'utf8');
     expect(rest).not.toMatch(/DEFAULT_LIMIT/);
-    expect(rest).toContain('listPaymentLinks(req.query.merchantId, req.query.limit)');
+    expect(rest).toContain('listPaymentLinks(req.query.merchantId, {');
     expect(rest).not.toMatch(/listPaymentLinks\(req\.query\.merchantId\)/);
     const payList = rest.slice(rest.indexOf('`${BASE}/payments`'), rest.indexOf('`${BASE}/balances`'));
     expect(payList).toContain('limit: req.query.limit');
