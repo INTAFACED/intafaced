@@ -39,7 +39,7 @@ import {
   type DraftValues,
 } from '@/lib/crm-drafts';
 import { enquiryIdFromSearch, signInHref } from '@/lib/crm-return';
-import { CRM_NOT_CONFIGURED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from '@/lib/crm-refusal';
+import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from '@/lib/crm-refusal';
 import type {
   CrmActivity,
   CrmContact,
@@ -297,6 +297,7 @@ async function readJson<T>(path: string, options?: RequestInit): Promise<T> {
     const kind = crmRefusalKind(response.status, crmUpstreamCode(await response.json().catch(() => null)));
     if (kind === 'unconfigured') throw new CrmRequestError(CRM_NOT_CONFIGURED_TEXT, kind);
     if (kind === 'session') throw new CrmRequestError('Your founder session is unavailable. Sign in again.', kind);
+    if (kind === 'refused') throw new CrmRequestError(CRM_REFUSED_TEXT, kind);
     if (kind === 'conflict')
       throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', kind);
     throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', kind);
@@ -1155,7 +1156,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
               <a className="adm-link" href={signInHref(detail?.opportunity.id)}>
                 Sign in
               </a>
-            ) : errorKind === 'conflict' ? (
+            ) : errorKind === 'conflict' || errorKind === 'refused' ? (
               <button
                 type="button"
                 disabled={busy}
@@ -1501,7 +1502,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                                   <a className="adm-link" href={signInHref(detail.opportunity.id)}>
                                     Sign in
                                   </a>
-                                ) : detailErrorKind === 'conflict' ? (
+                                ) : detailErrorKind === 'conflict' || detailErrorKind === 'refused' ? (
                                   <button type="button" disabled={busy} onClick={() => void refresh()}>
                                     Reload this enquiry
                                   </button>

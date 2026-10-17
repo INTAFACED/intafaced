@@ -1,5 +1,5 @@
 'use client';
-import { CRM_NOT_CONFIGURED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from './crm-refusal';
+import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from './crm-refusal';
 /** Writes retain their request identity until a confirmed, validated receipt. */
 export type PendingCrmWrite = { inputKey: string; requestId: string };
 /** An input equal to this is replaced by the current time on every fetch, so "overdue" is measured when the data is read. */
@@ -24,6 +24,7 @@ export async function crmJson<T>(path: string, options?: RequestInit): Promise<T
     const kind = crmRefusalKind(response.status, crmUpstreamCode(await response.json().catch(() => null)));
     if (kind === 'unconfigured') throw new CrmBrowserError(CRM_NOT_CONFIGURED_TEXT, kind);
     if (kind === 'session') throw new CrmBrowserError('Your founder session is unavailable. Sign in again.', kind);
+    if (kind === 'refused') throw new CrmBrowserError(CRM_REFUSED_TEXT, kind);
     if (kind === 'conflict')
       throw new CrmBrowserError('The record changed or this action was refused. Refresh and review before retrying.', kind);
     throw new CrmBrowserError('We could not confirm the request. Keep your entries and retry the same action.', kind);

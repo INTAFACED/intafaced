@@ -22,7 +22,7 @@ import { fetchPayHalts, newRequestId, postHalt, type HaltReply, type HaltRequest
 import type { Part, PayHaltsRead } from '@/lib/pay-halts/types';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
-import { formatAsOf } from '@/lib/as-of';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 
 /**
  * PAYMENTS HALTS — stop an operation, or resume it with a second founder.
@@ -72,7 +72,7 @@ export function HaltStatesTable({ states }: { states: readonly PayHaltState[] })
               <td>{s.halted ? <Chip tone="danger">HALTED</Chip> : <Chip tone="live">Running</Chip>}</td>
               <td>{s.reason ?? '—'}</td>
               <td>{s.source === 'auto_trip' ? 'Automatic trip' : s.actorUserId ? shortId(s.actorUserId) : '—'}</td>
-              <td>{s.changedAt ?? 'never changed'}</td>
+              <td>{s.changedAt ? formatWhen(s.changedAt) : 'never changed'}</td>
               <td>{s.version}</td>
             </tr>
           ))}
@@ -119,7 +119,7 @@ export function PendingClearsTable({
                   {shortId(p.requestedByUserId)}
                   {mine ? ' (you)' : ''}
                 </td>
-                <td>{p.requestedAt}</td>
+                <td>{formatWhen(p.requestedAt)}</td>
                 <td>
                   {mine ? (
                     <span className="dk-muted">A different founder has to confirm</span>
@@ -157,7 +157,7 @@ export function HaltHistoryTable({ events }: { events: readonly PayHaltEvent[] }
         <tbody>
           {events.map((e, i) => (
             <tr key={`${e.changedAt}-${i}`}>
-              <td>{e.changedAt ?? '—'}</td>
+              <td>{e.changedAt ? formatWhen(e.changedAt) : '—'}</td>
               <td>{SCOPE_LABEL[e.scope]}</td>
               <td>{describeTarget(e.target)}</td>
               <td>{e.halted ? 'Halted' : 'Cleared'}</td>

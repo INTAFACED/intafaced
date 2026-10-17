@@ -4,7 +4,7 @@
  */
 
 const CODE_WORDS: Readonly<Record<string, string>> = {
-  'p2p.moderation_unprobed': 'Moderators are listed, but nobody has checked they are watching the queue',
+  'p2p.moderation_unprobed': 'Moderators are configured; the service cannot tell whether anyone is watching the queue',
   'p2p.moderation_unreachable': 'No moderators are set up',
   not_built: 'Not switched on for this deployment',
 };
@@ -17,7 +17,8 @@ const SERVICE_PREFIX =
 export function codeWords(value: string): string {
   const known = CODE_WORDS[value];
   if (known) return known;
-  if (!SERVICE_PREFIX.test(value)) return value;
+  // A hostname such as pay.intafaced.com has no underscore, a typed code does; only a code is reworded.
+  if (!SERVICE_PREFIX.test(value) || !value.includes('_')) return value;
   const last = value.slice(value.lastIndexOf('.') + 1).replace(/_/g, ' ');
   return last.charAt(0).toUpperCase() + last.slice(1);
 }

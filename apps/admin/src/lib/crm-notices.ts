@@ -12,7 +12,7 @@ export const RETENTION_BLOCKED_NOTICE = 'A retention review result is unconfirme
 /** 'stale_refused' is the stale warning for a draft whose save was just refused: it leads with "Your save was refused." */
 export type DetailNoticeKind = 'error' | 'blocked' | 'stale' | 'stale_refused' | 'notice' | 'retained';
 /** Same meaning as CrmErrorKind: session = 401/403, conflict = a real version conflict, unconfigured = CRM is not set up here, other = anything else. */
-export type DetailErrorKind = 'session' | 'conflict' | 'unconfigured' | 'other';
+export type DetailErrorKind = 'session' | 'conflict' | 'refused' | 'unconfigured' | 'other';
 export type DetailNoticeInput = {
   /** A failed save or read for this enquiry. */
   error: string;

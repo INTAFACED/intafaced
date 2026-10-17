@@ -93,9 +93,15 @@ describe('CRM refusal wording', () => {
     });
     expect(await refuse(412, { code: 'admin.upstream_refused' })).toMatchObject({ kind: 'conflict' });
   });
-  it('does not call another refusal a changed record', async () => {
-    const error = await refuse(412, { code: 'admin.upstream_refused', upstream: 'ops.crm.contact_not_found' });
-    expect(error).toMatchObject({ kind: 'other' });
-    expect((error as Error).message).not.toMatch(/changed/);
+  it('calls a definite refusal refused with nothing changed, not unconfirmed and not a changed record', async () => {
+    for (const status of [409, 412]) {
+      const error = await refuse(status, { code: 'admin.upstream_refused', upstream: 'ops.crm.opportunity_closed' });
+      expect(error).toMatchObject({ kind: 'refused' });
+      expect((error as Error).message).toBe('This action was refused and nothing was changed. Refresh and review before retrying.');
+      expect((error as Error).message).not.toMatch(/changed or|could not confirm/);
+    }
+  });
+  it('keeps "could not confirm" for a failure that may have gone through', async () => {
+    expect(await refuse(502, { code: 'admin.upstream_invalid' })).toMatchObject({ kind: 'other' });
   });
 });

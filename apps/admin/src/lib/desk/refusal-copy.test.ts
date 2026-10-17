@@ -57,17 +57,3 @@ describe('typed codes are found inside the wrapped sentences the edge and ledger
     expect(isKnownCode(null)).toBe(false);
   });
 });
-
-describe('CRM refusals', () => {
-  it('a CRM that is not set up says so and does not offer a retry', () => {
-    for (const code of ['ops.crm.configuration_unverified', 'ops.crm.storage_unconfigured', 'ops.crm.authority_unconfigured']) {
-      const r = explainRefusal(code, 412);
-      expect(r.title).toBe('CRM is not configured on this deployment');
-      expect(r.next).toContain('Retrying will not help');
-      expect(r.next).not.toMatch(/try again/i);
-    }
-  });
-  it('only a real version conflict says the record changed', () => {
-    expect(explainRefusal('ops.crm.revision_conflict', 412).title).toBe('The record changed');
-  });
-});

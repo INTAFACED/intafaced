@@ -7,7 +7,7 @@ import { fetchNotify } from '@/lib/notify/browser';
 import { channelStats, failureRows, spanOf, type DeliveriesRead, type NotifyView } from '@/lib/notify/model';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
-import { formatAsOf } from '@/lib/as-of';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { codeWords } from '@/lib/desk/words';
 
 /**
@@ -75,7 +75,7 @@ export function ChannelTable({ read }: { read: DeliveriesRead }) {
                   <td>
                     {s.acceptedPercent === null ? 'nothing settled yet' : `${s.acceptedPercent}% (${s.counts.accepted} of ${s.settled})`}
                   </td>
-                  <td>{s.oldestPendingCreatedAt ?? '—'}</td>
+                  <td>{s.oldestPendingCreatedAt ? formatWhen(s.oldestPendingCreatedAt) : '—'}</td>
                   <td>
                     {s.topRefusalCodes.length === 0 ? '—' : s.topRefusalCodes.map((c) => `${codeWords(c.code)} ×${c.count}`).join(', ')}
                   </td>
@@ -113,14 +113,14 @@ export function FailureList({ read }: { read: DeliveriesRead }) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.updatedAt}</td>
+              <td>{formatWhen(r.updatedAt)}</td>
               <td>{r.channel}</td>
               <td>
                 <Chip tone={r.status === 'refused' ? 'warn' : 'danger'}>{r.status}</Chip>
               </td>
               <td className="dk-packet">{r.refusalCode ?? '—'}</td>
               <td>{r.attempts}</td>
-              <td>{r.attemptedAt ?? 'never attempted'}</td>
+              <td>{r.attemptedAt ? formatWhen(r.attemptedAt) : 'never attempted'}</td>
               <td className="dk-packet">{shortId(r.notificationId)}</td>
             </tr>
           ))}
