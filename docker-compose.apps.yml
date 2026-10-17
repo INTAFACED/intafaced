@@ -621,6 +621,8 @@ services:
       # in .env.example; compose still has no default). This flag governs
       # orderability only.
       TRADE_FUTURES_ENABLED: ${TRADE_FUTURES_ENABLED:-false}
+      # Local TEST swap on the public board. Default OFF. Does not enable futures.
+      TRADE_FUTURES_TEST_SEED: ${TRADE_FUTURES_TEST_SEED:-false}
       # Residual jobs (liquidation scan + funding ticks). Default OFF — same
       # shape as TRADE_FUTURES_ENABLED. `${VAR:-true}` here would start funding
       # ticks on a clean clone while env.ts still read as off. Does not invent

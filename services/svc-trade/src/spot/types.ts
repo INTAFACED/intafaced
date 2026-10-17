@@ -83,6 +83,19 @@ export interface Market {
   readonly schedule: ScheduleKey;
   /** Paper / simulated market — never posts real ledger holds (academy paper drills). */
   readonly paper: boolean;
+  /** Human label. Absent on rows loaded before the column was selected. */
+  readonly displayName?: string;
+  /**
+   * Local TEST swap. Hidden from the public board unless TRADE_FUTURES_TEST_SEED
+   * is on. Never set by production config.
+   */
+  readonly test?: boolean;
+  /** Explicit seed values. Null on every production listing. */
+  readonly testFixture?: {
+    readonly leverageCap: string;
+    readonly markFeed: string;
+    readonly liquidationPolicy: string | Record<string, unknown>;
+  } | null;
   /**
    * Futures constitution style. `dated` requires expiry + owner fixing stamp.
    * Omitted / null on non-futures. kind=futures with null → perpetual (legacy rows).

@@ -84,6 +84,10 @@ export interface RungPlan {
   /** The insurance leg of the loss: re-checked before a replay that has not booked it. */
   fromInsurance: Amount;
   marginAsset: string;
+  /** The mark this rung was planned against, when the writer recorded it. */
+  markPrice?: Amount;
+  /** A liquidation fee the writer recorded. Absent means no fee was recorded. */
+  fee?: Amount;
 }
 
 export interface RungRecord {
@@ -202,6 +206,10 @@ export interface EncodedRungPlan {
   reason: string;
   fromInsurance: string;
   marginAsset: string;
+  /** Scaled integer string. Omitted when the writer did not record a mark. */
+  markPrice?: string;
+  /** Scaled integer string. Omitted when the writer did not record a fee. */
+  fee?: string;
 }
 
 export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
@@ -220,6 +228,8 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     reason: plan.reason,
     fromInsurance: plan.fromInsurance.toString(),
     marginAsset: plan.marginAsset,
+    ...(plan.markPrice != null ? { markPrice: plan.markPrice.toString() } : {}),
+    ...(plan.fee != null ? { fee: plan.fee.toString() } : {}),
   };
 }
 
@@ -238,6 +248,8 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     reason: encoded.reason,
     fromInsurance: BigInt(encoded.fromInsurance),
     marginAsset: encoded.marginAsset,
+    ...(encoded.markPrice != null ? { markPrice: BigInt(encoded.markPrice) } : {}),
+    ...(encoded.fee != null ? { fee: BigInt(encoded.fee) } : {}),
   };
 }
 

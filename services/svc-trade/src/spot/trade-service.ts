@@ -55,6 +55,7 @@ import {
   type HoldUnknownSweepResult,
 } from './hold-outcome.js';
 import { toFill, toMarket, toOrder, type FillRow, type MarketRow, type OrderRow } from './rows.js';
+import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
 import type { RankPerksSource } from './rank-perks.js';
 import { fireAffiliateAccrue, affiliateLegsAfterFill, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
@@ -196,6 +197,11 @@ export interface TradeServiceOptions {
    * enable funding, and does not pick a leverage — see `assertTradable`.
    */
   futuresEnabled?: boolean;
+  /**
+   * TRADE_FUTURES_TEST_SEED. Default false. When false, `test` listings are
+   * omitted from the public board and from symbol lookup. Does not enable futures.
+   */
+  futuresTestSeed?: boolean;
   /**
    * Opaque D26-P0-05 settlement-asset-law stamp
    * (`TRADE_OPTIONS_SETTLEMENT_ASSET_LAW`).
@@ -647,6 +653,7 @@ export class TradeService {
   private readonly marketLifecycle?: MarketLifecyclePort;
   private readonly spotEnabled: boolean;
   private readonly futuresEnabled: boolean;
+  private readonly futuresTestSeed: boolean;
   /** Opaque P0-05 ADR stamp; empty refuses options listing (SOCKET §13). */
   private readonly optionsSettlementAssetLaw: string;
   /** Opaque D7 fixing stamp; empty refuses options listing (after P0-05). */
@@ -691,6 +698,7 @@ export class TradeService {
     // `?? false`, and the asymmetry with the line above is the whole point: a
     // deploy that forgets to mention futures does not get futures.
     this.futuresEnabled = options.futuresEnabled ?? false;
+    this.futuresTestSeed = options.futuresTestSeed === true;
     // Empty defaults — P0-05 / D7 unset means refuse options listing, never invent law.
     this.optionsSettlementAssetLaw = options.optionsSettlementAssetLaw ?? '';
     this.optionsSettlementFixing = options.optionsSettlementFixing ?? '';
@@ -1040,14 +1048,7 @@ export class TradeService {
    */
   async markets(limit: number): Promise<Market[]> {
     const capped = publishedMarketsLimit(limit);
-    const rows = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
-        FROM trade.markets ORDER BY symbol ASC
-        LIMIT ${capped}
-    `;
+    const rows = await loadListedMarketRows(this.sql, capped, this.futuresTestSeed);
     return rows.map(toMarket);
   }
 
@@ -4362,14 +4363,7 @@ export class TradeService {
   }
 
   async marketBySymbol(symbol: string): Promise<Market | null> {
-    const rows = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
-        FROM trade.markets WHERE symbol = ${symbol}
-    `;
-    const row = rows[0];
+    const row = await loadMarketBySymbol(this.sql, symbol, this.futuresTestSeed);
     return row ? toMarket(row) : null;
   }
 

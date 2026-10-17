@@ -1,4 +1,4 @@
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { lifecycleAdmissionProofSchema } from '../lifecycle-proof.js';
 import type { Market, OrderRecord, OrderSide, OrderStatus, OrderType, RecoveryReason, TimeInForce } from './types.js';
 
@@ -31,13 +31,45 @@ export interface MarketRow {
   asset_class: Market['assetClass'];
   schedule: Market['schedule'];
   paper: boolean;
+  display_name?: string;
+  test?: boolean;
+  test_fixture?: unknown;
   futures_contract_style?: 'perpetual' | 'dated' | null;
   futures_expiry_at?: Date | null;
   futures_settlement_fixing?: string | null;
 }
 
+function testFixtureOf(raw: unknown): Market['testFixture'] {
+  let value = raw;
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const cap = (value as { leverageCap?: unknown }).leverageCap;
+  const feed = (value as { markFeed?: unknown }).markFeed;
+  const policy = (value as { liquidationPolicy?: unknown }).liquidationPolicy;
+  if (typeof cap !== 'string' || typeof feed !== 'string') return null;
+  if (typeof policy !== 'string' && (policy == null || typeof policy !== 'object' || Array.isArray(policy))) return null;
+  let leverageCap: string;
+  try {
+    leverageCap = formatAmount(parseAmount(cap));
+  } catch {
+    return null;
+  }
+  return {
+    leverageCap,
+    markFeed: feed,
+    liquidationPolicy: policy as string | Record<string, unknown>,
+  };
+}
+
 export function toMarket(row: MarketRow): Market {
   const style = row.kind === 'futures' ? (row.futures_contract_style === 'dated' ? 'dated' : 'perpetual') : null;
+  const displayName = row.display_name && row.display_name.length > 0 ? row.display_name : undefined;
   return {
     id: row.id,
     symbol: row.symbol,
@@ -56,6 +88,9 @@ export function toMarket(row: MarketRow): Market {
     assetClass: row.asset_class,
     schedule: row.schedule,
     paper: row.paper === true,
+    ...(displayName ? { displayName } : {}),
+    test: row.test === true,
+    testFixture: row.test === true ? testFixtureOf(row.test_fixture) : null,
     futuresContractStyle: style,
     futuresExpiryAt: row.futures_expiry_at ?? null,
     futuresSettlementFixing: row.futures_settlement_fixing ?? null,
