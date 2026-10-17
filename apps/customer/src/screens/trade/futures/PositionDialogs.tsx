@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input } from '@intafaced/ui';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  Input,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+} from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
 import { positionsCopy } from './positions-copy';
@@ -285,12 +299,20 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
     <Frame
       title={closing ? t('Retry close title') : t('Close title')}
       onClose={onClose}
-      description={t('Close summary', {
-        contract: position.symbol,
-        side: sideWord(t, position.side),
-        size: fmtAmount(position.contracts, { places: 8 }),
-        mark: fmtPrice(position.markPrice, null),
-      })}
+      description={
+        position.markPrice === null
+          ? t('Close summary no mark', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+            })
+          : t('Close summary', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+              mark: fmtPrice(position.markPrice, null),
+            })
+      }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -437,6 +459,7 @@ export function PositionRowActions({
   stale = false,
   onChanged,
   only = ['add', 'reduce', 'leverage', 'close'],
+  compact = false,
 }: {
   position: Position;
   free: string | null;
@@ -447,6 +470,8 @@ export function PositionRowActions({
   stale?: boolean;
   onChanged(): void;
   only?: ActionKey[];
+  /** Fold the margin and leverage actions into one Manage menu so Close always stays in view (dense tables). */
+  compact?: boolean;
 }) {
   const { t } = positionsCopy.useCopy();
   const { userId } = useSession();
@@ -472,7 +497,23 @@ export function PositionRowActions({
   return (
     <div className="flex flex-col items-start gap-1">
       <div className="flex flex-nowrap items-center gap-1.5">
-        {shown.map((key) => (
+        {compact && shown.filter((key) => key !== 'close').length > 1 ? (
+          <Menu>
+            <MenuTrigger render={<Button variant="secondary" size={28} aria-label={t('Manage label', { contract: position.symbol })} />}>
+              {t('Manage')}
+            </MenuTrigger>
+            <MenuContent align="end">
+              {shown
+                .filter((key) => key !== 'close')
+                .map((key) => (
+                  <MenuItem key={key} disabled={gate[key] !== null} onClick={() => setOpen(key)}>
+                    {label[key]}
+                  </MenuItem>
+                ))}
+            </MenuContent>
+          </Menu>
+        ) : null}
+        {(compact && shown.filter((key) => key !== 'close').length > 1 ? shown.filter((key) => key === 'close') : shown).map((key) => (
           <Button
             key={key}
             variant={key === 'close' ? 'sell' : 'secondary'}

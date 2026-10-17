@@ -14,7 +14,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
     'Every futures position here is isolated: it can lose only the margin you put into it. Cross margin and portfolio margin are not offered.',
   'Order type': 'Order type',
   'Market at accepted mark': 'Market at accepted mark',
-  'Order types off': 'Futures here open at the accepted mark. No resting or conditional order door is published for futures.',
+  'Order types off': 'Futures here open at the accepted mark. No resting or conditional order type is offered for futures.',
   'Type limit': 'Limit',
   'Type stop market': 'Stop market',
   'Type stop limit': 'Stop limit',
@@ -40,10 +40,10 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Leverage preset': '{x}x',
   'Leverage presets': 'Leverage presets',
   'Reduce only': 'Reduce-only',
-  'Reduce only off': 'The close door takes the whole position. A reduce-only flag has no service door.',
+  'Reduce only off': 'Close takes the whole position. A reduce-only flag is not offered.',
   'Take profit stop loss': 'Take profit / Stop loss',
   'Take profit off':
-    'Take-profit and stop-loss need a conditional order door that futures does not publish. Until then, watch the liquidation price and close by hand.',
+    'Take-profit and stop-loss need a conditional order type that futures does not offer. Until then, watch the liquidation price and close by hand.',
   Review: 'Review',
   Reviewing: 'Reviewing…',
   'Review to see cost': 'Review to see the all-in cost before you open.',
@@ -131,8 +131,13 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Open another': 'Open another',
   'Unknown title': 'Outcome unknown',
   'Unknown body':
-    'The request was sent but no answer came back. Nothing else can be sent from this device until it is checked. Checking replays the same request, so it cannot open a second position.',
+    'The request was sent but no answer came back. Nothing else can be sent from this device until it is checked. Checking looks for the position first and sends nothing.',
   'Unknown id': 'Request {id}',
+  'Not found body':
+    'Looked for a matching position and found none, so the first request may not have arrived. Sending the same request again keeps its request id, so it can open at most one position.',
+  'Send same request again': 'Send the same request again',
+  'No mark': 'No mark',
+  'No mark reason': 'The service has no mark price for this contract right now.',
   'Check status': 'Check status',
   'Unreadable body':
     'This device cannot read its record of an earlier request, so trading is held. Reload the page; if this stays, contact support.',

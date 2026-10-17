@@ -23,7 +23,7 @@ const messages = {
   'Positions retry': 'Try again',
   'Positions stale note': 'These figures are old. Actions that depend on the mark price are off until the next update.',
   'Positions margin call badge': 'Margin call',
-  'Positions mark unavailable': 'mark unavailable',
+  'Positions mark unavailable': 'The service does not publish this on open positions yet.',
   'Close all off': 'Close all is off: {reason}',
   'Close all none': 'No position to close.',
   'Col contract': 'Contract',
@@ -51,12 +51,14 @@ const messages = {
   'Band liquidation': 'Liquidatable',
   'Band unknown': 'Unknown',
   'Ratio value': '{pct}% {band}',
-  'Unknown why maintenance': 'The service has not published the maintenance margin, so the margin ratio is not shown.',
+  'Unknown why maintenance': 'The service does not publish the maintenance margin on positions yet, so the margin ratio is not shown.',
   'Unknown why collateral': 'The service has not published the margin held, so the margin ratio is not shown.',
-  'Unknown why pnl': 'The mark price is unavailable, so profit and loss and the margin ratio are not shown.',
+  'Unknown why pnl': 'The service does not publish profit and loss on positions yet, so it and the margin ratio are not shown.',
   'Unknown why equity': 'The ratio cannot be worked out from the published figures.',
 
   // Actions
+  Manage: 'Manage',
+  'Manage label': 'Manage {contract}',
   'Action add': 'Add margin',
   'Action reduce': 'Remove margin',
   'Action leverage': 'Leverage',
@@ -121,6 +123,8 @@ const messages = {
   'Close title': 'Close position',
   'Retry close title': 'Retry close',
   'Close summary': '{contract}, {side}. Size {size}. Mark {mark}.',
+  'Close summary no mark':
+    '{contract}, {side}. Size {size}. The service closes at the mark it accepts when you confirm; it is not shown here because positions do not carry one.',
   'Close mark word': 'This closes at the accepted mark price, not a price you choose.',
   'Close retry word': 'This position is waiting for a usable mark. Retrying sends the same request again, so it can only close once.',
   'Close button': 'Close position',
@@ -178,7 +182,7 @@ const messages = {
   'KV margin mode': 'Margin mode',
   'KV status': 'Status',
   'KV closing reason': 'Why it is still closing',
-  'KV updated': 'Last updated',
+  'KV updated': 'Opened',
   'Mode isolated': 'Isolated',
   'Mode cross': 'Cross',
 } as const;

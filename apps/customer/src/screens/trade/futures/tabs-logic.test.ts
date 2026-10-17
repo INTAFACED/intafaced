@@ -66,7 +66,7 @@ describe('historyRows and historyCsv', () => {
   it('builds the csv with a header, protected negative cells and blanks for unknowns', () => {
     const csv = historyCsv([row({ realizedPnl: '-30', markPrice: null })]);
     const [head, line] = csv.split('\r\n');
-    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Status,Closed at');
+    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Status,Opened at');
     expect(line).toBe('BTC/USDT:USDT,long,1.5,100,,-30,closed,2026-01-01T00:00:00.000Z');
   });
 });

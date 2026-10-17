@@ -30,7 +30,7 @@ export interface Writer {
   locked: boolean;
   run(intent: Intent): Promise<WriteOutcome>;
   /** Look up the unresolved request with the same identity. Never builds a new request. */
-  check(pending: Pending): Promise<WriteOutcome>;
+  check(pending: Pending, options?: { resend?: boolean }): Promise<WriteOutcome>;
   dismiss(): void;
 }
 
@@ -71,12 +71,12 @@ export function useFuturesWriter(onDone?: () => void): Writer {
     [api, userId, finish],
   );
   const check = useCallback(
-    async (pending: Pending): Promise<WriteOutcome> => {
+    async (pending: Pending, options?: { resend?: boolean }): Promise<WriteOutcome> => {
       if (inflight.current) return { kind: 'blocked', reason: 'otherTab' };
       inflight.current = true;
       setBusy(true);
       try {
-        return finish(await checkPending(api, userId, pending));
+        return finish(await checkPending(api, userId, pending, options));
       } finally {
         inflight.current = false;
         if (mounted.current) setBusy(false);

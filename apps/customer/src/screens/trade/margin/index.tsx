@@ -56,9 +56,10 @@ export default function MarginScreen(_props: ScreenProps) {
       id: 'contract',
       header: t('Contract'),
       pin: 'start',
+      width: 240,
       value: (p) => p.symbol,
       cell: (p) => (
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-2 whitespace-nowrap">
           {p.symbol} <Badge tone={p.side === 'long' ? 'up' : 'down'}>{p.side === 'long' ? 'Long' : 'Short'}</Badge>
         </span>
       ),
@@ -73,6 +74,7 @@ export default function MarginScreen(_props: ScreenProps) {
     },
     {
       id: 'ratio',
+      width: 210,
       header: t('Margin ratio'),
       numeric: true,
       value: (p) => healthOf(p).marginRatioPct,
@@ -84,7 +86,9 @@ export default function MarginScreen(_props: ScreenProps) {
             title={h.unknownWhy === 'maintenance' ? t('Maintenance not published') : undefined}
           >
             {h.marginRatioPct ? `${h.marginRatioPct}%` : UNKNOWN}
-            <Badge tone={BAND_TONE[h.band]}>{bandWord[h.band]}</Badge>
+            <Badge className="whitespace-nowrap" tone={BAND_TONE[h.band]}>
+              {bandWord[h.band]}
+            </Badge>
           </span>
         );
       },
@@ -108,6 +112,7 @@ export default function MarginScreen(_props: ScreenProps) {
     },
     {
       id: 'state',
+      width: 210,
       header: t('State'),
       value: (p) => stateOf(p),
       cell: (p) => {
@@ -126,6 +131,7 @@ export default function MarginScreen(_props: ScreenProps) {
     },
     {
       id: 'actions',
+      width: 130,
       header: t('Actions'),
       headerLabel: t('Actions'),
       align: 'end',
@@ -136,6 +142,7 @@ export default function MarginScreen(_props: ScreenProps) {
           leverageCap={null}
           planeOff={planeOff}
           only={['add', 'reduce']}
+          compact
           onChanged={refresh}
         />
       ),
@@ -208,6 +215,7 @@ export default function MarginScreen(_props: ScreenProps) {
                 )
               }
             />
+            <p className="text-xs text-fg-2">{t('Band note')}</p>
           </section>
         ) : null}
 

@@ -258,8 +258,14 @@ export function Ticket(props: TicketProps) {
   }
 
   function finish(outcome: WriteOutcome) {
-    if (outcome.kind === 'done') onOpened(outcome.position);
-    else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
+    if (outcome.kind === 'done') {
+      // The open is finished: a new request id and a fresh review are needed for another, so a second click cannot re-send this one.
+      request.current++;
+      setNonce(newNonce());
+      setReview({ status: 'idle' });
+      setConfirm(null);
+      onOpened(outcome.position);
+    } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
   }
 
   async function acknowledge() {
@@ -373,11 +379,13 @@ export function Ticket(props: TicketProps) {
         <span className="flex items-center gap-2">
           <span className="if-num">{markNow === null ? '—' : price(markNow)}</span>
           <StatusChip
+            kind={markNow === null && strip.status === 'ready' ? 'unknown' : undefined}
             asOf={markAsOf}
             now={now}
             staleAfterMs={STALE_AFTER_MS.strip}
             refused={strip.status === 'refused'}
-            labels={{ stale: t('Stale mark') }}
+            labels={{ stale: t('Stale mark'), unknown: t('No mark') }}
+            reason={markNow === null ? t('No mark reason') : undefined}
             density="dense"
           />
         </span>
@@ -542,7 +550,7 @@ export function Ticket(props: TicketProps) {
 
       <Outcome
         writer={writer}
-        onCheck={(p) => void writer.check(p).then(finish)}
+        onCheck={(p, resend) => void writer.check(p, { resend }).then(finish)}
         onAgain={() => {
           writer.dismiss();
           touch();
@@ -595,7 +603,7 @@ export function Ticket(props: TicketProps) {
 }
 
 /** What the last write did, in place. An unconfirmed request keeps the ticket locked until "Check status" gets an answer. */
-function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending: Pending): void; onAgain(): void }) {
+function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending: Pending, resend?: boolean): void; onAgain(): void }) {
   const { t } = ticketCopy.useCopy();
   const { outcome, note: held } = writer;
   if (held.state === 'unreadable')
@@ -613,6 +621,14 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
           <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending)}>
             {t('Check status')}
           </Button>
+        ) : null}
+        {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
+          <>
+            <p className={note}>{t('Not found body')}</p>
+            <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
+              {t('Send same request again')}
+            </Button>
+          </>
         ) : null}
         {outcome?.kind === 'blocked' ? <p className="text-xs text-warn">{t(`Blocked ${outcome.reason}`)}</p> : null}
       </div>

@@ -40,10 +40,11 @@ const messages = {
   Entry: 'Entry price',
   Exit: 'Exit price',
   'Realised PnL': 'Realised PnL',
-  'Closed at': 'Closed',
+  'Closed at': 'Opened',
   'History empty title': 'No closed positions yet',
   'History empty reason': 'Positions you close, or that are liquidated, appear here.',
-  'History footer': 'The last 100 records the service holds. This is not a statement.',
+  'History footer':
+    'The last 100 records the service holds. The time shown is when the position was opened: close time and exit price are not published yet. This is not a statement.',
   'History export': 'Export what is on screen (CSV)',
   'History export file': 'futures-position-history.csv',
 

@@ -66,6 +66,9 @@ export function wirePosition({
   collateral,
   closingReason = null,
   at = Date.now() - 3_600_000,
+  // false mirrors what svc-trade sends today (presentPosition): maintenanceMargin, unrealizedPnl, percentage, contractSize, markPrice
+  // and realizedPnl are null. true shows the room reading those fields once the service sends them.
+  publish = false,
 }) {
   const notional = mul(scaled(size), scaled(mark));
   const entryNotional = mul(scaled(size), scaled(entry));
@@ -75,7 +78,7 @@ export function wirePosition({
   const pnl = mul(scaled(size), side === 'long' ? diff : -diff);
   const lev = scaled(leverage);
   const factor = side === 'long' ? SCALE - div(SCALE, lev) + scaled(MAINT_RATE) : SCALE + div(SCALE, lev) - scaled(MAINT_RATE);
-  return {
+  const wire = {
     id,
     symbol: SYMBOL,
     timestamp: at,
@@ -98,6 +101,17 @@ export function wirePosition({
     marginMode: 'isolated',
     percentage: null,
   };
+  if (!publish)
+    Object.assign(wire, {
+      contractSize: null,
+      markPrice: null,
+      maintenanceMargin: null,
+      unrealizedPnl: null,
+      realizedPnl: null,
+      percentage: null,
+    });
+  Object.defineProperty(wire, '_pnl', { value: plain(pnl), enumerable: false, writable: true });
+  return wire;
 }
 
 export class FuturesExchange {
@@ -121,13 +135,22 @@ export class FuturesExchange {
     this.free = scaled(this.opts.free ?? '10000');
     this.positions = [];
     const seed = this.opts.seed;
+    const publish = Boolean(this.opts.publishRisk);
     if (seed === 'one' || seed === 'two' || seed === 'risky')
       this.positions.push(
-        wirePosition({ id: 'pos-long-1', side: 'long', size: '0.1', entry: '64000', leverage: '5', at: Date.now() - 7_200_000 }),
+        wirePosition({ id: 'pos-long-1', side: 'long', size: '0.1', entry: '64000', leverage: '5', at: Date.now() - 7_200_000, publish }),
       );
     if (seed === 'two')
       this.positions.push(
-        wirePosition({ id: 'pos-short-2', side: 'short', size: '0.05', entry: '66000', leverage: '10', at: Date.now() - 3_600_000 }),
+        wirePosition({
+          id: 'pos-short-2',
+          side: 'short',
+          size: '0.05',
+          entry: '66000',
+          leverage: '10',
+          at: Date.now() - 3_600_000,
+          publish,
+        }),
       );
     if (seed === 'risky')
       this.positions.push(
@@ -139,6 +162,7 @@ export class FuturesExchange {
           mark: '60000',
           leverage: '15',
           at: Date.now() - 1_800_000,
+          publish,
         }),
       );
     this.closed.push(
@@ -150,6 +174,7 @@ export class FuturesExchange {
         mark: '63000',
         status: 'closed',
         at: Date.now() - 86_400_000,
+        publish,
       }),
     );
     this.closed.push(
@@ -162,6 +187,7 @@ export class FuturesExchange {
         leverage: '20',
         status: 'liquidated',
         at: Date.now() - 172_800_000,
+        publish,
       }),
     );
   }
@@ -274,12 +300,18 @@ export class FuturesExchange {
       const taken = this.byOpenId.get(body.clientOpenId);
       if (taken) return json(taken);
       if (scaled(body.leverage) > scaled(LEVERAGE_CAP)) return error('trade.leverage_too_high', 'leverage above cap');
+      if (this.opts.openMode === 'drop' && !this.dropped) {
+        this.dropped = true; // the request never reaches the service
+        return 'abort';
+      }
       const created = wirePosition({
         id: `pos-${this.positions.length + 10}`,
         side: body.side,
         size: body.size,
         entry: MARK,
         leverage: body.leverage,
+        at: Date.now(),
+        publish: Boolean(this.opts.publishRisk),
       });
       this.positions.push(created);
       this.byOpenId.set(body.clientOpenId, created);
@@ -314,7 +346,10 @@ export class FuturesExchange {
       });
     }
     m = path.match(/^positions\/([^/]+)$/);
-    if (m && method === 'GET') return this.find(m[1]) ? json(this.find(m[1])) : error('trade.position_not_found', 'not found', 404);
+    if (m && method === 'GET') {
+      const row = this.find(m[1]) ?? this.closed.find((p) => p.id === m[1]);
+      return row ? json(row) : error('trade.position_not_found', 'not found', 404);
+    }
     if (m && method === 'DELETE') {
       const pos = this.find(m[1]);
       if (!pos) return error('trade.position_not_found', 'not found', 404);
@@ -324,8 +359,8 @@ export class FuturesExchange {
         return json(pos);
       }
       this.positions = this.positions.filter((p) => p !== pos);
-      this.free += scaled(pos.collateral) + scaled(pos.unrealizedPnl);
-      const done = { ...pos, status: 'closed', realizedPnl: pos.unrealizedPnl };
+      this.free += scaled(pos.collateral) + scaled(pos._pnl);
+      const done = { ...pos, status: 'closed', realizedPnl: this.opts.publishRisk ? pos._pnl : null };
       this.closed.unshift(done);
       return this.opts.closeMode === 'lose' ? 'abort' : json(done);
     }
@@ -342,6 +377,7 @@ export class FuturesExchange {
           entry: pos.entryPrice,
           leverage: body.leverage,
           at: pos.timestamp,
+          publish: Boolean(this.opts.publishRisk),
         }),
       );
       return json(pos);

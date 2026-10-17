@@ -1,5 +1,5 @@
 /**
- * Plain words for the typed refusals the futures doors send (services/svc-trade/src/futures, VERIFIED 2026-10-17).
+ * Plain words for the typed refusals the futures service sends (services/svc-trade/src/futures, VERIFIED 2026-10-17).
  * Each message names the real reason in money words, never an internal term. The service code stays as small
  * support text under the message. A code this table does not know falls back to the shared refusal words.
  */
@@ -95,19 +95,19 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.liquidation_in_progress': {
     title: 'A liquidation step is live on this position',
-    body: 'While the platform is closing part of this position, you cannot close it, release margin or raise leverage. You can still add margin.',
+    body: 'While the platform is closing part of this position, changes to it are refused. Check the position, then try again.',
   },
   'trade.close_in_progress': {
-    title: 'A close is already running',
-    body: 'The first close is still being settled. It uses the same request, so sending again returns the first result.',
+    title: 'Another change is running on this position',
+    body: 'A close or margin change on this position has not finished. Wait a moment, then check the position before you try again.',
   },
   'trade.mark_missing': {
-    title: 'No usable price to close at',
-    body: 'The mark price feed is not giving a usable price. The close is saved as closing and settles at the last accepted mark when the feed returns.',
+    title: 'No usable price right now',
+    body: 'The mark price feed is not giving a usable price, so nothing was changed. Try again in a moment.',
   },
   'trade.mark_unusable': {
-    title: 'No usable price to close at',
-    body: 'The mark price feed is not giving a usable price. The close is saved as closing and settles at the last accepted mark when the feed returns.',
+    title: 'No usable price right now',
+    body: 'The mark price is not good enough to settle this at, so nothing was changed. Try again in a moment.',
   },
   'trade.mark_invalid': { title: 'The mark price is not usable', body: 'Nothing was changed. Try again in a moment.' },
   'trade.position_not_found': {
@@ -144,12 +144,12 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.order_type_unsupported': {
     title: 'That order type is not offered on futures',
-    body: 'Futures open and close at the accepted mark. Resting, stop and take-profit orders have no futures door yet.',
+    body: 'Futures open and close at the accepted mark. Resting, stop and take-profit orders are not offered on futures.',
     retryable: false,
   },
   'trade.position_mode_unset': {
-    title: 'Hedge mode is not offered',
-    body: 'Positions are one-way: a contract has one position that is long or short. Holding both at once is not offered.',
+    title: 'Position mode is not set',
+    body: 'The platform has not set how positions on one contract combine (one-way or hedge), so new positions are refused until it does. Nothing was changed.',
     retryable: false,
   },
   'trade.position_side_unsupported': {

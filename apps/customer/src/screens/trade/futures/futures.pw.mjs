@@ -77,7 +77,7 @@ export async function signIn(path) {
 }
 export const finish = async () => {
   receipt.exchangeRequests = exchange?.requests.length ?? 0;
-  fs.writeFileSync(`${out}/receipt.json`, JSON.stringify(receipt, null, 1));
+  fs.writeFileSync(`${out}/receipt-${process.argv[3] || mode}.json`, JSON.stringify(receipt, null, 1));
   console.log(receipt.errors.length ? `PAGE ERRORS: ${receipt.errors.join(' | ')}` : 'no page errors');
   await browser.close();
 };
@@ -136,13 +136,15 @@ if (mode === 'test') {
   const run = (name) => !only || only === name;
   if (run('main')) {
     await goDesk({ seed: 'two' });
-    await tryStep('desk seeded: two live positions with margin ratio and liquidation price', async () => {
-      await rows().first().waitFor();
-      const n = await rows().count();
-      const text = await page.locator('main').innerText();
-      if (n < 2 || !/Healthy/.test(text)) throw new Error(`rows ${n}`);
-      await shot('desk-seeded');
-    });
+    await tryStep(
+      'desk seeded with the shape the service sends today: two live positions, unpublished fields shown as dashes',
+      async () => {
+        await rows().first().waitFor();
+        const n = await rows().count();
+        if (n < 2) throw new Error(`rows ${n}`);
+        await shot('desk-seeded');
+      },
+    );
     await tryStep('review shows all-in cost, then open long with confirm', async () => {
       await page.getByRole('textbox', { name: /^Size/ }).first().fill('0.05');
       await page
@@ -335,6 +337,21 @@ if (mode === 'test') {
     });
   }
 
+  if (run('future')) {
+    await goDesk({ seed: 'risky', publishRisk: true, marginCall: 'pos-risky-3' });
+    await tryStep('if the service publishes maintenance margin, PnL and mark: ratio, bands and distance appear', async () => {
+      await rows().first().waitFor();
+      await shot('desk-future-fields');
+      await rows().first().click();
+      await dialog().waitFor();
+      await shot('position-detail-future-fields');
+      await page.keyboard.press('Escape');
+      await page.getByRole('link', { name: 'Margin', exact: true }).first().click();
+      await page.waitForTimeout(3500);
+      await shot('margin-room-future-fields');
+    });
+  }
+
   if (run('states')) {
     await goDesk({ seed: 'one', closeMode: 'closing', openMode: 'lose' });
     await tryStep('close with no usable mark leaves the position closing with a retry', async () => {
@@ -348,7 +365,7 @@ if (mode === 'test') {
       if (!/Closing/i.test(t)) throw new Error('row: ' + t);
       await shot('closing-state');
     });
-    await tryStep('lost answer on open: ticket locks, shows request id, check status replays the same id', async () => {
+    await tryStep('lost answer on open: ticket locks, Check status READS and finds the position without a second send', async () => {
       await page.keyboard.press('Escape').catch(() => {});
       await page.getByRole('textbox', { name: /^Size/ }).first().fill('0.01');
       await page
@@ -363,13 +380,56 @@ if (mode === 'test') {
         .click();
       await page.waitForTimeout(2500);
       await shot('open-unknown');
-      const before = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions').length;
       await page.getByRole('button', { name: 'Check status' }).first().click();
-      await page.waitForTimeout(1500);
+      await page.getByText('Position opened').waitFor({ timeout: 8000 });
       const posts = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions');
-      if (posts.length !== before + 1 || posts[0].body.clientOpenId !== posts[posts.length - 1].body.clientOpenId)
-        throw new Error('replay differs');
-      return { sameId: posts[0].body.clientOpenId };
+      if (posts.length !== 1) throw new Error('check sent a second open: ' + posts.length);
+      await shot('open-unknown-found');
+      return { posts: posts.length };
+    });
+    await tryStep(
+      'open that never arrived: Check status finds nothing, the trader sends the same request again, one position',
+      async () => {
+        await goDesk({ seed: 'one', openMode: 'drop' });
+        await page.getByRole('textbox', { name: /^Size/ }).first().fill('0.01');
+        await page
+          .getByRole('textbox', { name: /^Leverage/ })
+          .first()
+          .fill('3');
+        await page.getByRole('button', { name: 'Review', exact: true }).click();
+        await page.getByText('Total to commit now').waitFor();
+        await page.getByRole('button', { name: 'Open long', exact: true }).click();
+        await dialog()
+          .getByRole('button', { name: /^Confirm open long/ })
+          .click();
+        await page.waitForTimeout(2500);
+        await page.getByRole('button', { name: 'Check status' }).first().click();
+        await page.getByRole('button', { name: 'Send the same request again' }).waitFor({ timeout: 8000 });
+        await shot('open-not-found');
+        const before = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions').length;
+        if (before !== 1) throw new Error('posts before resend ' + before);
+        await page.getByRole('button', { name: 'Send the same request again' }).click();
+        await page.getByText('Position opened').waitFor({ timeout: 8000 });
+        const posts = exchange.requests.filter((q) => q.method === 'POST' && q.path === 'positions');
+        if (posts.length !== 2 || posts[0].body.clientOpenId !== posts[1].body.clientOpenId) throw new Error('ids differ');
+        return { sameId: posts[0].body.clientOpenId };
+      },
+    );
+    await tryStep('a close whose answer was lost: Check status reads the closed row and reports done, not refused', async () => {
+      await goDesk({ seed: 'one', closeMode: 'lose' });
+      await rows()
+        .first()
+        .getByRole('button', { name: /^Close,/ })
+        .click();
+      await dialog().getByRole('button', { name: 'Close position' }).last().click();
+      await page.waitForTimeout(2500);
+      await page.getByRole('button', { name: 'Check status' }).first().click();
+      await page.waitForTimeout(2000);
+      await page.waitForTimeout(1000);
+      const t = await page.locator('body').innerText();
+      if (/Refused|is not open/i.test(t)) throw new Error('close misreported');
+      if (exchange.requests.filter((q) => q.method === 'DELETE').length !== 1) throw new Error('a second DELETE was sent');
+      await shot('close-lost-answer-checked');
     });
     await goDesk({ planeOff: true, seed: 'one' });
     await tryStep('futures plane off: named block, no actions', async () => {

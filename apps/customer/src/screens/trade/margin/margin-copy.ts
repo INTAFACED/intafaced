@@ -39,6 +39,8 @@ export const marginCopy = defineCopy('trade.margin', {
   'Open futures desk': 'Open the futures desk',
   'Table error': 'Couldn’t load your positions',
   'Try again': 'Try again',
+  'Band note':
+    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until the service publishes the inputs.',
   'Margin call called': 'Margin call {n} delivered, health {health}',
 
   // Rules
@@ -50,7 +52,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Portfolio margin': 'Portfolio margin',
   'Portfolio margin off': 'Not offered. Its offset and floor rules are not published yet.',
   'Hedge mode': 'Hedge mode',
-  'Hedge mode off': 'Not offered. A contract holds one position, long or short.',
+  'Hedge mode off': 'No position-mode setting is published. Until the platform sets one, new positions are refused.',
   'Collateral class': 'Collateral class',
   'Collateral cash': 'Cash only',
   'Collateral off': 'Yield-bearing, staked and lending balances are refused as margin.',
@@ -71,8 +73,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'How liquidation works': 'How liquidation works',
   'Liquidation point 1':
     'The platform watches each position’s mark price. When a position can no longer cover its maintenance margin it is closed in steps, not all at once where that is safe.',
-  'Liquidation point 2':
-    'While a liquidation step is running you cannot close the position, remove margin or raise leverage. You can still add margin.',
+  'Liquidation point 2': 'While a liquidation step is running, changes to that position are refused.',
   'Liquidation point 3': 'A loss that has been posted is not reversed. A later correction is a new entry.',
   'Liquidation point 4':
     'If a position cannot be closed at a fair price, the platform’s last-resort steps are published in the ADL notice on the futures desk.',

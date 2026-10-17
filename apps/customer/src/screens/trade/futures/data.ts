@@ -181,7 +181,7 @@ export function useMarginCalls(positions: readonly Position[], enabled: boolean)
             for (const id of key ? key.split(',') : []) {
               const result = await api.marginCall(id, signal);
               if (result.ok) out[id] = result.data;
-              else if (result.code === 'trade.margin_call_not_found' || result.status === 404) out[id] = null;
+              else if (result.code === 'trade.margin_call_not_found') out[id] = null;
               else return result;
             }
             return { ok: true, data: out };

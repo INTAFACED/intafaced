@@ -78,7 +78,8 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Open positions': 'Open positions',
   'Worst margin ratio': 'Worst margin ratio',
   'Margin calls open': 'Margin calls',
-  'Risk unknown hint': 'Needs the published maintenance margin. Shown as — until the service sends it.',
+  'Risk unknown hint':
+    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. Shown as — until the service publishes the inputs.',
   'Band ok': 'Healthy',
   'Band watch': 'Watch',
   'Band danger': 'Danger',

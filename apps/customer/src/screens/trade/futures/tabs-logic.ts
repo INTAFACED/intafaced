@@ -8,7 +8,7 @@ import { fmtAmount } from '../../../data/format';
 import { stateOf } from './model';
 
 /** Columns of the history export, in the order they are drawn on screen. */
-export const HISTORY_CSV_HEADER = ['Contract', 'Side', 'Size', 'Entry', 'Exit', 'Realised PnL', 'Status', 'Closed at'] as const;
+export const HISTORY_CSV_HEADER = ['Contract', 'Side', 'Size', 'Entry', 'Exit', 'Realised PnL', 'Status', 'Opened at'] as const;
 
 /**
  * One CSV cell. A cell a spreadsheet would read as a formula (starts with = + - @, or a tab or carriage return) gets a

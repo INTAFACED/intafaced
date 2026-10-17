@@ -103,11 +103,14 @@ export function PositionsTable({
       id: 'contract',
       header: t('Col contract'),
       pin: 'start',
-      width: 150,
+      width: 220,
       cell: (p) => (
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 whitespace-nowrap">
           <span className="font-medium">{p.symbol}</span>
-          <Badge tone={p.side === 'long' ? 'up' : 'down'}>{p.side === 'long' ? t('Side long') : t('Side short')}</Badge>
+          <Badge tone={p.side === 'long' ? 'up' : 'down'}>
+            {p.side === 'long' ? t('Side long') : t('Side short')}
+            {p.leverage === null ? '' : ` ${fmtAmount(p.leverage, { places: 2 })}x`}
+          </Badge>
         </span>
       ),
     },
@@ -159,13 +162,6 @@ export function PositionsTable({
       cell: (p) => <Price value={p.liquidationPrice === null ? null : fmtPrice(p.liquidationPrice, null)} />,
     },
     {
-      id: 'lev',
-      width: 60,
-      header: t('Col leverage'),
-      numeric: true,
-      cell: (p) => (p.leverage === null ? <Pct value={null} /> : <span className="if-num">{fmtAmount(p.leverage, { places: 2 })}x</span>),
-    },
-    {
       id: 'state',
       header: t('Col state'),
       width: 100,
@@ -174,10 +170,11 @@ export function PositionsTable({
     {
       id: 'actions',
       header: t('Col actions'),
-      width: 240,
+      width: 150,
       cell: (p) => (
         <PositionRowActions
           position={p}
+          compact
           free={freeFor(p.symbol, balances)}
           leverageCap={null}
           planeOff={planeOff}
@@ -243,7 +240,7 @@ export function PositionsTable({
         <Table
           label={t('Positions table label')}
           density="dense"
-          className="min-w-[1100px]"
+          className="min-w-[1060px]"
           columns={columns}
           rows={rows}
           getRowId={(p) => rowOf(p).id}
