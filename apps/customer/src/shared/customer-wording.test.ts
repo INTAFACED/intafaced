@@ -74,7 +74,8 @@ const ENGINEERING_TRANSLATED =
 /** Letters that look like internal codes: dotted snake_case such as bank.earn_rate_unset. */
 const RAW_CODE = /\b[a-z]+\.[a-z0-9]+_[a-z0-9_]+\b/;
 /** Written by and for staff or people; customer copy names neither. */
-const NAMES = /\b(Phantom|Nitro|Shehzad|Opus|Claude|Codex|Grok)\b/;
+// People's names only: vendor and model names are already refused repo-wide by the brand doctrine gate (§0.7).
+const NAMES = /\b(Phantom|Nitro|Shehzad)\b/;
 
 const CHECKED = new Set([
   'customer.money',
