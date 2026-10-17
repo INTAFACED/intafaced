@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assetSelectField, heldAssets } from './holdings';
+import { assetSelectField, heldAssets, spaceTotals } from './holdings';
 
 describe('assets the customer holds', () => {
   it('lists assets with something in them, dollar coins first, balances exact', () => {
@@ -27,5 +27,35 @@ describe('assets the customer holds', () => {
   it('builds a pick list, never a free text box', () => {
     const field = assetSelectField('Asset', 'hint', [{ assetId: 'USDT', available: '1' }]);
     expect(field.options).toEqual([{ value: 'USDT', label: 'USDT' }]);
+  });
+});
+
+describe('named spaces added to the account quantity', () => {
+  const holding = { assetId: 'USDT', available: '500', held: '54.62', quantity: '554.62' };
+  it('adds named spaces to the account quantity from the returned figures only', () => {
+    const totals = spaceTotals(
+      [
+        { assetId: 'USDT', balance: '400', kind: 'named' },
+        { assetId: 'USDT', balance: '70', kind: 'named' },
+        { assetId: 'USDT', balance: '554.62', kind: 'primary' },
+      ],
+      [holding],
+    );
+    expect(totals).toEqual([{ assetId: 'USDT', inSpaces: '470', spaceCount: 2, accountQuantity: '554.62', total: '1024.62' }]);
+  });
+  it('gives no total when the bank did not return the account quantity', () => {
+    const totals = spaceTotals([{ assetId: 'USDT', balance: '470', kind: 'named' }], [{ ...holding, quantity: null }]);
+    expect(totals[0]).toMatchObject({ inSpaces: '470', accountQuantity: null, total: null });
+  });
+  it('skips empty and unreadable spaces', () => {
+    expect(
+      spaceTotals(
+        [
+          { assetId: 'BTC', balance: '0', kind: 'named' },
+          { assetId: 'ETH', balance: 'x', kind: 'named' },
+        ],
+        [],
+      ),
+    ).toEqual([]);
   });
 });
