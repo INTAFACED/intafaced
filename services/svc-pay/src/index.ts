@@ -22,6 +22,7 @@ import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conver
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
+import { resolveMerchantControlsMode } from './control/mode.js';
 import { assertNoLocalTestFixtures, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -235,6 +236,9 @@ const identityAdmission = createIdentityOperationDecisionClient({
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
+// Refuses boot when the merchant controls would be silently off outside dev or test.
+// buildPayGuards resolves the same value again from the raw env, so it cannot fall back to off either.
+resolveMerchantControlsMode(process.env.PAY_MERCHANT_CONTROLS, process.env.APP_ENV);
 const payGuards = buildPayGuards({ sql, ledger });
 const conversion = new ConversionService({
   sql,

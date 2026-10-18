@@ -28,7 +28,7 @@ describe('guard seams: defaults', () => {
   });
 
   it('the registry (W5 halts) lets intake through when nothing is halted and, with treasury enforcement at its default (off), does not limit-check a payout', async () => {
-    const guards = buildPayGuards({ sql: readableSql });
+    const guards = buildPayGuards({ sql: readableSql, merchantControls: 'off' });
     for (const name of PAY_GUARD_NAMES) expect(typeof guards[name]).toBe('function');
     await expect(guards.beforePaymentAdmit({ ...payment, tx: readableSql })).resolves.toBeUndefined();
     await expect(
@@ -63,7 +63,7 @@ describe('refund and user-money withdrawal seams', () => {
   it('refund stays a no-op; a fresh withdrawal with no screening result is refused', async () => {
     await expect(NOOP_GUARDS.beforeRefund(refund)).resolves.toBeUndefined();
     await expect(NOOP_GUARDS.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
-    const guards = buildPayGuards({ sql: readableSql });
+    const guards = buildPayGuards({ sql: readableSql, merchantControls: 'off' });
     await expect(guards.beforeRefund(refund)).resolves.toBeUndefined();
     await expect(guards.beforeUserMoneyWithdrawal({ ...withdrawal, tx: readableSql })).rejects.toMatchObject({
       code: 'pay.guard_screening_unavailable',
