@@ -9,6 +9,7 @@ import {
 import { parseAmount } from '../../shared/money';
 import type { PayBusinessAuthority } from './pay-api';
 import * as s from './schemas';
+import { isTokenRefused } from './portal/access/step-up-store';
 
 type Original = { status: 'uncertain'; reference?: string };
 export type RefundReceipt = Readonly<{ kind: 'refunded' | 'reversed'; refundId: string; eventId: string; ts: string }>;
@@ -259,10 +260,19 @@ export function createMerchantRefundApi({
       }
       // Every dispatched result remains unresolved until this feature's exact history proof.
       // Even an aggregate 200 or typed 400 may follow a committed original refund.
+      let sent: ApiResult<unknown> | null = null;
       try {
-        await api.mutate('pay', 'payment.refund', input, s.paymentSchema);
+        sent = await api.mutate('pay', 'payment.refund', input, s.paymentSchema);
       } catch {
         /* Preserve original after a lost response. */
+      }
+      // The gateway turned the confirmation token away before the refund service saw the call: the confirmation ran out
+      // between the review and the send. Nothing was refunded, so the saved original is cleared and the caller asks the
+      // person to confirm again and sends this same review, with this same refund reference, once more.
+      if (sent && !sent.ok && isTokenRefused(sent)) {
+        const cleared = lease.finishExact(raw);
+        if (!cleared.ok) problems.set(key(input.paymentId), cleared.reason);
+        return refusal('step_up_expired', 'error');
       }
       if (!current(recoveryCurrent)) return refusal('context_changed', 'aborted');
       const found = await prove(input.paymentId, { status: 'uncertain', reference: input.refundId }, recoveryCurrent);

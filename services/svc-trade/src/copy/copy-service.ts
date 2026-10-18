@@ -102,6 +102,16 @@ import {
   type MirrorEventLog,
 } from './mirror-events.js';
 import { exportMirrorTrail, listMirrorTrail, type MirrorTrailPage, type MirrorTrailQuery } from './mirror-trail.js';
+import {
+  LeaderDirectory,
+  memoryLeaderDirectory,
+  type ListLeadersQuery,
+  type OperatorListingResult,
+  type SetLeaderStateInput,
+} from './leader-directory.js';
+import type { LeaderDirectoryPage } from './leader-listing.js';
+import type { LeaderEventsPage } from './leader-events.js';
+import type { UpsertLeaderListingInput } from './leader-listing.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
 export type FollowerFillFee = {
@@ -180,6 +190,8 @@ export interface CopyServiceOptions {
    * Absent → unrealised P&L is null with trade.mark_unavailable.
    */
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
+  /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
+  directory?: LeaderDirectory;
   /**
    * Result figure for the drawdown stop. Production reads `followResultFigure`.
    * A null figure refuses; this port must not invent one.
@@ -258,6 +270,7 @@ export class CopyService {
   private readonly mirrorEvents: MirrorEventLog;
   private readonly sql: Sql | null;
   private readonly lookupMark: ((marketId: string) => Promise<AlgoQuotedMark | null>) | null;
+  private readonly directory: LeaderDirectory;
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
 
   constructor(
@@ -280,6 +293,17 @@ export class CopyService {
     this.sql = options.sql ?? null;
     this.lookupMark = options.lookupMark ?? null;
     this.readResultFigure = options.readResultFigure ?? null;
+    this.directory =
+      options.directory ??
+      memoryLeaderDirectory({
+        now: this.now,
+        feeShareLaw: this.feeShareLaw,
+        countActive: (leaderId) => this.store.countActiveFollowsByLeader(leaderId),
+      });
+  }
+
+  private async presentFollow(follow: CopyFollow, currentExposure: Amount = 0n) {
+    return presentCopyFollow(follow, currentExposure, await this.directory.listingIdentity(follow.leaderId));
   }
 
   private deskFacts(): CopyDeskFacts {
@@ -328,7 +352,22 @@ export class CopyService {
    */
   async placeMirrorForFollow(principal: Principal, input: { followId: string; fillId: string; leaderPaper: boolean }) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      recordPlaceMirrorEvents(this.mirrorEvents, store, input, this.now(), async () => {
+      recordPlaceMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), async () => {
+        let follow: CopyFollow;
+        try {
+          follow = await this.requireOwnedFollow(store, principal, input.followId);
+        } catch (err) {
+          // Flag off stays the public door: a missing follow must not become "not found".
+          if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+            throw new CopyError(
+              'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
+              'trade.copy_place_disabled',
+              COPY_PLACE_DISABLED_RESIDUAL,
+            );
+          }
+          throw err;
+        }
+        await this.directory.refuseNewMirror(follow.leaderId);
         if (!this.placeMirrorEnabled) {
           throw new CopyError(
             'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
@@ -338,7 +377,6 @@ export class CopyService {
         }
         requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
-        const follow = await this.requireOwnedFollow(store, principal, input.followId);
         await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
         await this.refuseIfFollowRegionClosed(store, follow);
         if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
@@ -457,7 +495,7 @@ export class CopyService {
             })
           : follow;
         const currentExposure = await this.store.getExposure(current.followId);
-        return presentCopyFollow(current, currentExposure);
+        return this.presentFollow(current, currentExposure);
       }),
     );
   }
@@ -497,7 +535,8 @@ export class CopyService {
   async follow(
     principal: Principal,
     input: {
-      leaderId: string;
+      leaderId?: string;
+      leaderRef?: string;
       region: string;
       permittedMarkets: readonly string[];
       maxNotionalPerOrder: string;
@@ -523,10 +562,7 @@ export class CopyService {
     } catch (err) {
       this.blankLawRefusal(err);
     }
-    const leaderId = input.leaderId.trim();
-    if (!leaderId) {
-      throw new CopyError('leaderId is required', 'trade.copy_envelope_invalid');
-    }
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     if (leaderId === principal.userId) {
       throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
     }
@@ -584,12 +620,35 @@ export class CopyService {
       }),
     );
     try {
-      await this.store.saveFollow(follow, 0n);
+      await this.directory.admitNewFollow(leaderId, this.store, follow);
     } catch (err) {
       if (err instanceof CopyError) throw err;
       rethrowCopyFollowUnique(err);
     }
-    return presentCopyFollow(follow);
+    return this.presentFollow(follow);
+  }
+
+  async listLeaders(principal: Principal, input: ListLeadersQuery): Promise<LeaderDirectoryPage> {
+    void principal;
+    return this.directory.listLeaders(input);
+  }
+
+  async followEvents(principal: Principal, input: { followId: string; limit?: number; cursor?: string | null }): Promise<LeaderEventsPage> {
+    const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
+    return this.directory.followEvents({
+      leaderUserId: follow.leaderId,
+      since: follow.createdAt,
+      limit: input.limit,
+      cursor: input.cursor,
+    });
+  }
+
+  upsertListing(principal: Principal, input: UpsertLeaderListingInput): Promise<OperatorListingResult> {
+    return this.directory.upsertListing(principal, input);
+  }
+
+  setLeaderState(principal: Principal, input: SetLeaderStateInput): Promise<OperatorListingResult> {
+    return this.directory.setLeaderState(principal, input);
   }
 
   /** Unilateral unfollow — does not require fee-share law; always allowed. */
@@ -632,7 +691,7 @@ export class CopyService {
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
       return {
-        ...presentCopyFollow(next, currentExposure),
+        ...(await this.presentFollow(next, currentExposure)),
         sessionKeyId: generated.id,
         sessionKey: generated.key,
       };
@@ -646,7 +705,7 @@ export class CopyService {
       const next: CopyFollow = { ...follow, sessionKeyRevoked: true };
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
-      return presentCopyFollow(next, currentExposure);
+      return this.presentFollow(next, currentExposure);
     });
   }
 
@@ -732,7 +791,7 @@ export class CopyService {
       const next: CopyFollow = { ...follow, feeShareKilled: true };
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
-      return presentCopyFollow(next, currentExposure);
+      return this.presentFollow(next, currentExposure);
     });
   }
 
@@ -751,12 +810,15 @@ export class CopyService {
    */
   async planMirrorForFollow(principal: Principal, input: PlanMirrorInput) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      recordPlanMirrorEvents(this.mirrorEvents, input, this.now(), () => this.planMirrorForFollowExclusive(store, principal, input)),
+      recordPlanMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), () =>
+        this.planMirrorForFollowExclusive(store, principal, input),
+      ),
     );
   }
 
   private async planMirrorForFollowExclusive(store: CopyFollowStore, principal: Principal, input: PlanMirrorInput) {
     const follow = await this.requireOwnedFollow(store, principal, input.followId);
+    await this.directory.refuseNewMirror(follow.leaderId);
     await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
     await this.refuseIfFollowRegionClosed(store, follow);
     requireNewCopyIntentAllowed(follow);

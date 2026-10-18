@@ -10,8 +10,10 @@ import {
   conversionListInputSchema,
 } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
+import { ControlError } from '../control/errors.js';
 import { mapConversionError } from '../conversion/errors.js';
 import type { ConversionService } from '../conversion/service.js';
+import { toTrpcError } from './control-errors.js';
 import { notBuilt } from './errors.js';
 
 /**
@@ -51,6 +53,7 @@ export function createConversionRouter(conversion?: ConversionService) {
     try {
       return await fn();
     } catch (error) {
+      if (error instanceof ControlError) throw toTrpcError(error);
       throw mapConversionError(error);
     }
   };

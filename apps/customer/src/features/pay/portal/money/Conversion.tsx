@@ -205,7 +205,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   const expired = quote ? Date.parse(quote.q.expiresAt) <= now : false;
   const may = can('payout.approve');
   // Getting a quote is an ordinary write; converting moves money and carries the payout scope.
-  const stepReason = useMoneyReason('payout');
+  const stepReason = useMoneyReason('payout', 'convert');
   return (
     <div className="stack">
       <TestNotice />
@@ -297,6 +297,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 ]}
               />
               <PortalReview<ConversionOrder>
+                stepUp="payout"
                 title={t('cvConvert')}
                 variant="primary"
                 description={t('cvReviewBody')}

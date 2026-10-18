@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { OWNER_SCOPES, OWNER_SCOPES_WITH_MONEY, accessTokenFor, createPortalMock, USER_ID } from './portal.mock.mjs';
+import { OWNER_SCOPES, accessTokenFor, createPortalMock, TEST_TOTP_CODE, USER_ID } from './portal.mock.mjs';
 
 // The real App, the real sign-in form, and a mocked pay service (portal.mock.mjs). Every figure and name is TEST data.
 // With PORTAL_SHOTS_DIR set the run also writes a screenshot of each page, with a visible "mocked data" badge.
 const shots = process.env.PORTAL_SHOTS_DIR;
 if (shots) mkdirSync(shots, { recursive: true });
-// The owner session carries the scopes the test names: with money (refund, payout) unless the test passes `scopes`.
-const sessionFor = (scopes = OWNER_SCOPES_WITH_MONEY) => ({
+// The owner session is the one identity mints (no refund or payout scope); those come from "Confirm it's you".
+const sessionFor = (scopes = OWNER_SCOPES) => ({
   userId: USER_ID,
   accessToken: accessTokenFor(scopes),
   refreshToken: 'portal-test-refresh',
@@ -553,7 +553,11 @@ test('payout detail: the person who asked cannot approve, and can take the reque
   await expect(page.getByText('You asked for this payout, so someone else on your team has to decide it.')).toBeVisible();
   await page.getByLabel('Reason for cancelling *').fill('Wrong amount');
   await page.getByRole('button', { name: 'Cancel my request' }).click();
-  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  // taking a payout request back carries the payout scope, so it asks to confirm it's you first
+  const asked = page.getByRole('dialog', { name: "Confirm it's you" });
+  await asked.getByLabel('6-digit code from your authenticator app').fill(TEST_TOTP_CODE);
+  await asked.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Review: Cancel my request' }).locator('.form-stack > button').last().click();
   await expect(page.getByText('The approval on this payout no longer counts')).toBeVisible();
   expect(mock.calls.find((c) => c.procedure === 'merchantControl.approvals.cancel').input).toMatchObject({ reason: 'Wrong amount' });
 });

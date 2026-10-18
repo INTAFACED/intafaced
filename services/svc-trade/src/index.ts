@@ -39,6 +39,7 @@ import { attachPostOnlyStash, bindPostOnly, installPostOnlyPlace } from './spot/
 import { attachIocStash, bindIoc, installIocPlace } from './spot/ioc-place.js';
 import { attachFokStash, bindFok, installFokPlace } from './spot/fok-place.js';
 import { attachIcebergStash, bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { sqlIcebergDisplay } from './spot/iceberg-door.js';
 import { attachStopLimitStash, bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
 import { attachTrailingStopStash, bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
 import { attachOptionStash, bindOption, installOptionPlace } from './spot/option-place.js';
@@ -81,8 +82,10 @@ import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVen
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
 import { presentInsuranceListingPolicy } from './futures/insurance-listing-gate.js';
 import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
+import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
 import { resolveFundingMaxAbsRateForBoot } from './futures/funding-rate-bound.js';
@@ -112,6 +115,7 @@ import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
+import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -270,6 +274,7 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
   store: copyStore,
+  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -709,11 +714,18 @@ registerSpotOrderPreviewRest(app, {
   feeSchedule,
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
+const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   publishFundingRate: (entry) => futuresJobs.publishFundingRate(entry),
+  recordFundingHistory: (row) => fundingHistory.record(row),
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
+  approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+});
+registerFundingHistory(app, {
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  historyForMarket: async (marketId) => fundingHistory.list(marketId),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -831,6 +843,7 @@ registerPrivateRest(app, {
       principal,
     ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
+  marginModeAudit: sqlMarginModeSwitchAudit(sql),
   closePositionQuantity: (principal, positionId, input) =>
     positions.closeQuantity(principal.userId, positionId, {
       quantity: parseAmount(input.quantity),
@@ -880,6 +893,9 @@ registerPrivateRest(app, {
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
+  rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  icebergDisplay: sqlIcebergDisplay(sql),
+  findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });

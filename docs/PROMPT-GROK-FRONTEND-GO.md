@@ -1,5 +1,7 @@
 # Grok frontend GO — operator brief
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Grok-owned execution contract. Product map stays [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md) on **origin/main** (door copy may be stale).  
 **Nitro says:** `go`  
 **Grok is the boss from that word.** Do not re-interview him for this split, this order, or these unspoken needs.

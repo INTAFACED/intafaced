@@ -1,5 +1,7 @@
 # Incident runbook — money path (ledger / trade red)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** D26-P3-10 · LIVE-LANES `denon-d26-p3-10-incident`  
 **Class:** N (ops procedure). Does **not** close Class X go-live.  
 **Law:** Doctrine §4.2 (unverifiable book → freeze posting) · §14.6 (operator kill, never trap funds) · [`../INTERNET-LEVERAGE-LAW.md`](../INTERNET-LEVERAGE-LAW.md) Phase A IN (name existing doors; do not rebuild them).  
@@ -81,7 +83,7 @@ Use freeze after an **unverifiable book** (§4.2), not as a substitute for killi
 **Enforced** only for modules in `UPSTREAMS` (`services/svc-edge/src/routes.ts`): `trade`, `pay`, `identity`, …  
 Killing `ws`, `matching`, `ledger`, `edge` on this board is **audit-only**. Ledger halt is §2.1. Matching halt is §2.3.
 
-When `trade` is killed: new places → **503** `edge.module_killed` (or `edge.kill_switch_undecidable` fail-closed). Still pass: tRPC `cancel`, `DELETE /api/v1/orders` / `:id`, `DELETE /api/v1/positions/:id` (`ALWAYS_ALLOWED_REST` in `kill-switch.ts`).
+When `trade` is killed: new places → **503** `edge.module_killed` (or `edge.kill_switch_undecidable` fail-closed). Still pass: tRPC `cancel`, `DELETE /api/v1/orders` / `:id`, `POST /api/v1/positions/:id/close`, and `POST /api/v1/futures/positions/close-all` (`ALWAYS_ALLOWED_REST` in `kill-switch.ts`). `DELETE /api/v1/positions/:id` does not close.
 
 ### 2.3 In-service flags already wired (not new policy)
 

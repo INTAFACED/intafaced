@@ -53,6 +53,7 @@ import { rampDepthCopy } from './ramp-depth-copy';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
+import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -541,7 +542,13 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const [destination, setDestination] = useState<'space' | 'user'>('space');
   const [scheduled, setScheduled] = useState(false);
   const [recipient, setRecipient] = useState<Payee | null>(null);
+  const [note, setNote] = useState('');
+  const [reference, setReference] = useState('');
   const depth = transferDepthCopy.useCopy();
+  const noteIssue = noteProblem(note);
+  const referenceIssue = referenceProblem(reference);
+  const noteWords = noteIssue ? depth.t(noteIssue === 'tooLong' ? 'noteTooLong' : 'noteControl') : null;
+  const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
       <Section title={copyText('rooms.new.transfer')}>
@@ -599,8 +606,35 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   )}
                   <label className="field">
                     <span>{depth.t('noteField')}</span>
-                    <input disabled value="" readOnly aria-describedby="transfer-note-why" />
-                    <small id="transfer-note-why">{depth.t('noteReason')}</small>
+                    <input
+                      name="note"
+                      value={note}
+                      disabled={scheduled}
+                      autoComplete="off"
+                      onChange={(event) => setNote(event.target.value)}
+                      aria-invalid={Boolean(noteWords)}
+                      aria-describedby="transfer-note-help"
+                    />
+                    <small id="transfer-note-help" className={noteWords ? 'error-text' : ''}>
+                      {scheduled ? depth.t('messageScheduledReason') : (noteWords ?? depth.t('noteHint'))}
+                    </small>
+                  </label>
+                  <label className="field">
+                    <span>{depth.t('referenceField')}</span>
+                    <input
+                      name="reference"
+                      value={reference}
+                      disabled={scheduled}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      onChange={(event) => setReference(event.target.value)}
+                      aria-invalid={Boolean(referenceWords)}
+                      aria-describedby="transfer-reference-help"
+                    />
+                    <small id="transfer-reference-help" className={referenceWords ? 'error-text' : ''}>
+                      {scheduled ? depth.t('messageScheduledReason') : (referenceWords ?? depth.t('referenceHint'))}
+                    </small>
                   </label>
                   <label className="money-check">
                     <input type="checkbox" checked={scheduled} onChange={(event) => setScheduled(event.target.checked)} />
@@ -609,6 +643,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   <Button
                     disabled={
                       !from ||
+                      (!scheduled && (noteIssue !== null || referenceIssue !== null)) ||
                       (destination === 'user' && !recipient) ||
                       (destination === 'space' && ownSpaces(spaces, from, userId ?? '').length === 0)
                     }
@@ -648,8 +683,17 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                             : []),
                           [copyText('rooms.asset'), from.assetId],
                           [copyText('rooms.available.at.last.read'), amount(from.balance, from.assetId)],
+                          ...(scheduled
+                            ? []
+                            : [
+                                [depth.t('factNote'), cleanText(note) ?? depth.t('factNone')] as [string, string],
+                                [depth.t('factReference'), cleanText(reference) ?? depth.t('factNone')] as [string, string],
+                              ]),
                         ],
-                        notes: [destination === 'user' ? depth.t('personNote') : depth.t('spaceNote')],
+                        notes: [
+                          destination === 'user' ? depth.t('personNote') : depth.t('spaceNote'),
+                          ...(!scheduled && (cleanText(note) || cleanText(reference)) ? [depth.t('messageSaved')] : []),
+                        ],
                         validate: (input) =>
                           validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
@@ -659,7 +703,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                           amount: values.amount,
                           ...(scheduled
                             ? { scheduleId: requestId, cadence: values.cadence, startsAt: iso(values.startsAt!) }
-                            : { transferId: requestId }),
+                            : {
+                                transferId: requestId,
+                                ...(cleanText(note) ? { note: cleanText(note) } : {}),
+                                ...(cleanText(reference) ? { reference: cleanText(reference) } : {}),
+                              }),
                         }),
                       });
                     }}

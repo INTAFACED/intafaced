@@ -170,6 +170,8 @@ export interface ChainWatcherOptions {
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => Date;
   readonly log?: (msg: string, extra?: Record<string, unknown>) => void;
+  /** Called after `chain.refresh()` returns. The crypto rail uses this to refresh lastContact. */
+  readonly onAlive?: () => void;
   /** Crash-safe last-seen position. Defaults to in-memory (not multi-replica). */
   readonly cursorStore?: ChainWatcherCursorStore;
   /** Store key. Production uses `crypto-native`. */
@@ -216,6 +218,7 @@ export class CryptoChainWatcher {
     this.running = true;
     try {
       await this.options.chain.refresh();
+      this.options.onAlive?.();
       const cursor = await this.cursors.load(this.watcherId);
       const finalized = [...this.options.chain.drainFinalized()].sort((a, b) => compareChainWatcherCursor(cursorOf(a), cursorOf(b)));
       for (const item of finalized) {

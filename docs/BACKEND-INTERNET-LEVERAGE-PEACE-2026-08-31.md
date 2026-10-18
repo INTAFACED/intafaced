@@ -1,5 +1,7 @@
 # Backend internet leverage — peace of mind (2026-08-31)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Audience:** Nitro + next Grok bot. **Scope:** backend only.  
 **Mega backend (2026-09-03) v1.25:** [`SPEC-BACKEND-MEGA-PLAN-2026-09-03.md`](SPEC-BACKEND-MEGA-PLAN-2026-09-03.md). Live-wire: [`SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md`](SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md).  
 **Binding law:** [`INTERNET-LEVERAGE-LAW.md`](INTERNET-LEVERAGE-LAW.md). This file does not weaken it.  

@@ -310,6 +310,10 @@ function listingLifecycleState(market: Market): MarketLifecycleState | null {
 }
 
 function allowedActions(state: MarketLifecycleState, safeRecovery = false): MarketAction[] {
+  // Pending listings are PRELAUNCH. Cancel is eligible so a launch hold cannot
+  // trap a resting order. Place is not. Checked before safe recovery so a
+  // partial transition cannot add reduce or close, which this state refuses.
+  if (state === 'PRELAUNCH') return ['CANCEL'];
   if (safeRecovery || state === 'HALTED' || state === 'REDUCE_ONLY' || state === 'EXPIRING' || state === 'DELISTING') {
     return ['CANCEL', 'REDUCE', 'CLOSE'];
   }

@@ -15,7 +15,7 @@
 - **Stamp-mill ban:** Do not open docs(ops) R07/R01/P-WS “cycle N” PRs solely because freeProduct=0. Ship only on board delta or P1–P3 deliverable. Law: docs/ops/SWARM-MANDATE.md
 - **Ops churn:** 0 consecutive docs-only tip merges
 - **Stranded branches (P1):** 46
-- **Worktrees:** 169 ⚠ OVER CAP 20 — run `pnpm wt:gc:apply`
+- **Worktrees:** 169 ⚠ OVER CAP 20 — remove only your own worktree with `git worktree remove <path>`, never `--force`
 - **Actions runs (24h):** 729 (Docs format=602, CI=113, Order-path CX-8=14) — billing ceiling risk if Docs-format dominates; Denon owns Actions budget
 - **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/styleboard/`) — NO-FLEET is Docker, not "never seen UI".
 - **Claims:** docs/ops/claims/<id>.md (do not hand-edit LIVE-LANES mid-wave)

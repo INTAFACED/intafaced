@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { EmailChannel } from '../channels/adapters.js';
 import { GuestNotificationService } from '../guests/service.js';
@@ -229,6 +229,32 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       expect(wire.messages).toHaveLength(1);
     },
   );
+  it('stores unknown when a non-204 answer arrives after the local deadline and does not send again', async () => {
+    const real = performance.now.bind(performance);
+    let extra = 0;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => real() + extra);
+    try {
+      const wire = await upstream((res) => {
+        // The reply is already on the wire. The local budget is exhausted before
+        // the handler classifies it, which is the slow-runner shape of the 150ms case.
+        extra = 2_000;
+        res.writeHead(200).end('not a confirmed 204');
+      });
+      const gateway = await relay(independent, wire.fetchImpl, 1_000);
+      const key = `synthetic-deadline-200:${randomUUID()}`,
+        body = envelope();
+      const unknown = await request(gateway.url, key, body);
+      expect(unknown.status).toBe(503);
+      expect(await unknown.json()).toEqual({ code: 'notify.relay.acceptance_unknown' });
+      extra = 0;
+      expect((await independent.sql`SELECT status FROM notify.mailbox_relay_receipts`)[0]?.status).toBe('unknown');
+      const restarted = await relay(independent, wire.fetchImpl, 1_000);
+      expect((await request(restarted.url, key, { ...body, notificationId: randomUUID() })).status).toBe(503);
+      expect(wire.messages).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it('keeps a persisted crash claim unknown and never reclaims it', async () => {
     const wire = await upstream(),
       gateway = await relay(independent, wire.fetchImpl);

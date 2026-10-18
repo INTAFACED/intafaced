@@ -1,5 +1,7 @@
 # Claim connect.latency-grading (health consumer)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `connect.latency-grading` (stays **ready** — SOR still the ranking consumer; thresholds unruled)
 **branch:** `feat/connect-latency-health-surface`

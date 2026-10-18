@@ -52,16 +52,31 @@ export function DisabledActions({
   );
 }
 
-/** A switch that shows no on/off state because the service cannot tell us one. It cannot be flipped. */
-export function UnknownSwitch({ label, state }: { label: ReactNode; state: ReactNode }) {
-  const id = useId();
+/** A real on/off switch. It shows the state the service reports, in words as well as position, and asks before it changes it. */
+export function ChannelSwitch({
+  label,
+  on,
+  state,
+  disabled,
+  onToggle,
+}: {
+  label: ReactNode;
+  on: boolean;
+  state: ReactNode;
+  disabled?: boolean;
+  onToggle: () => void;
+}) {
   return (
     <div className="bd-switch-row">
-      <span id={id}>{label}</span>
-      <button type="button" role="switch" aria-checked="mixed" aria-labelledby={id} disabled className="bd-switch">
-        <span className="bd-switch__knob" />
+      <button type="button" role="switch" aria-checked={on} disabled={disabled} className="bd-switch-btn" onClick={onToggle}>
+        <span>{label}</span>
+        <span className="bd-switch-state">
+          {state}
+          <span className="bd-switch" aria-hidden="true">
+            <span className="bd-switch__knob" />
+          </span>
+        </span>
       </button>
-      <small>{state}</small>
     </div>
   );
 }
