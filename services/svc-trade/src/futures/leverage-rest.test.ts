@@ -46,7 +46,13 @@ describe('POST /api/v1/futures/leverage', () => {
       method: 'POST',
       url: '/api/v1/futures/leverage',
       headers: headers(),
-      payload: { symbol: 'BTC/USDT-PERP', leverage: '4.25', marginMode: 'isolated' },
+      payload: {
+        symbol: 'BTC/USDT-PERP',
+        leverage: '4.25',
+        marginMode: 'isolated',
+        positionId: 'pos-1',
+        clientAdjustmentId: 'lev-1',
+      },
     });
 
     expect(response.statusCode).toBe(503);

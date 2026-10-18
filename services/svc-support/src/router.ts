@@ -19,6 +19,7 @@ import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
+import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
 
 const queueEntrySchema = z.object({
@@ -64,6 +65,7 @@ function mapError(err: unknown): never {
       err.code === 'support.kb.not_published' ||
       err.code === 'support.kb_version_unknown' ||
       err.code === 'support.identity_grounding_unwired' ||
+      err.code === 'support.order.user_mismatch' ||
       err.code === 'support.settle.refused' ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
       err.code === 'support.queue_list_limit_unset' ||
@@ -275,6 +277,27 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             ticketId: input.ticketId,
             asOperator: ctx.principal!.scopes.includes('support:ops'),
             limit: input.limit,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * One order, read for this ticket. `userId` is not an input: it comes off
+     * the ticket. A mismatch is refused. Trade silence is `unknown`, not a
+     * cancel. No ledger post.
+     */
+    ticketOrder: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), orderId: z.string().uuid() }).strict())
+      .output(ticketOrderReadSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.readTicketOrder({
+            operatorId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            orderId: input.orderId,
           });
         } catch (err) {
           mapError(err);

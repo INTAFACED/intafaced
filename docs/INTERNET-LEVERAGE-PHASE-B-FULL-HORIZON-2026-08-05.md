@@ -1,8 +1,10 @@
-> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
+> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
 
 # Internet leverage — Phase B full-horizon map (whole future project)
 
-**Exchange OSS (2026-08-31) wins on FIX/SBE/Greeks:** [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3** + [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md). Silence in the tracker table below is **not** permission to hand-roll a FIX parser. `trade.ccxt-api` is a public API **shape**; npm `ccxt` is still **KILL**. `venue.aggregation` = `packages/venue-adapter` decimal strings, not CCXT.
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
+**Exchange OSS (2026-08-31) wins on FIX/SBE/Greeks:** [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3** + [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](archive/BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md). Silence in the tracker table below is **not** permission to hand-roll a FIX parser. `trade.ccxt-api` is a public API **shape**; npm `ccxt` is still **KILL**. `venue.aggregation` = `packages/venue-adapter` decimal strings, not CCXT.
 
 **Status:** CANONICAL · **DONE-DONE** per-ID map (no wildcards)  
 **Date:** 2026-08-05 · tip re-derive at write  

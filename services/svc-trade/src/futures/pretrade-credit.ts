@@ -62,8 +62,12 @@ export function installPreTradeCreditPlace(ctor: typeof TradeService): void {
   proto[PLACE_FLAG] = true;
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
-    if (!check.ok) refusePlace(check);
+    const tagged = input as PlaceOrderInput & { reduceOnly?: boolean; closePosition?: boolean };
+    // Reducing a position is never refused only because a cap is unset.
+    if (tagged.reduceOnly !== true && tagged.closePosition !== true) {
+      const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
+      if (!check.ok) refusePlace(check);
+    }
     return origPlace.call(this, principal, input);
   };
 }

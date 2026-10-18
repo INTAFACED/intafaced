@@ -1,5 +1,7 @@
 # Secret rotation readiness (tip)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** D26-P3-05 · **Class:** Ops runbook + gates. **Not** Class X live rotation.  
 **Date:** 2026-08-15 · **Lane:** `denon-d26-p3-05-rotation`
 

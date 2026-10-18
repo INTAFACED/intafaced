@@ -1,3 +1,4 @@
+-- intafaced:destructive — false positive: this file removes no data; BEFORE TRUNCATE is the trigger event of a guard that refuses TRUNCATE.
 -- trade.orders · append-only execution reports for a child (EXE-1)
 -- Reversal: 0062_order_events.down.sql
 --

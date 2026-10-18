@@ -193,19 +193,21 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
     });
   }
 
-  /** Three real recipes, no fixture poking a balance in — the pot is a real balance. */
+  /**
+   * A charged fee, not a realised loss. The loss recipe debits `futuresLossSink`
+   * and leaves `houseFees('trade')` — the account a profit close draws — empty.
+   */
   async function fundProfitSource(amount: string) {
     const seed = `pot-seed-${randomUUID()}`;
     await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: seed, userId: BOB, assetId: 'USDT', amount: amt(amount) }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seed,
+      recipes.feeCharge({
+        mode: 'asset',
+        module: 'trade',
+        chargeId: seed,
         userId: BOB,
         assetId: 'USDT',
-        fromMargin: amt(amount),
-        fromInsurance: 0n,
-        lossId: seed,
+        amount: amt(amount),
       }),
     );
   }
@@ -292,10 +294,9 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
    * between the row read and the row write.
    *
    * Against the unfixed service this paid 5000 eight times: Alice finished on
-   * 140000 and the pot on 10000. Against a fixed one exactly one attempt closes
-   * the position and the other seven are refused — and, crucially, the refusals
-   * happen BEFORE anything posts, so the seven leave no trace in the ledger at
-   * all.
+   * 140000 and the pot on 10000. Against the fixed one exactly one attempt posts
+   * the close and the other seven replay that committed row — and, crucially,
+   * the replays post nothing, so the seven leave no trace in the ledger at all.
    */
   it('eight concurrent closes with a 25 ms mark read pay the profit ONCE', async () => {
     const service = build(25);
@@ -306,13 +307,15 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
     await expectPaidExactlyOnce(pos.id!);
     expect(profitPayouts(pos.id!)).toBe(1);
 
-    // Exactly one attempt may claim the close. The rest must be told why, not
-    // silently handed a 200 for work they did not do.
+    // Exactly one attempt posts the close. The rest wait on the row lock, see
+    // the committed close, and return that row with replayed set. They post nothing.
     const fulfilled = attempts.filter((a) => a.status === 'fulfilled');
-    expect(fulfilled).toHaveLength(1);
-    for (const rejected of attempts.filter((a): a is PromiseRejectedResult => a.status === 'rejected')) {
-      expect(rejected.reason).toMatchObject({ code: 'trade.position_not_open' });
-    }
+    expect(fulfilled).toHaveLength(8);
+    const closers = fulfilled.filter((a) => a.value.replayed !== true);
+    const replayed = fulfilled.filter((a) => a.value.replayed === true);
+    expect(closers).toHaveLength(1);
+    expect(replayed).toHaveLength(7);
+    expect(closers[0]!.value.status).toBe('closed');
   });
 
   /**

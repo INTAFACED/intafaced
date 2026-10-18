@@ -174,8 +174,8 @@ const messages = {
   'Money out direction': 'Money out',
   'Set aside note': 'This money is set aside for an open order. It comes back if the order is cancelled.',
   'Add a note': 'Add a note',
-  'Add a note reason': 'Notes on transactions are not supported by the activity service yet.',
-  'Dispute reason': 'There is no way to dispute a transaction online yet. Contact support with the reference.',
+  'Add a note reason': 'Notes on transactions are not supported by the activity service.',
+  'Dispute reason': 'There is no way to dispute a transaction online. Contact support with the reference.',
 } as const;
 
 export const moneyCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.money', messages);

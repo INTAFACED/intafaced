@@ -15,6 +15,7 @@
  */
 import { TradeError, type TradeErrorCode } from '../spot/types.js';
 import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
+import { resolveOpenPositionMode } from './account-mode.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import type { Principal } from '@intafaced/auth';
 
@@ -184,7 +185,7 @@ type PlaceWithMode = PlaceOrderInput & {
   readonly positionSide?: unknown;
 };
 
-function refuseOpen(check: Extract<PositionModeCheck, { ok: false }>): never {
+function refuseOpen(check: { code: string; reason: string }): never {
   throw new FuturesError(check.reason, check.code, 400);
 }
 
@@ -210,15 +211,27 @@ export function installPositionModeOpen(ctor: typeof PositionService): void {
       if (tagged.positionMode != null && !mode.ok) refuseOpen(mode);
       return origOpen.call(this, input, principal);
     }
-    const mode = parsePositionMode(tagged.positionMode);
-    if (!mode.ok) refuseOpen(mode);
+    const stored = await this.readAccountMode(input.userId);
+    const decision = resolveOpenPositionMode({
+      requested: tagged.positionMode,
+      stored: stored.mode,
+    });
+    if (!decision.ok) refuseOpen(decision);
     const side = checkOrderSideForPositionMode({
-      mode: mode.mode,
+      mode: decision.mode,
       side: tagged.side,
       positionSide: tagged.positionSide,
     });
     if (!side.ok) refuseOpen(side);
-    return origOpen.call(this, input, principal);
+    const next = tagged.positionMode === decision.mode ? input : { ...input, positionMode: decision.mode };
+    const opened = await origOpen.call(this, next, principal);
+    if (decision.store) {
+      const clientOpenId = input.clientOpenId?.trim() ?? '';
+      if (clientOpenId.length > 0 && clientOpenId.length <= 64) {
+        await this.writeAccountMode(input.userId, { mode: 'one_way', clientModeId: clientOpenId });
+      }
+    }
+    return opened;
   };
 }
 
@@ -232,6 +245,19 @@ export function installPositionModePlace(ctor: typeof TradeService): void {
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const tagged = input as PlaceWithMode;
+    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
+    // A futures order with no position mode must not fall through to a spot hold.
+    if (market?.kind === 'futures') {
+      const mode = parsePositionMode(tagged.positionMode);
+      if (!mode.ok) refusePlace(mode);
+      const side = checkOrderSideForPositionMode({
+        mode: mode.mode,
+        side: tagged.side,
+        positionSide: tagged.positionSide,
+      });
+      if (!side.ok) refusePlace(side);
+      return origPlace.call(this, principal, input);
+    }
     if (tagged.positionMode === undefined && tagged.positionSide === undefined) {
       return origPlace.call(this, principal, input);
     }

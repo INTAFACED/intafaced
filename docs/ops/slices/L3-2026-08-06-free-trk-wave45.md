@@ -1,5 +1,7 @@
 # L3 pack — free TRK wave45
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-06  
 **Class:** N  
 **Depends on:** tip #875 wave44  

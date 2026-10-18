@@ -81,8 +81,8 @@ describe('asking for a payout', () => {
     expect(message(await run(direct.portal, { maySend: false, sending: true }))).toContain('Only the account owner');
     expect(direct.requestPayoutApproval).not.toHaveBeenCalled();
   });
-  it('neither asks nor sends when the session has no payout scope (asking carries it too)', async () => {
-    const why = 'Paying out needs a confirmed sign-in step that this deployment does not offer.';
+  it('neither asks nor sends when the person cannot begin a payout (asking is a payout step too)', async () => {
+    const why = 'Only the account owner can send payouts.';
     const asking = fakePortal({});
     expect(message(await run(asking.portal, { stepReason: why }))).toBe(why);
     expect(asking.requestPayoutApproval).not.toHaveBeenCalled();
@@ -120,8 +120,8 @@ describe('what blocks the payout form', () => {
     );
     // Asking for approval stays open to them.
     expect(payoutProblem(t, { ...base, sending: false, maySend: false })).toBeNull();
-    expect(payoutProblem(t, { ...base, stepReason: 'Paying out needs a confirmed sign-in step.' })).toBe(
-      'Paying out needs a confirmed sign-in step.',
+    expect(payoutProblem(t, { ...base, stepReason: 'Only the account owner can send payouts.' })).toBe(
+      'Only the account owner can send payouts.',
     );
   });
 });

@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { AuthError } from '@intafaced/auth';
+import { JurisdictionError, router, publicProcedure, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
-import { TradeError, type FillRecord, type Market, type OrderRecord } from './spot/types.js';
+import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -33,6 +34,7 @@ import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './cop
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
+import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
@@ -232,6 +234,15 @@ const orderOutput = z.object({
   timestamp: z.number().int(),
 });
 
+const placeAttemptOutput = z.object({
+  userId: z.string().min(1),
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  clientOrderId: z.string().min(1).max(64),
+  outcome: z.enum(['refused', 'unknown', 'accepted']),
+  reason: z.string().nullable(),
+  orderId: z.string().uuid().nullable(),
+});
+
 const fillOutput = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
@@ -368,6 +379,7 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof CopyError) {
     switch (err.code) {
       case 'trade.copy_not_following':
+      case 'trade.copy_leader_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.copy_jurisdiction_blocked':
       case 'trade.copy_self_follow':
@@ -396,6 +408,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_disclosure_unpublished':
       case 'trade.copy_disclosure_required':
       case 'trade.copy_disclosure_version_stale':
+      case 'trade.copy_leader_suspended':
+      case 'trade.copy_leader_delisted':
+      case 'trade.copy_leader_capacity_full':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -436,6 +451,10 @@ function toTrpcError(err: unknown): TRPCError {
     }
   }
 
+  if (err instanceof JurisdictionError) {
+    return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+  }
+
   if (err instanceof AuthError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
   }
@@ -455,6 +474,206 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+type PlaceAttemptOutcome = 'refused' | 'unknown' | 'accepted';
+
+interface StoredPlaceAttempt {
+  readonly userId: string;
+  readonly tier: Principal['tier'];
+  readonly clientOrderId: string;
+  outcome: PlaceAttemptOutcome;
+  reason: string | null;
+  orderId: string | null;
+}
+
+/**
+ * Latest custodial place for a user and clientOrderId. An officer reads this
+ * record. It does not decide the customer's answer. A new key past `maxRows`
+ * drops the oldest row. Writing the same key again replaces the row and does
+ * not add a second clientOrderId entry.
+ */
+export class PlaceAttemptBook {
+  private readonly byKey = new Map<string, StoredPlaceAttempt>();
+  private readonly byClientOrderId = new Map<string, string[]>();
+
+  constructor(private readonly maxRows = 10_000) {}
+
+  private key(userId: string, clientOrderId: string): string {
+    return `${userId}\0${clientOrderId}`;
+  }
+
+  /** Latest write wins. A repeat for the same user and clientOrderId replaces the row. */
+  record(row: StoredPlaceAttempt): void {
+    const key = this.key(row.userId, row.clientOrderId);
+    if (!this.byKey.has(key)) {
+      if (this.byKey.size >= this.maxRows) this.evictOldest();
+      const keys = this.byClientOrderId.get(row.clientOrderId) ?? [];
+      keys.push(key);
+      this.byClientOrderId.set(row.clientOrderId, keys);
+    }
+    this.byKey.set(key, row);
+  }
+
+  private evictOldest(): void {
+    const oldest = this.byKey.keys().next();
+    if (oldest.done) return;
+    const key = oldest.value;
+    const row = this.byKey.get(key);
+    this.byKey.delete(key);
+    if (!row) return;
+    const keys = this.byClientOrderId.get(row.clientOrderId);
+    if (!keys) return;
+    const remaining = keys.filter((item) => item !== key);
+    if (remaining.length === 0) this.byClientOrderId.delete(row.clientOrderId);
+    else this.byClientOrderId.set(row.clientOrderId, remaining);
+  }
+
+  lookup(clientOrderId: string): StoredPlaceAttempt {
+    const keys = this.byClientOrderId.get(clientOrderId) ?? [];
+    if (keys.length === 0) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'place attempt not found' });
+    }
+    if (keys.length > 1) {
+      throw new TRPCError({ code: 'CONFLICT', message: 'clientOrderId matches more than one account' });
+    }
+    const row = this.byKey.get(keys[0]!);
+    if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'place attempt not found' });
+    return row;
+  }
+}
+
+function presentPlaceAttempt(row: StoredPlaceAttempt) {
+  return {
+    userId: row.userId,
+    tier: row.tier,
+    clientOrderId: row.clientOrderId,
+    outcome: row.outcome,
+    reason: row.reason,
+    orderId: row.orderId,
+  };
+}
+
+function isPlaceTimeout(err: unknown): boolean {
+  if (err instanceof TradeError && err.code === 'trade.hold_unknown') return true;
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : '';
+  if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ABORT_ERR') return true;
+  return /\btimeout\b/i.test(err.message);
+}
+
+function refusalReason(err: unknown): string {
+  if (err instanceof TradeError || err instanceof AuthError || err instanceof JurisdictionError) return err.code;
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') return err.code;
+  return 'refused';
+}
+
+interface CustodialPlaceInput {
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly type: 'market' | 'limit';
+  readonly qty: string;
+  readonly price?: string;
+  readonly timeInForce?: TimeInForce;
+  readonly clientOrderId: string;
+  readonly subAccountId?: string;
+}
+
+function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal }): void {
+  const decision = checkAccess({
+    module: 'trade',
+    plane: 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) throw new JurisdictionError(decision);
+}
+
+/**
+ * Record the place, then hold. Tier below `basic` is `tier.insufficient` and
+ * never calls `placeOrder`. A jurisdiction refusal is recorded and thrown the
+ * same way. Every other call reaches `placeOrder`. The book stores the latest
+ * outcome and does not answer the retry. A timeout stays `unknown` and returns
+ * no order.
+ */
+async function placeAttributedOrder(
+  ctx: Context & { principal: Principal },
+  input: CustodialPlaceInput,
+  trade: TradeService,
+  book: PlaceAttemptBook,
+) {
+  const principal = ctx.principal;
+  const base = {
+    userId: principal.userId,
+    tier: principal.tier,
+    clientOrderId: input.clientOrderId,
+    orderId: null as string | null,
+  };
+
+  if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
+    book.record({
+      ...base,
+      outcome: 'refused',
+      reason: 'tier.insufficient',
+    });
+    requireTier(principal, 'basic');
+    throw new AuthError('Verification tier "basic" is required', 'tier.insufficient');
+  }
+
+  try {
+    refuseCustodialTradeJurisdiction(ctx);
+  } catch (err) {
+    book.record({
+      ...base,
+      outcome: 'refused',
+      reason: refusalReason(err),
+    });
+    throw err;
+  }
+
+  book.record({
+    ...base,
+    outcome: 'unknown',
+    reason: null,
+  });
+
+  try {
+    const order = await trade.placeOrder(principal, {
+      symbol: input.symbol,
+      side: input.side,
+      type: input.type,
+      qty: parseAmount(input.qty),
+      price: input.price === undefined ? null : parseAmount(input.price),
+      tif: input.timeInForce,
+      clientOrderId: input.clientOrderId,
+      subAccountId: input.subAccountId,
+    });
+    book.record({
+      ...base,
+      outcome: 'accepted',
+      reason: null,
+      orderId: order.id,
+    });
+    return presentOrder(order);
+  } catch (err) {
+    if (isPlaceTimeout(err)) {
+      book.record({
+        ...base,
+        outcome: 'unknown',
+        reason: null,
+        orderId: null,
+      });
+      throw new TradeError('place outcome is unknown', 'trade.hold_unknown');
+    }
+    book.record({
+      ...base,
+      outcome: 'refused',
+      reason: refusalReason(err),
+      orderId: null,
+    });
+    throw err;
+  }
+}
+
 export function createTradeRouter(
   trade: TradeService,
   otc?: OtcDeskService,
@@ -462,6 +681,7 @@ export function createTradeRouter(
   controls?: TradingControls,
   admin?: TradeOpsAdmin,
 ) {
+  const placeAttempts = new PlaceAttemptBook();
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: tradeOpsAdminRouter(admin),
@@ -488,10 +708,13 @@ export function createTradeRouter(
 
     orders: router({
       /**
-       * THE MONEY PATH. `trade:write`, tier and jurisdiction, then the flow in
-       * `TradeService.placeOrder`: risk → hold → engine → fill/release.
+       * THE MONEY PATH. `trade:write`, then `placeAttributedOrder`: tier and
+       * jurisdiction are recorded against clientOrderId before any hold.
+       * The book is a record the officer reads. `placeOrder` decides a retry.
+       * The middleware does not take `{ module: 'trade' }` — that gate throws
+       * before the attempt row exists, so a tier refusal would be invisible.
        */
-      create: scopedProcedure('trade:write', { module: 'trade' })
+      create: scopedProcedure('trade:write')
         .input(
           z
             .object({
@@ -522,22 +745,13 @@ export function createTradeRouter(
             }),
         )
         .output(orderOutput)
-        .mutation(({ ctx, input }) =>
-          guard(async () =>
-            presentOrder(
-              await trade.placeOrder(ctx.principal, {
-                symbol: input.symbol,
-                side: input.side,
-                type: input.type,
-                qty: parseAmount(input.qty),
-                price: input.price === undefined ? null : parseAmount(input.price),
-                tif: input.timeInForce,
-                clientOrderId: input.clientOrderId,
-                subAccountId: input.subAccountId,
-              }),
-            ),
-          ),
-        ),
+        .mutation(({ ctx, input }) => guard(() => placeAttributedOrder(ctx, input, trade, placeAttempts))),
+
+      /** Risk officer read of the latest place attempt for a clientOrderId. No hold. */
+      placeAttempt: scopedProcedure('admin:read')
+        .input(z.object({ clientOrderId: z.string().min(1).max(64) }).strict())
+        .output(placeAttemptOutput)
+        .query(({ input }) => presentPlaceAttempt(placeAttempts.lookup(input.clientOrderId))),
 
       /**
        * Cancelling is `trade:write` but is NOT gated on the market being
@@ -1074,7 +1288,8 @@ export function createTradeRouter(
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(
           z.object({
-            leaderId: z.string().min(1).max(120),
+            leaderId: z.string().min(1).max(120).optional(),
+            leaderRef: z.string().min(1).max(80).optional(),
             region: z.string().min(1).max(16),
             permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
             maxNotionalPerOrder: decimal,
@@ -1203,6 +1418,98 @@ export function createTradeRouter(
             return copy.resume(ctx.principal, input);
           }),
         ),
+
+      /**
+       * Published leader directory. Listed rows only, stable by listed time.
+       * Limit is required. Any sort or order parameter is a ranking refuse.
+       */
+      listLeaders: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z
+            .object({
+              limit: z.number().optional(),
+              cursor: z.string().max(500).optional(),
+              sort: z.string().max(64).optional(),
+              order: z.string().max(64).optional(),
+              orderBy: z.string().max(64).optional(),
+              return: z.string().max(64).optional(),
+              profit: z.string().max(64).optional(),
+              copiers: z.string().max(64).optional(),
+              rank: z.string().max(64).optional(),
+            })
+            .optional(),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const query = input ?? {};
+            refuseLeaderDirectoryRanking(query);
+            publishedCopyPageLimit(query.limit, 'trade.copy_leaders_limit_unset', 'listLeaders');
+            if (!copy) return { leaders: [], nextCursor: null };
+            return copy.listLeaders(ctx.principal, query);
+          }),
+        ),
+
+      /** Events for the caller's own follow, since the follow began. Limit is required. */
+      followEvents: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            limit: z.number().optional(),
+            cursor: z.string().max(500).optional(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.followEvents(ctx.principal, input);
+          }),
+        ),
+
+      ops: router({
+        /** Operator writes need `admin:write`, the trade operator desk's write scope. */
+        upsertListing: scopedProcedure('admin:write', { module: 'trade' })
+          .input(
+            z.object({
+              clientRequestId: z.string().min(1).max(200),
+              leaderUserId: z.string().min(1).max(120),
+              displayName: z.string().min(1).max(200),
+              recordKind: z.enum(['verified_live', 'paper', 'backtest', 'imported', 'self_reported']),
+              state: z.enum(['unlisted', 'listed', 'suspended', 'delisted']).optional(),
+              tenureStart: z.string().max(40).nullable().optional(),
+              assets: z.array(z.string().min(1).max(32)).max(64).optional(),
+              capacity: z.number().int().nonnegative().nullable().optional(),
+              strategyVersion: z.string().max(120).nullable().optional(),
+              publishedReturn: z.string().max(80).nullable().optional(),
+              maximumDrawdown: z.string().max(80).nullable().optional(),
+              windowStart: z.string().max(40).nullable().optional(),
+              windowEnd: z.string().max(40).nullable().optional(),
+              netOfCosts: z.boolean().nullable().optional(),
+              evidenceRef: z.string().max(500).nullable().optional(),
+            }),
+          )
+          .mutation(({ ctx, input }) =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_law_blank');
+              return copy.upsertListing(ctx.principal, input);
+            }),
+          ),
+
+        setLeaderState: scopedProcedure('admin:write', { module: 'trade' })
+          .input(
+            z.object({
+              leaderRef: z.string().min(1).max(80),
+              state: z.enum(['listed', 'suspended', 'delisted']),
+              reason: z.string().min(1).max(500),
+              clientRequestId: z.string().min(1).max(200),
+            }),
+          )
+          .mutation(({ ctx, input }) =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_law_blank');
+              return copy.setLeaderState(ctx.principal, input);
+            }),
+          ),
+      }),
 
       /** Caller's follows only — product desk list. Omit limit → named refuse, never invent 50. */
       listMyFollows: scopedProcedure('trade:read', { module: 'trade' })

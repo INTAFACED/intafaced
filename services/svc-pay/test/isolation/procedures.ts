@@ -558,7 +558,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     ownCause: 'pay.limit_request_not_found',
     input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
   },
-  // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
+  // The default isolation key does not carry pay:payout (D-145), so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {
     path: 'merchantControl.approvals.request',
     scope: 'pay:payout',

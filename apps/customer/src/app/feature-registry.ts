@@ -139,8 +139,9 @@ export const features: readonly Feature[] = [
       '/bank/business',
     ],
     status: 'blocked',
-    reason: 'Not part of the new Money tab; earn rate, loans, cards, ramps not set up',
-    unlock: 'product decision per feature',
+    reason:
+      'Every room is reachable and wired to the bank service; each room is confirmed live only after its own proof run (ramps need a provider, cards need an issuer, earn and loan products are set by operators)',
+    unlock: 'split this row per room, or flip it to live once all nine rooms pass a proof run, with the evidence',
     tab: 'money',
   },
   {
@@ -158,7 +159,7 @@ export const features: readonly Feature[] = [
     paths: ['/trade/copy'],
     status: 'blocked',
     reason:
-      'The leader fee share and the list of countries where copy trading is allowed are not approved yet, so the service refuses every new follow',
+      'The leader fee share and the list of countries where copy trading is allowed are not approved, so the service refuses every new follow',
     unlock: 'Approval of the leader fee share and of the country list',
     tab: 'trade',
   },
@@ -235,7 +236,7 @@ export const features: readonly Feature[] = [
   {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/chat', '/checkuser'],
+    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',

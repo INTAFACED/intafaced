@@ -4,7 +4,7 @@ import { LayoutDashboardView, RecentPaymentsView } from './DashboardHome';
 import { usagePercent } from './TierUsage';
 import { type Snapshot } from '../schemas';
 import type { DashboardData } from './Dashboard';
-import { withMoneyScopes } from '../access/money-test-kit';
+import { withMoneyAccess } from '../access/money-test-kit';
 vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
@@ -36,7 +36,7 @@ const data: DashboardData = {
 const noop = () => undefined;
 const view = (patch: Partial<Parameters<typeof LayoutDashboardView>[0]> = {}, held = true) =>
   renderToString(
-    withMoneyScopes(
+    withMoneyAccess(
       <LayoutDashboardView
         merchant={null}
         role="owner"
@@ -56,12 +56,12 @@ describe('portal overview', () => {
     expect(view()).not.toContain('<form');
     expect(view()).not.toContain('layout=');
   });
-  it('switches Pay out and Refund off, with the reason, when the session has no payout or refund scope', () => {
+  it('switches Pay out and Refund off, with the reason, when the person cannot begin a payout or a refund', () => {
     const out = view({}, false);
     expect(out).not.toContain('href="/pay/payouts?view=tools"');
     expect(out).not.toContain('href="/pay/refunds/new"');
-    expect(out).toContain('Refunding needs a confirmed sign-in step that this deployment does not offer.');
-    expect(out).toContain('Paying out needs a confirmed sign-in step that this deployment does not offer.');
+    expect(out).toContain('Only the account owner can refund payments.');
+    expect(out).toContain('Only the account owner can send payouts.');
     // Making a link is an ordinary write and stays on.
     expect(out).toContain('href="/pay/links/new"');
   });

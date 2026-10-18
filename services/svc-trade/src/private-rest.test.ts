@@ -2456,7 +2456,7 @@ describe('private REST — mount boundary + order write path', () => {
       let moneyPath = false;
       const marks = markSourceFromBook({
         async readBook() {
-          return { bestBid: null, bestAsk: null, last: '50000' };
+          return { bestBid: null, bestAsk: null, last: '50000', observedAt: new Date() };
         },
       });
       const app = await build(
@@ -2488,10 +2488,95 @@ describe('private REST — mount boundary + order write path', () => {
           leverage: '10',
         },
       });
-      expect(res.statusCode).toBe(503);
+      expect(res.statusCode).toBe(409);
       expect(res.json().error).toBe('trade.mark_unusable');
+      expect(res.json().committed).toBe(false);
       expect(res.json().message).toContain('last-trade');
       expect(moneyPath).toBe(false);
+      await app.close();
+    });
+
+    it('a plain open does not answer position_mode_unset when the account mode is unset', async () => {
+      let forwarded: string | undefined = 'missing';
+      const app = await build(
+        deps({
+          readAccountMode: async () => ({ mode: null, source: 'unset', code: 'trade.position_mode_unset' }),
+          openPosition: async (_principal, input) => {
+            forwarded = input.positionMode;
+            return { id: 'opened', symbol: input.symbol } as never;
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'plain-open', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().error).toBeUndefined();
+      expect(forwarded).toBeUndefined();
+      await app.close();
+    });
+
+    it('an open on a one-way account forwards one_way when the body omits positionMode', async () => {
+      let forwarded: string | undefined;
+      const app = await build(
+        deps({
+          readAccountMode: async () => ({ mode: 'one_way', source: 'stored' }),
+          openPosition: async (_principal, input) => {
+            forwarded = input.positionMode;
+            return { id: 'opened', symbol: input.symbol } as never;
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'one-way-open', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(forwarded).toBe('one_way');
+      await app.close();
+    });
+
+    it('a genuine internal failure on open stays 5xx without committed', async () => {
+      const app = await build(
+        deps({
+          openPosition: async () => {
+            throw new FuturesError('boom', 'trade.internal', 500);
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'internal', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).toBe('trade.internal');
+      expect(res.json().committed).toBeUndefined();
+      await app.close();
+    });
+
+    it('a profitable close on an unusable mark answers 409 committed false', async () => {
+      const app = await build(
+        deps({
+          closePositionQuantity: async () => {
+            throw new FuturesError('Refusing to pay realised profit on this mark — last-trade', 'trade.mark_unusable', 503);
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/positions/${ORDER_ID}/close`,
+        headers: signedHeaders(),
+        payload: { quantity: '1', clientCloseId: 'close-mark-unusable' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: 'trade.mark_unusable', committed: false });
       await app.close();
     });
 
@@ -2512,7 +2597,7 @@ describe('private REST — mount boundary + order write path', () => {
       await app.close();
     });
 
-    it('DELETE with no price closes at the mark — the happy path still works', async () => {
+    it('DELETE with no price is cancel-not-close and does not call closePosition', async () => {
       const seen: string[] = [];
       const app = await build(
         deps({
@@ -2527,23 +2612,25 @@ describe('private REST — mount boundary + order write path', () => {
         url: `/api/v1/positions/${ORDER_ID}`,
         headers: signedHeaders(),
       });
-      expect(res.statusCode).toBe(200);
-      expect(seen).toEqual([ORDER_ID]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('trade.cancel_not_close');
+      expect(seen).toEqual([]);
       await app.close();
     });
 
-    it('DELETE /positions unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
+    it('POST /positions/:id/close unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
       const app = await build(
         deps({
-          closePosition: async () => {
+          closePositionQuantity: async () => {
             throw new FuturesError('cannot pay', 'trade.profit_source_unconfigured', 403);
           },
         }),
       );
       const res = await app.inject({
-        method: 'DELETE',
-        url: `/api/v1/positions/${ORDER_ID}`,
+        method: 'POST',
+        url: `/api/v1/positions/${ORDER_ID}/close`,
         headers: signedHeaders(),
+        payload: { quantity: '1', clientCloseId: 'close-1' },
       });
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({

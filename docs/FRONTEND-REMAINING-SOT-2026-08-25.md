@@ -1,5 +1,7 @@
 # Remaining product UI — source of truth
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Living frontend inventory and closure specification · **north-star UI map added 2026-08-31**<br>
 **Shipped chrome PRs on `origin/main` [RAN-IT]:** desk `#3313` · money `#3358` · bank `#3371` · pay `#3375` · p2p `#3379` · platform OS `#3380` · public `#3384` · route close `#3385` · ticket TIF `#3388`  
 **Finish implementation:** `#3406` + residual `#3419`; graph refresh `#3408/#3445`; P0s `#3453/#3459/#3460/#3461/#3462/#3463`; route matrix `#3456/#3457`.<br>
@@ -10,7 +12,7 @@
 **Tip at this map:** worktree base `origin/main` (re-derive: `git log -1 --oneline origin/main`). Do not inventory the Grok door checkout.<br>
 **Product UI:** Bazaar `vendor/upstream-exchange/05_Web_Front` `:8090` only. No second SPA. N4 paint. Ledger-client only for value.
 
-This file names **every frontend surface and every remaining closure gate**. It is the sole living frontend _execution_ map. Product terminal law stays in [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **M07/M25** and [`SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md`](SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md) (PX-S05). This file maps those R-items onto Bazaar; it does not recook them. Sections 0–8 are 2026-08-26 baseline; §§9–18 win on shell safety; §§19–21 win on “what the exchange UI still owes.” Do not create another frontend tracker or paste this whole file as one PR.
+This file names **every frontend surface and every remaining closure gate**. It is the sole living frontend _execution_ map. Product terminal law stays in [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **M07/M25** and [`SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md`](archive/SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md) (PX-S05). This file maps those R-items onto Bazaar; it does not recook them. Sections 0–8 are 2026-08-26 baseline; §§9–18 win on shell safety; §§19–21 win on “what the exchange UI still owes.” Do not create another frontend tracker or paste this whole file as one PR.
 
 ---
 

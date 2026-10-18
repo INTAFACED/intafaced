@@ -1,5 +1,7 @@
 # Claim TRK-trade.futures
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** merged
 **proof:** #995 merged 2026-08-07 — freeze voluntary futures exits when the mark feed is dark
 **owner:** cursor-swarm-futures

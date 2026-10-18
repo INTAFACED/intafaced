@@ -48,6 +48,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'Maker/taker bps on fill → houseFees(trade).',
   },
+  'trade.spot.fill_fee_correction': {
+    kind: 'recipe',
+    recipe: 'tradeFillFeeCorrection',
+    feeModule: 'trade',
+    note: 'Excess posted fill fee returns from houseFees(trade) under a new key. The original trade.fill stays.',
+  },
   'trade.spot.mm_maker_fill_fee': {
     kind: 'recipe',
     recipe: 'marketMakerMakerFill',
@@ -57,8 +63,7 @@ export const FEE_REVENUE_PATHS = {
   'trade.futures.realize_loss_sink': {
     kind: 'recipe',
     recipe: 'futuresRealizeLoss',
-    feeModule: 'trade',
-    note: 'Realized loss temporarily sinks into houseFees(trade).',
+    note: 'Realized loss debits house futures-loss. It does not touch houseFees(trade).',
   },
   'trade.futures.realize_profit': {
     kind: 'recipe',
@@ -221,8 +226,8 @@ export type FeeRevenuePathId = keyof typeof FEE_REVENUE_PATHS;
  */
 export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
+  'tradeFillFeeCorrection',
   'marketMakerMakerFill',
-  'futuresRealizeLoss',
   'futuresRealizeProfit',
   'futuresInsuranceTopup',
   'escrowRelease',

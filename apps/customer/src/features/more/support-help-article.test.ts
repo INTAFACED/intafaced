@@ -16,7 +16,7 @@ describe('the "Sign-in and account access" help article', () => {
   it('describes the reset page as it stands and promises nothing that is not built', () => {
     expect(body).not.toContain('use account recovery');
     expect(body).toContain('password reset page');
-    expect(body).toContain('If that page says reset is not switched on yet, write to support');
+    expect(body).toContain('If that page says reset is not switched on, write to support');
     expect(body).toContain('Support never asks for your password or recovery codes in chat.');
     for (const promise of ['instantly', 'automatically', 'within minutes', 'we will email you'])
       expect(body.toLowerCase()).not.toContain(promise);

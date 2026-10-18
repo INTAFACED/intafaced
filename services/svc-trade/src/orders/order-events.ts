@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { childOrderIds } from '../algo/algo-list.js';
 import { DeskError } from '../desk/errors.js';
 
 export const ORDER_EVENT_KINDS = ['ack', 'reject', 'rest', 'amend', 'cancel', 'partial', 'fill', 'expire'] as const;
@@ -105,25 +106,32 @@ function decodeCursor(cursor: string): { at: string; id: string } {
 async function selectReportRows(
   sql: Sql,
   algoId: string,
+  userId: string,
+  childIds: readonly string[],
   cursor: { at: string; id: string } | null,
   limit: number,
 ): Promise<Array<Record<string, unknown>>> {
+  if (childIds.length === 0) return [];
   if (cursor) {
     const cursorAt = new Date(cursor.at);
     return sql<Array<Record<string, unknown>>>`
-      SELECT id::text AS id, order_id, parent_id, kind, quantity::text AS quantity, price::text AS price, code, at
-      FROM order_events
-      WHERE parent_id = ${algoId}
-        AND (at > ${cursorAt} OR (at = ${cursorAt} AND id > ${cursor.id}))
-      ORDER BY at ASC, id ASC
+      SELECT e.id::text AS id, e.order_id, e.parent_id, e.kind, e.quantity::text AS quantity, e.price::text AS price, e.code, e.at
+      FROM order_events e
+      JOIN trade.orders o ON o.id = e.order_id AND o.user_id = ${userId}::uuid
+      WHERE e.parent_id = ${algoId}
+        AND e.order_id = ANY(${[...childIds]}::uuid[])
+        AND (e.at > ${cursorAt} OR (e.at = ${cursorAt} AND e.id > ${cursor.id}))
+      ORDER BY e.at ASC, e.id ASC
       LIMIT ${limit}
     `;
   }
   return sql<Array<Record<string, unknown>>>`
-    SELECT id::text AS id, order_id, parent_id, kind, quantity::text AS quantity, price::text AS price, code, at
-    FROM order_events
-    WHERE parent_id = ${algoId}
-    ORDER BY at ASC, id ASC
+    SELECT e.id::text AS id, e.order_id, e.parent_id, e.kind, e.quantity::text AS quantity, e.price::text AS price, e.code, e.at
+    FROM order_events e
+    JOIN trade.orders o ON o.id = e.order_id AND o.user_id = ${userId}::uuid
+    WHERE e.parent_id = ${algoId}
+      AND e.order_id = ANY(${[...childIds]}::uuid[])
+    ORDER BY e.at ASC, e.id ASC
     LIMIT ${limit}
   `;
 }
@@ -135,12 +143,12 @@ export async function listAlgoReports(
 ): Promise<{ rows: OrderEventRow[]; nextCursor: string | null }> {
   requireScope(principal, 'trade:read');
   const limit = publishedAlgoReportsLimit(query.limit);
-  const owners = await sql<Array<{ id: string }>>`
-    SELECT id FROM algo_parents WHERE id = ${query.algoId} AND user_id = ${principal.userId}
+  const owners = await sql<Array<{ id: string; children: unknown }>>`
+    SELECT id, children FROM algo_parents WHERE id = ${query.algoId} AND user_id = ${principal.userId}
   `;
   if (!owners[0]) throw new DeskError('algo not found', 'trade.algo_not_found');
   const cursor = query.cursor == null || query.cursor.trim() === '' ? null : decodeCursor(query.cursor);
-  const rows = await selectReportRows(sql, query.algoId, cursor, limit + 1);
+  const rows = await selectReportRows(sql, query.algoId, principal.userId, childOrderIds(owners[0].children), cursor, limit + 1);
   const page = rows.slice(0, limit).map(presentEvent);
   const last = page[page.length - 1];
   const nextCursor = rows.length > limit && last ? encodeCursor(last.at, last.id) : null;

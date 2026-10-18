@@ -5,9 +5,13 @@ import type { AccountState } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
+  isPayStepUpScope,
   issueAccessToken,
+  PAY_STEP_UP_ACCESS_TTL_SECONDS,
+  PAY_STEP_UP_FACTOR_TTL_SECONDS,
   scopesForFounderSession,
   SESSION_SCOPES,
+  type PayStepUpScope,
   type Scope,
   type TokenConfig,
 } from '@intafaced/auth';
@@ -127,7 +131,10 @@ export class AuthError extends Error {
       | 'auth.ip_allowlist_required'
       | 'auth.payee_email_unconfirmed'
       | 'auth.payee_phone_unverified'
-      | 'auth.payee_phone_unset',
+      | 'auth.payee_phone_unset'
+      | 'auth.step_up_required'
+      | 'auth.step_up_expired'
+      | 'pay.role_not_allowed',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -312,6 +319,15 @@ const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full:
 const STEP_UP_TTL_SECONDS = 300;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
+/** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
+export type PayStepUpGrant = {
+  readonly refundsCreate: boolean;
+  readonly payoutSend: boolean;
+};
+
+export type PayStepUpFactorProof =
+  { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
+
 export interface RegisterInput {
   handle: string;
   email: string;
@@ -397,6 +413,11 @@ export class AuthService {
    * ordinary session.
    */
   private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
+  /**
+   * svc-pay read: may this user refund or pay out for this merchant.
+   * Unset refuses the mint. A throw refuses the mint.
+   */
+  private payStepUpRoleSource: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null = null;
   /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
   private emailConfirmMail: PasswordResetMail | undefined;
   private emailConfirmTtlSeconds: number | undefined;
@@ -464,6 +485,11 @@ export class AuthService {
    */
   useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
     this.ownerPayScopeSource = source;
+  }
+
+  /** Install the svc-pay role read used by `stepUpPay`. Unset refuses every mint. */
+  usePayStepUpRoleSource(source: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null): void {
+    this.payStepUpRoleSource = source;
   }
 
   /** Test clock. Production uses the real clock. */
@@ -1579,9 +1605,11 @@ export class AuthService {
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
-  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox' }> {
+    /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
+    payStepUp?: boolean;
+  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
-    assertDelegatableScopes(input.scopes, input.grantorScopes);
+    assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
     const rows = await transaction(
@@ -1595,7 +1623,7 @@ export class AuthService {
       },
       { isolation: 'read committed' },
     );
-    return { id: rows[0]!.id, key, prefix, mode };
+    return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
   async verifyApiKey(
@@ -2110,6 +2138,120 @@ export class AuthService {
     return { accessToken: token, expiresAt, scopes };
   }
 
+  /**
+   * Mint a short-lived access token that carries the requested pay:refund
+   * and/or pay:payout scopes plus the caller's ordinary session scopes.
+   * No refresh token is issued. A later refresh rebuilds scopes without these.
+   */
+  async stepUpPay(input: {
+    userId: string;
+    sessionId: string;
+    merchantId: string;
+    scopes: readonly string[];
+    factorProof: PayStepUpFactorProof;
+  }): Promise<{ accessToken: string; expiresAt: Date; scopes: Scope[]; refreshable: false }> {
+    const requested = payStepUpScopes(input.scopes);
+    if (requested.length === 0) {
+      throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    }
+    const factor = await this.acceptPayStepUpFactor(input.userId, input.sessionId, input.factorProof);
+    await this.assertPayStepUpRole(input.userId, input.merchantId, requested);
+    const base = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...base];
+    for (const scope of requested) if (!scopes.includes(scope)) scopes.push(scope);
+    await this.sql`
+      INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
+    `;
+    const tier = await this.kycTier(input.userId);
+    const { token, expiresAt } = await issueAccessToken(
+      {
+        userId: input.userId,
+        sessionId: input.sessionId,
+        scopes,
+        tier,
+        mfa: true,
+        stepUpScopes: requested,
+      },
+      { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, PAY_STEP_UP_ACCESS_TTL_SECONDS) },
+    );
+    return { accessToken: token, expiresAt, scopes, refreshable: false };
+  }
+
+  private async acceptPayStepUpFactor(
+    userId: string,
+    sessionId: string,
+    proof: PayStepUpFactorProof,
+  ): Promise<'totp' | 'passkey' | 'proof'> {
+    if ('proofId' in proof) {
+      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
+        SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
+      `;
+      const row = rows[0];
+      if (!row || row.user_id !== userId || row.session_id !== sessionId) {
+        throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+      }
+      const expires = row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at);
+      if (expires.getTime() <= Date.now()) {
+        throw new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired');
+      }
+      const sessions = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
+      `;
+      if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      return 'proof';
+    }
+    if ('totpCode' in proof) {
+      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
+      await this.recordPayStepUpProof(userId, sessionId, 'totp');
+      return 'totp';
+    }
+    // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
+    // A body-supplied challenge is not accepted: a captured assertion would mint again.
+    const clientChallenge = readClientChallenge(proof.webauthn.response.clientDataJSON);
+    if (!clientChallenge) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    const held = await this.challenges.take(clientChallenge, 'step-up');
+    if (!held || held.userId !== userId) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.proveFreshFactor({
+      userId,
+      sessionId,
+      webauthn: proof.webauthn,
+      webauthnChallenge: held.challenge,
+    });
+    await this.recordPayStepUpProof(userId, sessionId, 'passkey');
+    return 'passkey';
+  }
+
+  private async recordPayStepUpProof(userId: string, sessionId: string, method: 'totp' | 'passkey'): Promise<void> {
+    const verifiedAt = new Date();
+    const expiresAt = new Date(verifiedAt.getTime() + PAY_STEP_UP_FACTOR_TTL_SECONDS * 1000);
+    await this.sql`
+      INSERT INTO pay_step_up_proofs (proof_id, user_id, session_id, method, verified_at, expires_at)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${method}, ${verifiedAt}, ${expiresAt})
+    `;
+  }
+
+  private async assertPayStepUpRole(userId: string, merchantId: string, scopes: readonly PayStepUpScope[]): Promise<void> {
+    if (!this.payStepUpRoleSource) {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    let grant: PayStepUpGrant;
+    try {
+      grant = await this.payStepUpRoleSource({ userId, merchantId });
+    } catch {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    for (const scope of scopes) {
+      const allowed = scope === 'pay:refund' ? grant.refundsCreate === true : grant.payoutSend === true;
+      if (!allowed) {
+        const permission = scope === 'pay:refund' ? 'refunds.create' : 'payout.send';
+        throw new AuthError(`Your role on this merchant does not allow ${permission}`, 'pay.role_not_allowed');
+      }
+    }
+  }
+
   async freezeIdentity(userId: string): Promise<{ userId: string; status: 'frozen'; subAccountsRevoked: number; apiKeysRevoked: number }> {
     const result = await transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
@@ -2305,6 +2447,16 @@ function readClientChallenge(clientDataJSONB64: string): string | null {
   } catch {
     return null;
   }
+}
+
+function payStepUpScopes(scopes: readonly string[]): PayStepUpScope[] {
+  if (scopes.length === 0) return [];
+  const out: PayStepUpScope[] = [];
+  for (const scope of scopes) {
+    if (!isPayStepUpScope(scope)) return [];
+    if (!out.includes(scope)) out.push(scope);
+  }
+  return out;
 }
 
 function mapWebAuthnError(err: unknown): AuthError {

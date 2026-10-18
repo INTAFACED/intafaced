@@ -1,5 +1,7 @@
 # Decision: where KYC applies, and where it does not
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Directed by the repo owner. Recorded so it stops being re-litigated.
 **Date:** 2026-07-28 · **Written by:** Denon
 

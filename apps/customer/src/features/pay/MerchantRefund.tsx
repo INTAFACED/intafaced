@@ -12,6 +12,7 @@ import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-ref
 import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
 import { moneyReason } from './portal/access/money-step';
+import { payStepUp } from './portal/access/step-up-store';
 import './merchant-refund.css';
 
 type Context = {
@@ -198,25 +199,40 @@ export function MerchantRefund({
       document.removeEventListener('visibilitychange', returned);
     };
   }, [context]);
-  function prepare() {
+  /** A refusal this screen writes itself when the confirmation step cannot be completed. Nothing was sent. */
+  const stepFailure = (code: 'pay.refund_step_up_required' | 'pay.refund_step_up_expired'): Failure => ({
+    ok: false,
+    reason: 'error',
+    code,
+    message: t(code === 'pay.refund_step_up_required' ? 'stepRequired' : 'stepExpired'),
+  });
+  async function prepare() {
     if (!live() || !shown?.draft || draft.current !== shown.draft || !shown.payment || shown.busy) return;
     const saved = pay.refund.inspect(paymentId, live);
     if (saved.status !== 'empty' || saved.known || saved.problem) {
       invalidate();
       return;
     }
-    const amount = shown.draft.amount.trim();
+    const started = shown.draft;
+    const payment = shown.payment;
+    const amount = started.amount.trim();
     if (
       !s.positiveAmount.safeParse(amount).success ||
-      parseAmount(amount) > parseAmount(shown.payment.capturedAmount) - parseAmount(shown.payment.refundedAmount)
+      parseAmount(amount) > parseAmount(payment.capturedAmount) - parseAmount(payment.refundedAmount)
     ) {
       update({ failure: { ok: false, reason: 'error', code: 'pay.refund_amount_invalid', message: t('invalidAmount') } });
       return;
     }
+    // Money out: confirm it's them first. The review opens once that is done; nothing is reserved or sent before.
+    if (!(await payStepUp.ensure('refund'))) {
+      if (live() && !payStepUp.canAsk) update({ failure: stepFailure('pay.refund_step_up_required') });
+      return;
+    }
+    if (!live() || draft.current !== started || admitted.current || pay.refund.inspect(paymentId, live).status !== 'empty') return;
     const review = {
       context,
       input: Object.freeze({ paymentId, amount, refundId: `refund:${paymentId}:${crypto.randomUUID()}` }),
-      assetId: shown.payment.assetId,
+      assetId: payment.assetId,
     };
     operation.current = null;
     admitted.current = review;
@@ -258,7 +274,23 @@ export function MerchantRefund({
     update({ busy: true });
     const reviewCurrent = () => live() && admitted.current === review && operation.current === action;
     const originalCurrent = () => live() && operation.current === action;
-    const result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+    // Nothing has been sent when the confirmation is missing or turned away, so the review closes with the amount kept.
+    const stopped = (code: 'pay.refund_step_up_required' | 'pay.refund_step_up_expired') => {
+      if (!live() || admitted.current !== review || operation.current !== action) return;
+      operation.current = null;
+      dismiss(review, true);
+      update({ failure: stepFailure(code) });
+    };
+    // The confirmation may have run out while the review was open: confirm again, then send.
+    if (!(await payStepUp.ensure('refund'))) return stopped('pay.refund_step_up_required');
+    let result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+    if (!result.ok && result.code === 'pay.refund_step_up_expired') {
+      // It ran out between the check and the send. The same review, with the same refund reference, goes out again.
+      payStepUp.drop('refund');
+      if (!(await payStepUp.ensure('refund', true))) return stopped('pay.refund_step_up_expired');
+      result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+      if (!result.ok && result.code === 'pay.refund_step_up_expired') return stopped('pay.refund_step_up_expired');
+    }
     publish(result, action);
   }
   async function check() {
@@ -480,7 +512,7 @@ export function MerchantRefund({
                 </p>
               )}
               <Button
-                onClick={prepare}
+                onClick={() => void prepare()}
                 disabled={!shown.draft?.amount || shown.busy || Boolean(pay.access('pay:refund')) || Boolean(snapshot.problem)}
               >
                 <Copy k="reviewAction" />

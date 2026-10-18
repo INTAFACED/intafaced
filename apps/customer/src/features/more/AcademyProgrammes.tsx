@@ -5,7 +5,7 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, TextArea, type ActionControls } from './common';
-import { AcademyProgrammeOverview } from './AcademyProgrammeOverview';
+import { AcademyProgrammeOverview, type ProgrammeAction } from './AcademyProgrammeOverview';
 const uuid = z.string().uuid(),
   residency = z.object({
     id: uuid,
@@ -27,7 +27,7 @@ const uuid = z.string().uuid(),
     startsAt: z.string(),
     endsAt: z.string().nullable(),
   });
-export function AcademyProgrammes({ action }: { action: ActionControls }) {
+export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
   const api = useApi(),
     { userId } = useSession();
   const [cohort, setCohort] = useState(''),

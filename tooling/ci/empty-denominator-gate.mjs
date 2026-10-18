@@ -151,6 +151,11 @@ export const ENFORCED = {
     must: /TRACKER REGISTRY INVALID/,
     note: 'every `done` row is checked against files that must exist — an empty tree makes all 71 claims false rather than unverifiable.',
   },
+  'services-map': {
+    kind: 'guard',
+    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
+    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
+  },
   coverage: {
     kind: 'guard',
     must: /coverage-check: tooling\/coverage\.yaml does not exist/,

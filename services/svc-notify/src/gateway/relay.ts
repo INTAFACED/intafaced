@@ -148,11 +148,30 @@ export function buildMailboxRelay(options: {
     });
     const bounded = <T>(promise: PromiseLike<T>) => Promise.race([Promise.resolve(promise), expired]);
     const unknown = () => reply.code(503).send({ code: 'notify.relay.acceptance_unknown' });
+    // Terminal unknown is written before the 503. A restart must not observe
+    // 'attempting' after this handler has given up: that row is an unknown
+    // attempt, and an in-progress claim is what a later sender could resend.
+    const markUnknown = (gatewayId: string) =>
+      sql`UPDATE notify.mailbox_relay_receipts SET status = 'unknown', settled_at = clock_timestamp()
+        WHERE key_hash = ${keyHash} AND gateway_id = ${gatewayId} AND status = 'attempting'`.catch(() => undefined);
+    const abandon = async () => {
+      await markUnknown(id);
+      return unknown();
+    };
     try {
-      const [claimed] = await bounded(sql<Receipt[]>`INSERT INTO notify.mailbox_relay_receipts
+      const claim = sql<Receipt[]>`INSERT INTO notify.mailbox_relay_receipts
         (key_hash,envelope_hash,gateway_id,status,attempted_at,deadline_at)
         VALUES (${keyHash},${fingerprint},${id},'attempting',clock_timestamp(),clock_timestamp() + ${config.timeoutMs} * interval '1 millisecond')
-        ON CONFLICT (key_hash) DO NOTHING RETURNING *`);
+        ON CONFLICT (key_hash) DO NOTHING RETURNING *`;
+      let claimed: Receipt | undefined;
+      try {
+        [claimed] = await bounded(claim);
+      } catch (error) {
+        if (!(error instanceof Deadline)) throw error;
+        const [lateClaim] = await claim.catch(() => [] as Receipt[]);
+        if (lateClaim) await markUnknown(lateClaim.gateway_id);
+        return unknown();
+      }
       if (!claimed) {
         const [prior] = await bounded(sql<Receipt[]>`SELECT * FROM notify.mailbox_relay_receipts WHERE key_hash = ${keyHash}`);
         if (!prior) return unknown();
@@ -161,7 +180,7 @@ export function buildMailboxRelay(options: {
         if (prior.status === 'refused') return reply.code(prior.upstream_status!).send({ code: 'notify.relay.upstream_refused' });
         return unknown();
       }
-      if (performance.now() >= deadline) return unknown();
+      if (performance.now() >= deadline) return abandon();
       const response = await bounded(
         fetchImpl(config.sendUrl, {
           method: 'POST',
@@ -174,20 +193,20 @@ export function buildMailboxRelay(options: {
       // Discard every body without reading it, including upstream errors/IDs.
       void response.body?.cancel().catch(() => undefined);
       const status = response.status === 204 ? 'accepted' : [401, 403, 422].includes(response.status) ? 'refused' : 'unknown';
-      if (performance.now() >= deadline) return unknown();
+      if (performance.now() >= deadline) return abandon();
       const [settled] = await bounded(sql<Receipt[]>`UPDATE notify.mailbox_relay_receipts
         SET status = ${status}, upstream_status = ${status === 'refused' ? response.status : null}, settled_at = clock_timestamp()
         WHERE key_hash = ${keyHash} AND gateway_id = ${id} AND status = 'attempting'
         AND (${status} = 'unknown' OR clock_timestamp() < deadline_at) RETURNING *`);
-      if (!settled || performance.now() >= deadline) return unknown();
+      if (!settled) return abandon();
+      if (performance.now() >= deadline) return unknown();
       if (settled.status === 'accepted') return reply.send({ id: `relay:${settled.gateway_id}` });
       if (settled.status === 'refused') return reply.code(settled.upstream_status!).send({ code: 'notify.relay.upstream_refused' });
       return unknown();
     } catch {
       // A committed attempt, including a SQL/HTTP response we lost, is never
       // reclaimed. Best-effort classification cannot grant another attempt.
-      void sql`UPDATE notify.mailbox_relay_receipts SET status = 'unknown', settled_at = clock_timestamp()
-        WHERE key_hash = ${keyHash} AND gateway_id = ${id} AND status = 'attempting'`.catch(() => undefined);
+      await markUnknown(id);
       return unknown();
     } finally {
       clearTimeout(timer!);

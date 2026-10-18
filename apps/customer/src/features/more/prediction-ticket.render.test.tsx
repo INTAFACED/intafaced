@@ -28,7 +28,7 @@ describe('prediction ticket', () => {
   const page = renderToString(<PredictionTicket market={market} outcome="yes" />);
 
   it('shows the whole ticket with the INTACORE reason and no House wording', () => {
-    expect(page).toContain('Prediction markets run on INTACORE, which is not activated yet.');
+    expect(page).toContain('Prediction markets run on INTACORE, which is not activated.');
     expect(page).toContain('Number of contracts');
     expect(page).toContain('Review order');
     expect(page).not.toContain('House');

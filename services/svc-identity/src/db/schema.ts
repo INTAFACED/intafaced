@@ -398,6 +398,9 @@ export const apiKeys = identity.table(
  * Soft-disable via `revoked` only — never hard-delete. Destroying the row
  * would orphan ledger accounts keyed on this id. Revoke does not move value
  * (identity holds no balances; see bank.spaces.archive for the same rule).
+ *
+ * `frozen` is the Bybit sub-uid flag: 0 active, 1 paused. Same id both ways.
+ * It is not revoke.
  */
 export const subAccounts = identity.table(
   'sub_accounts',
@@ -409,6 +412,8 @@ export const subAccounts = identity.table(
     label: text('label').notNull(),
     purpose: text('purpose'),
     revoked: boolean('revoked').notNull().default(false),
+    /** 0 active, 1 paused. Same id. Not revoke. */
+    frozen: integer('frozen').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [index('sub_accounts_parent_idx').on(t.parentUserId), index('sub_accounts_parent_revoked_idx').on(t.parentUserId, t.revoked)],

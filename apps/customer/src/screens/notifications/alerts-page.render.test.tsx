@@ -97,7 +97,7 @@ describe('price alerts page', () => {
     reads.markets = markets;
     reads.alerts = ready([]);
     const page = render();
-    expect(page).toContain('Price checks are not connected on this platform yet.');
+    expect(page).toContain('Price checks are not connected on this platform.');
     expect(page).toContain('No alerts yet');
     expect(page).toContain('data-testid="alerts-form"');
     // With markets and alerts loaded the form is usable.
@@ -133,7 +133,7 @@ describe('price alerts page', () => {
     reads.alerts = ready([]);
     expect(render()).toContain('Switched off: the list of markets could not be loaded.');
     reads.markets = { status: 'ready', markets: [] };
-    expect(render()).toContain('Switched off: there are no markets to watch yet.');
+    expect(render()).toContain('Switched off: there are no markets to watch.');
   });
 
   it('leaves a company account with a plain note, not a form', () => {

@@ -26,6 +26,7 @@ import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './rout
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
 import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { RailRegistry } from './rails/registry.js';
+import { railFailure } from './rails/rail-adapter.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
@@ -1680,6 +1681,75 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
       await expect(pay.authorize(payment.id)).rejects.toThrow();
       await expect(pay.authorize(payment.id)).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+    });
+
+    it('an adapter health refusal during authorize leaves the payment created', async () => {
+      class AuthorizeHealthRefusalCard extends CardSandboxAdapter {
+        override async authorize(intent: Parameters<CardSandboxAdapter['authorize']>[0]) {
+          return railFailure({
+            railRef: `ch_${intent.paymentId}`,
+            amount: intent.amount,
+            assetId: intent.assetId,
+            failureCode: 'rail.health_stale',
+            failureReason: 'rail.health_stale',
+          });
+        }
+      }
+
+      const refusalCard = new AuthorizeHealthRefusalCard({ secret: SECRET, toleranceSeconds: 300 });
+      expect(refusalCard.health().healthy).toBe(true);
+      const local = new PayService(sql, ledger, new RailRegistry([refusalCard, crypto, new BankPayoutAbsentAdapter()]), {
+        checkoutRiskBand: 'low',
+        payoutDestinations: dests,
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+      const m = await local.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 250 } });
+      const payment = await local.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+
+      await expect(local.authorize(payment.id)).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.health_stale' },
+      });
+      expect((await local.getPayment(payment.id)).status).toBe('created');
+      expect((await local.history(payment.id, 50)).map((event) => event.event)).toEqual(['created']);
+    });
+
+    it('a marked-down rail refuses authorize before the adapter is called', async () => {
+      const m = await merchant();
+      const payment = await pay.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      let authorizeCalls = 0;
+      const realAuthorize = card.authorize.bind(card);
+      card.authorize = async (intent) => {
+        authorizeCalls += 1;
+        return realAuthorize(intent);
+      };
+      card.setHealthy(false);
+
+      await expect(pay.authorize(payment.id)).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.marked_down' },
+      });
+      expect(authorizeCalls).toBe(0);
+      expect((await pay.getPayment(payment.id)).status).toBe('created');
+      expect(await events(payment.id)).toEqual(['created']);
     });
   });
 

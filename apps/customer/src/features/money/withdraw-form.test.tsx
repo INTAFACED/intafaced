@@ -42,7 +42,7 @@ describe('Withdraw leads with the whole form, and every way to send is off with 
   it('turns the review button off and says why beside it', () => {
     const html = renderToStaticMarkup(<WithdrawForm />);
     off(html, 'Review withdrawal');
-    expect(html).toContain('isn’t connected yet');
+    expect(html).toContain('isn’t connected');
     expect(html).toContain('Sending money out of INTAFACED');
     expect(html.toLowerCase()).not.toContain('coming soon');
   });
@@ -65,7 +65,7 @@ describe('Withdrawal addresses is an address book and an add form, both off for 
     expect(html).toContain('No saved addresses yet');
     expect(html).toContain('Add an address');
     off(html, 'Save address');
-    expect(html).toContain('isn’t connected yet');
+    expect(html).toContain('isn’t connected');
     expect(html.toLowerCase()).not.toContain('coming soon');
   });
   it('shortens a saved address in its row and keeps the full one under Details', () => {

@@ -232,6 +232,24 @@ export const rooms: readonly Room[] = [
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/order', title: 'Person-to-person orders', description: 'Your active and past trades', door: 'Pay', area: 'pay' },
+  {
+    path: '/p2p/orders',
+    title: 'Person-to-person orders',
+    description: 'Your active and past trades',
+    door: 'Pay',
+    area: 'pay',
+    alias: '/uc/order',
+    hidden: true,
+  },
+  {
+    path: '/p2p/orders/:tradeId',
+    title: 'Person-to-person orders',
+    description: 'Your active and past trades',
+    door: 'Pay',
+    area: 'pay',
+    alias: '/uc/order?tradeId=:tradeId',
+    hidden: true,
+  },
   { path: '/chat', title: 'Order conversation', description: 'Communicate about your order', door: 'Pay', area: 'pay', hidden: true },
   { path: '/checkuser', title: 'Counterparty', description: 'Check trade context', door: 'Pay', area: 'pay', hidden: true },
   ...(
@@ -482,9 +500,9 @@ export const rooms: readonly Room[] = [
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
   ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
-    { path: `/${slug}`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const },
+    { path: `/${slug}`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const },
     // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
-    { path: `/${slug}/*`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const, hidden: true },
+    { path: `/${slug}/*`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const, hidden: true },
   ]),
 ];
 
@@ -514,14 +532,18 @@ const aliasParameter = /:([A-Za-z][A-Za-z0-9]*)/g;
 export function resolveAlias(room: Room, path: string, search = ''): string | undefined {
   if (!room.alias) return undefined;
   const params = matchPath(room.path, path) ?? {};
-  const target = room.alias.replace(aliasParameter, (whole, name: string) => {
-    const value = params[name];
-    if (value === undefined) return whole;
-    return name === 'pair' ? normalizePair(value) : value;
-  });
-  const [targetPath = '/', targetQuery = ''] = target.split('?');
+  const fill = (text: string, encode: boolean) =>
+    text.replace(aliasParameter, (whole, name: string) => {
+      const value = params[name];
+      if (value === undefined) return whole;
+      const shaped = name === 'pair' ? normalizePair(value) : value;
+      // A segment placed in a query is one value, whatever characters it carries.
+      return encode ? encodeURIComponent(shaped) : shaped;
+    });
+  const [aliasPath = '/', aliasQuery = ''] = room.alias.split('?');
+  const targetPath = fill(aliasPath, false);
   const query = new URLSearchParams(search);
-  for (const [key, value] of new URLSearchParams(targetQuery)) query.set(key, value);
+  for (const [key, value] of new URLSearchParams(fill(aliasQuery, true))) query.set(key, value);
   const text = query.toString();
   return text ? `${targetPath}?${text}` : targetPath;
 }

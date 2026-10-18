@@ -26,7 +26,7 @@ type Words = { title: string; body: string; action?: { label: string; href: stri
 
 const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   screening: { title: 'Paused for account checks', body: 'Your account is paused while checks are set up.' },
-  region: { title: 'Not offered where you are', body: "This action isn't offered in your region yet." },
+  region: { title: 'Not offered where you are', body: "This action isn't offered in your region." },
   verify: {
     title: 'Verify your identity first',
     body: 'You need a verified account to do this.',
@@ -62,7 +62,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   amountInvalid: { title: 'Check the amount', body: 'Enter an amount that is more than zero and fits this market.' },
   priceInvalid: { title: 'Check the price', body: 'Enter a price that is close to the market price.' },
   belowMinimum: { title: 'Amount is too small', body: 'Enter a larger amount to continue.' },
-  orderTypeUnsupported: { title: "That order type isn't offered yet", body: 'This market takes limit and market orders only.' },
+  orderTypeUnsupported: { title: "That order type isn't offered", body: 'This market takes limit and market orders only.' },
   postOnlyWouldCross: {
     title: 'Post-only order not placed',
     body: 'It would have matched an order on the book right away, so it was refused. Nothing was traded.',
@@ -81,6 +81,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
   notSetUp: { title: 'Not switched on', body: "This part of INTAFACED isn't switched on. Nothing was changed." },
+  algoSchedulerOff: {
+    title: 'Scheduled orders are off',
+    body: 'Nothing was saved. A schedule placed now would stay open and send no orders.',
+  },
   unknown: { title: "This can't be done right now", body: 'Try again later. If it keeps happening, contact support.' },
 };
 
@@ -100,7 +104,7 @@ function words(kind: RefusalKind, context: RefusalContext): Words {
     case 'convertSpreadUnset':
       return {
         title: 'Instant buy is paused',
-        body: "Prices for instant buys aren't set up yet.",
+        body: "Prices for instant buys aren't set up.",
         action: { label: 'Use Spot', href: context.pair ? `/trade/spot/${context.pair}` : '/trade' },
       };
     case 'insufficient': {
@@ -115,7 +119,7 @@ function words(kind: RefusalKind, context: RefusalContext): Words {
       const who = context.recipient?.trim() || 'They';
       const asset = context.asset?.trim();
       return {
-        title: asset ? `${who} can't receive ${asset} yet` : `${who} can't receive this yet`,
+        title: asset ? `${who} can't receive ${asset}` : `${who} can't receive this`,
         body: 'Ask them to open INTAFACED once, then try again.',
       };
     }
