@@ -2,7 +2,7 @@ import type { BusinessPayApi } from '../../pay-api';
 import { chromeCopy } from '../chrome/copy';
 import type { PortalRoom } from '../routes';
 import type { Need } from './capabilities';
-import { isMoneyScope, moneyKindOf, moneyReason } from './money-step';
+import { isMoneyScope, moneyKindOf, moneyReasonFor, ownerOnlyReason } from './money-step';
 import type { MerchantAccessValue } from './MerchantAccess';
 
 /**
@@ -10,12 +10,12 @@ import type { MerchantAccessValue } from './MerchantAccess';
  * buttons on the page use; `need` is a team permission the owner's scopes do not cover. An action not listed here is
  * a link to another page (or a back link) and needs nothing.
  */
-type Gate = { scope: string } | { need: Need };
+type Gate = { scope: string; asks?: true } | { need: Need };
 const GATES: Partial<Record<PortalRoom, Gate>> = {
   refunds: { scope: 'pay:refund' },
-  payouts: { scope: 'pay:payout' },
-  money: { scope: 'pay:payout' },
-  settlements: { scope: 'pay:payout' },
+  payouts: { scope: 'pay:payout', asks: true },
+  money: { scope: 'pay:payout', asks: true },
+  settlements: { scope: 'pay:payout', asks: true },
   'payout-destinations': { scope: 'pay:payout' },
   payments: { scope: 'pay:write' },
   payment: { scope: 'pay:write' },
@@ -41,7 +41,15 @@ export function headerActionReason(
   if ('need' in gate) return access.can(gate.need) ? null : chromeCopy.t('headerActionNoRole');
   const refusal = pay?.access(gate.scope) ?? null;
   if (pay && !refusal) return null;
-  // Refund and payout say the same thing everywhere: the session has no confirmed sign-in step (`money-step.ts`).
-  if (isMoneyScope(gate.scope)) return moneyReason(moneyKindOf(gate.scope), pay?.authority?.scopes);
+  // Refund and payout say the same thing everywhere: who can (`money-step.ts`).
+  if (isMoneyScope(gate.scope)) {
+    const kind = moneyKindOf(gate.scope);
+    // The payout pages' header action goes to the page that asks for a payout, which admins and finance may use too.
+    const act = kind === 'payout' && gate.asks ? 'request' : 'send';
+    const reason = moneyReasonFor(kind, access.access, act);
+    // For those roles the older owner-only authority is not what decides: the role's permission is.
+    if (act === 'request' && reason === null) return null;
+    return reason ?? ownerOnlyReason(kind);
+  }
   return refusal ? refusal.message : chromeCopy.t('headerActionNoRole');
 }

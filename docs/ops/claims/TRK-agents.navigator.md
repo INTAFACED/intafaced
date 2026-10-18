@@ -1,5 +1,7 @@
 # Claim TRK-agents.navigator
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** merged
 **owner:** cursor-swarm-navigator
 **slice:** Stage-2

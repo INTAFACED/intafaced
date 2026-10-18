@@ -21,6 +21,20 @@ describe('roomRefusal', () => {
     const unknown = roomRefusal(failure('trade.some_new_code'));
     expect(JSON.stringify(unknown)).not.toMatch(/DIRECTION|D26-P0|leader_share_bps|owner-only/i);
   });
+  it('has plain words for the algo creation-gate codes', () => {
+    for (const code of [
+      'trade.algo_insufficient_balance',
+      'trade.algo_balance_unreadable',
+      'trade.algo_price_band',
+      'trade.algo_volume_immature',
+      'trade.algo_mark_policy_unset',
+      'trade.fee_schedule_blank',
+    ]) {
+      const shown = roomRefusal(failure(code, 'AlgoMarkPolicy.maxAgeSeconds is unset — TRADE_FEE_SCHEDULE'));
+      expect(shown.title.length, code).toBeGreaterThan(0);
+      expect(JSON.stringify(shown), code).not.toMatch(/AlgoMarkPolicy|TRADE_FEE_SCHEDULE|unset —/);
+    }
+  });
   it('says a lost reply is unknown, not failed', () => {
     expect(roomRefusal(failure(undefined, 'x', 'uncertain')).title).toMatch(/can’t tell/);
   });

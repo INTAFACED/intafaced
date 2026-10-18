@@ -1,5 +1,7 @@
 # Adopt the whole app, keep one book — the work queue
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Type:** executable queue. **Status:** ready to assign. **No service, vendor or app source changed by this document.**
 **Written against:** `main` @ `a43b469`, live fleet on this machine, 2026-08-02.
 **Direction it implements — confirmed by the owner, settled:**

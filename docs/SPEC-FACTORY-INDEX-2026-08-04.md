@@ -1,5 +1,7 @@
 # Spec factory index — D-S-01…18, what exists and what is genuinely blank
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Written by:** Denon, 2026-08-04. **Status:** authoritative index for the D-S board (**18/18 done**).  
 **The board it indexes (factory origin):** [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md) §3.  
 **Live Denon hard inventory (engines / rulings after factory):** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md). Historical 120-ID list: [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md).

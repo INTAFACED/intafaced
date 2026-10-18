@@ -1,5 +1,7 @@
 # Claim connect.data-lake
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **id:** connect.data-lake  
 **tracker:** `connect.data-lake` (stays **wip** — no TSDB / retention; Denon fabric `CaptureLake` remains)  
 **branch:** `feat/connect-data-lake-capture`  

@@ -168,6 +168,19 @@ describe('spend-sized convert refusals', () => {
   });
 });
 
+describe('scheduled order refusals', () => {
+  it('says the scheduler is off and that nothing was saved', () => {
+    expect(refusalCopy('trade.algo_jobs_disabled')).toEqual({
+      title: 'Scheduled orders are off',
+      body: 'Nothing was saved. A schedule placed now would stay open and send no orders.',
+    });
+    expect(refusalCopy('trade.algo_jobs_unknown')).toMatchObject({
+      title: 'Something went wrong on our side',
+      body: 'Nothing was changed. Try again in a moment.',
+    });
+  });
+});
+
 describe('wallet withdrawal refusals', () => {
   it('uses plain words for a missing travel-rule field and a paused withdrawal', () => {
     expect(refusalCopy('pay.wallet_travel_rule')).toMatchObject({
