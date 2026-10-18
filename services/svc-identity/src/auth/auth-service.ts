@@ -862,7 +862,10 @@ export class AuthService {
     );
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
-    await this.claimConfirmedEmailInvites(userId);
+    // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
+    void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
+      this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
+    });
     const tier = await this.kycTier(userId);
     const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
@@ -1751,6 +1754,7 @@ export class AuthService {
    * confirmed (`email_verified_at` is a real instant). The address sent to
    * pay is that stored mailbox, not the identifier the person typed.
    * A pay failure is logged and does not undo the session or the confirmation.
+   * Sign-in does not wait for the pay call. Confirmation and an email change still do.
    */
   async claimConfirmedEmailInvites(userId: string): Promise<void> {
     const claimer = this.merchantEmailInviteClaimer;
