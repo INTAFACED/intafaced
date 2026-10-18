@@ -256,7 +256,7 @@ test('a markdown link in AGENTS.md or docs/ARCHITECTURE.md to a missing repo pat
   );
 });
 
-test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr, runbooks, refs, archive and ARCHITECTURE pass', () => {
+test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr, runbooks, refs and archive pass', () => {
   const stale = '# Old law\n\nMerge when done. Run pnpm wt:rm.\n';
   withRoot(
     (root) => writeFileSync(join(root, 'docs/OLD-LAW.md'), stale),
@@ -284,8 +284,56 @@ test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr
         mkdirSync(join(root, 'docs', dir), { recursive: true });
         writeFileSync(join(root, 'docs', dir, 'DOC.md'), stale);
       }
-      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), stale);
     },
     (result) => assert.equal(result.status, 0, result.stderr),
   );
+});
+
+test('docs/ARCHITECTURE.md is current truth: a stale rule in it fails even though it has no banner', () => {
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\nRun pnpm wt:gc:apply.\n'),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in docs\/ARCHITECTURE.md: wt:gc:apply \(line 3\)/);
+    },
+  );
+});
+
+test('paraphrases of "merge your own PR" fail; the same words after a negation pass', () => {
+  for (const line of ['You can merge your own PR.', 'Agents may merge when green.', 'Authors merge their own work.']) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /stale agent rule in AGENTS.md: (merge your own PR|may merge)/, line);
+    });
+    withRoot(
+      (root) => writeFileSync(join(root, 'docs/OLD-LAW.md'), `# Old\n\n${line}\n`),
+      (result) => {
+        assert.equal(result.status, 1, line);
+        assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md/, line);
+      },
+    );
+  }
+  for (const line of ['Never merge your own PR.', 'Nobody does this: do not merge their own work.', 'No one may merge without review.']) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('a newly listed live doc that calls Vue the front end fails; a bannered or honest one passes', () => {
+  const topic =
+    (body, banner = '') =>
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'docs/NEW-LIVE.md'), `# New live doc\n\n${banner}${body}\n`);
+      writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n- [New](NEW-LIVE.md)\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-m', 'add listed doc']);
+    };
+  withRoot(topic('The product front end is Vue.'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /stale rule in unbannered doc docs\/NEW-LIVE.md: Vue as the current front end/);
+  });
+  withRoot(topic('The front end is Vue.', '> **Not current rules (2026-10-17).** AGENTS.md wins.\n\n'), (result) => {
+    assert.equal(result.status, 0, result.stderr);
+  });
+  withRoot(topic('Vue was retired; the front end is React.'), (result) => assert.equal(result.status, 0, result.stderr));
 });

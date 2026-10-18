@@ -12,6 +12,11 @@ import { dirname, join } from 'node:path';
 const ENTRY = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'tooling/agent-protocol/AGENT_PROTOCOL.md'];
 const EXACT_STALE = ['Merge when done', 'may merge their own'];
 const INSTRUCTED = ['worktree remove --force', 'pnpm wt:rm', 'wt:gc:apply'];
+/** Paraphrases of "agents merge their own work". Excused only by a negation before them on the line, like INSTRUCTED. */
+const SELF_MERGE = [
+  [/\bmerge (?:your|their|my|his|her|its|our) own\b/i, 'merge your own PR'],
+  [/\bmay merge\b/i, 'may merge'],
+];
 const CORE = ['packages/ledger-client', '403 or 429', 'Never bypass', 'git worktree remove'];
 const NEGATION = /\b(never|don't|do not|not|forbidden|no)\b/i;
 const VUE_HISTORY = /histor(y|ical)|retired|legacy|archived|\bnot\b|\bnever\b|\bno\b/i;
@@ -49,6 +54,10 @@ function staleHits(text) {
     for (const phrase of INSTRUCTED) {
       const found = lowerLine.indexOf(phrase.toLowerCase());
       if (found !== -1 && !forbiddenContext && !NEGATION.test(line.slice(0, found))) hits.push([phrase, at]);
+    }
+    for (const [pattern, label] of SELF_MERGE) {
+      const found = line.search(pattern);
+      if (found !== -1 && !forbiddenContext && !NEGATION.test(line.slice(0, found))) hits.push([label, at]);
     }
     if (/\bvue\b/i.test(line) && !VUE_HISTORY.test(line)) hits.push(['Vue as the current front end', at]);
     const leadIn = /^\s*#/.test(line) || line.trimEnd().endsWith(':');
@@ -148,6 +157,7 @@ function evaluate(root) {
     if (hasBanner(text)) continue;
     for (const hit of staleHits(text)) messages.push(`stale rule in unbannered doc ${rel}: ${hit}`);
   }
+  for (const hit of staleHits(read(root, 'docs/ARCHITECTURE.md') ?? '')) messages.push(`stale rule in docs/ARCHITECTURE.md: ${hit}`);
   const readme = read(root, 'docs/README.md') ?? '';
   for (const rel of addedPaths(root, base)) {
     if (rel === 'docs/archive/README.md') continue;
