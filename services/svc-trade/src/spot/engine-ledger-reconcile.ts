@@ -14,7 +14,10 @@
  * 3. Map to `CounterpartOrder[]` and POST matching `/reconcile`.
  * 4. **Refuse findings write nothing** — log / metrics / alert only.
  * 5. **Auto-delete only** `counterpart_unfunded_engine_missing` when the row
- *    is still `pending` (engine table: unfunded intent, moves no value).
+ *    is still `pending` and `updated_at` is at least
+ *    `HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` old. A younger row may still
+ *    have an `order.hold` post in flight; deleting it strands the hold
+ *    when that post commits.
  * 6. **Market-id drift alarm** (handoff §4.5): compare `trade.markets` ids to
  *    engine `GET /markets`. Symmetric diff is log/alert only — never invents
  *    a listing, never deletes a market, never moves value.
@@ -33,6 +36,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, orderHoldAccount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { CounterpartOrder, EngineMarketList, ReconcileFinding, ReconcileReport } from './matching-client.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import type { OrderStatus } from './types.js';
 
 /** Wire state for matching — three values, not trade's six-status enum. */
@@ -266,11 +270,14 @@ export async function runEngineLedgerReconcileTick(deps: EngineLedgerReconcileTi
 
   if (doDelete) {
     for (const orderId of plan.deleteUnfundedPendingIds) {
-      // Re-check: still pending. DELETE is free of ledger movement.
+      // Re-check: still pending, and old enough that an in-flight hold post
+      // (25s ledger timeout, 7 min trust window) can no longer commit.
+      // A hold that lands after the plan read keeps a younger row.
       const rows = await deps.sql<{ id: string }[]>`
         DELETE FROM trade.orders
          WHERE id = ${orderId}
            AND status = 'pending'
+           AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
         RETURNING id
       `;
       if (rows.length > 0) deleted.push(orderId);

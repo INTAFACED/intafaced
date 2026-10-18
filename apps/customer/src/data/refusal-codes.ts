@@ -43,6 +43,7 @@ export type RefusalKind =
   | 'notFound'
   | 'duplicate'
   | 'notSetUp'
+  | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
 
@@ -82,6 +83,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.matching_unavailable': 'tryAgain',
   'edge.gateway': 'tryAgain',
   'edge.upstream_unavailable': 'tryAgain',
+  'edge.authority_unavailable': 'tryAgain',
   'edge.no_route': 'tryAgain',
   'edge.module_killed': 'tryAgain',
   'edge.kill_switch_undecidable': 'tryAgain',
@@ -139,6 +141,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+  'trade.candles_range_point_cap': 'chartRange',
 };
 
 /** Prefix rules, checked in order after the exact table. */

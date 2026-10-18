@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken, type Principal } from '@intafaced/auth';
 import { verifyServiceHeaders, type CurrentAuthorityInput } from '@intafaced/contracts';
-import { readEdgeAuthority } from './live-authority.js';
+import { readEdgeAuthority as readAuthority, resetEdgeAuthorityState } from './live-authority.js';
 import { exchangePrincipal } from './principal-exchange.js';
 
 const userId = '11111111-1111-4111-8111-111111111111',
@@ -44,7 +44,15 @@ async function bearer(apiKeyId?: string) {
   );
   return { token: issued.token, principal: await verifyAccessToken(issued.token, tokens) };
 }
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  resetEdgeAuthorityState();
+});
+/** Status of one read, so the old null/not-null assertions stay about the same facts. */
+const readEdgeAuthority = async (...args: Parameters<typeof readAuthority>) => {
+  const read = await readAuthority(...args);
+  return read.status === 'eligible' ? read.proof : read.status;
+};
 
 describe('HTTP perimeter current identity authority', () => {
   it('forwards a real TOTP-style MFA session using only actual authority fields and a body-bound read key', async () => {
@@ -105,14 +113,20 @@ describe('HTTP perimeter current identity authority', () => {
   });
   it('rejects revoked, stale, wrapped, foreign-subject or malformed proofs without positive caching', async () => {
     const { principal } = await bearer();
+    // Identity answered "no" (or sent something that proves nothing): refused.
     for (const proof of [
       { status: 'denied', subject, checkedAt: new Date().toISOString(), code: 'auth.credential_revoked' },
       { ...eligible(), checkedAt: '2020-01-01T00:00:00.000Z', leaseExpiresAt: '2020-01-01T00:00:05.000Z' },
-      { json: eligible() },
       eligible({ userId: keyId, credential: { kind: 'session', sessionId } }),
-      { status: 'eligible' },
     ])
-      expect(await readEdgeAuthority(principal, { ...base, fetch: async () => Response.json({ result: { data: proof } }) })).toBeNull();
+      expect(await readEdgeAuthority(principal, { ...base, fetch: async () => Response.json({ result: { data: proof } }) })).toBe(
+        'refused',
+      );
+    // A wrapped or malformed answer is "could not ask", never an eligible one.
+    for (const proof of [{ json: eligible() }, { status: 'eligible' }])
+      expect(await readEdgeAuthority(principal, { ...base, fetch: async () => Response.json({ result: { data: proof } }) })).toBe(
+        'unavailable',
+      );
     let active = true;
     const fetcher: typeof fetch = async () =>
       Response.json({
@@ -120,9 +134,9 @@ describe('HTTP perimeter current identity authority', () => {
           data: active ? eligible() : { status: 'denied', subject, checkedAt: new Date().toISOString(), code: 'auth.account_frozen' },
         },
       });
-    expect(await readEdgeAuthority(principal, { ...base, fetch: fetcher })).not.toBeNull();
+    expect(await readEdgeAuthority(principal, { ...base, fetch: fetcher })).toMatchObject({ status: 'eligible' });
     active = false;
-    expect(await readEdgeAuthority(principal, { ...base, fetch: fetcher })).toBeNull();
+    expect(await readEdgeAuthority(principal, { ...base, fetch: fetcher })).toBe('refused');
   });
   it('bounds both stuck transport and stuck response bodies even if abort is ignored', async () => {
     const { principal } = await bearer();
@@ -133,7 +147,7 @@ describe('HTTP perimeter current identity authority', () => {
     ]) {
       const pending = readEdgeAuthority(principal, { ...base, fetch: fetcher });
       await vi.advanceTimersByTimeAsync(3001);
-      expect(await pending).toBeNull();
+      expect(await pending).toBe('unavailable');
     }
   });
   it('preserves actual API-key IP/origin/account/expiry and server-resolved product restrictions', async () => {
@@ -151,9 +165,9 @@ describe('HTTP perimeter current identity authority', () => {
     const fetcher: typeof fetch = async (url) =>
       Response.json(String(url).includes('/trpc/') ? { result: { data: eligible(keyed) } } : metadata);
     const policy = { ...base, clientIp: '203.0.113.8', origin: 'https://join.example', product: 'trade', fetch: fetcher };
-    expect(await readEdgeAuthority(principal, policy)).not.toBeNull();
+    expect(await readEdgeAuthority(principal, policy)).toMatchObject({ status: 'eligible' });
     for (const wrong of [{ clientIp: '192.0.2.1' }, { origin: 'https://foreign.example' }, { product: 'pay' }])
-      expect(await readEdgeAuthority(principal, { ...policy, ...wrong })).toBeNull();
+      expect(await readEdgeAuthority(principal, { ...policy, ...wrong })).toBe('refused');
     expect(
       (
         await exchangePrincipal(
@@ -172,6 +186,6 @@ describe('HTTP perimeter current identity authority', () => {
           ...policy,
           fetch: async (url) => Response.json(String(url).includes('/trpc/') ? { result: { data: eligible(keyed) } } : altered),
         }),
-      ).toBeNull();
+      ).toBe('refused');
   });
 });

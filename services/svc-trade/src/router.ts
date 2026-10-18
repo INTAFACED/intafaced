@@ -43,7 +43,7 @@ import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk } from './algo/present.js';
+import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -71,21 +71,21 @@ import type { TradeOpsAdmin } from './admin/service.js';
 
 /** Unsigned decimal string. Reuses the exchange contract's rule rather than inventing a second one. */
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
-const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
+const copySignedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
 
 const copyResultAssetOutput = z
   .object({
     quoteAsset: z.string(),
-    tradingFee: signedDecimal.nullable(),
+    tradingFee: copySignedDecimal.nullable(),
     tradingFeeReason: z.string().nullable(),
-    leaderShare: signedDecimal.nullable(),
+    leaderShare: copySignedDecimal.nullable(),
     leaderShareReason: z.string().nullable(),
     leaderShareSkippedReasons: z.array(z.string()),
     mirroredOrders: z.number().int(),
     fills: z.number().int(),
-    realisedPnl: signedDecimal.nullable(),
+    realisedPnl: copySignedDecimal.nullable(),
     realisedPnlReason: z.string().nullable(),
-    unrealisedPnl: signedDecimal.nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
     unrealisedPnlReason: z.string().nullable(),
   })
   .strict();
@@ -96,13 +96,13 @@ const copyResultOutput = z
     mirroredOrders: z.number().int(),
     fills: z.number().int(),
     rejects: z.number().int(),
-    tradingFee: signedDecimal.nullable(),
+    tradingFee: copySignedDecimal.nullable(),
     tradingFeeReason: z.string().nullable(),
-    leaderShare: signedDecimal.nullable(),
+    leaderShare: copySignedDecimal.nullable(),
     leaderShareReason: z.string().nullable(),
-    realisedPnl: signedDecimal.nullable(),
+    realisedPnl: copySignedDecimal.nullable(),
     realisedPnlReason: z.string().nullable(),
-    unrealisedPnl: signedDecimal.nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
     unrealisedPnlReason: z.string().nullable(),
     assets: z.array(copyResultAssetOutput),
   })
@@ -116,8 +116,8 @@ const copyTrailRowOutput = z
     kind: z.string(),
     followerOrderId: z.string().nullable(),
     followerFillId: z.string().nullable(),
-    quantity: signedDecimal.nullable(),
-    price: signedDecimal.nullable(),
+    quantity: copySignedDecimal.nullable(),
+    price: copySignedDecimal.nullable(),
     basisPoints: z.string().nullable(),
     code: z.string().nullable(),
     occurredAt: z.string(),
@@ -211,10 +211,45 @@ const algoParentOutputSchema = z.object({
   scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
 });
 
+const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
+
+const algoSchedulerOutputSchema = z.object({
+  running: z.boolean().nullable(),
+  reason: z.enum(['jobs_disabled', 'heartbeat_unknown', 'heartbeat_stale', 'jobs_interval_unset']).nullable(),
+});
+
+const algoScheduleHonestySchema = {
+  nextSliceAt: z.string().nullable(),
+  scheduler: algoSchedulerOutputSchema,
+};
+
 const algoGetOutputSchema = algoParentOutputSchema.extend({
   children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
+  ...algoScheduleHonestySchema,
+});
+
+const algoResultOutputSchema = z.object({
+  quotes: z.array(
+    z.object({
+      quoteAsset: z.string(),
+      filledQty: decimal,
+      notional: decimal,
+      averageFillPrice: decimal.nullable(),
+      feesPaid: z.array(z.object({ asset: z.string(), amount: decimal })).nullable(),
+      feesReason: z.enum(['fee_not_recorded']).nullable(),
+      arrivalPrice: decimal.nullable(),
+      arrivalReason: z.enum(['arrival_not_recorded']).nullable(),
+      shortfall: signedDecimal.nullable(),
+      shortfallMissing: z
+        .object({
+          code: z.literal('missing_input'),
+          fields: z.array(z.enum(['averageFillPrice', 'arrivalPrice'])),
+        })
+        .nullable(),
+    }),
+  ),
 });
 
 const marketOutput = z.object({
@@ -1150,9 +1185,18 @@ export function createTradeRouter(
           guard(async () => {
             const parent = await trade.getAlgo(ctx.principal, input.algoId);
             const progress = await trade.algoProgress(ctx.principal, input.algoId);
-            return { ...presentAlgo(parent), ...presentAlgoDesk(parent, progress.filledQty) };
+            return {
+              ...presentAlgo(parent),
+              ...presentAlgoDesk(parent, progress.filledQty),
+              ...presentScheduleHonesty(parent, progress.scheduler),
+            };
           }),
         ),
+
+      result: scopedProcedure('trade:read')
+        .input(z.object({ algoId: z.string().min(1) }))
+        .output(algoResultOutputSchema)
+        .query(({ ctx, input }) => guard(async () => trade.algoResult(ctx.principal, input.algoId))),
 
       progress: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
@@ -1167,6 +1211,7 @@ export function createTradeRouter(
             nextSliceIndex: z.number().int(),
             filledQty: decimal,
             totalQty: decimal,
+            ...algoScheduleHonestySchema,
           }),
         )
         .query(({ ctx, input }) => guard(async () => trade.algoProgress(ctx.principal, input.algoId))),

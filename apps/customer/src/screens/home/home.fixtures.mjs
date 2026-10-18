@@ -137,3 +137,46 @@ export const holdings = [
   { asset: 'BTC', usdValue: '6781.24' },
   { asset: 'ETH', usdValue: '1600.05' },
 ];
+
+// --- New-user checklist and activity (tRPC answers: { result: { data } }) --------------------------------------------
+export const trpc = (data) => ({ result: { data } });
+
+/** identity kyc.status */
+export const kycAnswer = (tier = 'basic', records = []) => ({ tier, records });
+export const kycPending = () =>
+  kycAnswer('none', [
+    {
+      id: '00000000-0000-4000-8000-0000000000a1',
+      userId: '00000000-0000-4000-8000-000000000001',
+      tier: 'basic',
+      jurisdiction: 'ID',
+      status: 'pending',
+      reviewedAt: null,
+      expiresAt: null,
+      createdAt: '2026-10-13T11:00:00Z',
+    },
+  ]);
+/** identity webauthn.list */
+export const passkeyList = (count = 1) =>
+  Array.from({ length: count }, (_, index) => ({ credentialId: `cred${index}`, createdAt: '2026-10-13T11:00:00Z' }));
+/** notify notify.alerts */
+export const alertList = (items = [{ id: '00000000-0000-4000-8000-0000000000b1', kind: 'price', status: 'active' }]) => ({ items });
+/** bank activity.list: newest first */
+export const activityRow = (kind, direction, amount, asset = 'USDT', at = '2026-10-13T11:29:44Z') => ({
+  id: `${kind}-${direction}-${amount}-${at}`,
+  kind,
+  direction,
+  asset,
+  amount,
+  postedAt: at,
+  txId: `tx-${kind}-${amount}`,
+  counterparty: null,
+  spaceName: null,
+});
+export const activityPage = (items, nextCursor = null) => ({ items, nextCursor });
+export const establishedActivity = () =>
+  activityPage([
+    activityRow('trade', 'in', '0.1', 'BTC', '2026-10-13T12:00:00Z'),
+    activityRow('trade', 'out', '6700', 'USDT', '2026-10-13T12:00:00Z'),
+    activityRow('deposit', 'in', '10000', 'USDT', '2026-10-12T09:15:00Z'),
+  ]);
