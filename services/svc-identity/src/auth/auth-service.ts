@@ -2285,7 +2285,7 @@ export class AuthService {
               AND user_id = ${input.userId}
               AND session_id = ${input.sessionId}
               AND bound_action = ${input.action}
-              AND (bound_key_id IS NULL OR bound_key_id IS NOT DISTINCT FROM ${input.keyId ?? null})
+              AND bound_key_id IS NOT DISTINCT FROM ${input.keyId ?? null}
               AND consumed_at IS NULL
               AND expires_at > clock_timestamp()
             RETURNING proof_id

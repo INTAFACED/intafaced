@@ -16,6 +16,8 @@ import { issueAccessToken } from '@intafaced/auth';
 import { mergeRouters } from '@intafaced/contracts';
 import { createIdentityRouter } from '../router.js';
 import { createApiKeyIpRouter } from '../api-key-ip-router.js';
+import { createApiKeyOriginRouter } from '../api-key-origin-router.js';
+import { createApiKeyProductRouter } from '../api-key-product-router.js';
 import { createApiKeyRotateRouter } from '../api-key-rotate-router.js';
 import { createApiKeyRequestSignRouter } from '../api-key-request-sign-router.js';
 import { createApiKeyAttributionRouter } from '../api-key-attribution-router.js';
@@ -191,11 +193,14 @@ if (!available) {
     return { webauthn: assertion, webauthnChallenge: challenge };
   }
 
+  const signingKey = randomBytes(32);
   const appRouter = mergeRouters(
+    createApiKeyOriginRouter(db.sql, auth, auth),
+    createApiKeyProductRouter(db.sql, auth, auth),
     createIdentityRouter(auth, rank, { registrationOpen: true }),
     createApiKeyIpRouter(db.sql, auth, auth),
     createApiKeyRotateRouter(db.sql, auth, auth),
-    createApiKeyRequestSignRouter(db.sql, auth),
+    createApiKeyRequestSignRouter(db.sql, auth, signingKey),
     createApiKeyAttributionRouter(auth),
   );
 
@@ -416,6 +421,99 @@ if (!available) {
       expect(await auditCount(session.userId)).toBe('1');
       const left = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay_step_up_proofs WHERE user_id = ${session.userId}`;
       expect(left[0]!.n).toBe('0');
+    });
+
+    it('SUCCESS PATHS: every guarded door works with a valid factor, in one transaction with its audit row', async () => {
+      const session = await register();
+      await enrolPasskey(session.userId);
+      const c = await caller(session);
+      const proof = (action: string, keyId?: string) => freshProof(session, action, { keyId: keyId ?? null });
+      let audits = 0;
+      const audited = async () => {
+        audits += 1;
+        expect(await auditCount(session.userId)).toBe(String(audits));
+      };
+
+      // create
+      const key = await c.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: await proof('create') });
+      await audited();
+      // mint doors
+      const viaIp = await c.mintApiKeyWithIpAllowlist({
+        name: 'ip',
+        scopes: ['trade:read'],
+        ips: ['203.0.113.9'],
+        factorProof: await proof('create'),
+      });
+      expect(viaIp.ipAllowlist).toEqual(['203.0.113.9']);
+      await audited();
+      const attributed = await c.attribution.mint({ name: 'attr', scopes: ['trade:read'], factorProof: await proof('create') });
+      expect(attributed.id).toBeTruthy();
+      await audited();
+
+      // widen ip
+      await c.bindApiKeyIpAllowlist({ keyId: key.id, ips: ['203.0.113.1'] });
+      const ip = await c.bindApiKeyIpAllowlist({
+        keyId: key.id,
+        ips: ['203.0.113.1', '203.0.113.2'],
+        factorProof: await proof('ip_allowlist_widen', key.id),
+      });
+      expect(ip.ipAllowlist).toHaveLength(2);
+      await audited();
+      // widen origin
+      await c.bindApiKeyOriginAllowlist({ keyId: key.id, origins: ['a.example.com'] });
+      const origin = await c.bindApiKeyOriginAllowlist({
+        keyId: key.id,
+        origins: ['a.example.com', 'b.example.com'],
+        factorProof: await proof('origin_allowlist_widen', key.id),
+      });
+      expect(origin.originAllowlist).toHaveLength(2);
+      await audited();
+      // widen product
+      await c.bindApiKeyProductScope({ keyId: key.id, products: ['trade'] });
+      const product = await c.bindApiKeyProductScope({
+        keyId: key.id,
+        products: ['trade', 'identity'],
+        factorProof: await proof('product_scope_widen', key.id),
+      });
+      expect(product.productScopes).toHaveLength(2);
+      await audited();
+
+      // enable signing (reveals a secret) and rotate the signing secret
+      const signing = await c.setApiKeyRequestSigning({
+        keyId: key.id,
+        requireSignature: true,
+        requireNonEmptyIpAllowlist: false,
+        factorProof: await proof('signing_secret', key.id),
+      });
+      expect(signing.signingSecret).toBeTruthy();
+      await audited();
+      const rotatedSecret = await c.rotateSigningSecret({ keyId: key.id, factorProof: await proof('signing_secret', key.id) });
+      expect(rotatedSecret.signingSecret).toBeTruthy();
+      expect(rotatedSecret.signingSecret).not.toBe(signing.signingSecret);
+      await audited();
+
+      // rotate the key itself (needs a passkey that has been verified)
+      await db.sql`
+        UPDATE users SET webauthn_creds = (SELECT jsonb_agg(c || '{"lastVerifiedAt":"2026-01-01T00:00:00.000Z"}'::jsonb) FROM jsonb_array_elements(webauthn_creds) c)
+        WHERE id = ${session.userId}
+      `;
+      const rotated = await c.rotateApiKey({ keyId: viaIp.id, factorProof: await proof('rotate', viaIp.id) });
+      expect(rotated.revokedKeyId).toBe(viaIp.id);
+      await audited();
+    });
+
+    it('a key-bound action needs an exact key match; an unbound proof is only for create', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const a = await c.apiKeys.create({ name: 'a', scopes: ['trade:read'], factorProof: await freshProof(session, 'create') });
+      const refused = { code: 'PRECONDITION_FAILED' };
+      await expect(
+        c.rotateSigningSecret({ keyId: a.id, factorProof: await freshProof(session, 'signing_secret', { keyId: null }) }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        c.apiKeys.create({ name: 'b', scopes: ['trade:read'], factorProof: await freshProof(session, 'create', { keyId: a.id }) }),
+      ).rejects.toMatchObject(refused);
     });
 
     it('never lets an API-key caller create a key, even with a valid proof', async () => {
