@@ -4,20 +4,34 @@ import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';
 import { unbindApiKeyIpAllowlist } from './auth/unbind-api-key-ip.js';
+import { narrowsAllowlist, optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { normalizeIp } from './auth/api-key-ip.js';
 import { mintApiKeyWithIpAllowlist, type ApiKeyMinter } from './auth/mint-api-key-ip.js';
+
+async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
+  const rows = await sql<Array<{ ip_allowlist: string[] | null }>>`
+    SELECT ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+  `;
+  return rows[0]?.ip_allowlist ?? [];
+}
 
 /**
  * Top-level bind / unbind / mint (not nested under apiKeys) so mergeRouters cannot
  * replace apiKeys.exchange. identity:write. Invalid IPs refuse.
  */
-export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
+export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()), factorProof: optionalFactorProof }))
       .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          const current = await currentList(sql, ctx.principal.userId, input.keyId);
+          const next = input.ips.map((ip) => normalizeIp(ip) ?? ip);
+          if (!narrowsAllowlist(current, next)) {
+            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'ip_allowlist_widen', keyId: input.keyId });
+          }
           return await bindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ips);
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
@@ -33,11 +47,17 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
         }
       }),
     unbindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), ip: z.string() }))
+      .input(z.object({ keyId: z.string().uuid(), ip: z.string(), factorProof: optionalFactorProof }))
       .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          const current = await currentList(sql, ctx.principal.userId, input.keyId);
+          const ip = normalizeIp(input.ip);
+          const next = current.filter((entry) => normalizeIp(entry) !== ip);
+          if (!narrowsAllowlist(current, next)) {
+            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'ip_allowlist_widen', keyId: input.keyId });
+          }
           return await unbindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ip);
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
@@ -58,6 +78,7 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
           name: z.string().min(1).max(64),
           scopes: z.array(z.string()).min(1),
           ips: z.array(z.string()),
+          factorProof: optionalFactorProof,
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
         }),
@@ -74,6 +95,7 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
           return await mintApiKeyWithIpAllowlist(minter, sql, {
             userId: ctx.principal.userId,
             name: input.name,
@@ -94,6 +116,7 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter) {
             }
             throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
           }
+          if (err instanceof TRPCError) throw err;
           throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
         }
       }),

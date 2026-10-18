@@ -11,7 +11,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import type { AuthService } from './auth-service.js';
+import { AuthError, type AuthService } from './auth-service.js';
 import { createApiKeyAttributionRouter } from '../api-key-attribution-router.js';
 import { ATTRIBUTION_MISSING, installApiKeyAttribution } from './four-eyes.js';
 
@@ -57,6 +57,9 @@ function signedHeaders(scopes?: string[]): Record<string, string> {
 
 function mockAuth(): AuthService {
   const auth = {
+    async authoriseApiKeyAction(input: { proof?: unknown }) {
+      if (!input.proof) throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    },
     async createApiKey() {
       return { id: KEY_ID, key: 'ifc_live_attribution_key', prefix: 'ifc_live', mode: 'live' as const };
     },
@@ -165,7 +168,7 @@ describe('API-key attribution public door (PTX-M01-R05)', () => {
         method: 'POST',
         url: '/trpc/attribution.mint',
         headers: signedHeaders(),
-        payload: { name: 'desk', scopes: ['trade:write'] },
+        payload: { name: 'desk', scopes: ['trade:write'], factorProof: { proofId: '88888888-8888-4888-8888-888888888888' } },
       });
       expect(res.statusCode).toBe(200);
       const data = unwrapData(res.json() as WireBody) as {

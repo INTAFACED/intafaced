@@ -2154,7 +2154,7 @@ export class AuthService {
     if (requested.length === 0) {
       throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
     }
-    const factor = await this.acceptPayStepUpFactor(input.userId, input.sessionId, input.factorProof);
+    const factor = await this.acceptFreshFactor(input.userId, input.sessionId, input.factorProof);
     await this.assertPayStepUpRole(input.userId, input.merchantId, requested);
     const base = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...base];
@@ -2178,11 +2178,11 @@ export class AuthService {
     return { accessToken: token, expiresAt, scopes, refreshable: false };
   }
 
-  private async acceptPayStepUpFactor(
-    userId: string,
-    sessionId: string,
-    proof: PayStepUpFactorProof,
-  ): Promise<'totp' | 'passkey' | 'proof'> {
+  /**
+   * Accept one fresh factor proof (TOTP, passkey assertion over the stepUpOptions
+   * challenge, or a proof row inside its five-minute window). Mints nothing.
+   */
+  async acceptFreshFactor(userId: string, sessionId: string, proof: PayStepUpFactorProof): Promise<'totp' | 'passkey' | 'proof'> {
     if ('proofId' in proof) {
       const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
         SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
@@ -2222,6 +2222,29 @@ export class AuthService {
     });
     await this.recordPayStepUpProof(userId, sessionId, 'passkey');
     return 'passkey';
+  }
+
+  /**
+   * A fresh second factor for one API-key action (create, widen, rotate, reveal).
+   * Missing proof refuses `auth.step_up_required`; a stale proof row refuses
+   * `auth.step_up_expired`. The accepted factor is audited (never the secret).
+   */
+  async authoriseApiKeyAction(input: {
+    userId: string;
+    sessionId: string;
+    proof?: PayStepUpFactorProof | undefined;
+    action: string;
+    keyId?: string | undefined;
+    scopes?: readonly string[] | undefined;
+  }): Promise<void> {
+    if (!input.proof) {
+      throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    }
+    const factor = await this.acceptFreshFactor(input.userId, input.sessionId, input.proof);
+    await this.sql`
+      INSERT INTO api_key_action_audit (audit_id, user_id, session_id, action, key_id, scopes, factor)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.action}, ${input.keyId ?? null}, ${[...(input.scopes ?? [])]}, ${factor})
+    `;
   }
 
   private async recordPayStepUpProof(userId: string, sessionId: string, method: 'totp' | 'passkey'): Promise<void> {

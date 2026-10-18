@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
+import { optionalFactorProof, requireFreshApiKeyFactor } from './auth/api-key-fresh-factor.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { userCopy } from './user-copy.js';
@@ -87,6 +88,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             scopes: z.array(z.string()).min(1),
             domainWhitelist: z.array(z.string()).optional(),
             mode: z.enum(['live', 'sandbox']).optional(),
+            factorProof: optionalFactorProof,
           }),
         )
         .output(
@@ -101,6 +103,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         .mutation(async ({ ctx, input }) => {
           try {
             assertDelegateCannotGrant(ctx.principal.kid);
+            await requireFreshApiKeyFactor(auth, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
             const minted = await auth.createApiKey({
               userId: ctx.principal.userId,
               name: input.name,

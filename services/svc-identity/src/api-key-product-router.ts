@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
-import { ApiKeyProductError } from './auth/api-key-product.js';
+import { ApiKeyProductError, normalizeProduct } from './auth/api-key-product.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { narrowsAllowlist, optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { bindApiKeyProductScope, requestProductAls } from './auth/auth-service-product.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyWithProductScope } from './auth/mint-api-key-product.js';
@@ -28,6 +29,7 @@ type ProductExchanger = ApiKeyMinter & {
 };
 
 function toProductTrpc(err: unknown): never {
+  if (err instanceof TRPCError) throw err;
   if (err instanceof ApiKeyProductError) {
     if (err.code === 'auth.not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -55,30 +57,48 @@ function toProductTrpc(err: unknown): never {
   throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
 }
 
+async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
+  const rows = await sql<Array<{ product_scopes: string[] | null }>>`
+    SELECT product_scopes FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+  `;
+  return rows[0]?.product_scopes ?? [];
+}
+
 /**
  * Top-level bind / unbind / mint / named-product exchange (not nested under
  * apiKeys) so mergeRouters cannot replace apiKeys.exchange. identity:write
  * except the public named-product exchange. Empty list stays unset.
  */
-export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
+export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), products: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().uuid(), products: z.array(z.string()), factorProof: optionalFactorProof }))
       .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          const current = await currentList(sql, ctx.principal.userId, input.keyId);
+          const next = input.products.map((p) => normalizeProduct(p) ?? p);
+          if (!narrowsAllowlist(current, next)) {
+            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'product_scope_widen', keyId: input.keyId });
+          }
           return await bindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.products, ctx.principal.scopes);
         } catch (err) {
           toProductTrpc(err);
         }
       }),
     unbindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), product: z.string() }))
+      .input(z.object({ keyId: z.string().uuid(), product: z.string(), factorProof: optionalFactorProof }))
       .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          const current = await currentList(sql, ctx.principal.userId, input.keyId);
+          const product = normalizeProduct(input.product);
+          const next = current.filter((entry) => normalizeProduct(entry) !== product);
+          if (!narrowsAllowlist(current, next)) {
+            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'product_scope_widen', keyId: input.keyId });
+          }
           return await unbindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.product);
         } catch (err) {
           toProductTrpc(err);
@@ -90,6 +110,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
           name: z.string().min(1).max(64),
           scopes: z.array(z.string()).min(1),
           products: z.array(z.string()),
+          factorProof: optionalFactorProof,
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
         }),
@@ -106,6 +127,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
           return await mintApiKeyWithProductScope(minter, sql, {
             userId: ctx.principal.userId,
             name: input.name,
