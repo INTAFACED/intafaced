@@ -48,6 +48,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
   'auth.change_unwired': 'Changing this contact is not available yet.',
+  'auth.step_up_required': "Confirm it's you with a passkey or authenticator code.",
+  'auth.step_up_expired': 'That confirmation expired. Confirm again.',
   'identity.contact_code_invalid': 'That code is not valid. Request a new one.',
   'identity.email_invalid': 'Enter a valid email address.',
   'identity.phone_invalid': 'Enter a phone number in international format, starting with +.',

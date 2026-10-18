@@ -82,6 +82,11 @@ export interface CryptoChainPort {
    * `unknown` means a broadcast may have left and this port cannot prove either way.
    */
   lookupSend(idempotencyKey: string): Promise<ChainSendLookup>;
+  /**
+   * One cheap liveness check. MemoryChain resolves. A live chain reads its
+   * chain id and must not scan blocks. UnconfiguredChain throws.
+   */
+  ping(): Promise<void>;
 }
 
 export type ChainSendLookup =
@@ -131,6 +136,11 @@ export class MemoryChain implements CryptoChainPort {
     const hit = this.outbound.find((row) => row.idempotencyKey === idempotencyKey);
     if (!hit) return { state: 'not_sent' };
     return { state: 'sent', txHash: hit.txHash, amount: hit.amount, assetId: hit.assetId };
+  }
+
+  /** In-process. There is no RPC to fail. */
+  async ping(): Promise<void> {
+    this.takeCallError();
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
@@ -290,5 +300,9 @@ export class UnconfiguredChain implements CryptoChainPort {
     // Not `not_sent`. That would let a reconciler reverse a payout whose
     // broadcast this process can no longer see because nothing is configured.
     throw new ChainNotConfiguredError('look up an outbound transfer');
+  }
+
+  async ping(): Promise<void> {
+    throw new ChainNotConfiguredError('probe the chain');
   }
 }

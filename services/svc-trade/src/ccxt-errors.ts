@@ -378,6 +378,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.min_qty_exceeds_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_missing': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_not_smaller': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.iceberg_display_invalid': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_strike': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_expiry': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_qty': { ccxt: 'InvalidOrder', status: 400 },

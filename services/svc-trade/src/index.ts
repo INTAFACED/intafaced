@@ -39,6 +39,7 @@ import { attachPostOnlyStash, bindPostOnly, installPostOnlyPlace } from './spot/
 import { attachIocStash, bindIoc, installIocPlace } from './spot/ioc-place.js';
 import { attachFokStash, bindFok, installFokPlace } from './spot/fok-place.js';
 import { attachIcebergStash, bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { sqlIcebergDisplay } from './spot/iceberg-door.js';
 import { attachStopLimitStash, bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
 import { attachTrailingStopStash, bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
 import { attachOptionStash, bindOption, installOptionPlace } from './spot/option-place.js';
@@ -111,6 +112,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -269,6 +271,7 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
   store: copyStore,
+  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
   flattenCopyPosition: createFollowerFlattenPort({
     sql,
@@ -867,6 +870,9 @@ registerPrivateRest(app, {
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
+  rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  icebergDisplay: sqlIcebergDisplay(sql),
+  findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });
