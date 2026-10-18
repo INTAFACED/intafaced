@@ -58,6 +58,18 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Not enough trading history for this schedule',
     body: 'VWAP and participation schedules need recent volume for this market. Use a TWAP schedule instead.',
   },
+  'trade.algo_balance_unreadable': {
+    title: 'We couldn’t check your balance',
+    body: 'The balance read failed, so the schedule was not started. Nothing was held.',
+  },
+  'trade.algo_mark_policy_unset': {
+    title: 'The price check isn’t configured',
+    body: 'The mark age limit isn’t set, so a schedule can’t start. Nothing was held.',
+  },
+  'trade.fee_schedule_blank': {
+    title: 'Trading fees aren’t set',
+    body: 'A schedule can’t start until the fee schedule is published. Nothing was held.',
+  },
   'trade.algo_cancel_incomplete': {
     title: 'The last cancel did not finish',
     body: 'Some child orders are still open. Cancel again; the schedule cannot resume until it finishes.',

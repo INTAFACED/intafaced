@@ -104,6 +104,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',
+  'trade.algo_balance_unreadable': 'tryAgain',
+  'trade.fee_schedule_blank': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
