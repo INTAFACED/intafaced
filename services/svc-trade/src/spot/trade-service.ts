@@ -26,7 +26,13 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
-import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
+import {
+  queryCandlesFromFills,
+  queryTakerVolumeFromFills,
+  assertCandleRangeWithinCap,
+  exportOhlcv,
+  OHLC_RECENT_ROW_CAP,
+} from './candles.js';
 import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
 import { deriveAlgoResultFromTotals, loadAlgoChildFillTotals, type AlgoResult } from '../algo/algo-result.js';
 import { newestSchedulerHeartbeat, readSchedulerState, type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
@@ -41,6 +47,7 @@ import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInpu
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
+import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
 import {
   assertMarketOpen,
@@ -150,7 +157,6 @@ import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
-  type Candle,
   type FillRecord,
   type Market,
   type MarketKind,
@@ -2238,6 +2244,12 @@ export class TradeService {
    * After a proven engine remaining, shrink qty and post the exact leftover
    * hold. Sequence is the new instruction version so it never collides with
    * the terminal sequence-0 release.
+   *
+   * Qty is the committed fill sum plus the new remaining. `filled_qty` is a
+   * cache `refreshFilledQty` rewrites after the fill row commits and before
+   * `tradeFill` posts. Using the cache can store a qty below that sum; the
+   * overfill check then rejects every refresh and the hold slice
+   * `remainingHold` already counted stays in the order-hold account.
    */
   private async applyNativeAmendHold(
     order: OrderRecord,
@@ -2280,7 +2292,13 @@ export class TradeService {
             ),
           );
         }
-        const newQty = locked.filledQty + newRemaining;
+        const filledRows = await tx<Array<{ filled: string }>>`
+          SELECT COALESCE(SUM(qty), 0)::numeric(38, 18)::text AS filled
+            FROM trade.fills
+           WHERE order_id = ${locked.id}
+        `;
+        const committedFilled = parseAmount(filledRows[0]?.filled ?? '0');
+        const newQty = committedFilled + newRemaining;
         const amendReleased = locked.amendReleased + release;
         await appendOrderEvent(tx, {
           orderId: locked.id,
@@ -4620,15 +4638,17 @@ export class TradeService {
            ORDER BY f.sequence DESC
            LIMIT ${capped}
         `;
-    return rows.map((row) => ({
-      id: row.id,
-      side: row.side,
-      price: parseAmount(row.price),
-      qty: parseAmount(row.qty),
-      quoteAmount: parseAmount(row.quote_amount),
-      sequence: row.sequence,
-      ts: row.ts,
-    }));
+    return rows.map((row) =>
+      publicTapePrint({
+        id: row.id,
+        side: row.side,
+        price: parseAmount(row.price),
+        qty: parseAmount(row.qty),
+        quoteAmount: parseAmount(row.quote_amount),
+        sequence: row.sequence,
+        ts: row.ts,
+      }),
+    );
   }
 
   /**
@@ -4640,9 +4660,19 @@ export class TradeService {
    *
    * Limit is required — same inner door as HTTP OHLCV. Missing / non-integer /
    * out of 1..1000 refuses via `queryCandlesFromFills` (never invent 500).
+   * A request is answered in full for the window it asked for, or refused
+   * before SQL. Refuse when since→now covers more points than `limit`, or when
+   * `limit` is over 720. No shortened series.
+   * The export flags the open bucket. Its 720-row slice is only a defensive guard.
    */
-  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number): Promise<Candle[]> {
-    return queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number) {
+    const endMs = this.now().getTime();
+    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs, limit);
+    if (limit > OHLC_RECENT_ROW_CAP) {
+      throw new TradeError(`candle limit ${limit} is over the published cap of ${OHLC_RECENT_ROW_CAP}`, 'trade.candles_range_point_cap');
+    }
+    const rows = await queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+    return exportOhlcv(rows, timeframe, endMs);
   }
 
   // ── Algo TWAP (D-S-04) — schedule emits children; parent holds no value ─────
