@@ -26,7 +26,7 @@ const messages = {
   'Show {count} more markets': 'Show {count} more markets',
   'Showing {shown} of {total} markets': 'Showing {shown} of {total} markets',
   'Prices could not be loaded': 'Prices could not be loaded',
-  'Prices have not arrived yet': 'Prices have not arrived yet',
+  'Prices have not arrived': 'Prices have not arrived',
   'as of': 'as of',
   'Search by coin or name': 'Search by coin or name',
   Name: 'Name',

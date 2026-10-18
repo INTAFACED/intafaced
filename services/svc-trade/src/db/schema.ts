@@ -141,6 +141,11 @@ export const markets = trade.table(
     /** How many `quoteUnit`s one quoted price covers. Almost always '1'. */
     unitSize: amount('unit_size').notNull().default('1'),
     /**
+     * Futures contract multiplier. Null where the market row never recorded one.
+     * Not `unit_size`: that column defaults to 1, and 1 would be an invented size.
+     */
+    contractSize: amount('contract_size'),
+    /**
      * The conventional smallest quoted move — 0.0001 on most FX majors, 0.01 on
      * JPY crosses and on gold. NULL on crypto, which has no pip convention.
      *

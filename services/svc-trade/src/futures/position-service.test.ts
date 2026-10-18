@@ -245,7 +245,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     const got = await positions.get(ALICE, pos.id!);
     expect(got.id).toBe(pos.id);
     expect(got.entryPrice).toBe('50000');
-    expect(got.markPrice).toBeNull();
+    expect(got.markPrice).toBe('50000');
   });
 
   it('open refuses a dated market whose expiry has passed — not a perp', async () => {
@@ -338,7 +338,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     expect(closed).toHaveLength(1);
     expect(closed[0]!.id).toBe(pos.id);
     expect(closed[0]!.status).toBe('closed');
-    expect(closed[0]!.markPrice).toBeNull();
+    expect(closed[0]!.markPrice).toBe('40000');
     expect(await positions.listClosed(BOB, { limit: 100 })).toEqual([]);
   });
 

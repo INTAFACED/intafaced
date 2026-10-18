@@ -814,9 +814,11 @@ export class FounderControls {
         let subAccount: { id: string; parentUserId: string; revoked: boolean } | null = null;
         if (input.subAccountId) {
           const [sub] = await tx<
-            Array<{ id: string; parent_user_id: string; revoked: boolean }>
-          >`SELECT id, parent_user_id, revoked FROM sub_accounts WHERE id = ${input.subAccountId}`;
-          if (!sub || sub.parent_user_id !== input.userId || sub.revoked) return denied('auth.sub_account_denied');
+            Array<{ id: string; parent_user_id: string; revoked: boolean; frozen: number | string }>
+          >`SELECT id, parent_user_id, revoked, frozen FROM sub_accounts WHERE id = ${input.subAccountId}`;
+          if (!sub || sub.parent_user_id !== input.userId || sub.revoked || Number(sub.frozen) !== 0) {
+            return denied('auth.sub_account_denied');
+          }
           subAccount = { id: sub.id, parentUserId: sub.parent_user_id, revoked: false };
         }
         const [kyc] = await tx<

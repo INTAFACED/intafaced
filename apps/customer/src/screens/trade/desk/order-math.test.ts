@@ -121,7 +121,7 @@ describe('maxAmount and portionOf', () => {
     const max = maxAmount({ side: 'buy', type: 'market', price: '', available: '9937.39399533', market, protectionPrice: '65409.08' })!;
     expect(max).toBe('0.15192');
     expect(scaled(max)! * scaled('65409.08')! <= scaled('9937.39399533')! * 10n ** 18n).toBe(true);
-    // No protection price yet: unknown, never a guess from the best ask.
+    // No protection price: unknown, never a guess from the best ask.
     expect(maxAmount({ side: 'buy', type: 'market', price: '', available: '100', market, protectionPrice: null })).toBeNull();
   });
 

@@ -1,4 +1,4 @@
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import {
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
@@ -12,7 +12,7 @@ import {
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
-import type { TaxLedgerReads } from './ledger-reads.js';
+import type { HistoryRange, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 
 /**
@@ -25,6 +25,25 @@ export type LakeStatus =
   | { readonly status: 'absent'; readonly code: typeof TAX_DATA_LAKE_UNAVAILABLE | typeof TAX_INDEXER_UNAVAILABLE }
   | { readonly status: 'configured'; readonly code: typeof TAX_DATA_LAKE_UNPROBED | typeof TAX_INDEXER_UNPROBED };
 
+export interface TaxYearLine {
+  readonly kind: 'fill' | 'convert';
+  readonly postedAt: string;
+  readonly assetId: string;
+  readonly qty: string;
+  readonly fee: string | null;
+  readonly makerRebate: string | null;
+  readonly costBasis: string | null;
+  readonly proceeds: string | null;
+  readonly realized: string | null;
+}
+
+export interface TaxSubAccountYear {
+  readonly subAccountId: string;
+  readonly lines: TaxYearLine[];
+  readonly realized: string | null;
+  readonly residuals: string[];
+}
+
 export interface TaxExportPreview {
   readonly empty: boolean;
   readonly complete: false;
@@ -36,6 +55,9 @@ export interface TaxExportPreview {
   readonly lake: LakeStatus;
   readonly indexer: LakeStatus;
   readonly residuals: string[];
+  /** `unwired` names a missing sub-account reader. It is not an empty trading year. */
+  readonly subAccountBooks: 'unwired' | 'read';
+  readonly subAccounts: TaxSubAccountYear[];
 }
 
 export interface TaxExportPack extends TaxExportPreview {
@@ -52,6 +74,63 @@ export interface TaxServiceDeps {
   /** Owner-published window. Blank / omit → `tax.history_years_unset` (never invent 10). */
   readonly historyYears?: number;
   readonly now?: () => Date;
+}
+
+function moneyOrNull(value: Amount | null): string | null {
+  return value === null ? null : formatAmount(value);
+}
+
+function inPublishedWindow(at: Date, range: HistoryRange): boolean {
+  const t = at.getTime();
+  return Number.isFinite(t) && t >= range.from.getTime() && t <= range.to.getTime();
+}
+
+function lineRealized(costBasis: Amount | null, proceeds: Amount | null): Amount | null {
+  if (costBasis === null || proceeds === null) return null;
+  return proceeds - costBasis;
+}
+
+function toYearLine(line: SubAccountActivityLine): TaxYearLine {
+  return {
+    kind: line.kind,
+    postedAt: line.postedAt.toISOString(),
+    assetId: line.assetId,
+    qty: formatAmount(line.qty),
+    fee: moneyOrNull(line.fee),
+    makerRebate: moneyOrNull(line.makerRebate),
+    costBasis: moneyOrNull(line.costBasis),
+    proceeds: moneyOrNull(line.proceeds),
+    realized: moneyOrNull(lineRealized(line.costBasis, line.proceeds)),
+  };
+}
+
+/**
+ * One sub-account's year. Basis is read from that line only.
+ * A null on another account cannot land here, and a null here is not rewritten as 0.
+ * Fee and maker rebate stay in their columns; they are not added into realised gain.
+ */
+export function subAccountYear(subAccountId: string, activity: readonly SubAccountActivityLine[], range: HistoryRange): TaxSubAccountYear {
+  const kept = activity
+    .filter((line) => inPublishedWindow(line.postedAt, range))
+    .slice()
+    .sort((a, b) => a.postedAt.getTime() - b.postedAt.getTime() || a.id.localeCompare(b.id));
+  const missingBasis = kept.some((line) => line.costBasis === null);
+  let sum = 0n;
+  let anyGain = false;
+  if (!missingBasis) {
+    for (const line of kept) {
+      const realized = lineRealized(line.costBasis, line.proceeds);
+      if (realized === null) continue;
+      sum += realized;
+      anyGain = true;
+    }
+  }
+  return {
+    subAccountId,
+    lines: kept.map(toYearLine),
+    realized: missingBasis || !anyGain ? null : formatAmount(sum),
+    residuals: missingBasis ? [TAX_COST_BASIS_UNAVAILABLE] : [],
+  };
 }
 
 /**
@@ -143,7 +222,13 @@ export class TaxService {
     const lots = runLots(movements, lotMethod);
     for (const r of lots.residuals) residuals.add(r);
 
-    const empty = lots.lotsClosed.length === 0 && lots.lotsOpen.length === 0;
+    const year = await this.subAccountBooks(input.userId, range);
+    for (const account of year.accounts) {
+      for (const code of account.residuals) residuals.add(code);
+    }
+
+    const empty =
+      lots.lotsClosed.length === 0 && lots.lotsOpen.length === 0 && year.accounts.every((account) => account.lines.length === 0);
     const preview: TaxExportPreview = {
       empty,
       complete: false,
@@ -155,6 +240,8 @@ export class TaxService {
       lake: this.lake,
       indexer: this.indexer,
       residuals: [...residuals].sort(),
+      subAccountBooks: year.books,
+      subAccounts: year.accounts,
     };
 
     const body = {
@@ -170,6 +257,8 @@ export class TaxService {
       lake: this.lake,
       indexer: this.indexer,
       residuals: preview.residuals,
+      subAccountBooks: preview.subAccountBooks,
+      subAccounts: preview.subAccounts,
       note: empty
         ? 'empty book — not a $0 PnL'
         : 'cost basis not on the ledger history wire; missing basis is unknown, not a FIFO/LIFO/HIFO invent or 0',
@@ -188,6 +277,22 @@ export class TaxService {
       bodyBase64: Buffer.from(json, 'utf8').toString('base64'),
     };
     return { preview, pack };
+  }
+
+  private async subAccountBooks(
+    userId: string,
+    range: HistoryRange,
+  ): Promise<{ books: 'unwired' | 'read'; accounts: TaxSubAccountYear[] }> {
+    const ids = this.reads.subAccountIds;
+    const activity = this.reads.subAccountActivity;
+    if (!ids || !activity) return { books: 'unwired', accounts: [] };
+    const subAccountIds = await ids(userId);
+    const accounts: TaxSubAccountYear[] = [];
+    for (const subAccountId of subAccountIds) {
+      const lines = await activity(subAccountId, range);
+      accounts.push(subAccountYear(subAccountId, lines, range));
+    }
+    return { books: 'read', accounts };
   }
 }
 

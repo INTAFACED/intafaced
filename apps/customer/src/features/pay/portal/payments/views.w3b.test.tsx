@@ -16,6 +16,7 @@ import type { PortalApi } from '../api';
 import { portalRefusal } from '../refusal';
 import * as p from '../schemas';
 import { notLiveWords } from '../ui/test-words';
+import { withMoneyAccess } from '../access/money-test-kit';
 const html = (node: ReactElement) => renderToString(node);
 const loading = { status: 'loading' } as const;
 const ready = <T,>(data: T): Resource<T> => ({ status: 'ready', data });
@@ -240,18 +241,27 @@ describe('payment detail (P07)', () => {
     ev('refunded', { refundId: 'TEST-refund-1', amount: '20' }, '2026-10-14T10:00:01.000Z'),
     ev('settled', { settlementId: 'bb000002-0000-4000-8000-000000000002' }, '2026-10-14T12:00:00.000Z'),
   ];
-  const view = (patch: Partial<Parameters<typeof PaymentDetailView>[0]> = {}) =>
+  const view = (patch: Partial<Parameters<typeof PaymentDetailView>[0]> = {}, held = true) =>
     html(
-      <PaymentDetailView
-        payment={ready(payment())}
-        history={ready(events)}
-        refunds={down}
-        activity={[]}
-        dispute={null}
-        retry={noop}
-        {...patch}
-      />,
+      withMoneyAccess(
+        <PaymentDetailView
+          payment={ready(payment())}
+          history={ready(events)}
+          refunds={down}
+          activity={[]}
+          dispute={null}
+          retry={noop}
+          {...patch}
+        />,
+        held,
+      ),
     );
+  it('switches Refund off, with the reason, when the person cannot begin a refund', () => {
+    const out = view({}, false);
+    expect(out).toContain('Only the account owner can refund payments.');
+    expect(out).not.toContain('href="/pay/refunds/new');
+    expect(out).toMatch(/<button[^>]*disabled[^>]*>Refund/);
+  });
   it('shows key facts, amounts, a plain timeline, refunds, related links and copyable ids', () => {
     const out = view();
     expect(out).toContain('Key facts');
@@ -313,8 +323,13 @@ describe('payment detail (P07)', () => {
   });
   it('says plainly when the fee was not recorded, and offers no Refund once everything is refunded', () => {
     const out = view({ payment: ready(payment({ pricingSnapshot: null, refundedAmount: '125.5', status: 'refunded' })) });
-    expect(out).toContain('Fee details weren’t recorded for this payment.');
+    expect(out).toContain('The fee taken is shown on the settlement.');
     expect(out).not.toContain('/pay/refunds/new');
+  });
+  it('says a captured payment that has not settled yet is charged when it settles, not that a settlement shows the fee', () => {
+    const out = view({ payment: ready(payment({ pricingSnapshot: null, status: 'captured', refundedAmount: '0' })) });
+    expect(out).toContain('The fee is taken when this payment settles.');
+    expect(out).not.toContain('shown on the settlement');
   });
   it('lists refunds from the refunds list when it is available, and the activity recorded for the payment', () => {
     const out = view({

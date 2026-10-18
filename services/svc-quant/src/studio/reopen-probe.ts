@@ -15,5 +15,7 @@ try {
   const versions = await createPostgresStrategyRepository(sql, schema).versions({ accountId, id });
   console.log(JSON.stringify({ versions: versions?.map((row) => ({ version: row.version, name: row.name })) ?? null }));
 } finally {
-  await sql.end({ timeout: 5 });
+  // The parent test's budget is 5s. A graceful drain waits up to 5s on its own
+  // when the server is slow to close, which is the timeout this probe was hitting.
+  await sql.end({ timeout: 0 });
 }

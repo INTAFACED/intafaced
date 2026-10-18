@@ -44,11 +44,12 @@ import {
   type ActionApprovalConsumer,
   unwiredApprovalConsumer,
 } from './action-approval-consume.js';
+import { depositCreditFields, fraudContestDisputeFields, fraudOpenDisputeFields, fraudResolveReviewFields } from './approval-bindings.js';
 import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
-import type { MerchantStarterFee } from './starter-fee.js';
+import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
   assertOnlyPayoutDestinations,
@@ -614,6 +615,7 @@ export function createPayRouter(
             if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
             const merchant = await pay.getMerchantByUserId(userId);
             if (!merchant) return null;
+            const fee = merchantFeeView(merchant.pricing, starterFee);
             return {
               id: merchant.id,
               userId: merchant.userId,
@@ -621,8 +623,8 @@ export function createPayRouter(
               status: merchant.status,
               kybStatus: merchant.kybStatus,
               kybRef: merchant.kybRef,
-              feeBps: merchant.pricing.feeBps ?? null,
-              starterFee,
+              feeBps: fee.feeBps,
+              starterFee: fee.starterFee,
             };
           }),
         ),
@@ -1688,10 +1690,12 @@ export function createPayRouter(
                 confirmOperatorId: existing.resolvedBy,
               };
             }
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_resolve_review', {
-              id: input.id,
-              outcome: input.outcome,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.fraud_resolve_review',
+              fraudResolveReviewFields({ id: input.id, outcome: input.outcome, note: input.note }),
+            );
             const c = fraudReviews
               ? await fraudReviews.resolve({
                   id: input.id,
@@ -1741,13 +1745,20 @@ export function createPayRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_open_dispute', {
-              disputeId: input.disputeId,
-              paymentId: input.paymentId,
-              merchantId: input.merchantId,
-              amount: input.amount,
-              assetId: input.assetId,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.fraud_open_dispute',
+              fraudOpenDisputeFields({
+                disputeId: input.disputeId,
+                paymentId: input.paymentId,
+                merchantId: input.merchantId,
+                amount: input.amount,
+                assetId: input.assetId,
+                reasonCode: input.reasonCode,
+                markPaymentDisputed: input.markPaymentDisputed,
+              }),
+            );
             let marked = false;
             if (input.markPaymentDisputed) {
               await pay.markDisputed(input.paymentId, {
@@ -1841,9 +1852,12 @@ export function createPayRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.fraud_contest_dispute', {
-              disputeId: input.disputeId,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.fraud_contest_dispute',
+              fraudContestDisputeFields({ disputeId: input.disputeId }),
+            );
             const c = await disputeCases.contest(input.disputeId);
             return {
               disputeId: c.disputeId,
@@ -1998,13 +2012,18 @@ export function createPayRouter(
         .output(depositView.extend({ confirmOperatorId: z.string() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
-            const confirmOperatorId = await consumePayApproval(approvals, input, 'pay.deposit_credit', {
-              userId: input.userId,
-              assetId: input.assetId,
-              amount: input.amount,
-              railId: input.railId,
-              railRef: input.railRef,
-            });
+            const confirmOperatorId = await consumePayApproval(
+              approvals,
+              input,
+              'pay.deposit_credit',
+              depositCreditFields({
+                userId: input.userId,
+                assetId: input.assetId,
+                amount: input.amount,
+                railId: input.railId,
+                railRef: input.railRef,
+              }),
+            );
             return {
               ...toDepositOut(
                 await userMoney.credit({

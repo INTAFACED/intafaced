@@ -378,6 +378,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.min_qty_exceeds_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_missing': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_not_smaller': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.iceberg_display_invalid': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_strike': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_expiry': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_qty': { ccxt: 'InvalidOrder', status: 400 },
@@ -433,7 +434,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_price_band': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_mark_unusable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_mark_missing': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.algo_mark_invalid': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.algo_mark_policy_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_insufficient_balance': { ccxt: 'InsufficientFunds', status: 400 },
+  'trade.algo_balance_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * Child cancel failed and the parent was left non-cancelled. Caller must

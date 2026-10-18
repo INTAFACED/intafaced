@@ -6,6 +6,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes, orderHoldAccount } from '@intafaced/ledger-client';
 import type { IdentityOperationDecision, IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { TradeService } from '../spot/trade-service.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { PositionService } from '../futures/position-service.js';
 import { memoryMarkBook } from '../futures/mark-source.js';
 import { profitSourceFromConfig, recipeProfitFundingAccount, formatAccountRef } from '../futures/profit-source.js';
@@ -82,7 +83,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     await db?.drop();
   }, 30_000);
   beforeEach(async () => {
-    await db.truncateAll();
+    await truncateTradeExceptOrderEvents(db.sql);
     ledger = new MemoryLedger();
     matching = new StubMatching();
     onGrant = undefined;

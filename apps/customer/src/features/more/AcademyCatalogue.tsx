@@ -69,7 +69,7 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
             ))}
           </div>
           <p className="muted">
-            <Copy k="trackingBoundary" />
+            <Copy k="trackingSource" />
           </p>
         </div>
       </Panel>
@@ -102,22 +102,13 @@ function PathCard({ path, tracking, active }: { path: PathSummary; tracking: Tra
           </span>
         )}
       </div>
-      {progress.percent === null ? (
-        <p className="muted">
-          <Copy k="noTrackedProgress" />
-        </p>
-      ) : (
+      {progress.percent !== null && (
         <>
           <ProgressBar percent={progress.percent} label={t('progressLabel', { path: pathLabel(t, path.path) })} />
           <p>
-            <Copy k="trackedRecorded" params={{ recorded: progress.recorded, tracked: progress.tracked }} />
+            <Copy k="completedOfTotal" params={{ recorded: progress.recorded, total: progress.total }} />
           </p>
         </>
-      )}
-      {progress.untracked > 0 && progress.tracked > 0 && (
-        <p className="muted">
-          <Copy k="untrackedCount" params={{ count: progress.untracked }} />
-        </p>
       )}
       <div>
         <a className="academy-learning-link" href={`/academy?${new URLSearchParams({ path: path.path })}`}>
@@ -140,19 +131,15 @@ function PathDetail({ path, tracking, certId }: { path: PathSummary; tracking: T
             <Copy k="allPaths" />
           </a>
         </div>
-        {progress.percent === null ? (
-          <p className="muted">
-            <Copy k="noTrackedProgress" />
-          </p>
-        ) : (
+        {progress.percent !== null && (
           <>
             <ProgressBar percent={progress.percent} label={t('progressLabel', { path: pathLabel(t, path.path) })} />
             <p role="status">
-              <Copy k="trackedRecorded" params={{ recorded: progress.recorded, tracked: progress.tracked }} />
+              <Copy k="completedOfTotal" params={{ recorded: progress.recorded, total: progress.total }} />
             </p>
           </>
         )}
-        {progress.percent === 100 && progress.untracked === 0 ? (
+        {progress.percent === 100 ? (
           <p>
             <Copy k="pathAllRecorded" />
           </p>

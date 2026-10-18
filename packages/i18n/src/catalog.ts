@@ -145,6 +145,8 @@ export const en = {
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
+  'notify.trade.market_halted.title': 'Market halted',
+  'notify.trade.market_halted.body': 'New submits on {marketId} are refused. Cancels remain available.',
   // Liquidation copy names only fields the payload guarantees are present.
   // Realised loss, mark price and liquidation price are all nullable on
   // `trade.position.updated`, so none of them appears here: a notification that
@@ -174,6 +176,18 @@ export const en = {
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
   'notify.pay.request_paid.body': '{payerHandle} paid your request for {amount} {assetId}.',
+  'notify.merchant.email_provider_unset.title': 'email not set up yet',
+  'notify.merchant.email_provider_unset.body': 'This notice stayed in the portal. Email is not set up yet.',
+  'notify.merchant.payment_refunded.title': 'Refund outcome',
+  'notify.merchant.payment_refunded.body': 'Refund {outcome} for {amount} {assetId}.',
+  'notify.merchant.rail_refused.title': 'Payout failed',
+  'notify.merchant.rail_refused.body': 'A payout was refused ({failureCode}).',
+  'notify.merchant.dispute_due.title': 'Dispute deadline',
+  'notify.merchant.dispute_due.body': 'Respond to dispute {disputeId} by {responseDueAt}.',
+  'notify.merchant.invited.title': 'Team invite',
+  'notify.merchant.invited.body': 'You were invited to a merchant team as {role}. The invite ends {expiresAt}.',
+  'notify.bank.deposit.credited.title': 'Deposit credited',
+  'notify.bank.deposit.credited.body': '{amount} {asset} is in your available balance.',
   'notify.bank.margin_call.title': 'Margin call on your loan',
   'notify.bank.margin_call.body':
     'Add {cureCollateralAmount} {collateralAssetId} before {graceExpiresAt} or part of your collateral may be sold.',

@@ -50,10 +50,42 @@ export const PUBLIC_REFRESH_COOKIE_PATHS = ['/api/identity/trpc/auth.refresh', '
 
 /**
  * Two tabs reloading together present one cookie. Ten seconds covers that
- * race and one slow retry. Longer than that is a stolen-token window.
- * `0` keeps the old immediate reuse burn. Ceiling is two minutes.
+ * race. Longer than that is a stolen-token window, so this grace stays at
+ * 10 seconds (ceiling 120). `0` keeps the immediate reuse burn.
+ *
+ * A lost reply can arrive after those 10 seconds. The wider window is the
+ * owner-published `REFRESH_RECOVERY_SECONDS` (ceiling below). Blank, 0, or
+ * unset leaves it off. Nothing in this file turns that window on.
  */
 export const DEFAULT_REFRESH_REUSE_GRACE_SECONDS = 10;
+/** Ceiling for `REFRESH_RECOVERY_SECONDS`. Not a default. */
+export const REFRESH_RECOVERY_SECONDS_CEILING = 600;
+
+/**
+ * Blank, whitespace, and null stay unpublished (`undefined`). `0` is off.
+ * A non-integer, or a value above the ceiling, throws so boot fails closed
+ * instead of inventing a window.
+ */
+export function parseRefreshRecoverySeconds(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'boolean') throw new Error('REFRESH_RECOVERY_SECONDS must be an integer');
+  let text: string;
+  if (typeof raw === 'number') {
+    if (!Number.isSafeInteger(raw)) throw new Error('REFRESH_RECOVERY_SECONDS must be an integer');
+    text = String(raw);
+  } else if (typeof raw === 'string') {
+    text = raw.trim();
+    if (text === '') return undefined;
+  } else {
+    throw new Error('REFRESH_RECOVERY_SECONDS must be an integer');
+  }
+  if (!/^(0|[1-9]\d*)$/.test(text)) throw new Error('REFRESH_RECOVERY_SECONDS must be an integer');
+  const n = Number(text);
+  if (!Number.isSafeInteger(n) || n > REFRESH_RECOVERY_SECONDS_CEILING) {
+    throw new Error('REFRESH_RECOVERY_SECONDS ceiling is 600');
+  }
+  return n;
+}
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 

@@ -72,14 +72,14 @@ function PortalEntry({ path, authority }: { path: string; authority: PayBusiness
     (signal) => api.query('pay', 'merchant.starterFee', undefined, starterFeeRead, { signal }),
     `pay:starter-fee:${userId ?? 'anon'}`,
   );
-  const starterFeeBps = fee.resource.status === 'ready' ? (fee.resource.data.starterFee?.bps ?? null) : null;
-  return <MerchantPortal path={path} authority={authority} starterFeeBps={starterFeeBps} />;
+  const starterFee = fee.resource.status === 'ready' ? (fee.resource.data.starterFee ?? null) : null;
+  return <MerchantPortal path={path} authority={authority} starterFee={starterFee} />;
 }
 export type { PayBusinessAuthority } from './pay-api';
 
 function LegacyTools({ path, authority }: { path: string; authority: PayBusinessAuthority | null }) {
   const { userId } = useSession();
-  const { access } = useMerchantAccess();
+  const { access, sessionScopes } = useMerchantAccess();
   // The older sandbox tools need a business too: no account means the one calm state, like every other business page.
   if (access.status === 'none' && !authority)
     return (
@@ -87,5 +87,5 @@ function LegacyTools({ path, authority }: { path: string; authority: PayBusiness
         <NoBusiness />
       </PortalFrame>
     );
-  return <BusinessPay path={path} authority={authority ?? authorityFromAccess(access, userId)} />;
+  return <BusinessPay path={path} authority={authority ?? authorityFromAccess(access, userId, sessionScopes)} />;
 }

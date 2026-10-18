@@ -18,14 +18,40 @@ export function isOperatorProfitPotCode(code: string): code is OperatorProfitPot
   return (OPERATOR_PROFIT_POT_CODES as readonly string[]).includes(code);
 }
 
-export function presentFuturesErrorWire(err: { code: string; message: string }): {
+export function presentFuturesErrorWire(err: { code: string; message: string; rung?: 'closing' | 'partial'; addMarginAllowed?: boolean }): {
   error: string;
   message: string;
   ccxtCode?: 'NotSupported';
   retry?: false;
+  rung?: 'closing' | 'partial';
+  addMarginAllowed?: boolean;
 } {
+  const body: {
+    error: string;
+    message: string;
+    ccxtCode?: 'NotSupported';
+    retry?: false;
+    rung?: 'closing' | 'partial';
+    addMarginAllowed?: boolean;
+  } = { error: err.code, message: err.message };
   if (isOperatorProfitPotCode(err.code)) {
-    return { error: err.code, message: err.message, ccxtCode: 'NotSupported', retry: false };
+    body.ccxtCode = 'NotSupported';
+    body.retry = false;
   }
-  return { error: err.code, message: err.message };
+  if (err.rung !== undefined) body.rung = err.rung;
+  if (err.addMarginAllowed !== undefined) body.addMarginAllowed = err.addMarginAllowed;
+  return body;
+}
+
+/** A mark refusal that rolled back. 409 plus `committed: false`, so a client does not treat it as an unknown outcome. */
+export function isRolledBackMarkRefusal(code: string): boolean {
+  return code === 'trade.mark_missing' || code === 'trade.mark_unusable';
+}
+
+export function presentRolledBackRefusal(err: { code: string; message: string }): {
+  error: string;
+  message: string;
+  committed: false;
+} {
+  return { error: err.code, message: err.message, committed: false };
 }

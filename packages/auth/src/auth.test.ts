@@ -228,6 +228,15 @@ describe('delegation — an API key cannot exceed the session that minted it', (
     expect(() => assertKeyScopesAllowed(['pay:onboard'])).toThrow(/API key/);
   });
 
+  it('delegates pay:refund and pay:payout only when the call says step-up and the token holds them', () => {
+    expect(() => assertDelegatableScopes(['pay:refund'], ['pay:refund', ...SESSION_SCOPES])).toThrow(/step-up/);
+    expect(() => assertDelegatableScopes(['pay:payout'], ['pay:payout'])).toThrow(/step-up/);
+    expect(() => assertKeyScopesAllowed(['pay:refund', 'pay:payout'])).not.toThrow();
+    expect(() => assertDelegatableScopes(['pay:refund'], ['pay:refund'], { payStepUp: true })).not.toThrow();
+    expect(() => assertDelegatableScopes(['pay:payout', 'pay:read'], ['pay:payout'], { payStepUp: true })).toThrow(/does not hold/);
+    expect(() => assertDelegatableScopes(['pay:refund'], [...SESSION_SCOPES], { payStepUp: true })).toThrow(/does not hold/);
+  });
+
   it('refuses unknown scope strings instead of storing them', () => {
     // Stored silently, these leave an audit trail claiming a key holds
     // authority that no guard will ever recognise.

@@ -45,16 +45,44 @@ const OWNER_SCOPES = ['pay:read', 'pay:write', 'pay:refund', 'pay:payout'];
 describe('header actions follow the same scope check as the page buttons', () => {
   it('lets the owner issue a refund, request a payout and create a link', () => {
     const pay = payFor(authority(OWNER_SCOPES));
-    for (const room of ['refunds', 'payouts', 'links', 'payments', 'dashboard'] as const)
+    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations', 'links', 'payments', 'dashboard'] as const)
       expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
   });
-  it('switches off "Issue refund" and "Request payout" without the scope, with the reason', () => {
-    const pay = payFor(authority(['pay:read']));
-    for (const room of ['refunds', 'payouts'] as const) {
-      const reason = headerActionReason(room, value(ready('owner')), pay);
-      expect(reason, room).toBe(pay.access(room === 'refunds' ? 'pay:refund' : 'pay:payout')!.message);
-      expect(reason).toMatch(/permission/);
+  it('lets an owner open every refund and payout action: the confirmation is asked when it is opened', () => {
+    // An owner session as identity mints it today: read and write, no refund and no payout. The money scopes come from
+    // confirming it's them, so the owner's controls are on.
+    const pay = payFor({ ...authority(['pay:read', 'pay:write']), confirmable: ['pay:refund', 'pay:payout'] });
+    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations', 'links', 'payments', 'dashboard'] as const)
+      expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
+  });
+  it('says who can when the person cannot confirm a payment, in the present tense', () => {
+    const pay = payFor(authority(['pay:read', 'pay:write']));
+    // Refunds and sending a payout are the owner's alone.
+    expect(headerActionReason('refunds', value(ready('admin')), pay)).toBe('Only the account owner can refund payments.');
+    expect(headerActionReason('payout-destinations', value(ready('admin')), pay)).toBe('Only the account owner can send payouts.');
+    // The pages that ask for a payout follow the role's permission: admins (and finance) may, a viewer may not.
+    for (const room of ['payouts', 'money', 'settlements'] as const) {
+      expect(headerActionReason(room, value(ready('admin')), pay), room).toBeNull();
+      expect(headerActionReason(room, value(ready('viewer')), pay), room).toBe(
+        'Only the account owner, admins and finance can ask for a payout or take a request back.',
+      );
     }
+    // Making a link and the other ordinary writes stay on.
+    for (const room of ['links', 'payments', 'dashboard'] as const)
+      expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
+  });
+  it('says why an owner cannot, when the account is not active or the session is an API key', () => {
+    const pay = payFor(authority(['pay:read']));
+    expect(
+      headerActionReason(
+        'refunds',
+        value({ ...(ready('owner') as Extract<Access, { status: 'ready' }>), accountStatus: 'suspended' }),
+        pay,
+      ),
+    ).toBe('Refunds and payouts open once your business account is active.');
+    expect(
+      headerActionReason('payouts', value({ ...(ready('owner') as Extract<Access, { status: 'ready' }>), sessionInteractive: false }), pay),
+    ).toBe('API keys and sub-accounts cannot confirm a payment.');
   });
   it('switches the action off when there is no authority at all (a team member) or no pay api', () => {
     expect(headerActionReason('refunds', value(ready('viewer')), payFor(null))).toBeTruthy();
@@ -66,7 +94,7 @@ describe('header actions follow the same scope check as the page buttons', () =>
   });
   it('switches the action off while access is not ready, and leaves plain links alone', () => {
     expect(headerActionReason('refunds', value({ status: 'loading' }), payFor(authority(OWNER_SCOPES)))).toBeTruthy();
-    expect(headerActionReason('money', value({ status: 'loading' }), null)).toBeNull();
+    expect(headerActionReason('conversion-new', value({ status: 'loading' }), null)).toBeNull();
     expect(headerActionReason('refund-new', value(ready('viewer')), null)).toBeNull();
   });
 });

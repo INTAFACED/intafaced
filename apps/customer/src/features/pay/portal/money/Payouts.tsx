@@ -25,6 +25,7 @@ import { useServerList } from '../ui/useServerList';
 import { ApprovalDecision, CancelRequest, useApprovalDestination } from './Approvals';
 import { ExportButton, LinkButton, ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
+import { MoneyAction } from '../access/MoneyAction';
 import { describeDestination, railWords } from './destination';
 import {
   isApprovedToSend,
@@ -385,11 +386,21 @@ export function PayoutDetailView({
           const left = usage.status === 'ready' ? (payoutHeadroom(usage.data, s.assetId)?.remaining ?? null) : null;
           const overLimit = waitingToSend && maySend && left !== null && overRemaining(s.net, left);
           const action =
-            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) || (waitingToSend && maySend && !overLimit) ? (
-              <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
-                {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
-              </LinkButton>
-            ) : undefined;
+            state === 'ready' || (state === 'failed' && PAYOUT_RETRY_ENABLED) || (waitingToSend && maySend && !overLimit)
+              ? // Asking for approval and sending both carry the payout scope; deciding someone else's request (pay:write) is elsewhere.
+                (() => {
+                  const link = (
+                    <LinkButton variant="primary" href={`/pay/payouts/new?settlement=${encodeURIComponent(s.id)}`}>
+                      {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
+                    </LinkButton>
+                  );
+                  return (
+                    <MoneyAction kind="payout" act={waitingToSend ? 'send' : 'request'}>
+                      {link}
+                    </MoneyAction>
+                  );
+                })()
+              : undefined;
           const reversed = lc?.events.some((e) => e.kind === 'payout.reversed') ?? false;
           return (
             <>

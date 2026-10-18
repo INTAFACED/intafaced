@@ -3,6 +3,10 @@ import { defineCopy } from '../../../../shared/i18n';
 /** Words in the shared building blocks every portal page uses: lists, filters, status chips, freshness, copy buttons. */
 const en = {
   reference: 'Reference',
+  // The one statement about the fee on the account, used on Overview, Pricing and Onboarding. Percent, never basis points.
+  feeStory: 'Fee {pct} — taken when a payment settles',
+  feeStoryTest: 'Starter fee {pct} (TEST value) — taken when a payment settles',
+  feeStoryNone: 'No rate is set on your account.',
   // freshness
   updatedJustNow: 'Updated just now',
   updatedMinutes: 'Updated {n} min ago',
@@ -14,7 +18,7 @@ const en = {
   allStatuses: 'All statuses',
   date: 'Date',
   anyDate: 'Any date',
-  today: 'Today',
+  today: 'Today (UTC)',
   last7: '7 days',
   last30: '30 days',
   custom: 'Custom',

@@ -69,5 +69,8 @@ async function main() {
 try {
   await main();
 } finally {
-  await sql.end({ timeout: 5 });
+  // One-shot CLI: the migrations have already committed or rolled back. Waiting
+  // out a graceful drain (up to 5s) under a loaded CI Postgres is how the
+  // down-runner test crossed its 15s budget three times per run.
+  await sql.end({ timeout: 0 });
 }

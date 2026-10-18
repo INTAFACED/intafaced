@@ -28,6 +28,8 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
+import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
@@ -37,6 +39,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
+import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { PostgresBroadcastStore } from './rails/broadcast-store.js';
 import { PostgresRestIdempotencyStore } from './rest-idempotency.js';
@@ -443,6 +446,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
@@ -573,6 +577,12 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  * so an unauthenticated caller cannot fan out invoices to every customer on the
  * platform.
  */
+registerPayStepUpGrantRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
 registerOwnerPayScopeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   installRawBody: false,
@@ -810,10 +820,14 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     pollIntervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS,
     cursorStore: watcherCursors,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
+    onAlive: () => cryptoRail.noteAlive(),
   });
   watcher.start();
   app.log.info({ intervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS }, 'crypto chain watcher started');
 }
+
+const railProbe = new RailHealthProbeLoop(rails.list());
+void railProbe.start();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -848,6 +862,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.

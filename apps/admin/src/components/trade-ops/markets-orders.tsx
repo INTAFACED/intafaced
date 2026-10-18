@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Badge, sortRows, Table, type SortState, type TableColumn } from '@intafaced/ui';
 import type { AdminOrderRow } from '@/lib/trade-ops/reads';
 
-/** Open orders resting on one market. A held order (outcome not yet known, funds reserved) says "Held", never plain open. */
+/** Open orders resting on one market. A held order (outcome not known, funds reserved) says "Held", never plain open. */
 
 const columns: readonly TableColumn<AdminOrderRow>[] = [
   { id: 'id', header: 'Order', value: (o) => o.id.slice(0, 8), pin: 'start', width: 90 },

@@ -3,7 +3,7 @@ import { BLOCKERS } from '@/lib/trade-ops/blockers';
 import { blocked, refused } from '@/lib/trade-ops/outcome';
 
 /**
- * Actions for the Orders room. Each one is a real, validated request whose service does not exist yet, so each answers
+ * Actions for the Orders room. Each one is a real, validated request whose service does not exist, so each answers
  * with its typed blocker: fills and history (orders_by_id_cross_user_missing), cancel for an operator
  * (mass_cancel_operator_missing) and starting a reconcile (reconcile_route_missing). Nothing is sent to the edge.
  */

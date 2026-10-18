@@ -16,6 +16,19 @@ export interface HistoryEntry {
   readonly postedAt: Date;
 }
 
+/** One fill or convert on a single sub-account. Nulls stay null — never a borrowed basis. */
+export interface SubAccountActivityLine {
+  readonly id: string;
+  readonly kind: 'fill' | 'convert';
+  readonly postedAt: Date;
+  readonly assetId: string;
+  readonly qty: Amount;
+  readonly fee: Amount | null;
+  readonly makerRebate: Amount | null;
+  readonly costBasis: Amount | null;
+  readonly proceeds: Amount | null;
+}
+
 export interface TaxBalance {
   readonly account: AccountRef;
   readonly accountId: string;
@@ -25,6 +38,13 @@ export interface TaxBalance {
 export interface TaxLedgerReads {
   balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<TaxBalance[]>;
   history(account: AccountRef, range: HistoryRange): Promise<HistoryEntry[]>;
+  /**
+   * Sub-accounts owned by this user, in parent order.
+   * Absent on the ledger wire: the history read has no parent index, fee, maker rebate, or cost basis.
+   * Both methods must be present or the year pack stays unwired and invents no rows.
+   */
+  subAccountIds?(userId: string): Promise<readonly string[]>;
+  subAccountActivity?(subAccountId: string, range: HistoryRange): Promise<readonly SubAccountActivityLine[]>;
 }
 
 export function unwiredLedgerReads(): TaxLedgerReads {

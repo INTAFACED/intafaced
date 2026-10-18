@@ -110,6 +110,8 @@ export function replayJournal(records: readonly JournalRecord[]): {
       record.kind === 'open' ||
       record.kind === 'expire' ||
       record.kind === 'delist' ||
+      record.kind === 'maintenance' ||
+      record.kind === 'end_maintenance' ||
       record.kind === 'halt_all' ||
       record.kind === 'resume_all' ||
       record.kind === 'split_brain' ||
@@ -198,6 +200,8 @@ export function replayFrom(snapshot: EngineSnapshot, records: readonly JournalRe
       record.kind === 'open' ||
       record.kind === 'expire' ||
       record.kind === 'delist' ||
+      record.kind === 'maintenance' ||
+      record.kind === 'end_maintenance' ||
       record.kind === 'halt_all' ||
       record.kind === 'resume_all' ||
       record.kind === 'split_brain' ||

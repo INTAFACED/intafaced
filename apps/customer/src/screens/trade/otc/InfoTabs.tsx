@@ -34,7 +34,7 @@ const REFUSALS = [
   { title: 'Give-up', code: 'trade.rfq_give_up_refused' },
 ] as const;
 
-/** Two things the desk does not do yet. No buttons: the service refuses both by name until an owner law names the accounts. */
+/** Two things the desk does not do. No buttons: the service refuses both by name until an owner law names the accounts. */
 export function AllocationTab() {
   const { t } = otcCopy.useCopy();
   return (

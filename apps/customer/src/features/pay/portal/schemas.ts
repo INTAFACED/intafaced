@@ -264,6 +264,7 @@ export const notificationKinds = [
   'operator_pause',
   'export_ready',
   'team_change',
+  'payout_destination',
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 export const notificationSchema = z.object({
@@ -303,6 +304,8 @@ export const merchantRecordSchema = z
   })
   .nullable();
 export type MerchantRecord = NonNullable<z.infer<typeof merchantRecordSchema>>;
+/** The fee INTAFACED has published for new accounts, exactly as the service states it. `local_test` marks a TEST value. */
+export type StarterFee = { bps: number; source: 'local_test' };
 export const railSchema = z.array(
   z.object({
     id: z.string(),

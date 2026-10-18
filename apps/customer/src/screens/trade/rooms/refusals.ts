@@ -1,6 +1,6 @@
 /**
  * Plain words for the typed refusals these rooms meet (UI-SPEC 4.3). The customer reads a title and one sentence that
- * names the real reason; the service code sits underneath as small support text. No "coming soon", no service names.
+ * names the real reason; the service code sits underneath as small support text. No promises of later availability, no service names.
  * Codes this file does not know fall through to the shared `refusalCopy`, so a new code never shows raw JSON.
  */
 import { classifyRefusal } from '../../../data';
@@ -14,7 +14,7 @@ export interface Words {
 
 const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   'trade.otc_desk_law_blank': {
-    title: 'The quote desk is not open yet',
+    title: 'The quote desk is not open',
     body: 'The desk spread, stake rule and counterparty are not published, so no firm price can be given.',
   },
   'trade.otc_stake_gate': {
@@ -58,6 +58,18 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'Not enough trading history for this schedule',
     body: 'VWAP and participation schedules need recent volume for this market. Use a TWAP schedule instead.',
   },
+  'trade.algo_balance_unreadable': {
+    title: 'We couldn’t check your balance',
+    body: 'The balance read failed, so the schedule was not started. Nothing was held.',
+  },
+  'trade.algo_mark_policy_unset': {
+    title: 'The price check isn’t configured',
+    body: 'The mark age limit isn’t set, so a schedule can’t start. Nothing was held.',
+  },
+  'trade.fee_schedule_blank': {
+    title: 'Trading fees aren’t set',
+    body: 'A schedule can’t start until the fee schedule is published. Nothing was held.',
+  },
   'trade.algo_cancel_incomplete': {
     title: 'The last cancel did not finish',
     body: 'Some child orders are still open. Cancel again; the schedule cannot resume until it finishes.',
@@ -98,6 +110,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
   'trade.client_order_id_conflict': {
     title: 'That order id was used for a different order',
     body: 'Nothing new was placed. Start a new ladder.',
+  },
+  'trade.scale_child_refused': {
+    title: 'The ladder was not placed',
+    body: 'One level was refused, so the levels already placed in this request were cancelled. No order from this ladder is still open.',
+  },
+  'trade.scale_rollback_incomplete': {
+    title: 'The ladder cancel did not finish',
+    body: 'One level was refused and a cancel of an earlier level failed. The message names the order ids that are still open.',
   },
 };
 
