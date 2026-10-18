@@ -43,6 +43,8 @@ export const users = identity.table(
     id: uuid('id').primaryKey().defaultRandom(),
     handle: citext('handle').notNull(),
     email: citext('email').notNull(),
+    /** Null until the current address is confirmed. Cleared when the email changes. */
+    emailVerifiedAt: tstz('email_verified_at'),
     /** argon2id. Never a fast hash — §9. */
     passwordHash: text('password_hash').notNull(),
     /**
@@ -79,8 +81,10 @@ export const profiles = identity.table('profiles', {
   /** trader | merchant | creator | student — a user can be several at once. */
   modes: text('modes').array().notNull().default([]),
   locale: text('locale').notNull().default('en'),
-  /** ISO-3166 alpha-2. Drives JURISDICTION_MATRIX lookups. */
+  /** ISO-3166 alpha-2. Drives JURISDICTION_MATRIX lookups. Customers do not set it. */
   region: text('region'),
+  /** Compare-and-set token for profile.update. Existing rows start at 0. */
+  version: integer('version').notNull().default(0),
   /** Set by svc-blueprint in Phase 4. Null until then. */
   blueprintId: uuid('blueprint_id'),
   updatedAt: updatedAt(),
@@ -291,6 +295,56 @@ export const passwordResetProofs = identity.table(
   (t) => [uniqueIndex('password_reset_proofs_code_hash_idx').on(t.codeHash), index('password_reset_proofs_user_open_idx').on(t.userId)],
 );
 
+/**
+ * One-time email confirmation proofs. The token itself is never stored.
+ * `email_hash` binds the proof to the address it was issued for.
+ */
+export const emailConfirmationProofs = identity.table(
+  'email_confirmation_proofs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    emailHash: text('email_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('email_confirmation_proofs_code_hash_idx').on(t.codeHash),
+    index('email_confirmation_proofs_user_open_idx').on(t.userId),
+  ],
+);
+
+export const emailConfirmationAttempts = identity.table(
+  'email_confirmation_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('email_confirmation_attempts_user_created_idx').on(t.userId, t.createdAt)],
+);
+
+/** Requested, confirmed, or refused. No token, code, or link column. */
+export const emailConfirmationAudit = identity.table(
+  'email_confirmation_audit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('email_confirmation_audit_user_idx').on(t.userId, t.createdAt)],
+);
+
 export const apiKeys = identity.table(
   'api_keys',
   {
@@ -344,6 +398,9 @@ export const apiKeys = identity.table(
  * Soft-disable via `revoked` only — never hard-delete. Destroying the row
  * would orphan ledger accounts keyed on this id. Revoke does not move value
  * (identity holds no balances; see bank.spaces.archive for the same rule).
+ *
+ * `frozen` is the Bybit sub-uid flag: 0 active, 1 paused. Same id both ways.
+ * It is not revoke.
  */
 export const subAccounts = identity.table(
   'sub_accounts',
@@ -355,6 +412,8 @@ export const subAccounts = identity.table(
     label: text('label').notNull(),
     purpose: text('purpose'),
     revoked: boolean('revoked').notNull().default(false),
+    /** 0 active, 1 paused. Same id. Not revoke. */
+    frozen: integer('frozen').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [index('sub_accounts_parent_idx').on(t.parentUserId), index('sub_accounts_parent_revoked_idx').on(t.parentUserId, t.revoked)],
@@ -425,6 +484,9 @@ export const actionApprovals = identity.table(
     kind: text('kind').notNull().default('four_eyes'),
     /** Session a same_person approval is bound to; null for four_eyes. */
     sessionId: text('session_id'),
+    consumedByService: text('consumed_by_service'),
+    consumedByPrincipal: text('consumed_by_principal'),
+    consumedRequestId: text('consumed_request_id'),
   },
   (t) => [
     uniqueIndex('action_approvals_operation_idx').on(t.operationId),
@@ -456,6 +518,9 @@ export const schema = {
   rankThresholds,
   sessions,
   passwordResetProofs,
+  emailConfirmationProofs,
+  emailConfirmationAttempts,
+  emailConfirmationAudit,
   apiKeys,
   subAccounts,
   waitlistEntries,

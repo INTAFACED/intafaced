@@ -18,7 +18,7 @@ import type { Amount } from '@intafaced/ledger-client';
 import type { BroadcastStore } from './broadcast-store.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
-import type { ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
+import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
 
 /**
  * LIVE EVM implementation of `CryptoChainPort`.
@@ -166,6 +166,14 @@ export class EvmLiveChain implements CryptoChainPort {
     return this.hotAccount.address;
   }
 
+  /** Chain id only. Not `refresh()` — that scans blocks. */
+  async ping(): Promise<void> {
+    const id = await this.public.getChainId();
+    if (id !== this.options.chainId) {
+      throw new Error(`chain id ${id} does not match configured ${this.options.chainId}`);
+    }
+  }
+
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     requireAsset(this.assets, assetId);
     const key = `${paymentId}\0${assetId}`;
@@ -196,6 +204,15 @@ export class EvmLiveChain implements CryptoChainPort {
     const observed = matches[0];
     if (!observed) return null;
     return toTransfer(observed);
+  }
+
+  async lookupSend(idempotencyKey: string): Promise<ChainSendLookup> {
+    const hash = await this.broadcasts.get(idempotencyKey);
+    if (hash) return { state: 'sent', txHash: hash, amount: null, assetId: null };
+    // Signed bytes are journalled before the broadcast RPC. No hash yet means
+    // the send may already have left. That is not proof it did not.
+    if (await this.broadcasts.hasSigned(idempotencyKey)) return { state: 'unknown' };
+    return { state: 'not_sent' };
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {

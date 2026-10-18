@@ -41,11 +41,15 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('market.my_purchases_list_limit_unset')).toBe('market.my_purchases_list_limit_unset');
     expect(userCopy('market.applications_list_limit_unset')).toBe('market.applications_list_limit_unset');
     expect(userCopy('market.history_limit_unset')).toBe('market.history_limit_unset');
+    expect(userCopy('market.ops_sales_list_limit_unset')).toBe('market.ops_sales_list_limit_unset');
+    expect(userCopy('market.reviews_list_limit_unset')).toBe('market.reviews_list_limit_unset');
     expect(userCopy('market.listed_vendors_list_limit_unset')).not.toMatch(/20|default/i);
     expect(userCopy('market.public_listings_list_limit_unset')).not.toMatch(/50|default/i);
     expect(userCopy('market.my_listings_list_limit_unset')).not.toMatch(/50|default/i);
     expect(userCopy('market.my_purchases_list_limit_unset')).not.toMatch(/50|default/i);
     expect(userCopy('market.applications_list_limit_unset')).not.toMatch(/50|default/i);
     expect(userCopy('market.history_limit_unset')).not.toMatch(/50|default/i);
+    expect(userCopy('market.ops_sales_list_limit_unset')).not.toMatch(/50|default/i);
+    expect(userCopy('market.reviews_list_limit_unset')).not.toMatch(/50|default/i);
   });
 });

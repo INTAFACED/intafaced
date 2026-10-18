@@ -19,7 +19,30 @@ import { PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
 import { RailRegistry } from './rails/registry.js';
-import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { CardSandboxAdapter, type CardSandboxOptions } from './rails/card-sandbox.js';
+import type { RailAdapter } from './rails/rail-adapter.js';
+
+/**
+ * Test double with a live identity. The mock books stay in CardSandboxAdapter,
+ * which cannot itself be live. This object is a different adapter: id
+ * `card-acquirer`, mode `live`, so the HTTP money suite is not a sandbox key.
+ */
+function httpMoneyAcquirer(options: CardSandboxOptions): RailAdapter {
+  const inner = new CardSandboxAdapter(options);
+  return {
+    id: 'card-acquirer',
+    capabilities: inner.capabilities,
+    mode: 'live',
+    health: () => inner.health(),
+    authorize: (payment) => inner.authorize(payment),
+    capture: (ref) => inner.capture(ref),
+    refund: (ref, amount) => inner.refund(ref, amount),
+    payout: (instruction) => inner.payout(instruction),
+    payoutIdempotencyKey: (instruction) => inner.payoutIdempotencyKey(instruction),
+    queryPayout: (idempotencyKey) => inner.queryPayout(idempotencyKey),
+    verifyWebhook: (req) => inner.verifyWebhook(req),
+  };
+}
 
 /**
  * DOES THE PUBLIC WRITE SURFACE ACTUALLY MOVE MONEY, AND ONLY ONCE?
@@ -64,9 +87,10 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  * WHAT IT IS CAREFUL NOT TO CLAIM
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * That this is a live acquirer. The rail is `card-sandbox`. Nothing here is
- * evidence of a card programme, of KYB gating (still DIRECTION §8 item 4, owner-
- * only), or of a chargeback wire (`chargeback-unwired.test.ts` pins it absent).
+ * That this is a card programme. The rail is a live-mode test acquirer
+ * (`card-acquirer`) so these writes are not a sandbox credential. Sandbox keys
+ * are proved in `sandbox-isolation.db.test.ts`. Nothing here is evidence of
+ * KYB gating, or of a chargeback wire.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run database via `createTestDatabase` so schema-qualified
@@ -82,6 +106,8 @@ const MIGRATIONS = [
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
   // GET /v1/payments reads the stored pricing row. The table is empty here.
   '0050_pay_control_tiers.sql',
   '0051_pay_control_pricing.sql',
@@ -104,8 +130,9 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     scopes: ['pay:read', 'pay:write', 'pay:refund'],
     tier: 'basic',
     mfa: false,
-    // A sandbox key, so `createPayment` may legitimately name `card-sandbox`.
-    key_env: 'sandbox',
+    // A live key on `card-acquirer`. A sandbox key must not move this book;
+    // that refusal is `sandbox-isolation.db.test.ts`.
+    key_env: 'live',
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
   } as Principal;
@@ -203,7 +230,7 @@ describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
       getTx: (txId) => ledger.getTx(txId),
       getTxByKey: (key) => ledger.getTxByKey(key),
     };
-    pay = new PayService(db.sql, recording, new RailRegistry([new CardSandboxAdapter({ secret: RAIL_SECRET, toleranceSeconds: 300 })]));
+    pay = new PayService(db.sql, recording, new RailRegistry([httpMoneyAcquirer({ secret: RAIL_SECRET, toleranceSeconds: 300 })]));
   });
 
   afterAll(async () => {
@@ -251,7 +278,7 @@ describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
         amount,
         assetId: ASSET,
         method: 'card',
-        railAdapter: 'card-sandbox',
+        railAdapter: 'card-acquirer',
         instrument: { kind: 'card', token: 'tok_ok' },
       },
     });

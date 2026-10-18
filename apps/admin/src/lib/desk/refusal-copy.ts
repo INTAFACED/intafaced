@@ -178,6 +178,56 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The service checks permissions itself and refused.',
     next: 'Nothing was changed.',
   },
+  'p2p.dispute_already_resolved': {
+    title: 'This dispute is already resolved',
+    body: 'A moderator ruled on it, or the trade is no longer in dispute, so there is nothing to escalate.',
+    next: 'Read the dispute list again. Nothing was changed.',
+  },
+  'p2p.dispute_not_found': {
+    title: 'No such dispute',
+    body: 'svc-p2p does not know that dispute id.',
+    next: 'Read the dispute list again. Nothing was changed.',
+  },
+  'p2p.not_a_moderator': {
+    title: 'You are not a P2P moderator',
+    body: 'svc-p2p only lets moderators act on disputes: the moderator list, or the compliance permission.',
+    next: 'Nothing was changed. Ask who grants moderator access.',
+  },
+  'p2p.moderation_unreachable': {
+    title: 'No P2P moderators are set up',
+    body: 'svc-p2p has an empty moderator list, so it refuses every dispute action rather than guess who may act.',
+    next: 'Nothing was changed. Tell engineering.',
+  },
+  'p2p.ruling_not_attributed': {
+    title: 'This action must be tied to a person',
+    body: 'svc-p2p only records a dispute action against a named person account, not a service or a key.',
+    next: 'Sign in as yourself. Nothing was changed.',
+  },
+  'bank.card_command_conflict': {
+    title: 'That request key was used for something else',
+    body: 'svc-bank has already seen this request key for a different card or status.',
+    next: 'Start a new request. Nothing was changed.',
+  },
+  'bank.ops_reason_too_short': {
+    title: 'The reason is too short',
+    body: 'svc-bank wants at least 10 characters of reason for an operator card freeze.',
+    next: 'Nothing was changed. Start a new request with a fuller reason.',
+  },
+  'market.listing_taken_down': {
+    title: 'This listing is already taken down',
+    body: 'A taken-down listing stays down for good, so there is nothing more to do.',
+    next: 'Read the listings again. Nothing was changed.',
+  },
+  'market.takedown_approval_mismatch': {
+    title: 'That approval is for a different takedown',
+    body: 'The approval svc-market found is not for this listing and this reason, so the listing was left as it was.',
+    next: 'Start a new request.',
+  },
+  'market.idempotency_conflict': {
+    title: 'That request key was used for something else',
+    body: 'svc-market has already seen this request key for a different listing.',
+    next: 'Start a new request. Nothing was changed.',
+  },
   'admin.session_required': {
     title: 'You are signed out',
     body: 'Your founder session ended.',

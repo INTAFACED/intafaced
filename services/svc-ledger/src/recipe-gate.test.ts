@@ -15,7 +15,7 @@ import {
   userAvailable,
   type PostRequest,
 } from '@intafaced/ledger-client';
-import { RECIPE_REQUIRED_CODE, assertKnownRecipePost, unsampledRecipeNames } from './recipe-gate.js';
+import { RECIPE_REQUIRED_CODE, assertKnownRecipePost, recipeCandidates, recipeGateSamples, unsampledRecipeNames } from './recipe-gate.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -38,6 +38,12 @@ function toWire(req: PostRequest) {
 describe('recipe-gate', () => {
   it('samples every registry recipe so the allowlist cannot silently drop one', () => {
     expect(unsampledRecipeNames()).toEqual([]);
+  });
+
+  it('keeps each sample name among the candidates for that sample', () => {
+    for (const sample of recipeGateSamples()) {
+      expect(recipeCandidates(sample.post), sample.name).toContain(sample.name);
+    }
   });
 
   it('accepts a deposit recipe post', () => {

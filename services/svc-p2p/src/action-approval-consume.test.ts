@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ActionApprovalConsumeError,
   createIdentityApprovalClient,
+  disputeResolvePayloadHash,
   p2pActionPayloadHash,
   readApprovalIds,
   stubApprovalConsumer,
@@ -65,6 +66,29 @@ describe('p2p action-approval consume', () => {
       approvalId: 'appr-1',
       operationId: 'op-1',
     });
+  });
+
+  it('hashes a dispute ruling as actionType, dispute id, winner and note', () => {
+    expect(
+      disputeResolvePayloadHash({
+        disputeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        winner: 'buyer',
+        note: 'paid',
+      }),
+    ).toBe('sha256:ff6776150a35b57a81d161a01de981927c88070e944b99bbf2da6a709323b65a');
+    expect(
+      disputeResolvePayloadHash({
+        disputeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        winner: 'seller',
+        note: 'paid',
+      }),
+    ).not.toBe(
+      disputeResolvePayloadHash({
+        disputeId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        winner: 'buyer',
+        note: 'paid',
+      }),
+    );
   });
 
   it('unwraps tRPC result.data.json from identity consume', async () => {

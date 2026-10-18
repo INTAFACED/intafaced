@@ -256,7 +256,7 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
 
     beforeEach(async () => {
       setCreditEnv();
-      await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+      await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets, trade.account_position_modes RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       bus = new MemoryEventBus('svc-trade');
       marks = memoryMarkBook();
@@ -300,15 +300,12 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
       );
     });
 
-    it('unset position mode refuses open before futuresMarginLock; zero lock posts', async () => {
-      await expect(open({ clientOpenId: 'f6-unset' })).rejects.toMatchObject({
-        name: 'FuturesError',
-        code: POSITION_MODE_UNSET,
-        status: 400,
-      });
-      expect(lockPosts()).toHaveLength(0);
-      expect(await sql`SELECT id FROM trade.positions`).toHaveLength(0);
-      expect(await avail()).toBe('100000');
+    it('a plain open with no mode stores one_way and does not answer position_mode_unset', async () => {
+      const pos = await open({ clientOpenId: 'f6-unset' });
+      expect(pos.status).toBe('open');
+      expect(lockPosts()).toHaveLength(1);
+      expect(await positions.readAccountMode(ALICE)).toMatchObject({ mode: 'one_way', source: 'stored' });
+      expect(await sql`SELECT id FROM trade.positions`).toHaveLength(1);
     });
 
     it('hedge without positionSide refuses; zero lock posts', async () => {

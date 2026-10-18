@@ -441,7 +441,7 @@ if (!available) {
       expect(wiped[0]?.require_non_empty_ip_allowlist).toBe(true);
     });
 
-    it('sign-in claims with the stored mailbox and still opens a session when the claim fails', async () => {
+    it('claims only a confirmed stored mailbox, and a pay failure still opens the session', async () => {
       const seen: Array<{ userId: string; email: string }> = [];
       auth.useMerchantEmailInviteClaimer({
         async claim(input) {
@@ -452,7 +452,12 @@ if (!available) {
         const handle = unique();
         const email = `${handle}@Example.com`;
         const session = await auth.register({ handle, email, password: 'correct horse battery staple', region: 'DE' });
-        expect(seen).toEqual([{ userId: session.userId, email }]);
+        expect(seen).toEqual([]);
+        await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).resolves.toMatchObject({
+          userId: session.userId,
+        });
+        expect(seen).toEqual([]);
+        await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
         seen.length = 0;
         auth.useMerchantEmailInviteClaimer({
           async claim(input) {
@@ -460,7 +465,7 @@ if (!available) {
             throw new Error('pay down');
           },
         });
-        await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).resolves.toMatchObject({
+        await expect(auth.login({ identifier: email, password: 'correct horse battery staple' })).resolves.toMatchObject({
           userId: session.userId,
         });
         expect(seen).toEqual([{ userId: session.userId, email }]);

@@ -159,7 +159,14 @@ export const rooms: readonly Room[] = [
     area: 'trade',
     screen: 'trade/futures',
   },
-  { path: '/trade/options', title: 'Options', description: 'Calls, strikes and puts', door: 'Trade', area: 'trade' },
+  {
+    path: '/trade/options',
+    title: 'Options',
+    description: 'Calls, strikes and puts',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/options',
+  },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
   {
@@ -170,8 +177,31 @@ export const rooms: readonly Room[] = [
     area: 'trade',
     screen: 'trade/convert',
   },
-  { path: '/execution', title: 'Execution', description: 'Cross-venue execution', door: 'Trade', area: 'trade' },
-  { path: '/otc', title: 'Quote desk', description: 'Request a quoted trade', door: 'Trade', area: 'trade' },
+  {
+    path: '/execution',
+    title: 'Execution',
+    description: 'Cross-venue execution',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/execution',
+  },
+  {
+    path: '/otc',
+    title: 'Quote desk',
+    description: 'Request a quoted trade',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/otc',
+  },
+  {
+    path: '/otc/:quoteId',
+    title: 'Quoted order',
+    description: 'Review a quoted trade',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+    screen: 'trade/otc',
+  },
   { path: '/otc/tradeInfo', title: 'Quoted order', description: 'Review a quoted trade', door: 'Trade', area: 'trade', hidden: true },
   { path: '/otc/trade/*', title: 'Quoted order', description: 'Your trade context', door: 'Trade', area: 'trade', hidden: true },
   {
@@ -202,6 +232,24 @@ export const rooms: readonly Room[] = [
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/order', title: 'Person-to-person orders', description: 'Your active and past trades', door: 'Pay', area: 'pay' },
+  {
+    path: '/p2p/orders',
+    title: 'Person-to-person orders',
+    description: 'Your active and past trades',
+    door: 'Pay',
+    area: 'pay',
+    alias: '/uc/order',
+    hidden: true,
+  },
+  {
+    path: '/p2p/orders/:tradeId',
+    title: 'Person-to-person orders',
+    description: 'Your active and past trades',
+    door: 'Pay',
+    area: 'pay',
+    alias: '/uc/order?tradeId=:tradeId',
+    hidden: true,
+  },
   { path: '/chat', title: 'Order conversation', description: 'Communicate about your order', door: 'Pay', area: 'pay', hidden: true },
   { path: '/checkuser', title: 'Counterparty', description: 'Check trade context', door: 'Pay', area: 'pay', hidden: true },
   ...(
@@ -247,6 +295,15 @@ export const rooms: readonly Room[] = [
       ['approvals', 'Payout approvals', 'Payouts waiting for a second person'],
       ['pricing', 'Pricing and fees', 'What your account is charged'],
       ['limits', 'Limits and tier', 'How much of each limit is used'],
+      ['payouts/new', 'Request a payout', 'Choose a settlement and send it for approval'],
+      ['payouts/destinations', 'Payout destinations', 'Where your payouts are sent'],
+      ['analytics', 'Analytics', 'Payment volume over time'],
+      ['analytics/fees', 'Fees', 'What you paid in fees'],
+      ['settings/security', 'Security', 'Sessions and sign-in protection'],
+      ['activity', 'Activity', 'Who changed what on your account'],
+      ['invoices/new', 'Create an invoice', 'Bill a customer for one amount'],
+      ['developer/sandbox', 'Sandbox', 'Try payments with test money'],
+      ['developer/docs', 'Developer docs', 'How to connect your systems'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/pay/${slug}`,
@@ -364,6 +421,34 @@ export const rooms: readonly Room[] = [
     business: true,
     hidden: true,
   },
+  {
+    path: '/pay/network/:childId',
+    title: 'Business in your network',
+    description: 'One business you manage',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  // Any other business address still opens the frame, which says "Page not found" with the way back to Overview.
+  {
+    path: '/pay/:page',
+    title: 'Page not found',
+    description: 'No such business page',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
+  {
+    path: '/pay/:page/:child',
+    title: 'Page not found',
+    description: 'No such business page',
+    door: 'Pay',
+    area: 'pay',
+    business: true,
+    hidden: true,
+  },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
@@ -415,9 +500,9 @@ export const rooms: readonly Room[] = [
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
   ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
-    { path: `/${slug}`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const },
+    { path: `/${slug}`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const },
     // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
-    { path: `/${slug}/*`, title: slug, description: 'Parked until owner activation' as const, area: 'parked' as const, hidden: true },
+    { path: `/${slug}/*`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const, hidden: true },
   ]),
 ];
 
@@ -447,14 +532,18 @@ const aliasParameter = /:([A-Za-z][A-Za-z0-9]*)/g;
 export function resolveAlias(room: Room, path: string, search = ''): string | undefined {
   if (!room.alias) return undefined;
   const params = matchPath(room.path, path) ?? {};
-  const target = room.alias.replace(aliasParameter, (whole, name: string) => {
-    const value = params[name];
-    if (value === undefined) return whole;
-    return name === 'pair' ? normalizePair(value) : value;
-  });
-  const [targetPath = '/', targetQuery = ''] = target.split('?');
+  const fill = (text: string, encode: boolean) =>
+    text.replace(aliasParameter, (whole, name: string) => {
+      const value = params[name];
+      if (value === undefined) return whole;
+      const shaped = name === 'pair' ? normalizePair(value) : value;
+      // A segment placed in a query is one value, whatever characters it carries.
+      return encode ? encodeURIComponent(shaped) : shaped;
+    });
+  const [aliasPath = '/', aliasQuery = ''] = room.alias.split('?');
+  const targetPath = fill(aliasPath, false);
   const query = new URLSearchParams(search);
-  for (const [key, value] of new URLSearchParams(targetQuery)) query.set(key, value);
+  for (const [key, value] of new URLSearchParams(fill(aliasQuery, true))) query.set(key, value);
   const text = query.toString();
   return text ? `${targetPath}?${text}` : targetPath;
 }

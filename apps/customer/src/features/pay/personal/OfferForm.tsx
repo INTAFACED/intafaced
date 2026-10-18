@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useResource } from '../../../shared/resource';
-import { EmptyState } from '../../../shared/ui';
+import { EmptyState } from '../ui-kit';
 import { PayDetails, PayFailure, PayState } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import { id } from '../schemas';
@@ -15,7 +15,7 @@ import {
   type OfferFormValues,
 } from './p2p-model';
 import { P2PReason } from './P2PDepth';
-import { Button } from '../../../shared/ui';
+import { Button } from '@intafaced/ui';
 import './p2p-depth.css';
 
 /**
@@ -37,6 +37,22 @@ export function OfferForm({
 }) {
   const { t, languageFor, directionFor } = p2pDepth.useCopy();
   const valid = offerId !== null && id.safeParse(offerId).success;
+  // An edit with no offer chosen shows no form at all: there is nothing to edit and nothing to type into.
+  if (mode === 'edit' && !valid)
+    return (
+      <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-pick">
+        <EmptyState
+          title={t('editPickTitle')}
+          action={
+            <a className="button button--primary" href="/uc/ad">
+              {t('backToOffers')}
+            </a>
+          }
+        >
+          {t('editPickBody')}
+        </EmptyState>
+      </div>
+    );
   return (
     <div className="p2p-form" lang={languageFor('formCreateTitle')} dir={directionFor('formCreateTitle')} data-testid="offer-form">
       <P2PReason title={mode === 'edit' ? t('formOffEditTitle') : t('formOffCreateTitle')}>
@@ -44,22 +60,8 @@ export function OfferForm({
       </P2PReason>
       {mode === 'create' ? (
         <Fields pay={pay} baseline={emptyOffer()} mode="create" />
-      ) : valid ? (
-        <EditLive pay={pay} userId={userId} offerId={offerId.toLowerCase()} />
       ) : (
-        <>
-          <EmptyState
-            title={t('editPickTitle')}
-            action={
-              <a className="button button--primary" href="/uc/ad">
-                {t('backToOffers')}
-              </a>
-            }
-          >
-            {t('editPickBody')}
-          </EmptyState>
-          <Fields pay={pay} baseline={emptyOffer()} mode="edit" />
-        </>
+        <EditLive pay={pay} userId={userId} offerId={offerId!.toLowerCase()} />
       )}
     </div>
   );

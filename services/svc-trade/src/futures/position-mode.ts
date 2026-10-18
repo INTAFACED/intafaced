@@ -15,6 +15,7 @@
  */
 import { TradeError, type TradeErrorCode } from '../spot/types.js';
 import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
+import { resolveOpenPositionMode } from './account-mode.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import type { Principal } from '@intafaced/auth';
 
@@ -176,6 +177,7 @@ export function checkOrderSideForPositionMode(input: OrderSideForPositionModeInp
 type OpenWithMode = OpenPositionInput & {
   readonly positionMode?: unknown;
   readonly positionSide?: unknown;
+  readonly reduceOnly?: boolean;
 };
 
 type PlaceWithMode = PlaceOrderInput & {
@@ -183,7 +185,7 @@ type PlaceWithMode = PlaceOrderInput & {
   readonly positionSide?: unknown;
 };
 
-function refuseOpen(check: Extract<PositionModeCheck, { ok: false }>): never {
+function refuseOpen(check: { code: string; reason: string }): never {
   throw new FuturesError(check.reason, check.code, 400);
 }
 
@@ -204,15 +206,32 @@ export function installPositionModeOpen(ctor: typeof PositionService): void {
   const origOpen = proto.open;
   proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
     const tagged = input as OpenWithMode;
-    const mode = parsePositionMode(tagged.positionMode);
-    if (!mode.ok) refuseOpen(mode);
+    if (tagged.reduceOnly === true) {
+      const mode = parsePositionMode(tagged.positionMode == null ? 'one_way' : tagged.positionMode);
+      if (tagged.positionMode != null && !mode.ok) refuseOpen(mode);
+      return origOpen.call(this, input, principal);
+    }
+    const stored = await this.readAccountMode(input.userId);
+    const decision = resolveOpenPositionMode({
+      requested: tagged.positionMode,
+      stored: stored.mode,
+    });
+    if (!decision.ok) refuseOpen(decision);
     const side = checkOrderSideForPositionMode({
-      mode: mode.mode,
+      mode: decision.mode,
       side: tagged.side,
       positionSide: tagged.positionSide,
     });
     if (!side.ok) refuseOpen(side);
-    return origOpen.call(this, input, principal);
+    const next = tagged.positionMode === decision.mode ? input : { ...input, positionMode: decision.mode };
+    const opened = await origOpen.call(this, next, principal);
+    if (decision.store) {
+      const clientOpenId = input.clientOpenId?.trim() ?? '';
+      if (clientOpenId.length > 0 && clientOpenId.length <= 64) {
+        await this.writeAccountMode(input.userId, { mode: 'one_way', clientModeId: clientOpenId });
+      }
+    }
+    return opened;
   };
 }
 

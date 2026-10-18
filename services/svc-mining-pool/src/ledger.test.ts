@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryLedger } from '@intafaced/ledger-client';
-import { postPayouts } from './ledger.js';
+import { MemoryLedger, parseAmount, rewardPay } from '@intafaced/ledger-client';
+import { miningPayoutIdempotencyKey, miningPayoutRewardId, postPayouts } from './ledger.js';
 
 describe('mining postPayouts recipes', () => {
   it('refuses unset epoch and does not post', async () => {
@@ -45,5 +45,18 @@ describe('mining postPayouts recipes', () => {
       }),
     ).rejects.toThrow(/decimal string/);
     expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('the payout read key is the rewardPay idempotency key', () => {
+    const user = '11111111-1111-4111-8111-111111111111';
+    const posted = rewardPay({
+      rewardId: miningPayoutRewardId('w', user),
+      userId: user,
+      assetId: 'IFC',
+      amount: parseAmount('1'),
+      reason: 'mining.pplns.payout',
+    });
+    expect(miningPayoutIdempotencyKey('w', user)).toBe(posted.idempotencyKey);
+    expect(posted.idempotencyKey).toBe('reward:mining:pplns:w:' + user);
   });
 });

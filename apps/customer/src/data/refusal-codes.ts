@@ -104,6 +104,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',
+  'trade.algo_balance_unreadable': 'tryAgain',
+  'trade.fee_schedule_blank': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
@@ -148,6 +150,7 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['kyc.', 'verify'],
   ['kyc_', 'verify'],
   ['token.params_', 'notSetUp'],
+  ['token_params.', 'notSetUp'],
   ['trade.lifecycle', 'marketNotOpen'],
   ['trade.market_', 'marketNotOpen'],
   ['trade.venue_', 'marketNotOpen'],

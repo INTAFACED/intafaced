@@ -1,5 +1,12 @@
 import { MoneyError, mulBps, sub, type Amount } from '@intafaced/ledger-client';
-import { requirePublishedFeeSchedule, type OwnerFeeSchedule } from './fee-schedule.js';
+import {
+  discountedFeeBps,
+  FeeScheduleError,
+  publishedProductBps,
+  requirePublishedFeeSchedule,
+  type FeeProduct,
+  type OwnerFeeSchedule,
+} from './fee-schedule.js';
 
 /**
  * FEE TIERS (§5.2 step 4, §4.1 rank perks).
@@ -71,8 +78,7 @@ export function effectiveFeeBps(publishedBps: number, discountBps: number): numb
     throw new MoneyError(`fee discount must be 0..9999 bps, got ${discountBps}`);
   }
 
-  const discount = Math.floor((publishedBps * discountBps) / 10_000);
-  return publishedBps - discount;
+  return discountedFeeBps(publishedBps, discountBps);
 }
 
 /** The two rates one match settles at. Each side carries its own snapshotted discount. */
@@ -91,11 +97,20 @@ export interface FillFeeRates {
  * six-entry transaction — computing them apart would let a change to one side's
  * rounding drift away from the other's without anything failing.
  */
-export function ratesForFill(schedule: OwnerFeeSchedule, makerDiscountBps: number, takerDiscountBps: number): FillFeeRates {
-  const published = requirePublishedFeeSchedule(schedule);
+export function ratesForFill(
+  schedule: OwnerFeeSchedule,
+  makerDiscountBps: number,
+  takerDiscountBps: number,
+  product: FeeProduct = 'spot',
+): FillFeeRates {
+  requirePublishedFeeSchedule(schedule);
+  const rates = publishedProductBps(schedule, product);
+  if (!rates) {
+    throw new FeeScheduleError(`${product} fee schedule is unpublished`, 'trade.fee_product_unpublished');
+  }
   return {
-    makerFeeBps: effectiveFeeBps(published.makerBps, makerDiscountBps),
-    takerFeeBps: effectiveFeeBps(published.takerBps, takerDiscountBps),
+    makerFeeBps: effectiveFeeBps(rates.makerBps, makerDiscountBps),
+    takerFeeBps: effectiveFeeBps(rates.takerBps, takerDiscountBps),
   };
 }
 

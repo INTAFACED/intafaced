@@ -20,7 +20,7 @@ export function AuditApprovals() {
       <AuditTable
         label="Approval actions in this session"
         rows={auditRowsFromApprovalLog(log)}
-        emptyText="No approval actions in this session yet."
+        emptyText="No approval actions in this session."
       />
     </div>
   );

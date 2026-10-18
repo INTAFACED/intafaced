@@ -139,11 +139,66 @@ describe('merchant tiers, pricing history, limit requests, founder drill-down', 
     expect(listed.status).toBe('configured');
     expect(listed.ownTierId).toBe(TEST_TIER.id);
     expect(listed.tiers.map((tier) => tier.id)).toEqual([TEST_TIER.id]);
-    expect(JSON.stringify(listed)).not.toContain('other-tier');
+    expect(listed.tiers.every((tier) => !('merchantVisible' in tier))).toBe(true);
+    const byKind = (caps: typeof TEST_TIER.caps) => [...caps].sort((left, right) => left.kind.localeCompare(right.kind));
+    expect(byKind(listed.tiers[0]!.caps as typeof TEST_TIER.caps)).toEqual(byKind([...TEST_TIER.caps]));
+    const text = JSON.stringify(listed);
+    expect(text).not.toContain('founderThresholds');
+    expect(text).not.toContain('approvalThresholds');
+    expect(text).not.toContain('approvalTtlSeconds');
+    expect(text).not.toContain('"merchants"');
+    expect(text).not.toContain('150');
+    expect(text).not.toContain('3600');
+    expect(text).not.toContain('"amount":"50"');
     expect(Object.keys(listed.tiers[0]!).sort()).toEqual(['archetype', 'caps', 'id', 'name', 'reserve', 'version']);
-    const other = await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB });
+    const other = (await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB })) as {
+      status: string;
+      ownTierId: string | null;
+    };
     expect(other).toEqual({ status: 'not_configured', ownTierId: null });
-    expect(JSON.stringify(other)).not.toContain('test-tier');
+
+    await sql`UPDATE pay.control_tiers SET merchant_visible = true WHERE id = 'other-tier'`;
+    const published = (await at(owner, 'merchantControl.tiers.list')({ merchantId: merchantA })) as {
+      tiers: Array<{ id: string; name: string }>;
+    };
+    expect(published.tiers.map((tier) => tier.id)).toEqual(['other-tier', TEST_TIER.id]);
+    expect(published.tiers.find((tier) => tier.id === 'other-tier')?.name).toBe('TEST VALUE other tier');
+    const publishedOther = (await at(
+      mounted().createCaller(ctxOf(OWNER_B)),
+      'merchantControl.tiers.list',
+    )({
+      merchantId: merchantB,
+    })) as { status: string; ownTierId: null; tiers: Array<{ id: string }> };
+    expect(publishedOther.tiers.map((tier) => tier.id)).toEqual(['other-tier']);
+    expect(JSON.stringify(publishedOther)).not.toContain(TEST_TIER.id);
+
+    await applyChange(changes, sql, {
+      scope: 'tier',
+      change: { kind: 'upsert_tier', tier: { ...TEST_TIER, id: 'negotiated', name: 'TEST VALUE negotiated' } },
+    });
+    await applyChange(changes, sql, {
+      scope: 'merchant',
+      merchantId: merchantB,
+      change: { kind: 'set_tier', tierId: 'negotiated', archetypeId: null },
+    });
+    const afterNegotiation = (await at(owner, 'merchantControl.tiers.list')({ merchantId: merchantA })) as {
+      tiers: Array<{ id: string }>;
+    };
+    expect(afterNegotiation.tiers.map((tier) => tier.id)).not.toContain('negotiated');
+    const bee = (await at(mounted().createCaller(ctxOf(OWNER_B)), 'merchantControl.tiers.list')({ merchantId: merchantB })) as {
+      ownTierId: string;
+      tiers: Array<{ id: string }>;
+    };
+    expect(bee.ownTierId).toBe('negotiated');
+    expect(bee.tiers.map((tier) => tier.id)).toEqual(['negotiated', 'other-tier']);
+    const founder = (await at(mounted().createCaller(ctxOf(FOUNDER_1)), 'founderAdmin.control.tiers.list')({})) as Array<{
+      id: string;
+      merchantVisible: boolean;
+      founderThresholds: unknown;
+    }>;
+    expect(founder.find((tier) => tier.id === 'negotiated')?.merchantVisible).toBe(false);
+    expect(founder.find((tier) => tier.id === 'other-tier')?.merchantVisible).toBe(true);
+    expect(founder.find((tier) => tier.id === 'negotiated')?.founderThresholds).toBeDefined();
   });
 
   it("merchant A cannot read merchant B's catalogue or a missing id, and a developer on the team cannot either", async () => {

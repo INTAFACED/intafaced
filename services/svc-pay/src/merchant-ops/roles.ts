@@ -85,6 +85,19 @@ export function roleHasPermission(role: MerchantRole, permission: MerchantPermis
   return ROLE_PERMISSIONS[role].has(permission);
 }
 
+/**
+ * D-145 step-up door. `refunds.create` and `payout.send` are held by the same
+ * money roles as the existing table's owner, admin, and finance seats.
+ * Developer and viewer do not hold them. This does not change `payout.approve`
+ * or the maker-checker on a payout.
+ */
+const PAY_STEP_UP_ROLES = new Set<MerchantRole>(['owner', 'admin', 'finance']);
+
+export function payStepUpPermissions(role: MerchantRole | null): { 'refunds.create': boolean; 'payout.send': boolean } {
+  const allowed = role !== null && PAY_STEP_UP_ROLES.has(role);
+  return { 'refunds.create': allowed, 'payout.send': allowed };
+}
+
 /** Owner, admin, and finance see a stored pricing row. Viewer and developer see the fee amount only. */
 const FULL_PRICING = new Set<MerchantRole>(['owner', 'admin', 'finance']);
 

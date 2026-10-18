@@ -22,6 +22,10 @@ export type StoredApproval = {
   readonly expiresAt: Date;
   readonly approvedAt: Date | null;
   readonly consumedAt: Date | null;
+  /** Set when a consume names its caller. Null on rows consumed before provenance existed. */
+  readonly consumedByService?: string | null;
+  readonly consumedByPrincipal?: string | null;
+  readonly consumedRequestId?: string | null;
   /** Absent means `four_eyes`. */
   readonly kind?: ActionApprovalKind;
   /** Session a `same_person` row is bound to. Null/absent for four-eyes rows. */
@@ -44,11 +48,19 @@ export type ConsumeCas = {
   readonly principalUserId?: string | null;
   readonly principalSessionId?: string | null;
   readonly now: Date;
+  /** Provenance. Absent request id leaves the three columns null (one-shot consume). */
+  readonly requestId?: string | null;
+  readonly consumedByService?: string | null;
+  readonly consumedByPrincipal?: string | null;
 };
 
 export interface ActionApprovalStore {
   insert(row: StoredApproval): Promise<StoredApproval>;
   get(approvalId: string): Promise<StoredApproval | null>;
+  /** Newest first. The caller's own rows, any status. */
+  listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]>;
+  /** Newest first. PENDING rows somebody else filed. Audience filtering is the service's job. */
+  listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]>;
   casExpire(approvalId: string, now: Date): Promise<StoredApproval | null>;
   casApprove(approvalId: string, approverId: string, now: Date): Promise<StoredApproval | null>;
   casReject(approvalId: string, actorId: string, now: Date): Promise<StoredApproval | null>;
@@ -79,6 +91,17 @@ export function toActionApproval(row: StoredApproval): ActionApproval {
   };
 }
 
+/** Consume provenance for a reader who is allowed to see it. Omitted when the row has none. */
+export function approvalProvenance(row: StoredApproval): {
+  consumedAt?: string;
+  consumedByRequestId?: string;
+} {
+  return {
+    ...(row.consumedAt ? { consumedAt: row.consumedAt.toISOString() } : {}),
+    ...(row.consumedRequestId ? { consumedByRequestId: row.consumedRequestId } : {}),
+  };
+}
+
 export class MemoryActionApprovalStore implements ActionApprovalStore {
   private readonly rows = new Map<string, StoredApproval>();
 
@@ -90,6 +113,20 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
 
   async get(approvalId: string): Promise<StoredApproval | null> {
     return this.rows.get(approvalId) ?? null;
+  }
+
+  async listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.requesterId === requesterId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.approvalId.localeCompare(b.approvalId))
+      .slice(0, limit);
+  }
+
+  async listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.status === 'PENDING' && row.requesterId !== requesterId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.approvalId.localeCompare(b.approvalId))
+      .slice(0, limit);
   }
 
   async casExpire(approvalId: string, now: Date): Promise<StoredApproval | null> {
@@ -144,7 +181,14 @@ export class MemoryActionApprovalStore implements ActionApprovalStore {
     if (row.targetId !== input.targetId) return null;
     if (row.expectedVersion !== input.expectedVersion) return null;
     if (row.expiresAt.getTime() <= input.now.getTime()) return null;
-    const next: StoredApproval = { ...row, status: 'CONSUMED', consumedAt: input.now };
+    const next: StoredApproval = {
+      ...row,
+      status: 'CONSUMED',
+      consumedAt: input.now,
+      consumedByService: input.consumedByService ?? null,
+      consumedByPrincipal: input.consumedByPrincipal ?? null,
+      consumedRequestId: input.requestId ?? null,
+    };
     this.rows.set(input.approvalId, next);
     return next;
   }
@@ -179,6 +223,9 @@ type DbRow = {
   expires_at: Date;
   approved_at: Date | null;
   consumed_at: Date | null;
+  consumed_by_service: string | null;
+  consumed_by_principal: string | null;
+  consumed_request_id: string | null;
   kind: ActionApprovalKind;
   session_id: string | null;
 };
@@ -200,13 +247,17 @@ function fromDb(row: DbRow): StoredApproval {
     expiresAt: row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at),
     approvedAt: row.approved_at ? (row.approved_at instanceof Date ? row.approved_at : new Date(row.approved_at)) : null,
     consumedAt: row.consumed_at ? (row.consumed_at instanceof Date ? row.consumed_at : new Date(row.consumed_at)) : null,
+    consumedByService: row.consumed_by_service,
+    consumedByPrincipal: row.consumed_by_principal,
+    consumedRequestId: row.consumed_request_id,
     kind: row.kind,
     sessionId: row.session_id,
   };
 }
 
 const SELECT_COLS = `approval_id, action_type, target_service, target_id, expected_version, payload_hash,
-  requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at, kind, session_id`;
+  requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at, consumed_at,
+  consumed_by_service, consumed_by_principal, consumed_request_id, kind, session_id`;
 
 export class SqlActionApprovalStore implements ActionApprovalStore {
   constructor(private readonly sql: Sql) {}
@@ -233,6 +284,26 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
       SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals WHERE approval_id = ${approvalId} LIMIT 1
     `;
     return rows[0] ? fromDb(rows[0]) : null;
+  }
+
+  async listByRequester(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    const rows = await this.sql<DbRow[]>`
+      SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals
+      WHERE requester_id = ${requesterId}
+      ORDER BY created_at DESC, approval_id ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(fromDb);
+  }
+
+  async listPendingExcept(requesterId: string, limit: number): Promise<StoredApproval[]> {
+    const rows = await this.sql<DbRow[]>`
+      SELECT ${this.sql.unsafe(SELECT_COLS)} FROM action_approvals
+      WHERE status = 'PENDING' AND requester_id <> ${requesterId}
+      ORDER BY created_at DESC, approval_id ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(fromDb);
   }
 
   async casExpire(approvalId: string, now: Date): Promise<StoredApproval | null> {
@@ -288,25 +359,45 @@ export class SqlActionApprovalStore implements ActionApprovalStore {
   }
 
   async casConsume(input: ConsumeCas): Promise<StoredApproval | null> {
-    const principalUserId = input.principalUserId ?? null;
-    const principalSessionId = input.principalSessionId ?? null;
-    const rows = await this.sql<DbRow[]>`
-      UPDATE action_approvals
-      SET status = 'CONSUMED', consumed_at = ${input.now}
-      WHERE approval_id = ${input.approvalId}
-        AND status = 'APPROVED'
-        AND operation_id = ${input.operationId}
-        AND payload_hash = ${input.payloadHash}
-        AND target_service = ${input.targetService}
-        AND target_id = ${input.targetId}
-        AND expected_version = ${input.expectedVersion}
-        AND expires_at > ${input.now}
-        AND (
-          (kind = 'same_person' AND requester_id = ${principalUserId}::text AND session_id = ${principalSessionId}::text)
-          OR (kind <> 'same_person' AND ${principalUserId}::text IS NULL AND ${principalSessionId}::text IS NULL)
-        )
-      RETURNING ${this.sql.unsafe(SELECT_COLS)}
-    `;
-    return rows[0] ? fromDb(rows[0]) : null;
+    return sqlCasConsume(this.sql, input);
   }
+}
+
+/** Lock the row in the caller's transaction before deciding whether it may be consumed. */
+export async function sqlGetApprovalForUpdate(sql: Sql, approvalId: string): Promise<StoredApproval | null> {
+  const rows = await sql<DbRow[]>`
+    SELECT ${sql.unsafe(SELECT_COLS)} FROM action_approvals WHERE approval_id = ${approvalId} LIMIT 1 FOR UPDATE
+  `;
+  return rows[0] ? fromDb(rows[0]) : null;
+}
+
+/** Consume on the given connection, so a caller can use the same transaction as its own write. */
+export async function sqlCasConsume(sql: Sql, input: ConsumeCas): Promise<StoredApproval | null> {
+  const principalUserId = input.principalUserId ?? null;
+  const principalSessionId = input.principalSessionId ?? null;
+  const requestId = input.requestId ?? null;
+  const consumedByService = requestId === null ? null : (input.consumedByService ?? null);
+  const consumedByPrincipal = requestId === null ? null : (input.consumedByPrincipal ?? null);
+  const rows = await sql<DbRow[]>`
+    UPDATE action_approvals
+    SET status = 'CONSUMED',
+        consumed_at = ${input.now},
+        consumed_by_service = ${consumedByService},
+        consumed_by_principal = ${consumedByPrincipal},
+        consumed_request_id = ${requestId}
+    WHERE approval_id = ${input.approvalId}
+      AND status = 'APPROVED'
+      AND operation_id = ${input.operationId}
+      AND payload_hash = ${input.payloadHash}
+      AND target_service = ${input.targetService}
+      AND target_id = ${input.targetId}
+      AND expected_version = ${input.expectedVersion}
+      AND expires_at > ${input.now}
+      AND (
+        (kind = 'same_person' AND requester_id = ${principalUserId}::text AND session_id = ${principalSessionId}::text)
+        OR (kind <> 'same_person' AND ${principalUserId}::text IS NULL AND ${principalSessionId}::text IS NULL)
+      )
+    RETURNING ${sql.unsafe(SELECT_COLS)}
+  `;
+  return rows[0] ? fromDb(rows[0]) : null;
 }

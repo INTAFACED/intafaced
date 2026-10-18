@@ -3,12 +3,26 @@
 import Link from 'next/link';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
-import { AmbassadorActions, VendorActions } from '@/components/ops-actions';
+import {
+  AmbassadorActions,
+  AppointAmbassadorAction,
+  CardStatusAction,
+  DisputeActions,
+  ListingActions,
+  ResidencyActions,
+  VendorActions,
+} from '@/components/ops-actions';
+import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
+import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
-import { fetchDesk } from '@/lib/ops-desk/browser';
-import { formatCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
+import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
+import { ownServerFailureText } from '@/lib/ops-desk/own-server';
+import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
+import { downloadCsv } from '@/lib/ops-desk/csv-browser';
+import { displayCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
 import type { Cell, DeskSection, DeskSpec, DeskView, ReadData, ReadOutcome, ReadSpec, Row } from '@/lib/ops-desk/types';
 import './desk.css';
+import { formatAsOf } from '@/lib/as-of';
 
 /**
  * A MODULE OPS DESK: lists, then detail, then figures with the time they were read, then actions.
@@ -18,13 +32,26 @@ import './desk.css';
  * as a zero. A read that was refused or is down says so in words and does not hide the reads beside it.
  */
 
-function Failed({ title, part }: { title: string; part: Extract<Part<unknown>, { kind: 'failed' }> }) {
+function Failed({
+  title,
+  part,
+  plainName,
+  asOf,
+}: {
+  title: string;
+  part: Extract<Part<unknown>, { kind: 'failed' }>;
+  plainName?: string | undefined;
+  asOf?: string | undefined;
+}) {
   const label = part.notBuilt ? 'not switched on' : part.forbidden ? 'refused your session' : 'unavailable';
   return (
     <div className="adm-callout" data-tone={part.forbidden || part.notBuilt ? 'warn' : 'danger'} role="status" data-testid="read-failed">
-      <strong>
-        {title}: {label}
-      </strong>
+      <strong>{plainName ? `Could not load ${plainName}` : `${title}: ${label}`}</strong>
+      {plainName && (
+        <p className="dk-muted">
+          {label.charAt(0).toUpperCase() + label.slice(1)}. As of {asOf ? formatAsOf(asOf) : 'an unknown time'}.
+        </p>
+      )}
       <p>{part.message}</p>
       {part.code && <p className="dk-muted">Code: {part.code}</p>}
       <p className="dk-muted">Nothing is shown here rather than a guess.</p>
@@ -33,7 +60,7 @@ function Failed({ title, part }: { title: string; part: Extract<Part<unknown>, {
 }
 
 export function CellValueView({ cell }: { cell: Cell }) {
-  return <>{formatCell(cell)}</>;
+  return <>{displayCell(cell)}</>;
 }
 
 function RecordFacts({ cells }: { cells: readonly Cell[] }) {
@@ -71,6 +98,10 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       </dl>
       {spec.rowAction === 'market.vendor.vet' && <VendorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'academy.ambassador' && <AmbassadorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'academy.residency' && <ResidencyActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'market.listing.takedown' && <ListingActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'p2p.dispute.escalate' && <DisputeActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'pay.transfer.detail' && <TransferRecord key={row.id} id={row.id} />}
     </div>
   );
 }
@@ -82,9 +113,31 @@ export interface ListViewProps {
   /** The row open across the whole desk, as `${readId}:${rowId}`, so only one detail (and one form) is open at a time. */
   readonly openKey: string | null;
   readonly onOpen: (key: string | null) => void;
+  /** When the console read this list. It goes into the CSV filename and the note beside the button. */
+  readonly asOf?: string;
 }
 
-export function ListView({ spec, data, ctx, openKey, onOpen }: ListViewProps) {
+/** "Export CSV": the rows on screen, nothing more. The note beside it says so, and says when the page was full. */
+export function ExportCsv({ spec, data, asOf }: { spec: ReadSpec; data: Extract<ReadData, { shape: 'list' }>; asOf: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="dk-row" data-testid="export-csv">
+      <button type="button" className="adm-btn" onClick={() => setFailed(!downloadCsv(csvFilename(spec.id, asOf), listToCsv(spec, data)))}>
+        Export CSV ({data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'} shown)
+      </button>
+      <span className="dk-muted" data-testid="export-note">
+        {exportNote(data.rows.length, data.pageFull, spec.page, asOf, data.nextCursor !== undefined)}
+      </span>
+      {failed && (
+        <span className="dk-why" role="alert">
+          The browser did not allow the download. Nothing was saved.
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewProps) {
   if (data.rows.length === 0) {
     return (
       <p className="dk-muted" data-testid="list-empty">
@@ -96,8 +149,9 @@ export function ListView({ spec, data, ctx, openKey, onOpen }: ListViewProps) {
   return (
     <div className="dk-stack" data-testid="list">
       <p className="dk-muted" data-testid="list-count">
-        {rowCountText(data.rows.length, data.pageFull, spec.page)}
+        {rowCountText(data.rows.length, data.pageFull, spec.page, data.nextCursor !== undefined)}
       </p>
+      {asOf !== undefined && <ExportCsv spec={spec} data={data} asOf={asOf} />}
       <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
         <table className="adm-table">
           <thead>
@@ -149,6 +203,66 @@ function RowFragment({ children, open, detail, columns }: { children: ReactNode;
   );
 }
 
+/**
+ * A list whose service gives a page marker: the rows read so far, and a button that reads the next page when the service says one
+ * exists. The next page is read on request through the console's own server; rows already shown are never repeated, and a refused
+ * or failed page keeps what is already on screen and says why.
+ */
+export function PagedList({ spec, data, ctx, openKey, onOpen, asOf }: ListViewProps) {
+  const [extra, setExtra] = useState<readonly Row[]>([]);
+  const [cursor, setCursor] = useState<string | null | undefined>(data.nextCursor);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const lock = useRef(false);
+  const rows = [...data.rows, ...extra];
+  async function next() {
+    if (lock.current || typeof cursor !== 'string') return;
+    lock.current = true;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const result = await fetchPage(spec.id, cursor);
+      if (!result.ok) return setProblem(ownServerFailureText(result, 'page'));
+      const { part } = result.outcome;
+      if (part.kind === 'failed') return setProblem(part.message);
+      const page = part.data;
+      if (page.shape !== 'list') return setProblem('The page came back in a shape this console does not understand.');
+      const seen = new Set(rows.map((r) => r.id));
+      setExtra((now) => [...now, ...page.rows.filter((r) => !seen.has(r.id))]);
+      setCursor(page.nextCursor ?? null);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  const more = typeof cursor === 'string';
+  return (
+    <div className="dk-stack" data-testid="paged-list">
+      <ListView
+        spec={spec}
+        data={{ ...data, rows, pageFull: more, nextCursor: cursor ?? null }}
+        ctx={ctx}
+        openKey={openKey}
+        onOpen={onOpen}
+        {...(asOf ? { asOf } : {})}
+      />
+      {more && (
+        <div className="dk-row">
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void next()} data-testid="next-page">
+            {busy ? 'Reading…' : `Next ${spec.page ?? ''}`.trim()}
+          </button>
+          <span className="dk-muted">svc-bank says more rows exist. Each page is read on request.</span>
+        </div>
+      )}
+      {problem && (
+        <p className="dk-why" role="alert" data-testid="page-problem">
+          {problem}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export interface ReadBlockProps {
   readonly spec: ReadSpec;
   readonly outcome: ReadOutcome | undefined;
@@ -163,13 +277,24 @@ export function ReadBlock({ spec, outcome, ctx, openKey, onOpen }: ReadBlockProp
       <div>
         <h3>{spec.title}</h3>
         <p className="dk-muted">{spec.note}</p>
-        <p className="dk-asof">{outcome ? `As of ${outcome.asOf} (when this console read ${spec.module})` : 'Not read yet'}</p>
+        <p className="dk-asof">{outcome ? `As of ${formatAsOf(outcome.asOf)} (when this console read ${spec.module})` : 'Not read yet'}</p>
       </div>
       {!outcome && <p className="dk-why">This part was not read. Nothing is shown rather than a guess.</p>}
-      {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} />}
+      {outcome?.part.kind === 'failed' && <Failed title={spec.title} part={outcome.part} plainName={spec.plainName} asOf={outcome.asOf} />}
       {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'record' && <RecordFacts cells={outcome.part.data.cells} />}
-      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && (
-        <ListView spec={spec} data={outcome.part.data} ctx={ctx} openKey={openKey} onOpen={onOpen} />
+      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && spec.cursorKey === undefined && (
+        <ListView spec={spec} data={outcome.part.data} ctx={ctx} openKey={openKey} onOpen={onOpen} asOf={outcome.asOf} />
+      )}
+      {outcome?.part.kind === 'ok' && outcome.part.data.shape === 'list' && spec.cursorKey !== undefined && (
+        <PagedList
+          key={outcome.asOf}
+          spec={spec}
+          data={outcome.part.data}
+          ctx={ctx}
+          openKey={openKey}
+          onOpen={onOpen}
+          asOf={outcome.asOf}
+        />
       )}
     </section>
   );
@@ -197,6 +322,7 @@ export function SectionView({
       {section.reads.map((spec) => (
         <ReadBlock key={spec.id} spec={spec} outcome={view?.reads[spec.id]} ctx={ctx} openKey={openKey} onOpen={onOpen} />
       ))}
+      {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
       {section.unavailable.length > 0 && (
         <div className="dk-stack" data-testid="unavailable">
           {section.unavailable.map((u) => (
@@ -210,6 +336,9 @@ export function SectionView({
           ))}
         </div>
       )}
+      {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'pay.transfer.lookup' && <TransferLookup />}
       {section.disabledActions.length > 0 && (
         <div className="dk-stack" data-testid="disabled-actions">
           {section.disabledActions.map((a) => (
@@ -265,7 +394,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
         <button type="button" className="adm-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{view ? `Read started ${view.asOf}` : 'No read yet'}</span>
+        <span className="dk-asof">{view ? `Read started ${formatAsOf(view.asOf)}` : 'No read yet'}</span>
         {view && (
           <Chip tone={failed === 0 ? 'live' : 'warn'}>
             {counts.length - failed} of {counts.length} reads answered
@@ -274,7 +403,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
       </div>
       {stale && view && (
         <p className="dk-why" role="alert" data-testid="stale">
-          The last refresh did not reach the console’s server, so this is the earlier read, from {view.asOf}.
+          The last refresh did not reach the console’s server, so this is the earlier read, from {formatAsOf(view.asOf)}.
         </p>
       )}
       {!view && <p className="dk-why">The console could not reach its own server for this desk. Nothing is shown rather than a guess.</p>}

@@ -34,7 +34,12 @@ import {
   type ResidencyApplication,
   type ResidencyStatus,
 } from './ambassadors/residency.js';
-import { certById, listCertCatalog } from './certs/catalog.js';
+import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/catalog.js';
+import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } from './assessment/catalog.js';
+import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
+import { randomPublicId, isPublicId } from './certs/public-id.js';
+import { normaliseHolderName } from './certs/holder-name.js';
+import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
   alreadyGrantedAfterInsert,
   CertError,
@@ -63,6 +68,9 @@ import {
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
 import { hasCurriculumSlug } from './curriculum/catalog.js';
+import { type ProgrammeDefinition } from './curriculum/programmes.js';
+import type { VideoSpineEntry } from './video/catalog.js';
+import { AcademyCustomerStore } from './learning/customer-store.js';
 import {
   assertMayWriteScore,
   assertScore,
@@ -221,9 +229,20 @@ export interface AcademyServiceOptions {
    * trusting `paper: true` on the wire.
    */
   paperMarketFlagPort?: PaperMarketFlagPort;
+  /** Test seam. Production uses the empty-prerequisite catalog. */
+  programmeCatalog?: readonly ProgrammeDefinition[];
+  /** Test seam. Production uses the spine, whose media fields are null until set. */
+  videoSpine?: readonly VideoSpineEntry[];
+  /** Test seam. Production is the owner catalog, which is foundations-v1 only. */
+  certCatalog?: readonly CertDefinition[];
+  /** Test seam. Production is empty: no owner-published scored assessment. */
+  assessmentCatalog?: readonly AssessmentDefinition[];
 }
 
 export class AcademyService {
+  private readonly customer: AcademyCustomerStore;
+  private readonly assessments: AssessmentRepository;
+
   constructor(
     private readonly sql: Sql,
     private readonly stakes: StakeSource,
@@ -236,7 +255,32 @@ export class AcademyService {
      * being honest: no bus, no award, and `grantCert` says which.
      */
     private readonly certXp: CertXpPublisher = new NullCertXpPublisher(),
-  ) {}
+  ) {
+    this.customer = new AcademyCustomerStore(sql);
+    const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
+    this.assessments = new AssessmentRepository(sql, assessments);
+    if (this.options.certCatalog) {
+      assertCertCatalog(this.options.certCatalog, {
+        lesson: hasCurriculumSlug,
+        assessment: (slug) => assessments.some((row) => row.slug === slug),
+      });
+    }
+  }
+
+  private certs(): readonly CertDefinition[] {
+    return this.options.certCatalog ?? listCertCatalog();
+  }
+
+  private certDefinition(id: string): CertDefinition | null {
+    return this.certs().find((row) => row.id === id) ?? null;
+  }
+
+  private refuseUnpublishedPath(pathSlug: string): void {
+    const path = pathSlug.trim().toLowerCase();
+    if ((PROGRAMME_SLUGS as readonly string[]).includes(path) && !certificateForPath(path, this.certs())) {
+      throw new AcademyError(`academy.certificate_unpublished path=${path}`, 'academy.certificate_unpublished');
+    }
+  }
 
   // ── Rooms ──────────────────────────────────────────────────────────────────
 
@@ -1592,25 +1636,83 @@ export class AcademyService {
   }
 
   listCertDefinitions(): CertDefinition[] {
-    return [...listCertCatalog()];
+    return [...this.certs()];
   }
 
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {
-    const pathSlug = input.pathSlug.trim().toLowerCase();
-    // Blueprint paths only — enroll is a bookmark, not a grant gate, but any
-    // free-text pathSlug would invent a fourth curriculum axis on the wire.
-    const BLUEPRINT_PATHS = new Set(['foundations', 'markets', 'builder', 'sovereign']);
-    if (!pathSlug || pathSlug.length > 64 || !BLUEPRINT_PATHS.has(pathSlug)) {
-      throw new AcademyError('pathSlug must be one of foundations | markets | builder | sovereign', 'academy.cert_invalid');
-    }
-    const rows = await this.sql<Array<{ user_id: string; path_slug: string; enrolled_at: Date }>>`
-      INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
-      VALUES (${input.userId}, ${pathSlug}, now())
-      ON CONFLICT (user_id, path_slug) DO UPDATE SET path_slug = EXCLUDED.path_slug
-      RETURNING user_id, path_slug, enrolled_at
-    `;
-    const row = rows[0]!;
-    return { userId: row.user_id, pathSlug: row.path_slug, enrolledAt: row.enrolled_at };
+    this.refuseUnpublishedPath(input.pathSlug);
+    const row = await this.customer.enrollCertPath({
+      userId: input.userId,
+      pathSlug: input.pathSlug,
+      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+    });
+    return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
+  }
+
+  myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {
+    return this.customer.myCompletions(input);
+  }
+
+  myEnrollments(userId: string) {
+    return this.customer.myEnrollments(userId);
+  }
+
+  leaveCertPath(input: { userId: string; pathSlug: string; clientRequestId: string }) {
+    return this.customer.leaveCertPath(input);
+  }
+
+  learningState(userId: string) {
+    return this.customer.learningState(userId);
+  }
+
+  touchLesson(input: { userId: string; slug: string; secondsRead?: number | null; clientRequestId: string; now?: Date }) {
+    return this.customer.touchLesson(input);
+  }
+
+  residencyCohorts(limit: number | null | undefined) {
+    return this.customer.residencyCohorts(limit);
+  }
+
+  setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
+    return this.customer.setVideoProgress({
+      ...input,
+      ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
+    });
+  }
+
+  getVideoProgress(input: { userId: string; videoSlug: string }) {
+    return this.customer.getVideoProgress({
+      ...input,
+      ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
+    });
+  }
+
+  callerLiveSeats(userId: string) {
+    return this.customer.callerLiveSeats(userId);
+  }
+
+  myUpcomingSessions(input: { userId: string; limit: number | null | undefined }) {
+    return this.customer.myUpcomingSessions(input);
+  }
+
+  sessionCalendar(input: { userId: string; sessionId: string; now?: Date }) {
+    return this.customer.sessionCalendar(input);
+  }
+
+  grantAudit(input: { limit: number | null | undefined; cursor?: string | null; certificateId?: string | null }) {
+    return this.customer.grantAudit(input);
+  }
+
+  opsMetrics(input: { from: string; to: string }) {
+    return this.customer.opsMetrics(input);
+  }
+
+  enrolments(input: { from: string; to: string }) {
+    return this.customer.enrolments(input);
+  }
+
+  completionsByItem(input: { from: string; to: string; pathSlug?: string | null }) {
+    return this.customer.completionsByItem(input);
   }
 
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
@@ -1664,10 +1766,10 @@ export class AcademyService {
     return new Set(rows.map((r) => r.item_slug));
   }
 
-  private async existingGrant(userId: string, certId: string): Promise<CertGrantRecord | null> {
+  private async existingGrant(userId: string, certId: string): Promise<(CertGrantRecord & { publicId: string }) | null> {
     const key = certIdempotencyKey(userId, certId);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key FROM academy.cert_grants
+    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
        WHERE user_id = ${userId} AND cert_id = ${certId}
     `;
     if (!rows[0]) return null;
@@ -1676,6 +1778,7 @@ export class AcademyService {
       certId: rows[0].cert_id,
       grantedAt: rows[0].granted_at,
       idempotencyKey: rows[0].idempotency_key ?? key,
+      publicId: rows[0].public_id,
     };
   }
 
@@ -1719,10 +1822,12 @@ export class AcademyService {
   async grantCert(input: {
     userId: string;
     certId: string;
-  }): Promise<{ grant: CertGrantRecord; alreadyGranted: boolean; xp: CertXpEmitResult; perks: CertPerkOutcome }> {
+  }): Promise<{ grant: CertGrantRecord & { publicId: string }; alreadyGranted: boolean; xp: CertXpEmitResult; perks: CertPerkOutcome }> {
     assertNoCertPerkMoneyAttachment(input);
-    const cert = certById(input.certId);
+    const cert = this.certDefinition(input.certId);
+    if (!cert) this.refuseUnpublishedPath(input.certId);
     const completed = await this.completedSlugs(input.userId);
+    const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
     let decision: { grant: CertGrantRecord; alreadyGranted: boolean };
     try {
@@ -1731,22 +1836,25 @@ export class AcademyService {
         cert,
         completedSlugs: completed,
         existing,
+        passedAssessmentSlugs: passed,
       });
     } catch (err) {
       this.mapCertErr(err);
     }
     if (decision.alreadyGranted) {
+      if (!existing) throw new AcademyError(`Grant marked already granted with no row for ${input.certId}`, 'academy.cert_invalid');
       const xp = await this.certXp.publishCertXp(decision.grant);
       const perks = await resolveCertPerkOutcome({ userId: input.userId, hostRights: this.hostRights, xp });
-      return { ...decision, xp, perks };
+      return { grant: { ...decision.grant, publicId: existing.publicId }, alreadyGranted: true, xp, perks };
     }
+    const publicId = randomPublicId();
     // ON CONFLICT DO NOTHING — concurrent second writer must not hardcode
     // alreadyGranted:false (UI would fire "just earned" twice; XP still safe).
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key)
-      VALUES (${decision.grant.userId}, ${decision.grant.certId}, ${decision.grant.grantedAt}, ${decision.grant.idempotencyKey})
+    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
+      VALUES (${decision.grant.userId}, ${decision.grant.certId}, ${decision.grant.grantedAt}, ${decision.grant.idempotencyKey}, ${publicId})
       ON CONFLICT (user_id, cert_id) DO NOTHING
-      RETURNING user_id, cert_id, granted_at, idempotency_key
+      RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
     `;
     if (rows.length === 0) {
       const raced = await this.existingGrant(input.userId, input.certId);
@@ -1762,11 +1870,12 @@ export class AcademyService {
         perks,
       };
     }
-    const grant: CertGrantRecord = {
+    const grant: CertGrantRecord & { publicId: string } = {
       userId: rows[0]!.user_id,
       certId: rows[0]!.cert_id,
       grantedAt: rows[0]!.granted_at,
       idempotencyKey: rows[0]!.idempotency_key,
+      publicId: rows[0]!.public_id,
     };
     const xp = await this.certXp.publishCertXp(grant);
     const perks = await resolveCertPerkOutcome({ userId: input.userId, hostRights: this.hostRights, xp });
@@ -1778,10 +1887,10 @@ export class AcademyService {
     };
   }
 
-  async myCertGrants(userId: string, requested?: number): Promise<CertGrantRecord[]> {
+  async myCertGrants(userId: string, requested?: number): Promise<Array<CertGrantRecord & { publicId: string }>> {
     const limit = assertMyCertsListLimit(requested);
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string }>>`
-      SELECT user_id, cert_id, granted_at, idempotency_key FROM academy.cert_grants
+    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
@@ -1791,12 +1900,15 @@ export class AcademyService {
       certId: r.cert_id,
       grantedAt: r.granted_at,
       idempotencyKey: r.idempotency_key,
+      publicId: r.public_id,
     }));
   }
 
   async certProgress(input: { userId: string; certId: string }): Promise<ProgressReport> {
-    const cert = certById(input.certId);
+    const cert = this.certDefinition(input.certId);
+    if (!cert) this.refuseUnpublishedPath(input.certId);
     const completed = await this.completedSlugs(input.userId);
+    const passed = await this.assessments.passedSlugs(input.userId);
     const existing = await this.existingGrant(input.userId, input.certId);
     try {
       return progressReport({
@@ -1804,10 +1916,130 @@ export class AcademyService {
         cert,
         completedSlugs: completed,
         existingGrant: existing,
+        passedAssessmentSlugs: passed,
       });
     } catch (err) {
       this.mapCertErr(err);
     }
+  }
+
+  getAssessment(slug: string): AssessmentPublic {
+    const def = this.assessments.definition(slug);
+    if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
+    if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
+    return {
+      slug: def.slug,
+      kind: def.kind,
+      passMark: def.passMark,
+      questions: def.questions.map((question) => ({
+        id: question.id,
+        prompt: question.prompt,
+        kind: question.kind,
+        points: question.points,
+        choices: question.choices.map((choice) => ({ id: choice.id, text: choice.text })),
+      })),
+    };
+  }
+
+  submitAssessment(input: {
+    userId: string;
+    slug: string;
+    answers: readonly { questionId: string; choiceId: string }[];
+    clientAttemptId: string;
+    now?: Date;
+  }): Promise<AttemptRow> {
+    return this.assessments.submit(input);
+  }
+
+  assessmentAttempts(userId: string, slug: string): Promise<AttemptRow[]> {
+    return this.assessments.attempts(userId, slug);
+  }
+
+  /**
+   * Public verification. Malformed and unknown ids throw the same error with
+   * the same message. The query does not select the account id or the
+   * grant reference, and this method does not log either.
+   */
+  async certVerify(publicId: string): Promise<{
+    certId: string;
+    title: string;
+    grantedAt: Date;
+    status: 'valid' | 'revoked';
+    holderName?: string;
+  }> {
+    if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const rows = await this.sql<
+      Array<{ cert_id: string; granted_at: Date; status: string; holder_name: string | null; holder_consent_at: Date | null }>
+    >`
+      SELECT cert_id, granted_at, status, holder_name, holder_consent_at
+        FROM academy.cert_grants
+       WHERE public_id = ${publicId}
+    `;
+    const row = rows[0];
+    if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+    const cert = this.certDefinition(row.cert_id);
+    if (!cert) throw new AcademyError(`academy.certificate_unpublished cert=${row.cert_id}`, 'academy.certificate_unpublished');
+    const status = row.status === 'valid' ? 'valid' : 'revoked';
+    const body: { certId: string; title: string; grantedAt: Date; status: 'valid' | 'revoked'; holderName?: string } = {
+      certId: row.cert_id,
+      title: cert.title,
+      grantedAt: row.granted_at,
+      status,
+    };
+    if (row.holder_name !== null && row.holder_consent_at !== null) body.holderName = row.holder_name;
+    return body;
+  }
+
+  async setCertHolderName(input: {
+    userId: string;
+    grantId?: string | null;
+    publicId?: string | null;
+    holderName: string | null;
+    clientRequestId: string;
+    now?: Date;
+  }): Promise<{ publicId: string; holderName: string | null; consentAt: Date | null }> {
+    const clientRequestId = input.clientRequestId.trim();
+    if (!clientRequestId) throw new AcademyError('clientRequestId is required', 'academy.holder_name_invalid');
+    const grantId = input.grantId?.trim() || null;
+    const publicId = input.publicId?.trim() || null;
+    if ((grantId ? 1 : 0) + (publicId ? 1 : 0) !== 1) {
+      throw new AcademyError('pass grantId or publicId', 'academy.holder_name_invalid');
+    }
+    const now = input.now ?? new Date();
+    return transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:holder-name`}, 0))`;
+      const replay = await tx<Array<{ public_id: string; holder_name: string | null; consent_at: Date | null }>>`
+        SELECT public_id, holder_name, consent_at
+          FROM academy.cert_holder_name_requests
+         WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
+      `;
+      if (replay[0]) {
+        return { publicId: replay[0].public_id, holderName: replay[0].holder_name, consentAt: replay[0].consent_at };
+      }
+      const name = normaliseHolderName(input.holderName);
+      const grants = await tx<Array<{ public_id: string }>>`
+        SELECT public_id FROM academy.cert_grants
+         WHERE user_id = ${input.userId}
+           AND (
+             (${publicId}::text IS NOT NULL AND public_id = ${publicId})
+             OR (${grantId}::text IS NOT NULL AND cert_id = ${grantId})
+           )
+         FOR UPDATE
+      `;
+      const owned = grants[0];
+      if (!owned) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
+      const consentAt = name === null ? null : now;
+      await tx`
+        UPDATE academy.cert_grants
+           SET holder_name = ${name}, holder_consent_at = ${consentAt}
+         WHERE user_id = ${input.userId} AND public_id = ${owned.public_id}
+      `;
+      await tx`
+        INSERT INTO academy.cert_holder_name_requests (user_id, client_request_id, public_id, holder_name, consent_at)
+        VALUES (${input.userId}, ${clientRequestId}, ${owned.public_id}, ${name}, ${consentAt})
+      `;
+      return { publicId: owned.public_id, holderName: name, consentAt };
+    });
   }
 
   private async liveInvite(roomId: string, userId: string): Promise<{ expiresAt: Date | null } | null> {

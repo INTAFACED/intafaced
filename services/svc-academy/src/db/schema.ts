@@ -1,4 +1,5 @@
-import { index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, date, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -251,12 +252,83 @@ export const residencyApplications = academy.table(
 export const certEnrollments = academy.table(
   'cert_enrollments',
   {
+    id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').notNull(),
     pathSlug: text('path_slug').notNull(),
     enrolledAt: tstz('enrolled_at').notNull().defaultNow(),
+    leftAt: tstz('left_at'),
+    leaveRequestId: text('leave_request_id'),
   },
-  (t) => [uniqueIndex('cert_enrollments_pk').on(t.userId, t.pathSlug)],
+  (t) => [
+    uniqueIndex('cert_enrollments_active_uq')
+      .on(t.userId, t.pathSlug)
+      .where(sql`left_at IS NULL`),
+  ],
 );
+
+export const learningState = academy.table('learning_state', {
+  userId: uuid('user_id').primaryKey(),
+  lastItemSlug: text('last_item_slug').notNull(),
+  lastOpenedAt: tstz('last_opened_at').notNull(),
+  secondsRead: integer('seconds_read').notNull(),
+});
+
+export const learningActiveDays = academy.table(
+  'learning_active_days',
+  {
+    userId: uuid('user_id').notNull(),
+    activeOn: date('active_on').notNull(),
+  },
+  (t) => [uniqueIndex('learning_active_days_pk').on(t.userId, t.activeOn)],
+);
+
+export const learningTouches = academy.table(
+  'learning_touches',
+  {
+    userId: uuid('user_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    itemSlug: text('item_slug').notNull(),
+    secondsAdded: integer('seconds_added').notNull(),
+    touchedAt: tstz('touched_at').notNull(),
+    lastItemSlug: text('last_item_slug').notNull(),
+    lastOpenedAt: tstz('last_opened_at').notNull(),
+    secondsRead: integer('seconds_read').notNull(),
+    activeDays: integer('active_days').notNull(),
+  },
+  (t) => [uniqueIndex('learning_touches_pk').on(t.userId, t.clientRequestId)],
+);
+
+export const videoProgress = academy.table(
+  'video_progress',
+  {
+    userId: uuid('user_id').notNull(),
+    videoSlug: text('video_slug').notNull(),
+    positionSeconds: integer('position_seconds').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('video_progress_pk').on(t.userId, t.videoSlug)],
+);
+
+export const videoProgressRequests = academy.table(
+  'video_progress_requests',
+  {
+    userId: uuid('user_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    videoSlug: text('video_slug').notNull(),
+    positionSeconds: integer('position_seconds').notNull(),
+  },
+  (t) => [uniqueIndex('video_progress_requests_pk').on(t.userId, t.clientRequestId)],
+);
+
+export const residencyCohorts = academy.table('residency_cohorts', {
+  slug: text('slug').primaryKey(),
+  status: text('status').notNull(),
+  published: boolean('published').notNull(),
+  startsAt: tstz('starts_at'),
+  endsAt: tstz('ends_at'),
+  capacity: integer('capacity'),
+  entryRules: text('entry_rules'),
+});
 
 export const certItemCompletions = academy.table(
   'cert_item_completions',
@@ -278,12 +350,44 @@ export const certGrants = academy.table(
     certId: text('cert_id').notNull(),
     grantedAt: tstz('granted_at').notNull().defaultNow(),
     idempotencyKey: text('idempotency_key').notNull(),
+    publicId: text('public_id').notNull(),
+    status: text('status').notNull().default('valid'),
+    holderName: text('holder_name'),
+    holderConsentAt: tstz('holder_consent_at'),
   },
   (t) => [
     uniqueIndex('cert_grants_pk').on(t.userId, t.certId),
     uniqueIndex('cert_grants_idempotency_uq').on(t.idempotencyKey),
+    uniqueIndex('cert_grants_public_id_uq').on(t.publicId),
     index('cert_grants_user_idx').on(t.userId, t.grantedAt),
   ],
+);
+
+export const assessmentAttempts = academy.table(
+  'assessment_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    slug: text('slug').notNull(),
+    clientAttemptId: text('client_attempt_id').notNull(),
+    score: integer('score').notNull(),
+    maxScore: integer('max_score').notNull(),
+    passed: boolean('passed').notNull(),
+    submittedAt: tstz('submitted_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
+);
+
+export const certHolderNameRequests = academy.table(
+  'cert_holder_name_requests',
+  {
+    userId: uuid('user_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    publicId: text('public_id').notNull(),
+    holderName: text('holder_name'),
+    consentAt: tstz('consent_at'),
+  },
+  (t) => [uniqueIndex('cert_holder_name_requests_pk').on(t.userId, t.clientRequestId)],
 );
 
 export const schema = {
@@ -299,4 +403,12 @@ export const schema = {
   certEnrollments,
   certItemCompletions,
   certGrants,
+  assessmentAttempts,
+  certHolderNameRequests,
+  learningState,
+  learningActiveDays,
+  learningTouches,
+  videoProgress,
+  videoProgressRequests,
+  residencyCohorts,
 };

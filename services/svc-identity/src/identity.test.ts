@@ -662,7 +662,7 @@ if (!available) {
         auth.createApiKey({
           userId: session.userId,
           name: 'widen',
-          scopes: ['admin:compliance'],
+          scopes: ['agents:execute'],
           grantorScopes: ['identity:write', 'trade:read'],
         }),
       ).rejects.toThrow(/does not hold/);
@@ -718,7 +718,8 @@ if (!available) {
         `,
       ).rejects.toThrow(/api_keys_no_withdraw_ck/);
 
-      // pay:payout is interactive-only too (§9) — same CHECK must refuse it.
+      // pay:payout is not implied by a normal session. The database allows the
+      // row: a step-up create is the only way the service will write it (D-145).
       await expect(
         auth.createApiKey({
           userId: session.userId,
@@ -726,14 +727,32 @@ if (!available) {
           scopes: ['pay:payout'],
           grantorScopes: SESSION_SCOPES,
         }),
-      ).rejects.toThrow(/interactive/);
+      ).rejects.toThrow(/step-up/);
 
+      await db.sql`
+        INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
+        VALUES (${session.userId}, 'pay_x', ${'hp' + Date.now()}, 'ifc_p', ARRAY['pay:payout'])
+      `;
+
+      // A founder session that holds the desk still cannot mint a key with it,
+      // and a row inserted past the service is refused by the same CHECK.
       await expect(
-        db.sql`
-          INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
-          VALUES (${session.userId}, 'pay_x', ${'hp' + Date.now()}, 'ifc_p', ARRAY['pay:payout'])
-        `,
-      ).rejects.toThrow(/api_keys_no_withdraw_ck/);
+        auth.createApiKey({
+          userId: session.userId,
+          name: 'desk-bot',
+          scopes: ['admin:write'],
+          grantorScopes: ['admin:write', 'admin:read', 'support:ops', 'admin:compliance', 'market:ops'],
+        }),
+      ).rejects.toThrow(/cannot be granted to an API key/);
+
+      for (const scope of ['admin:write', 'admin:read', 'admin:compliance', 'support:ops', 'market:ops']) {
+        await expect(
+          db.sql`
+            INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
+            VALUES (${session.userId}, ${'desk_' + scope}, ${'hd' + scope + Date.now()}, 'ifc_d', ${[scope]})
+          `,
+        ).rejects.toThrow(/api_keys_no_withdraw_ck/);
+      }
     });
 
     it('stops accepting a revoked or expired key', async () => {

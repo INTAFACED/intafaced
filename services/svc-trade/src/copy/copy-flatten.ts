@@ -22,7 +22,7 @@ export type FlattenCopyPositionInput = {
   readonly followerId: string;
 };
 
-export type FlattenCopyRefuse = 'drift' | 'unavailable';
+export type FlattenCopyRefuse = 'drift' | 'unavailable' | 'partial';
 
 export type FlattenCopyPositionResult = {
   readonly orderIds: readonly string[];
@@ -34,6 +34,9 @@ export type FlattenCopyPositionPort = (principal: Principal, input: FlattenCopyP
 export const COPY_FLATTEN_DRIFT_RESIDUAL = 'copy.flatten refuses when the close drifted — never invent a flatten';
 
 export const COPY_FLATTEN_UNAVAILABLE_RESIDUAL = 'copy.flatten refuses when the close is unavailable — never invent a flatten';
+
+export const COPY_FLATTEN_PARTIAL_RESIDUAL =
+  'copy.flatten placed some closes and refused the rest — the follow stays fenced and is not detached';
 
 export type CopyFlattenAck = {
   readonly followId: string;
@@ -93,6 +96,17 @@ export async function flattenFollowerCopyPosition(
       'copy.flatten refuses when the close is unavailable — never invent a flatten',
       'trade.copy_flatten_unavailable',
       COPY_FLATTEN_UNAVAILABLE_RESIDUAL,
+    );
+  }
+  if (closed.refuse === 'partial') {
+    const orderIds = closed.orderIds;
+    throw new CopyError(
+      orderIds.length > 0
+        ? `copy.flatten placed some closes and refused the rest — follow stays fenced (orderIds: ${orderIds.join(',')})`
+        : 'copy.flatten placed some closes and refused the rest — follow stays fenced',
+      'trade.copy_flatten_partial',
+      COPY_FLATTEN_PARTIAL_RESIDUAL,
+      orderIds,
     );
   }
   return { orderIds: closed.orderIds };

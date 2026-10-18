@@ -283,7 +283,7 @@ test('fallback: the handle input appears only if the server can look handles up;
   await to(page).fill('maya_test');
   await to(page).blur();
   await expect(accountId(page)).toBeVisible();
-  await expect(page.getByTestId('to-status')).toHaveText('Paying by handle isn’t turned on yet. Use their Account ID for now.');
+  await expect(page.getByTestId('to-status')).toHaveText('Paying by handle isn’t turned on. Use their Account ID instead.');
   await expect(to(page)).toHaveCount(0);
   expect(api.to('users.resolveHandle')).toHaveLength(1);
 });
@@ -441,7 +441,7 @@ test('a server that refuses the recipient says so in plain words, without raw co
   await review(page).click();
   await sendButton(page).click();
   await expect(page.getByTestId('pay-failure')).toHaveText(
-    "@maya_test can't receive USDT yet. Ask them to open INTAFACED once, then try again.",
+    "@maya_test can't receive USDT. Ask them to open INTAFACED once, then try again.",
   );
 });
 

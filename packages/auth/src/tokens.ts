@@ -31,9 +31,15 @@ export const accessClaimsSchema = z.object({
   key_env: z.enum(['live', 'sandbox']).optional(),
   /** Verification tier at issue time; jurisdiction checks read it. */
   tier: z.enum(['none', 'basic', 'full', 'institutional']).default('none'),
-  /** True once the session has passed 2FA. Gates INTERACTIVE_ONLY_SCOPES. */
+  /** True once the session has passed 2FA. Gates SESSION_MFA_SCOPES. */
   mfa: z.boolean().default(false),
   sid: z.string().uuid(),
+  /**
+   * Pay scopes minted by `auth.stepUpPay`. Absent on a normal session and on
+   * every refresh. An API key may copy `pay:refund` / `pay:payout` only when
+   * this claim lists them.
+   */
+  stp: z.array(z.string()).optional(),
 });
 
 export type AccessClaims = z.infer<typeof accessClaimsSchema>;
@@ -58,18 +64,28 @@ export interface Principal extends AccessClaims {
  * arrive as HTTP 403 and mean completely different things to the person
  * reading the screen:
  *
- *   scope.denied       this credential may never do this — nothing the user
- *                      does to their own account changes it
- *   tier.insufficient  this credential MAY do this, once verification catches
- *                      up — an action the user can take, today
- *   ownership.denied   the credential is fine and the thing belongs to someone
- *                      else — never a prompt, always a bug or an attempt
+ *   scope.denied            this credential may never do this — nothing the user
+ *                           does to their own account changes it
+ *   scope.interactive_only  the scope is on the token, but the credential is an
+ *                           API key. The scope stays on an interactive session.
+ *                           Stepping up the key does not unlock it.
+ *   tier.insufficient       this credential MAY do this, once verification catches
+ *                           up — an action the user can take, today
+ *   ownership.denied        the credential is fine and the thing belongs to someone
+ *                           else — never a prompt, always a bug or an attempt
  *
  * Collapsing them meant the terminal could only say "scope, verification tier
  * or jurisdiction", which sends a verifiable user to support instead of to KYC.
  */
 export type AuthErrorCode =
-  'token.expired' | 'token.invalid' | 'token.malformed' | 'scope.denied' | 'tier.insufficient' | 'ownership.denied' | 'mfa.required';
+  | 'token.expired'
+  | 'token.invalid'
+  | 'token.malformed'
+  | 'scope.denied'
+  | 'scope.interactive_only'
+  | 'tier.insufficient'
+  | 'ownership.denied'
+  | 'mfa.required';
 
 export class AuthError extends Error {
   constructor(
@@ -96,6 +112,8 @@ export interface IssueAccessInput {
   apiKeyId?: string;
   /** Only for tokens minted from an API key (ADR pay.public-api §2.5). */
   keyEnv?: 'live' | 'sandbox';
+  /** Pay scopes this step-up mint is allowed to delegate onto a key. */
+  stepUpScopes?: readonly string[];
 }
 
 export async function issueAccessToken(input: IssueAccessInput, config: TokenConfig): Promise<{ token: string; expiresAt: Date }> {
@@ -110,6 +128,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     ...(input.subAccountId ? { sub_account: input.subAccountId } : {}),
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
+    ...(input.stepUpScopes && input.stepUpScopes.length > 0 ? { stp: [...input.stepUpScopes] } : {}),
   } satisfies JWTPayload)
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(input.userId)

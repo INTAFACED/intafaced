@@ -1,17 +1,20 @@
 /**
- * Bind pending email invites to the account that just signed in.
+ * Bind pending email invites to the confirmed account identity names.
  *
  * Called by svc-identity over service HMAC, not by a merchant session.
- * One active team still applies: a person who already owns a merchant, or
- * already sits on a team, is bound but left invited. The next explicit accept
- * then returns the same conflict as any other invitation.
+ * Identity only calls this after `email_verified_at` is set, and sends the
+ * stored mailbox. A missing published lifetime binds nothing. An invite
+ * older than that lifetime stays pending. One active team still applies:
+ * a person who already owns a merchant, or already sits on a team, is bound
+ * but left invited. The next explicit accept then returns the same conflict
+ * as any other invitation.
  *
  * Lock order matches `TeamService.invite`: merchant row first, then member
  * rows. Claim never holds a member lock while waiting for a merchant lock.
  */
 import type { Sql, TransactionSql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
-import { emailInviteToken, normaliseTeamInviteEmail } from './team-email.js';
+import { emailInviteToken, normaliseTeamInviteEmail, publishedTeamEmailInviteTtlMs } from './team-email.js';
 import type { TeamRole } from './roles.js';
 
 const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,16 +32,23 @@ interface PendingRow {
   invited_by: string;
 }
 
-export async function claimEmailTeamInvites(sql: Sql, input: { userId: string; email: string }): Promise<EmailInviteClaimResult> {
+export async function claimEmailTeamInvites(
+  sql: Sql,
+  input: { userId: string; email: string },
+  ttlMs: number | undefined,
+): Promise<EmailInviteClaimResult> {
   const email = normaliseTeamInviteEmail(input.email);
   const userId = input.userId.trim();
   if (!email || !USER_ID.test(userId)) throw new MerchantOpsError('pay.team_email_invalid', 'bad_request');
+  const ttl = publishedTeamEmailInviteTtlMs(ttlMs);
+  if (ttl === undefined) return { claimed: 0, accepted: 0 };
   const token = emailInviteToken(email);
 
   return sql.begin(async (tx) => {
     const preview = await tx<Array<{ merchant_id: string }>>`
       SELECT merchant_id FROM pay.merchant_team_members
-       WHERE user_id = ${token} AND status = 'invited'`;
+       WHERE user_id = ${token} AND status = 'invited'
+         AND updated_at >= now() - (${ttl} * interval '1 millisecond')`;
     const merchantIds = [...new Set(preview.map((row) => row.merchant_id))].sort();
     for (const merchantId of merchantIds) {
       await tx`SELECT id FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE`;
@@ -47,6 +57,7 @@ export async function claimEmailTeamInvites(sql: Sql, input: { userId: string; e
       SELECT id, merchant_id, role, label, invited_by
         FROM pay.merchant_team_members
        WHERE user_id = ${token} AND status = 'invited'
+         AND updated_at >= now() - (${ttl} * interval '1 millisecond')
        ORDER BY id
        FOR UPDATE`;
     let claimed = 0;

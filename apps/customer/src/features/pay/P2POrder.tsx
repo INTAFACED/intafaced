@@ -2,15 +2,52 @@ import { CounterpartyLink, p2pReturn } from './p2p-return';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui';
 import { displayAmount } from '../../shared/money';
 import { type PersonalPayApi } from './pay-api';
 import { id, type Trade } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
-import { PayAmount, PayDetails, PayFailure, PayState, PayTime, Status } from './components';
+import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
+import { TradeStatus } from './personal/P2PDepth';
+import { ContactActions } from './personal/ContactActions';
 import './p2p-order.css';
 
+/**
+ * What a released order came to, from the order record alone. "Released" is the recorded decision; the ledger pays out
+ * after it, so nothing is called received until the record carries the settlement time. The record has no fee, and the
+ * screen says so for the buyer, whose share the fee comes out of.
+ */
+export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }) {
+  const { t } = orderCopy.useCopy();
+  const fiat = `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`;
+  const quantity = { amount: displayAmount(trade.amount), asset: trade.asset };
+  return (
+    <section className="p2p-order-result" aria-label={t('resultTitle')} data-testid="order-result">
+      <h3>{t('resultTitle')}</h3>
+      {trade.settledAt === null ? (
+        <p className="muted" data-testid="order-result-unsettled">
+          {t('releasePending')}
+        </p>
+      ) : (
+        <PayDetails
+          values={
+            seller
+              ? [
+                  [t('youSent'), t('sentValue', quantity)],
+                  [t('youReceivedExternal'), fiat],
+                ]
+              : [
+                  [t('youReceived'), t('receivedValue', quantity)],
+                  [t('youPaidExternal'), fiat],
+                  [t('serviceFee'), t('serviceFeeValue')],
+                ]
+          }
+        />
+      )}
+    </section>
+  );
+}
 type Outcome = ApiResult<Trade>;
 export function P2POrder({
   pay,
@@ -133,7 +170,7 @@ export function P2POrder({
             <PayDetails
               values={[
                 [payCopy.t('order'), <span lang="zxx">{recovery.data.id}</span>],
-                [t('reported'), <Status value={recovery.data.status} />],
+                [t('reported'), <TradeStatus status={recovery.data.status} />],
                 [
                   payCopy.t('ledgerSettlement'),
                   recovery.data.settledAt ? <PayTime value={recovery.data.settledAt} /> : payCopy.t('notConfirmed'),
@@ -165,7 +202,7 @@ export function P2POrder({
                     {trade.id}
                   </p>
                   <p className="muted">
-                    <Copy k="reported" /> · <Status value={trade.status} />
+                    <Copy k="reported" /> · <TradeStatus status={trade.status} />
                   </p>
                 </header>
                 <div className="p2p-order-quantities">
@@ -185,6 +222,7 @@ export function P2POrder({
                     </p>
                   </div>
                 </div>
+                {trade.status === 'released' ? <OrderResult trade={trade} seller={seller} /> : null}
                 <p className="muted p2p-order-instruction">
                   <Copy
                     k={
@@ -228,6 +266,7 @@ export function P2POrder({
                   >
                     <Copy k="reputation" />
                   </CounterpartyLink>
+                  <ContactActions pay={pay} peerId={seller ? trade.buyerId : trade.sellerId} />
                 </details>
                 {renderSecondary(trade, query.reload)}
               </div>

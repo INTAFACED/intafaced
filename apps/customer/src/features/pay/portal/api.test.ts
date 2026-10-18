@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../../shared/api';
 import { createPortalApi } from './api';
-import { isComingSoon, refusalText } from './refusal';
+import { isNotLive, refusalText } from './refusal';
 
 type Call = { url: string; method: string; body: unknown };
 function harness(reply: (call: Call) => { status?: number; body: unknown }) {
@@ -125,13 +125,13 @@ describe('plain-English refusals', () => {
     const a = await failed(404, 'pay.dispute_not_found');
     const b = await failed(404, 'pay.dispute_not_found');
     expect(refusalText(a)).toBe(refusalText(b));
-    expect(isComingSoon(a)).toBe(false);
+    expect(isNotLive(a)).toBe(false);
   });
   it('treats a not-built or unmounted procedure as arriving soon, not as an error', async () => {
-    expect(isComingSoon(await failed(501, 'pay.not_built'))).toBe(true);
+    expect(isNotLive(await failed(501, 'pay.not_built'))).toBe(true);
     const { portal } = harness(() => ({ status: 404, body: { error: { message: 'No "query"-procedure on path "merchantOps.team.me"' } } }));
     const gone = await portal.teamMe();
-    expect(!gone.ok && isComingSoon(gone)).toBe(true);
+    expect(!gone.ok && isNotLive(gone)).toBe(true);
   });
   it('hides an unknown code behind a generic message', async () => {
     const result = await failed(400, 'pay.something_new_and_internal');

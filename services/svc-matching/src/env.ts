@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseOperatorIds } from './action-approval-consume.js';
 import {
   baseEnvSchema,
   httpEnvSchema,
@@ -81,6 +82,48 @@ const schema = baseEnvSchema
        * Blank / unset → those doors refuse (`action_approval.identity_unwired`).
        */
       IDENTITY_URL: z.string().url().optional(),
+
+      /**
+       * Who may propose and approve venue actions (open, halt, resume, ...):
+       * comma-separated identity user ids, whitespace trimmed, compared without
+       * case. REQUIRED, at least two distinct ids (a proposer and a different
+       * approver). Blank, one id or duplicates refuse boot: a lost variable must
+       * not leave journal-replayed markets trading with no reachable halt.
+       */
+      /**
+       * svc-ledger base URL for the replay hold check. Blank / unset is unwired:
+       * a book that replays resting orders stays closed (`matching.hold_check_unwired`)
+       * rather than matching them. No default host — this service does not invent
+       * a ledger. Read-only (`balances`); matching still has no DATABASE_URL.
+       */
+      LEDGER_URL: z.preprocess(
+        (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
+        z.string().url().optional(),
+      ),
+
+      /**
+       * Founder door verifies the edge principal. Blank → `/operator/*` refuses
+       * matching.operator_auth_unconfigured. S2S HMAC halt does not need it.
+       * Never required at boot: a missing value must not crash-loop the book.
+       */
+      EDGE_PRINCIPAL_SECRET: z.preprocess(
+        (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
+        z.string().min(32).optional(),
+      ),
+
+      MATCHING_OPERATOR_IDS: z
+        .string()
+        .default('')
+        .superRefine((raw, ctx) => {
+          if (parseOperatorIds(raw).size < 2) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                'FATAL: MATCHING_OPERATOR_IDS must list at least two distinct operator user ids (comma-separated). ' +
+                'svc-matching refuses to boot without them: with no operators nobody could halt or open a market.',
+            });
+          }
+        }),
     }),
   );
 

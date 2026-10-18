@@ -33,6 +33,7 @@ import {
 } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
 import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
+import { normalisePayeeEmail, normalisePayeePhone } from './payee-search.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -71,7 +72,12 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { userCopy } from './user-copy.js';
+import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
+import type { ProfileService } from './profile/profile-service.js';
+import { createProfileRouter } from './profile/profile-router.js';
+import type { AccountChange } from './account/account-router.js';
+import { createAccountRouter } from './account/account-router.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -330,15 +336,32 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.email_confirm_invalid':
+      // Same sentence for a wrong, expired, spent, or rebound link.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.email_confirm_unwired':
+      // No mail port, no published lifetime, or no published rate budget.
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.email_confirm_rate_limited':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
+    case 'auth.payee_email_unconfirmed':
+    case 'auth.payee_phone_unverified':
+    case 'auth.payee_phone_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.step_up_required':
+    case 'auth.step_up_expired':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+    case 'pay.role_not_allowed':
+      return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
   }
 }
 
 const sessionOutput = z.object({
   accessToken: z.string(),
   /**
-   * Always filled, including for a browser. The customer app requires a
-   * non-empty string. Optional in the schema so an older reply still parses.
-   * The httpOnly cookie is set as well. Hiding this field waits on that app.
+   * Present for a native or API client (no Origin). Omitted when the
+   * request is a browser session: the refresh token is only in the
+   * httpOnly `ifc_rt` cookie. Optional so both shapes parse.
    */
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
@@ -471,6 +494,15 @@ export function createIdentityRouter(
      * replace it later.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
+    /**
+     * Live staff session required before unfreeze. Absent in light router
+     * tests; index.ts wires the session row check. A revoked row refuses.
+     */
+    assertStaffSessionLive?: (sessionId: string, userId: string) => Promise<void>;
+    /** Customer profile edit. Absent → `profile.get` / `profile.update` refuse closed. */
+    profile?: ProfileService;
+    /** Email and phone change. Absent → those doors refuse closed. */
+    account?: AccountChange;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -481,12 +513,13 @@ export function createIdentityRouter(
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
-    return {
+    const wire = {
       accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
     };
+    if (bag?.browser) return wire;
+    return { ...wire, refreshToken: session.refreshToken };
   };
 
   const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {
@@ -599,11 +632,16 @@ export function createIdentityRouter(
      * The caller's own handle (Receive screen, account menu). Self-only: the
      * user id comes from the session, there is no input.
      */
-    me: protectedProcedure.output(z.object({ userId: z.string().uuid(), handle: z.string() })).query(async ({ ctx }) => {
-      const handle = await auth.handleOf(ctx.principal.userId);
-      if (handle === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-      return { userId: ctx.principal.userId, handle };
-    }),
+    me: protectedProcedure
+      .output(z.object({ userId: z.string().uuid(), handle: z.string(), emailVerified: z.boolean() }))
+      .query(async ({ ctx }) => {
+        const view = await auth.selfView(ctx.principal.userId);
+        if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+        return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
+      }),
+
+    profile: createProfileRouter(options.profile),
+    account: createAccountRouter(options.account),
 
     users: router({
       /**
@@ -611,7 +649,7 @@ export function createIdentityRouter(
        *
        * Returns the least that lets a sender confirm the right person: the
        * stored handle, the user id the transfer needs, and `self`. No display
-       * name (today it is a copy of the handle, never user-set), no email,
+       * name (a profile display name is never returned here), no email,
        * phone or legal name.
        *
        * No enumeration: exact case-insensitive match only; malformed, unknown,
@@ -643,6 +681,88 @@ export function createIdentityRouter(
           const hit = await auth.findActiveByHandle(handle);
           if (!hit) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Find a person by exact email or exact phone. Same budget and the same
+       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * The email and the phone are never in the answer.
+       */
+      searchPayees: protectedProcedure
+        .input(
+          z
+            .object({
+              email: z.string().max(320).optional(),
+              phone: z.string().max(32).optional(),
+            })
+            .strict()
+            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
+        )
+        .output(
+          z.discriminatedUnion('found', [
+            z.object({ found: z.literal(false) }),
+            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+          ]),
+        )
+        .query(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
+          }
+          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
+            throw new TRPCError({
+              code: 'TOO_MANY_REQUESTS',
+              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
+            });
+          }
+          const email = input.email === undefined ? undefined : normalisePayeeEmail(input.email);
+          const phone = input.phone === undefined ? undefined : normalisePayeePhone(input.phone);
+          if (email === null || phone === null || (email === undefined && phone === undefined)) return { found: false as const };
+          const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
+          if (!hit) return { found: false as const };
+          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
+        }),
+
+      /**
+       * Opt in to being found by email or phone, and store the phone people
+       * would match. The stored number is not returned.
+       */
+      setPayeeSearchConsent: protectedProcedure
+        .input(
+          z
+            .object({
+              emailConsent: z.boolean().optional(),
+              phoneConsent: z.boolean().optional(),
+              phone: z.string().max(32).nullable().optional(),
+            })
+            .strict()
+            .refine(
+              (value) => value.emailConsent !== undefined || value.phoneConsent !== undefined || value.phone !== undefined,
+              'Nothing to change',
+            ),
+        )
+        .output(z.object({ emailConsent: z.boolean(), phoneConsent: z.boolean(), phoneOnFile: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          if (ctx.principal.kid) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search settings need a signed-in session' });
+          }
+          let phone: string | null | undefined;
+          if (input.phone === undefined) phone = undefined;
+          else if (input.phone === null) phone = null;
+          else {
+            phone = normalisePayeePhone(input.phone);
+            if (phone === null) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
+            }
+          }
+          try {
+            return await auth.setPayeeSearchConsent(ctx.principal.userId, {
+              ...(input.emailConsent !== undefined ? { emailConsent: input.emailConsent } : {}),
+              ...(input.phoneConsent !== undefined ? { phoneConsent: input.phoneConsent } : {}),
+              ...(phone !== undefined ? { phone } : {}),
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
     }),
 
@@ -840,6 +960,38 @@ export function createIdentityRouter(
         }),
 
       /**
+       * Signed-in email confirmation, step 1. The link goes to this account's
+       * own address. The response does not say whether a message was sent.
+       * An API key is not a session.
+       */
+      requestEmailConfirmation: protectedProcedure.output(z.object({ accepted: z.literal(true) })).mutation(async ({ ctx }) => {
+        if (ctx.principal.kid) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
+        }
+        try {
+          return await auth.requestEmailConfirmation({ userId: ctx.principal.userId });
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+      /**
+       * Email confirmation, step 2. The token is the proof. A wrong, expired,
+       * spent, or rebound token is the same refusal and does not name an account.
+       */
+      confirmEmail: publicProcedure
+        .input(z.object({ token: z.string().trim().min(1).max(500) }))
+        .output(z.object({ confirmed: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            await auth.confirmEmail({ token: input.token });
+            return { confirmed: true as const };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
        * THE STEP-UP CHALLENGE.
        *
        * `defaultScopes()` withholds `trade:withdraw` — "added only after a
@@ -903,6 +1055,76 @@ export function createIdentityRouter(
               sessionId: ctx.principal.sid,
               totpCode: input.totpCode,
               webauthn: input.webauthn,
+            });
+            return { ...elevated, expiresAt: elevated.expiresAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Confirm it's you, then mint a ten-minute access token that can refund
+       * or pay out. The token is not refreshable. A plain session cannot call
+       * payment.refund or settlement.payout.
+       *
+       * Input: `{ merchantId, scopes: ('pay:refund' | 'pay:payout')[], factorProof }`.
+       * `factorProof` is exactly one of `{ totpCode }`, `{ webauthn }`,
+       * or `{ proofId }` from a factor verified in the last five minutes
+       * (`proveFreshFactor`, STEPUP #4880). A passkey assertion is signed over
+       * the single-use challenge from `auth.stepUpOptions`.
+       * Output: `{ accessToken, expiresAt, scopes, refreshable: false }`.
+       * Refusals: `auth.step_up_required`, `auth.step_up_expired`, `pay.role_not_allowed`.
+       * Nothing is minted on a refusal.
+       */
+      stepUpPay: protectedProcedure
+        .input(
+          z.object({
+            merchantId: z.string().uuid(),
+            scopes: z
+              .array(z.enum(['pay:refund', 'pay:payout']))
+              .min(1)
+              .max(2),
+            factorProof: z.union([
+              z.object({ totpCode: z.string().regex(/^\d{6}$/) }).strict(),
+              z
+                .object({
+                  webauthn: z.object({
+                    id: z.string().min(1),
+                    rawId: z.string().min(1),
+                    type: z.literal('public-key'),
+                    response: z.object({
+                      clientDataJSON: z.string().min(1),
+                      authenticatorData: z.string().min(1),
+                      signature: z.string().min(1),
+                      userHandle: z.string().nullish(),
+                    }),
+                    clientExtensionResults: z.record(z.unknown()).optional(),
+                  }),
+                })
+                .strict(),
+              z.object({ proofId: z.string().uuid() }).strict(),
+            ]),
+          }),
+        )
+        .output(
+          z.object({
+            accessToken: z.string(),
+            expiresAt: z.string(),
+            scopes: z.array(z.string()),
+            refreshable: z.literal(false),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            if (ctx.principal.kid || ctx.principal.sub_account) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot confirm a payment' });
+            }
+            const elevated = await auth.stepUpPay({
+              userId: ctx.principal.userId,
+              sessionId: ctx.principal.sid,
+              merchantId: input.merchantId,
+              scopes: input.scopes,
+              factorProof: input.factorProof,
             });
             return { ...elevated, expiresAt: elevated.expiresAt.toISOString() };
           } catch (err) {
@@ -1138,15 +1360,12 @@ export function createIdentityRouter(
        * second-factor check.
        *
        * WHY `requireMfa` IS HERE AND NOT IMPLIED BY THE SCOPE.
-       * `INTERACTIVE_ONLY_SCOPES` is what forces 2FA on a scope, and
-       * `admin:compliance` is NOT in that list — its stated membership test is
-       * "does this move value OFF the platform", and approving a record moves
-       * nothing. But it is a privilege-escalation primitive: a leaked operator
-       * key that can self-approve an account to `institutional` unlocks every
-       * custodial module in the OS. So the second factor is enforced here,
-       * locally, and the question of whether the shared list should grow is
-       * argued in the PR rather than settled by editing a shared package inside
-       * a service PR (§15.2). Dual-control reuses four-eyes
+       * `admin:compliance` is in `INTERACTIVE_ONLY_SCOPES`, so an API key that
+       * carries it is refused at `requireScope` (`scope.interactive_only`).
+       * That list does not force 2FA: `SESSION_MFA_SCOPES` is the value-off-
+       * platform subset, and approving a record moves nothing. It is still a
+       * privilege-escalation primitive, so the second factor is enforced here,
+       * locally. Dual-control reuses four-eyes
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */
@@ -1514,7 +1733,15 @@ export function createIdentityRouter(
             mode: z.enum(['live', 'sandbox']).optional(),
           }),
         )
-        .output(z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.enum(['live', 'sandbox']) }))
+        .output(
+          z.object({
+            id: z.string(),
+            key: z.string(),
+            prefix: z.string(),
+            mode: z.enum(['live', 'sandbox']),
+            scopes: z.array(z.string()),
+          }),
+        )
         .mutation(async ({ ctx, input }) => {
           try {
             // `grantorScopes` comes from the verified principal, never from the
@@ -1522,13 +1749,25 @@ export function createIdentityRouter(
             // ceiling has to be read from the token that asked for it.
             // A key (`kid`) is already a delegate and cannot mint another.
             assertDelegateCannotGrant(ctx.principal.kid);
-            return await auth.createApiKey({
+            const money = input.scopes.filter((scope) => scope === 'pay:refund' || scope === 'pay:payout');
+            const stepped = new Set(ctx.principal.stp ?? []);
+            const payStepUp = money.length > 0 && money.every((scope) => stepped.has(scope) && ctx.principal.scopes.includes(scope));
+            if (money.length > 0 && !payStepUp) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `${userCopy('auth.step_up_required')} [auth.step_up_required]`,
+              });
+            }
+            const created = await auth.createApiKey({
               userId: ctx.principal.userId,
               ...input,
               grantorScopes: ctx.principal.scopes,
               grantorKid: ctx.principal.kid,
+              payStepUp,
             });
+            return { ...created, scopes: created.scopes ?? input.scopes };
           } catch (err) {
+            if (err instanceof TRPCError) throw err;
             if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
               throw toTrpcError(err);
             }
@@ -1594,7 +1833,19 @@ export function createIdentityRouter(
       unfreezeIdentity: protectedProcedure
         .input(identityRestoreInputSchema)
         .output(accountControlResultSchema)
-        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
+        .mutation(async ({ ctx, input }) => {
+          if (options.assertStaffSessionLive) {
+            try {
+              await options.assertStaffSessionLive(ctx.principal.sid, ctx.principal.userId);
+            } catch (err) {
+              if (err instanceof TradeIdentityAuthError) {
+                throw new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
+              }
+              throw err;
+            }
+          }
+          return callFounderControl(options.founderControls, ctx, input);
+        }),
     }),
 
     subAccounts: router({

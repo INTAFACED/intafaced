@@ -28,6 +28,8 @@ export const SCOPES = [
   'pay:write',
   'pay:refund',
   'pay:payout',
+  // Opening a merchant account. Not an acquiring scope: it cannot move money.
+  'pay:onboard',
 
   // P2P
   'p2p:read',
@@ -128,26 +130,74 @@ export function hasScope(granted: readonly string[], required: Scope): boolean {
 /**
  * Scopes that must never be granted to a long-lived API key.
  *
- * Withdrawal and treasury movement require an interactive session with 2FA
- * (§9 Security: withdrawal allow-lists + delay tiers). A leaked key must not be
- * able to move value off the platform on its own.
+ * Three membership tests, all closed:
  *
- * The membership test is "does this move value OFF the platform", not "does it
- * feel dangerous". `pay:payout` was missing: it sends a merchant's settled
- * balance out through a rail, which is the same class of action as
- * `trade:withdraw` and had none of the same protection. Found by the agent
- * building svc-pay, which noticed the asymmetry while writing authorisation
- * tests and — correctly — flagged it rather than changing a shared package
- * unilaterally.
+ *   1. Moves value OFF the platform (`trade:withdraw`, `admin:treasury`,
+ *      `bank:card`). A leaked key must not be able to do that on its own (§9).
+ *      These also require 2FA on the session (`SESSION_MFA_SCOPES`).
+ *      Merchant refund and payout are D-145, not this list.
+ *   2. Founder or operator desk authority (`admin:read`, `admin:write`,
+ *      `admin:compliance`, `admin:treasury`, `support:ops`, `market:ops`).
+ *      A founder session used to be able to copy `admin:write`, `admin:read`
+ *      and `support:ops` onto an API key, and a session that held
+ *      `admin:compliance` or `market:ops` could do the same. A long-lived key
+ *      then bypasses the founder MFA and session model. Desk scopes stay on
+ *      the interactive session. A procedure that needs a second factor calls
+ *      `requireMfa` itself — being interactive-only is not the same as
+ *      requiring 2FA.
+ *   3. `pay:onboard` (#4897). It does not move money. It is interactive-only
+ *      so it can never sit on an API key. Main's `requireScope` treated every
+ *      member of this list as the 2FA gate, and a login token is issued with
+ *      `mfa: false`, so it stays in `SESSION_MFA_SCOPES` too.
+ *
+ * `pay:refund` and `pay:payout` are not on this list (D-145). An ordinary
+ * session never carries them. A key carries one only when `apiKeys.create`
+ * asked for it under `auth.stepUpPay` (`assertDelegatableScopes` with
+ * `payStepUp`). `pay:payout` on a key still pays only to a stored verified
+ * destination (D-142). `pay:onboard` stays interactive-only.
  */
-export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:payout'];
+export const INTERACTIVE_ONLY_SCOPES: readonly Scope[] = [
+  'trade:withdraw',
+  'admin:treasury',
+  'bank:card',
+  'pay:onboard',
+  'admin:read',
+  'admin:write',
+  'admin:compliance',
+  'support:ops',
+  'market:ops',
+];
+
+/** Scopes `auth.stepUpPay` may add, and only those. */
+export const PAY_STEP_UP_SCOPES = ['pay:refund', 'pay:payout'] as const;
+export type PayStepUpScope = (typeof PAY_STEP_UP_SCOPES)[number];
+
+/** Step-up access token lifetime. Ten minutes. Refresh does not reissue it. */
+export const PAY_STEP_UP_ACCESS_TTL_SECONDS = 600;
+
+/** Factor proof lifetime. Five minutes, the same window as STEPUP #4880. */
+export const PAY_STEP_UP_FACTOR_TTL_SECONDS = 300;
+
+export function isPayStepUpScope(scope: string): scope is PayStepUpScope {
+  return (PAY_STEP_UP_SCOPES as readonly string[]).includes(scope);
+}
+
+/**
+ * Interactive-only scopes that also require a second factor on the session.
+ *
+ * A subset of `INTERACTIVE_ONLY_SCOPES`. Founder desk scopes are interactive-only
+ * (refused on an API key) and are not in this list. Whether a live founder
+ * session receives one is `IDENTITY_FOUNDER_SESSION_SCOPES`, and only after MFA.
+ * Procedures that need a second factor call `requireMfa` themselves.
+ * `pay:onboard` is in this list because #4897 put it on the list `requireScope`
+ * used as the 2FA gate.
+ */
+export const SESSION_MFA_SCOPES: readonly Scope[] = ['trade:withdraw', 'admin:treasury', 'bank:card', 'pay:onboard'];
 
 export function assertKeyScopesAllowed(scopes: readonly string[]): void {
   const forbidden = scopes.filter((s) => (INTERACTIVE_ONLY_SCOPES as readonly string[]).includes(s));
   if (forbidden.length > 0) {
-    throw new Error(
-      `Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive, 2FA-backed session (§9)`,
-    );
+    throw new Error(`Scopes ${forbidden.join(', ')} cannot be granted to an API key — they require an interactive session (§9)`);
   }
 }
 
@@ -282,6 +332,90 @@ export type SessionScope = (typeof SESSION_SCOPE_LIST)[number];
 export const SESSION_SCOPES: readonly SessionScope[] = SESSION_SCOPE_LIST;
 
 /**
+ * Operator scopes a live founder session may receive, and only these.
+ *
+ * The lead publishes the subset in `IDENTITY_FOUNDER_SESSION_SCOPES`. Blank
+ * grants nothing. `admin:treasury`, `trade:withdraw`, `bank:card` and every
+ * `pay:` scope are absent on purpose: they move money or spend a card, and a
+ * founder session must not grow them from this list. `academy:read`,
+ * `agents:read`, `bank:read` and `token:read` are already in `SESSION_SCOPES`.
+ *
+ * Granted only to a live founder on an interactive MFA session that is not an
+ * API key and not a sub-account. Re-read the config on every refresh.
+ * `assertDelegatableScopes` refuses every name here, so a founder cannot copy
+ * one onto a key.
+ */
+export const FOUNDER_SESSION_SCOPE_ALLOWLIST = [
+  'admin:read',
+  'admin:write',
+  'admin:compliance',
+  'market:ops',
+  'support:ops',
+] as const satisfies readonly Scope[];
+
+/** Same set. Kept so the key-delegation refusal has one name. */
+export const FOUNDER_DESK_SCOPES = FOUNDER_SESSION_SCOPE_ALLOWLIST;
+
+export const FOUNDER_SCOPE_INVALID = 'identity.founder_scope_invalid' as const;
+
+export class FounderScopeInvalidError extends Error {
+  readonly code = FOUNDER_SCOPE_INVALID;
+  constructor(name: string) {
+    super(`${FOUNDER_SCOPE_INVALID}: ${name || '(blank)'}`);
+    this.name = 'FounderScopeInvalidError';
+  }
+}
+
+/**
+ * Parse the founder-session scope config. Blank or unset grants nothing.
+ * A name outside the allowlist, an unknown scope, a blank segment or a
+ * duplicate refuses. Boot calls this so a bad value never starts the process.
+ */
+export function parseFounderSessionScopes(raw: string | undefined | null): readonly Scope[] {
+  if (raw === undefined || raw === null) return [];
+  const text = raw.trim();
+  if (text === '') return [];
+  const out: Scope[] = [];
+  for (const part of text.split(',')) {
+    const name = part.trim();
+    if (name === '' || !(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(name) || out.includes(name as Scope)) {
+      throw new FounderScopeInvalidError(name);
+    }
+    out.push(name as Scope);
+  }
+  return out;
+}
+
+/** What env stores: the parsed grant and the exact config string that was hashed. */
+export function founderSessionScopesFromEnv(raw: string | undefined | null): {
+  readonly scopes: readonly Scope[];
+  readonly configValue: string;
+} {
+  const configValue = (raw ?? '').trim();
+  return { scopes: parseFounderSessionScopes(configValue), configValue };
+}
+
+export function scopesForFounderSession(
+  base: readonly Scope[],
+  opts: {
+    readonly founder: boolean;
+    readonly mfa: boolean;
+    readonly apiKey?: boolean;
+    readonly subAccount?: boolean;
+    /** Absent or empty grants nothing. Names outside the allowlist are dropped. */
+    readonly configured?: readonly Scope[];
+  },
+): Scope[] {
+  const out = [...base];
+  if (!opts.founder || !opts.mfa || opts.apiKey === true || opts.subAccount === true) return out;
+  for (const scope of opts.configured ?? []) {
+    if (!(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope)) continue;
+    if (!out.includes(scope)) out.push(scope);
+  }
+  return out;
+}
+
+/**
  * Every scope a session does NOT get, and why.
  *
  * The type is the point. `Exclude<Scope, SessionScope>` means adding a scope to
@@ -301,15 +435,15 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // moving through a merchant we onboarded. Granted by merchant onboarding, not
   // by holding an account.
   //
-  // Grant mechanism (D26-P0-08 → D26-P1-P10): ADR
-  // docs/adr/2026-08-12-pay-write-kyb-grant-mechanism-shape.md + refuse-closed
-  // `issueMerchantPayScopes` / `assertMerchantPayScopeGrantAllowed`. DIRECTION
-  // §8 item 4 — never invent the grantor or KYB threshold. Layer B live KYB
-  // money gate is separate (`pay.kyb_required` in svc-pay).
+  // Grant mechanism (D26-P0-08 → P1-P10): `issueMerchantPayScopes`.
+  // Published 2026-10-17: the owner of one KYB-approved merchant receives
+  // pay:read and pay:write for that merchant. These four stay off ordinary
+  // sessions. Layer B (`pay.kyb_required`) is a separate money gate.
   'pay:read': 'Merchant acquiring surface — granted by merchant onboarding',
   'pay:write': 'Merchant acquiring surface — granted by merchant onboarding',
-  'pay:refund': 'Merchant acquiring surface — refunds another party’s payment',
-  'pay:payout': 'Merchant acquiring surface, and interactive-only (§9)',
+  'pay:refund': 'Merchant acquiring surface — refunds another party’s payment; issued only by auth.stepUpPay',
+  'pay:payout': 'Merchant acquiring surface — issued only by auth.stepUpPay step-up, for at most ten minutes',
+  'pay:onboard': 'Opens one root merchant account. Interactive only, so it can never sit on an API key. Not issued on an ordinary session.',
 
   // §18 card issuance. In INTERACTIVE_ONLY_SCOPES: it authorises spend from a
   // funded card, so it needs a 2FA session and must never sit on a long-lived
@@ -338,10 +472,10 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
   // criterion to decide with — a human supplies the decision (§8 "mine alone").
   'market:ops': 'Operator scope — vetting a vendor application is a human decision',
 
-  // Operator scopes. Never on a user session, whatever the account.
-  // `admin:compliance` is the sharp one: it approves KYC records, so a session
-  // carrying it could verify itself to `institutional` and walk into every
-  // custodial module in the OS.
+  // Operator scopes. Not in SESSION_SCOPES. The allowlist in
+  // FOUNDER_SESSION_SCOPE_ALLOWLIST is added only when the lead configures it,
+  // and only onto a live founder's interactive MFA session, by
+  // `scopesForFounderSession`. `admin:treasury` is not on that list.
   'admin:read': 'Operator scope',
   'admin:write': 'Operator scope',
   'admin:treasury': 'Operator scope, and interactive-only (§9)',
@@ -357,14 +491,19 @@ export const WITHHELD_FROM_SESSION: Readonly<Record<Exclude<Scope, SessionScope>
  * could mint a key bearing `admin:compliance`, approve its own KYC record to
  * `institutional`, and unlock every custodial module in the platform.
  *
- * `assertKeyScopesAllowed` did not catch that, and was never meant to — it asks
- * "does this move value off the platform", and self-verification does not.
+ * `assertKeyScopesAllowed` is the interactive-only check: value leaving the
+ * platform, and every founder/operator desk scope. A session that holds
+ * `admin:compliance` still cannot copy it onto a key.
  *
  * Unknown strings are refused rather than skipped. A key requesting `bank:admin`
  * has either a bug or an intent behind it, and storing it silently leaves an
  * audit trail claiming the key holds a scope no guard will ever recognise.
  */
-export function assertDelegatableScopes(requested: readonly string[], grantorScopes: readonly string[]): void {
+export function assertDelegatableScopes(
+  requested: readonly string[],
+  grantorScopes: readonly string[],
+  options?: { readonly payStepUp?: boolean },
+): void {
   const unknown = requested.filter((s) => !isScope(s));
   if (unknown.length > 0) {
     throw new Error(`Unknown scopes: ${unknown.join(', ')}`);
@@ -374,9 +513,20 @@ export function assertDelegatableScopes(requested: readonly string[], grantorSco
   // session that legitimately holds them, and that message is the clearer one.
   assertKeyScopesAllowed(requested);
 
+  // D-145. Owner grants never imply these. A key gets one only when this call
+  // says the creator asked for it under step-up, and the granting token holds it.
+  const stepUp = requested.filter((s) => isPayStepUpScope(s));
+  if (stepUp.length > 0 && options?.payStepUp !== true) {
+    throw new Error(`Scopes ${stepUp.join(', ')} can be granted to an API key only when explicitly requested under step-up`);
+  }
+
   const held = expandScopes(grantorScopes);
   const notHeld = requested.filter((s) => !held.has(s as Scope));
   if (notHeld.length > 0) {
     throw new Error(`Cannot grant scopes the granting session does not hold: ${notHeld.join(', ')}`);
+  }
+  const desk = requested.filter((s) => (FOUNDER_DESK_SCOPES as readonly string[]).includes(s));
+  if (desk.length > 0) {
+    throw new Error(`Founder desk scopes stay on the interactive founder session: ${desk.join(', ')}`);
   }
 }

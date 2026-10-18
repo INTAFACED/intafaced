@@ -10,10 +10,11 @@ import { countMarkets, clockUtc, oldestAsOf, sumTallies } from '@/lib/trade-ops/
 import { loadMarkets, ORDER_READ_LIMIT } from '@/lib/trade-ops/markets-load';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import { readKillSwitchSnapshot } from '@/lib/trade-ops/reads';
+import { readMatchingHealth } from '@/lib/trade-ops/matching-edge';
 
 /**
  * Health: is the book safe to trade right now, in one glance. Six tiles, each read on its own and each with its
- * own state. Venue health and reconcile have no operator route yet, so those tiles show the real blocker.
+ * own state. Venue health is read from svc-matching through svc-edge. Reconcile has no operator route, so that tile shows the real blocker.
  */
 export const dynamic = 'force-dynamic';
 
@@ -28,10 +29,10 @@ export default async function HealthPage() {
   requireModulePage('tradeops');
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const [kill, bundle] = await Promise.all([readKillSwitchSnapshot(), loadMarkets(ctx)]);
+  const [kill, bundle, venue] = await Promise.all([readKillSwitchSnapshot(), loadMarkets(ctx), readMatchingHealth(ctx)]);
   const { markets, orders, views } = bundle;
 
-  const reads: Outcome<unknown>[] = [kill, markets, orders];
+  const reads: Outcome<unknown>[] = [kill, markets, orders, venue];
   const asOf = oldestAsOf(reads.map((r) => (r.kind === 'ok' ? r.asOf : null)));
   const anyRefused = reads.some((r) => r.kind === 'refused');
   const anyUnknown = reads.some((r) => r.kind === 'unknown');
@@ -40,7 +41,6 @@ export default async function HealthPage() {
 
   const counts = markets.kind === 'ok' ? countMarkets(views) : null;
   const orderTally = orders.kind === 'ok' ? sumTallies(orders.data) : null;
-  const venue = BLOCKERS.matching_health_not_routed;
   const recon = BLOCKERS.reconcile_route_missing;
 
   return (
@@ -51,7 +51,7 @@ export default async function HealthPage() {
       state={state}
       stateReason={
         failing.length
-          ? `${failing.length} of 3 reads did not come back: ${failing.map((f) => (f.kind === 'refused' ? f.code : 'no answer')).join(', ')}`
+          ? `${failing.length} of 4 reads did not come back: ${failing.map((f) => (f.kind === 'refused' ? f.code : 'no answer')).join(', ')}`
           : undefined
       }
       actions={<HealthRefresh />}
@@ -89,16 +89,32 @@ export default async function HealthPage() {
             />
           )}
 
-          <HealthTile
-            title="Venue / matching"
-            state="refused"
-            value={null}
-            reason={venue.text}
-            code={`${venue.owner} · ${venue.need}`}
-            lines={['Whether the venue is halted, how many orders rest and how many journal records exist cannot be read yet.']}
-            href="/trade-ops/kill-switch"
-            linkLabel="Open kill switch"
-          />
+          {venue.kind === 'ok' ? (
+            <HealthTile
+              title="Venue / matching"
+              state="live"
+              asOf={venue.data.asOf}
+              value={venue.data.venueHalted ? 'Halted' : 'Running'}
+              lines={[
+                venue.data.venueHalted ? 'Halt-all is on: no market accepts new orders.' : 'Halt-all is off.',
+                `${venue.data.restingOrders} resting orders · ${venue.data.journalRecords} journal records`,
+                `Read through svc-edge in ${venue.data.ageMs} ms.`,
+              ]}
+              href="/trade-ops/kill-switch"
+              linkLabel="Open kill switch"
+            />
+          ) : (
+            <HealthTile
+              title="Venue / matching"
+              state={stateOf(venue)}
+              value={null}
+              reason={why(venue)}
+              code={codeOf(venue)}
+              lines={['Whether the venue is halted, how many orders rest and how many journal records exist could not be read.']}
+              href="/trade-ops/kill-switch"
+              linkLabel="Open kill switch"
+            />
+          )}
 
           {markets.kind === 'ok' && counts ? (
             <HealthTile
@@ -142,9 +158,7 @@ export default async function HealthPage() {
               value={orderTally.open >= ORDER_READ_LIMIT ? `${orderTally.open}+` : String(orderTally.open)}
               lines={[
                 `Seeded ${orderTally.seeded} · Held ${orderTally.held}`,
-                orderTally.held > 0
-                  ? 'Held orders keep funds reserved and their outcome is not yet known.'
-                  : 'No order is held for recovery.',
+                orderTally.held > 0 ? 'Held orders keep funds reserved and their outcome is not known.' : 'No order is held for recovery.',
                 ...(orderTally.open >= ORDER_READ_LIMIT
                   ? [`Only the first ${ORDER_READ_LIMIT} open orders are read; the real count may be higher.`]
                   : []),
@@ -170,7 +184,7 @@ export default async function HealthPage() {
             value={null}
             reason={recon.text}
             code={`${recon.owner} · ${recon.need}`}
-            lines={['The last sweep result and held-order resolution cannot be read yet.']}
+            lines={['The last sweep result and held-order resolution cannot be read.']}
             href="/trade-ops/orders"
             linkLabel="Open orders"
           />
@@ -182,8 +196,8 @@ export default async function HealthPage() {
             value={asOf ? clockUtc(asOf) : null}
             reason={asOf ? undefined : 'No read came back, so there is no time to show.'}
             lines={[
-              'This is the oldest of the reads above (kill switch, markets, open orders).',
-              `Kill switch ${at(kill)} · Markets ${at(markets)} · Orders ${at(orders)}`,
+              'This is the oldest of the reads above (kill switch, markets, open orders, venue).',
+              `Kill switch ${at(kill)} · Markets ${at(markets)} · Orders ${at(orders)} · Venue ${at(venue)}`,
             ]}
             href="/trade-ops"
             linkLabel="Reload this page"

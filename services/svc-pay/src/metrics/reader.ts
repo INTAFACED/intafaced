@@ -29,7 +29,7 @@ export interface MetricsReaderDeps {
   sql: Sql;
   balances: BalanceReader;
   /** Open fraud-review count, optionally for one merchant. The queue is a port; see runtime.ts. */
-  openFraudReviews: (merchantId?: string) => number;
+  openFraudReviews: (merchantId?: string) => number | Promise<number>;
   railHealth: () => RailHealthRow[];
   now?: () => Date;
 }
@@ -221,7 +221,7 @@ export class MetricsReader {
       activeMerchants: Number(read.active?.n ?? 0),
       // Captured and not yet settled (net of refunds), as of now - not windowed.
       pendingSettlement: read.pending.map((a) => asAmount(a.asset_code, amt(a.amount))),
-      openFraudReviews: this.deps.openFraudReviews(),
+      openFraudReviews: await this.deps.openFraudReviews(),
       pendingKyb: kyb.get('pending') ?? 0,
       onboardingFunnel: [
         ...MERCHANT_STATUSES.map((s) => ({ step: `status.${s}`, count: status.get(s) ?? 0 })),
@@ -263,20 +263,22 @@ export class MetricsReader {
         : [];
       return { merchants, page, totals, freshness: await this.freshness(tx) };
     });
-    const rows = read.page.map((m) => {
-      const mine = read.totals.filter((t) => t.merchant_id === m.id);
-      return {
-        merchantId: m.id,
-        displayName: m.display_name,
-        status: m.status,
-        // Tiers belong to the control room (W1); until it lands there is no tier to report.
-        tierId: null,
-        kybStatus: m.kyb_status,
-        volume: mine.filter((t) => amt(t.volume) > 0n).map((t) => asAmount(t.asset_code, amt(t.volume))),
-        revenue: mine.filter((t) => amt(t.revenue) > 0n).map((t) => asAmount(t.asset_code, amt(t.revenue))),
-        openFlags: this.deps.openFraudReviews(m.id),
-      };
-    });
+    const rows = await Promise.all(
+      read.page.map(async (m) => {
+        const mine = read.totals.filter((t) => t.merchant_id === m.id);
+        return {
+          merchantId: m.id,
+          displayName: m.display_name,
+          status: m.status,
+          // Tiers belong to the control room (W1); until it lands there is no tier to report.
+          tierId: null,
+          kybStatus: m.kyb_status,
+          volume: mine.filter((t) => amt(t.volume) > 0n).map((t) => asAmount(t.asset_code, amt(t.volume))),
+          revenue: mine.filter((t) => amt(t.revenue) > 0n).map((t) => asAmount(t.asset_code, amt(t.revenue))),
+          openFlags: await this.deps.openFraudReviews(m.id),
+        };
+      }),
+    );
     const last = read.page[read.page.length - 1];
     return {
       freshness: read.freshness,

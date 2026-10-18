@@ -14,6 +14,7 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
+import { MemoryStaffBook, type StaffBook, type StaffMember, type StaffRole } from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
 import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
@@ -30,6 +31,13 @@ import {
 } from './operator-queue.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import { MemorySupportStore, type AttachmentMeta, type KbFeedbackVote, type SupportStore, type TicketRating } from './store.js';
+import {
+  DarkTicketOrderSource,
+  SUPPORT_ORDER_USER_MISMATCH,
+  supportOrderSnapshotSchema,
+  type TicketOrderRead,
+  type TicketOrderSource,
+} from './ticket-order.js';
 import { withSupportSpan } from './tracing.js';
 
 export class SupportError extends Error {
@@ -174,7 +182,33 @@ export class SupportService implements SupportContract {
     private readonly accounts: AccountStateSource = new DarkAccountState(),
     /** Production leaves this blank. Attach then refuses with the missing key. */
     private readonly attachments: AttachmentDesk = UNCONFIGURED_ATTACHMENTS,
+    private readonly staff: StaffBook = new MemoryStaffBook(),
+    /**
+     * Where one order is READ from. Defaults dark, so a desk booted without
+     * svc-trade says the read is unknown rather than cancelled.
+     */
+    private readonly orders: TicketOrderSource = new DarkTicketOrderSource(),
   ) {}
+
+  private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
+    let phase: 'new' | 'replay';
+    try {
+      phase = await this.staff.begin(key, fingerprint);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+        throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+      }
+      throw err;
+    }
+    if (phase === 'replay') {
+      const prior = await this.staff.read<T>(key);
+      if (!prior) throw new SupportError('that command is still in progress', 'support.idempotency_conflict');
+      return prior;
+    }
+    const value = await run();
+    await this.staff.save(key, value);
+    return value;
+  }
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
@@ -375,6 +409,52 @@ export class SupportService implements SupportContract {
       });
 
       return grounding;
+    });
+  }
+
+  /**
+   * READ ONE ORDER FOR THIS TICKET.
+   *
+   * The user id comes off the ticket. An order owned by someone else is
+   * refused and its fields are not returned. Trade silence and a matcher
+   * that is down are `unknown` with `cancelled: false`. This method only
+   * calls `orders.read`. It has no ledger client and no cancel, amend, or
+   * delete.
+   */
+  async readTicketOrder(input: { operatorId: string; ticketId: string; orderId: string }): Promise<TicketOrderRead> {
+    return withSupportSpan('support.readTicketOrder', { op: 'readTicketOrder' }, async (span) => {
+      void input.operatorId;
+      const ticket = await this.store.findById(input.ticketId);
+      if (!ticket) throw ticketNotFound();
+
+      span.setAttribute('intafaced.support.ticket_id', ticket.id);
+      const result = await this.orders.read(input.orderId);
+      if (result.kind === 'unknown') {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: result.reason, cancelled: false };
+      }
+
+      const parsed = supportOrderSnapshotSchema.safeParse(result.order);
+      if (!parsed.success || parsed.data.orderId !== input.orderId) {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: 'trade_silent', cancelled: false };
+      }
+      if (parsed.data.userId !== ticket.userId) {
+        span.setAttribute('intafaced.support.order_read', 'user_mismatch');
+        throw new SupportError('order user is not the ticket user', SUPPORT_ORDER_USER_MISMATCH);
+      }
+
+      span.setAttribute('intafaced.support.order_read', parsed.data.status);
+      return {
+        outcome: 'read',
+        orderId: parsed.data.orderId,
+        status: parsed.data.status,
+        symbol: parsed.data.symbol,
+        side: parsed.data.side,
+        filledQuantity: parsed.data.filledQuantity,
+        feeAsset: parsed.data.feeAsset,
+        feeAmount: parsed.data.feeAmount,
+      };
     });
   }
 
@@ -600,6 +680,52 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /** Whole-queue counts. Zero means the desk has that many rows, not a missing read. */
+  async queueMetrics(): Promise<{
+    asOf: string;
+    total: number;
+    open: number;
+    pending: number;
+    resolved: number;
+    closed: number;
+    unassigned: number;
+    claimed: number;
+  }> {
+    const tickets = await this.store.listAll();
+    const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
+    for (const ticket of tickets) {
+      counts[ticket.status] += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId === null) counts.unassigned += 1;
+      if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId !== null) counts.claimed += 1;
+    }
+    return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
+  }
+
+  async listStaff(): Promise<StaffMember[]> {
+    return this.staff.list();
+  }
+
+  async appointStaff(input: { actorId: string; userId: string; role: StaffRole; idempotencyKey: string }): Promise<StaffMember> {
+    return this.withIdempotency(`appoint:${input.idempotencyKey}`, `${input.actorId}:${input.userId}:${input.role}`, async () => {
+      const existing = await this.staff.list();
+      const actor = await this.staff.get(input.actorId);
+      if (existing.length === 0) {
+        if (input.role !== 'lead') throw new SupportError('the first staff appointment must be a lead', 'support.staff_bootstrap');
+      } else if (actor?.role !== 'lead') {
+        throw new SupportError('only a lead can appoint staff', 'support.not_lead');
+      }
+      return this.staff.appoint({ userId: input.userId, role: input.role, by: input.actorId, at: new Date().toISOString() });
+    });
+  }
+
+  async unclaim(input: { operatorId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`unclaim:${input.idempotencyKey}`, `${input.operatorId}:${input.ticketId}`, async () => {
+      const result = await this.store.releaseTicket({ ticketId: input.ticketId, operatorId: input.operatorId });
+      if (result.status === 'refuse') throw new SupportError(`unclaim refused: ${result.reason}`, `support.release.${result.reason}`);
+      return result.ticket;
+    });
+  }
+
   /**
    * Owner close. The lifecycle table decides whether `closed` is legal from
    * the current status. A replay returns the first ticket and writes no
@@ -617,6 +743,23 @@ export class SupportService implements SupportContract {
           `support.transition_${result.reason === 'same_status' ? 'same_status' : 'illegal'}`,
         );
       }
+      return result.ticket;
+    });
+  }
+
+  /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
+  async assignTo(input: { operatorId: string; assigneeId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
+    return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
+      const actor = await this.staff.get(input.operatorId);
+      if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      const target = await this.staff.get(input.assigneeId);
+      if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
+      const result = await this.store.assignTicket({
+        ticketId: input.ticketId,
+        operatorId: input.operatorId,
+        assigneeId: input.assigneeId,
+      });
+      if (result.status === 'refuse') throw new SupportError(`assign refused: ${result.reason}`, `support.assign.${result.reason}`);
       return result.ticket;
     });
   }

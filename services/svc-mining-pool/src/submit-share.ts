@@ -1,6 +1,9 @@
 import type { Sql } from 'postgres';
 import { ServiceAuthError, verifyServiceHeaders } from '@intafaced/contracts';
+import { MiningError } from './errors.js';
+import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
+import { recordShareRejection } from './share-rejections.js';
 import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, PG_UNAVAILABLE } from './window-store.js';
 
 export const MINING_UNAUTHENTICATED = 'mining.unauthenticated' as const;
@@ -59,6 +62,8 @@ export async function handleSubmitSharePost(input: {
   readonly rawBody: Buffer;
   readonly secret: string | undefined;
   readonly sql: Sql | null;
+  /** Test adapter only. Production leaves this unset. */
+  readonly jobSource?: JobSource | null;
 }): Promise<{ readonly status: number; readonly body: unknown }> {
   const auth = authorizeSubmitShare(input.headers, input.secret, input.rawBody);
   if (!auth.ok) return { status: auth.status, body: auth.body };
@@ -71,44 +76,110 @@ export async function handleSubmitSharePost(input: {
       throw new Error('mining.share_malformed');
     }
     const body = objectBody(parsed);
-    if (body.reward === undefined || body.reward === null || (typeof body.reward === 'string' && !body.reward.trim())) {
-      const windowId = requiredId(body.windowId, 'window_unconfigured');
-      const assetId = requiredId(body.assetId, 'window_unconfigured');
-      const epoch = parseEpoch(body.epoch) ?? null;
-      if (body.feeBps !== undefined && body.feeBps !== null) throw new Error('fee_unconfigured');
-      if (!Array.isArray(body.shares) || body.shares.length === 0) throw new Error('shares_empty');
-      const shares = body.shares.map((item) => {
-        const share = objectBody(item);
-        return {
-          shareId: requiredId(share.shareId, 'mining.share_malformed'),
-          minerId: requiredId(share.minerId, 'mining.share_malformed'),
-          weight: share.weight === undefined || share.weight === null ? null : parseWeight(share.weight),
-        };
-      });
-      await persistBlankRewardShares(input.sql, { windowId, assetId, epoch, shares });
-      return {
-        status: 200,
-        body: {
-          accepted: true,
-          settled: false,
-          epoch: await readStoredEpoch(input.sql, windowId),
-          amount: null,
-          shares: shares.map(({ shareId, minerId }) => ({ shareId, minerId })),
-        },
-      };
+    if (Array.isArray(body.shares) && body.shares.some((item) => isRecord(item) && Object.prototype.hasOwnProperty.call(item, 'jobId'))) {
+      return await persistJobChecked(input.sql, body, input.jobSource ?? null);
     }
-    const pplns = parsePplnsBody(parsed);
-    if (pplns.shares.length === 0) throw new Error('shares_empty');
-    await submitShare(input.sql, pplns);
-    const epoch = await readStoredEpoch(input.sql, pplns.windowId);
-    return {
-      status: 200,
-      body: { accepted: true, settled: false, epoch },
-    };
+    return await persistSubmittedBody(input.sql, body);
   } catch (error) {
+    if (error instanceof MiningError) return { status: 409, body: { accepted: false, error: error.code } };
     const code = error instanceof Error ? error.message : 'mining.submitShare_failed';
     return { status: 409, body: { accepted: false, error: code } };
   }
+}
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return !!raw && typeof raw === 'object' && !Array.isArray(raw);
+}
+
+type JobRefusal = { idempotencyKey: string; minerId: string; reasonCode: 'mining.job_source_unconfigured' | 'job_not_found' };
+
+/**
+ * Shares that name a job are accepted only when the job source knows the id.
+ * A refusal with an identified miner is one rejection row, written after HMAC.
+ * Accepted shares then follow the same persist path as a batch that never named a job.
+ * Neither branch posts a ledger credit.
+ */
+async function persistJobChecked(
+  sql: Sql,
+  body: Record<string, unknown>,
+  source: JobSource | null,
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  const windowId = requiredId(body.windowId, 'window_unconfigured');
+  const shares = body.shares;
+  if (!Array.isArray(shares) || shares.length === 0) throw new Error('shares_empty');
+  const accepted: Record<string, unknown>[] = [];
+  const refused: JobRefusal[] = [];
+  for (const item of shares) {
+    const share = objectBody(item);
+    if (!Object.prototype.hasOwnProperty.call(share, 'jobId')) {
+      accepted.push(share);
+      continue;
+    }
+    const minerId = requiredId(share.minerId, 'mining.share_malformed');
+    const jobId = typeof share.jobId === 'string' ? share.jobId : '';
+    const decision = resolveJob(source, jobId);
+    if (decision.ok) {
+      const { jobId: _jobId, idempotencyKey: _key, ...rest } = share;
+      void _jobId;
+      void _key;
+      accepted.push(rest);
+      continue;
+    }
+    const idempotencyKey = share.idempotencyKey;
+    if (
+      typeof idempotencyKey !== 'string' ||
+      idempotencyKey.trim().length < 8 ||
+      idempotencyKey.length > 200 ||
+      idempotencyKey !== idempotencyKey.trim()
+    ) {
+      throw new Error('mining.idempotency_key_unset');
+    }
+    refused.push({ idempotencyKey, minerId, reasonCode: decision.reason });
+  }
+  let persisted: { readonly status: number; readonly body: unknown } | null = null;
+  if (accepted.length > 0) {
+    persisted = await persistSubmittedBody(sql, { ...body, shares: accepted });
+  }
+  for (const refusal of refused) {
+    await recordShareRejection(sql, { ...refusal, windowId });
+  }
+  if (!persisted) return { status: 200, body: { accepted: false, settled: false, rejected: refused.length } };
+  if (refused.length === 0) return persisted;
+  return { status: persisted.status, body: { ...(isRecord(persisted.body) ? persisted.body : {}), rejected: refused.length } };
+}
+
+async function persistSubmittedBody(sql: Sql, body: Record<string, unknown>): Promise<{ readonly status: number; readonly body: unknown }> {
+  if (body.reward === undefined || body.reward === null || (typeof body.reward === 'string' && !body.reward.trim())) {
+    const windowId = requiredId(body.windowId, 'window_unconfigured');
+    const assetId = requiredId(body.assetId, 'window_unconfigured');
+    const epoch = parseEpoch(body.epoch) ?? null;
+    if (body.feeBps !== undefined && body.feeBps !== null) throw new Error('fee_unconfigured');
+    if (!Array.isArray(body.shares) || body.shares.length === 0) throw new Error('shares_empty');
+    const shares = body.shares.map((item) => {
+      const share = objectBody(item);
+      return {
+        shareId: requiredId(share.shareId, 'mining.share_malformed'),
+        minerId: requiredId(share.minerId, 'mining.share_malformed'),
+        weight: share.weight === undefined || share.weight === null ? null : parseWeight(share.weight),
+      };
+    });
+    await persistBlankRewardShares(sql, { windowId, assetId, epoch, shares });
+    return {
+      status: 200,
+      body: {
+        accepted: true,
+        settled: false,
+        epoch: await readStoredEpoch(sql, windowId),
+        amount: null,
+        shares: shares.map(({ shareId, minerId }) => ({ shareId, minerId })),
+      },
+    };
+  }
+  const pplns = parsePplnsBody(body);
+  if (pplns.shares.length === 0) throw new Error('shares_empty');
+  await submitShare(sql, pplns);
+  const epoch = await readStoredEpoch(sql, pplns.windowId);
+  return { status: 200, body: { accepted: true, settled: false, epoch } };
 }
 
 function objectBody(raw: unknown): Record<string, unknown> {

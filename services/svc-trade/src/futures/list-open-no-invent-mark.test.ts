@@ -1,12 +1,5 @@
 /**
- * Unit card — listOpen never invents a mark
- * 1. Promise: GET /positions list is residual margin + entry, mark stays null unless close extras
- * 2. Break: listOpen calls marks.markPrice or presentPosition(row, { markPrice: '0' })
- * 3. Done bar: source maps presentPosition(row) only; no markPrice( in listOpen
- * 4. Class N
- * 5. Paths: svc-trade/src/futures/position-service.ts
- * 6. RED: listOpen body contains markPrice(
- * 7. Collision: none — #1868 is capabilities profit-source
+ * listOpen reads the mark gate. It does not invent a price, including 0.
  */
 
 import { readFileSync } from 'node:fs';
@@ -18,10 +11,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
 
 describe('listOpen does not invent marks', () => {
-  it('listOpen presents rows with no extras — markPrice stays null on the list door', () => {
-    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async open('));
-    expect(listOpen).toMatch(/presentPosition\(row\)/);
+  it('reads tryMarkForMarking and never writes a zero mark', () => {
+    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
+    const listed = src.slice(src.indexOf('private async presentListed'), src.indexOf('private async maintenanceAt'));
+    expect(listOpen).toMatch(/this\.presentListed\(row\)/);
     expect(listOpen).not.toMatch(/markPrice\s*\(/);
-    expect(listOpen).not.toMatch(/presentPosition\(row,/);
+    expect(listed).toMatch(/tryMarkForMarking\(/);
+    expect(listed).not.toMatch(/markPrice:\s*['"]0['"]/);
+    expect(listed).not.toMatch(/formatAmount\(0n\)/);
   });
 });

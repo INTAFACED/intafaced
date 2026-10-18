@@ -59,8 +59,9 @@ import {
   type Pending,
 } from './pending';
 import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
-import { CONFLICT_CODE, resendOrder } from './resend';
+import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
+import { scaleLockStays } from './ticket/scale-flow';
 import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
@@ -156,7 +157,7 @@ function SideForm({
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  // The id of the resting order that "Your order is in" is about; and whether the open list has shown it yet.
+  // The id of the resting order that "Your order is in" is about; and whether the open list has shown it.
   const [restingId, setRestingId] = useState<string | null>(null);
   const restingSeen = useRef(false);
   const openOrders = useOpenOrders();
@@ -193,7 +194,7 @@ function SideForm({
     return () => clearTimeout(timer);
   }, [status]);
 
-  // ...and it goes as soon as that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
+  // ...and it goes the moment that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
   useEffect(() => {
     if (restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')) return;
     const open = openOrders.status === 'ready' ? openOrders.data : [];
@@ -567,7 +568,7 @@ function SideForm({
                 : type === 'limit' && tif === 'GTC'
                   ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                   : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-              : t('Fee not yet')}
+              : t('Fee unknown')}
         </span>
         {listed ? (
           <span className="dk-fees-listed" title={t('Fee listed title')}>
@@ -843,10 +844,10 @@ export const OrderPanel = memo(function OrderPanel({
       setSettled(t('Resent ok', { status: t(`Order status ${result.order.status}` as 'Order status open') }));
       refresh();
       onPlaced();
-    } else if (result.reason === 'unsure') {
+    } else if (scaleLockStays(resendOutcome(result))) {
       setResendNote(t('Resent unsure'));
       requestCheck();
-    } else if (result.code === CONFLICT_CODE) {
+    } else if (result.reason === 'refused' && result.code === CONFLICT_CODE) {
       setResendNote(t('Resent unsure'));
     } else {
       // The service said no, so nothing was placed. The marker can go.

@@ -1,9 +1,39 @@
+import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
 import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
-import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
+import { EmptyState } from './ui-kit';
+import type { MoneyKind } from './portal/access/money-step';
+import { payStepUp } from './portal/access/step-up-store';
+import { StepUpNote } from './portal/access/step-up';
+import { stepUpRequired, stepUpWords } from './portal/access/step-up-words';
+
+function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+  const { t, languageFor, requestedLocale } = uiCopy.useCopy();
+  return (
+    <div role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+      <StateBlock
+        kind="refused"
+        title={t(result.reason)}
+        body={
+          <span lang={result.messageCopy ? languageFor(result.messageCopy.key) : undefined}>
+            {result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message}
+          </span>
+        }
+        action={
+          result.reason === 'unauthorized'
+            ? { label: t('signIn'), href: `/login?redirect=${encodeURIComponent(location.pathname + location.search)}` }
+            : retry && result.reason !== 'uncertain'
+              ? { label: t('retry'), onClick: retry }
+              : undefined
+        }
+      />
+    </div>
+  );
+}
 
 export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { requestedLocale } = payCopy.useCopy();
@@ -37,7 +67,7 @@ export function PayState<T>({
   empty?: string;
   children: (data: T) => ReactNode;
 }) {
-  if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'loading') return <StateBlock kind="loading" label={uiCopy.t('loading')} />;
   if (resource.status === 'failed') return <PayFailure result={resource.failure} retry={retry} />;
   if (Array.isArray(resource.data) && !resource.data.length && empty)
     return (
@@ -183,7 +213,7 @@ export function PayAmount({ value, unit, label }: { value: string; unit: string;
               event.preventDefault();
             }}
           >
-            {displayed}
+            <Amount value={displayed} sensitive={false} />
           </span>
         </span>{' '}
         <span className="pay-amount-unit" lang="zxx">
@@ -200,16 +230,35 @@ export function PayAmount({ value, unit, label }: { value: string; unit: string;
 }
 export function Status({ value }: { value: string }) {
   return (
-    <span className="pay-status" lang="zxx">
-      {value.replaceAll('_', ' ')}
-    </span>
+    <StatusTag
+      status={
+        ['failed', 'rejected', 'cancelled'].includes(value)
+          ? 'failed'
+          : ['captured', 'settled', 'active', 'approved'].includes(value)
+            ? 'filled'
+            : ['pending', 'open'].includes(value)
+              ? 'pending'
+              : 'working'
+      }
+      label={value.replaceAll('_', ' ')}
+      lang="zxx"
+    />
   );
 }
-export function MutationResult({ result }: { result: ApiResult<unknown> | null }) {
+/** `refreshed`: the page already shows the new state itself, so it does not tell the person to refresh. */
+export function MutationResult({
+  result,
+  title,
+  refreshed = false,
+}: {
+  result: ApiResult<unknown> | null;
+  title: string;
+  refreshed?: boolean;
+}) {
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">
-      <PayCopy k="theServiceConfirmedTheActionRefreshThe" />
+      <PayCopy k={refreshed ? 'theServiceConfirmedTheAction' : 'theServiceConfirmedTheActionRefreshThe'} params={{ title }} />
     </p>
   ) : (
     <PayFailure result={result} />
@@ -224,6 +273,7 @@ export function ReviewedAction<T>({
   disabled = false,
   disabledReason,
   variant = 'secondary',
+  stepUp,
 }: {
   title: string;
   description: string;
@@ -232,12 +282,19 @@ export function ReviewedAction<T>({
   onConfirmed?: (data: T) => void;
   disabled?: boolean;
   disabledReason?: string;
-  variant?: 'primary' | 'secondary' | 'danger';
+  variant?: 'primary' | 'secondary' | 'sell';
+  /**
+   * Money leaving the account. Opening the action first asks "Confirm it's you" (a passkey or an authenticator code);
+   * the review opens once that is done. If the confirmation runs out before the send, the person confirms again and the
+   * same `perform` runs once more, so the same request id goes out. See `portal/access/step-up-store.ts`.
+   */
+  stepUp?: MoneyKind;
 }) {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<T> | null>(null);
   const inFlight = useRef(false);
+  const asking = useRef(false);
   const lifetime = useRef({ mounted: true, opened, disabled, review: 0 });
   const reviewId = lifetime.current.review;
   useLayoutEffect(() => {
@@ -256,13 +313,18 @@ export function ReviewedAction<T>({
     inFlight.current = true;
     setBusy(true);
     try {
-      const outcome = await perform(currentReview);
+      const outcome = stepUp ? await payStepUp.run(stepUp, () => perform(currentReview), stepUpWords) : await perform(currentReview);
       if (!currentReview()) return;
       setResult(outcome);
       if (outcome.ok) {
         lifetime.current.opened = false;
         lifetime.current.review += 1;
         onConfirmed?.(outcome.data);
+        setOpened(false);
+      } else if (outcome.reason === 'uncertain') {
+        // The answer is unknown: close the review so the recovery message and its check button are not covered.
+        lifetime.current.opened = false;
+        lifetime.current.review += 1;
         setOpened(false);
       }
     } finally {
@@ -276,17 +338,35 @@ export function ReviewedAction<T>({
         variant={variant}
         disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
         onClick={() => {
-          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current) return;
-          lifetime.current.review += 1;
-          setResult(null);
-          setOpened(true);
+          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
+          if (!stepUp) {
+            lifetime.current.review += 1;
+            setResult(null);
+            setOpened(true);
+            return;
+          }
+          // Money out: confirm it's them first, then show the review.
+          asking.current = true;
+          void payStepUp.ensure(stepUp).then((confirmed) => {
+            asking.current = false;
+            if (!lifetime.current.mounted || lifetime.current.disabled) return;
+            if (!confirmed) {
+              // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
+              setResult(payStepUp.canAsk ? null : stepUpRequired());
+              return;
+            }
+            lifetime.current.review += 1;
+            setResult(null);
+            setOpened(true);
+          });
         }}
       >
         {title}
       </Button>
-      <MutationResult result={result} />
+      <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
         <Dialog
+          closeLabel={uiCopy.t('closeDialog')}
           title={payCopy.t('review', { title: title })}
           onClose={() => {
             if (!inFlight.current) {
@@ -299,13 +379,14 @@ export function ReviewedAction<T>({
           <div className="form-stack">
             <p className="muted">{description}</p>
             {review}
-            <MutationResult result={result} />
+            {stepUp && <StepUpNote kind={stepUp} />}
+            <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
             <Button
               variant={variant}
               disabled={busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
               onClick={() => void confirm()}
             >
-              {busy ? payCopy.t('waitingForConfirmation') : payCopy.t('confirm', { value1: title.toLowerCase() })}
+              {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>
           </div>
         </Dialog>

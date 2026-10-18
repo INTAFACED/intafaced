@@ -24,6 +24,12 @@ export function toUserBinding(i: {
   toUserId: string;
   assetId: string;
   amount: string;
+  /** Trimmed note. Omitted from the hash when there is no note, so older approvals still match. */
+  note?: string;
+  /** Payment reference. Omitted from the hash when absent, same rule as the note. */
+  reference?: string;
+  /** Set when this send settles a payment request. Omitted otherwise. */
+  requestId?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.toUser',
@@ -35,6 +41,9 @@ export function toUserBinding(i: {
       toUserId: i.toUserId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
+      ...(i.requestId ? { requestId: i.requestId } : {}),
     },
   };
 }
@@ -46,6 +55,8 @@ export function createTransferBinding(i: {
   toSpaceId: string;
   assetId: string;
   amount: string;
+  note?: string;
+  reference?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.transfers.create',
@@ -57,6 +68,8 @@ export function createTransferBinding(i: {
       toSpaceId: i.toSpaceId,
       assetId: i.assetId,
       amount: i.amount,
+      ...(i.note ? { note: i.note } : {}),
+      ...(i.reference ? { reference: i.reference } : {}),
     },
   };
 }
@@ -216,6 +229,8 @@ export function issueCardBinding(i: {
   settlementAssetId: string | undefined;
   cashbackBps: number | undefined;
   perAuthorizationLimit: string;
+  cardType?: string;
+  shippingAddress?: string;
 }): DoorBinding {
   return {
     actionType: 'bank.step_up.cards.issue',
@@ -227,6 +242,61 @@ export function issueCardBinding(i: {
       settlementAssetId: i.settlementAssetId ?? '',
       cashbackBps: i.cashbackBps === undefined ? '' : String(i.cashbackBps),
       perAuthorizationLimit: i.perAuthorizationLimit,
+      cardType: i.cardType ?? 'virtual',
+      shippingAddress: i.shippingAddress ?? '',
     },
+  };
+}
+
+/**
+ * Loosening a spending ceiling. The PIN is deliberately absent: a 4-digit secret
+ * must not be recoverable from the stored payload hash.
+ */
+export function setCardLimitsBinding(i: {
+  actor: string;
+  cardId: string;
+  commandId: string;
+  perAuthorizationLimit: string;
+  dailyLimit: string;
+  monthlyLimit: string;
+  cashLimit: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.setLimits',
+    operationKey: i.commandId,
+    fields: {
+      actor: i.actor,
+      cardId: i.cardId,
+      commandId: i.commandId,
+      perAuthorizationLimit: i.perAuthorizationLimit,
+      dailyLimit: i.dailyLimit,
+      monthlyLimit: i.monthlyLimit,
+      cashLimit: i.cashLimit,
+    },
+  };
+}
+
+export function revealCardBinding(i: { actor: string; cardId: string; revealId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.reveal',
+    operationKey: i.revealId,
+    fields: { actor: i.actor, cardId: i.cardId, revealId: i.revealId },
+  };
+}
+
+export function revealCardPinBinding(i: { actor: string; cardId: string; revealId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.pinReveal',
+    operationKey: i.revealId,
+    fields: { actor: i.actor, cardId: i.cardId, revealId: i.revealId },
+  };
+}
+
+/** Binds the attempt, not the PIN. See `setCardLimitsBinding`. */
+export function setCardPinBinding(i: { actor: string; cardId: string; commandId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.pinSet',
+    operationKey: i.commandId,
+    fields: { actor: i.actor, cardId: i.cardId, commandId: i.commandId },
   };
 }

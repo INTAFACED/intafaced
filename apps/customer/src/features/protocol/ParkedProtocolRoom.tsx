@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../app/location';
 import { useApi } from '../session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -8,6 +8,8 @@ import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, St
 import { createProtocolApi, type DexQuote } from './api';
 import {
   blockersFor,
+  chainReasonWords,
+  isServiceNotConnected,
   networkLabel,
   SUBNAV,
   tabFromSubPath,
@@ -35,33 +37,117 @@ function toSource<T>(value: Resource<T>): Source<T> {
     ? { status: 'loading' }
     : resource.status === 'ready'
       ? { status: 'ok', data: resource.data }
-      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message };
+      : { status: 'down', reason: resource.failure.reason, message: resource.failure.message, code: resource.failure.code };
 }
 
-/** Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails. */
-function Answer<T>({ value, source, t, children }: { value: Resource<T>; source: string; t: Translate; children: (data: T) => ReactNode }) {
+/** The gateway's answer when the service did not reply: a crash, a restart or a service that is not running. */
+const NO_ANSWER_CODE = 'edge.upstream_unavailable';
+/**
+ * The retry window: the room asks again on its own, and a person may ask again too. After this many no-answer replies in a
+ * row, a second attempt is no longer worth offering, so the room says the service is not running here and hides Try again.
+ */
+export const NO_ANSWER_ATTEMPTS = 3;
+export const NO_ANSWER_RETRY_MS = 4000;
+
+/** The service did not reply. Inside the retry window it offers Try again; once the window has closed it says the service is not running here. */
+export function NoAnswerNote({ service, closed, reload, t }: { service: string; closed: boolean; reload: () => void; t: Translate }) {
+  return closed ? (
+    <div className="failure" role="status">
+      <h3>{t('serviceNotRunning', { service })}</h3>
+      <p>{t('serviceNotRunningBody')}</p>
+    </div>
+  ) : (
+    <div className="failure" role="status">
+      <h3>{t('serviceNoAnswer', { service })}</h3>
+      <p>{t('serviceNoAnswerBody')}</p>
+      <Button variant="secondary" onClick={reload}>
+        {t('tryAgain')}
+      </Button>
+    </div>
+  );
+}
+
+/** True once the retry window has run out of attempts. Any other answer starts the count again. */
+function useNoAnswerWindow<T>({ resource, reload }: Resource<T>): boolean {
+  const [failures, setFailures] = useState(0);
+  const latest = useRef(reload);
+  latest.current = reload;
+  const noAnswer = resource.status === 'failed' && resource.failure.code === NO_ANSWER_CODE;
+  const counted = useRef<unknown>(null);
+  useEffect(() => {
+    if (resource.status === 'loading' || counted.current === resource) return;
+    counted.current = resource;
+    setFailures((count) => (noAnswer ? count + 1 : 0));
+  }, [resource, noAnswer]);
+  useEffect(() => {
+    if (!noAnswer || failures === 0 || failures >= NO_ANSWER_ATTEMPTS) return;
+    const timer = setTimeout(() => latest.current(), NO_ANSWER_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [noAnswer, failures]);
+  return failures >= NO_ANSWER_ATTEMPTS;
+}
+
+/**
+ * Render one service answer: spinner while it is in flight (the API client times out at 15s), a typed refuse when it fails.
+ * With a `shell`, a failed answer keeps the table's column headers and says why the table is empty.
+ * The gateway's "not connected" answer (edge.upstream_unwired) hides Try again, because a second attempt cannot change it.
+ * A plain 502 (edge.upstream_unavailable) only says the service did not answer, which may be a crash or a restart, so it
+ * is worded that way and keeps Try again; it is never dressed up as "not connected". If the retry window passes with no reply
+ * (see NO_ANSWER_ATTEMPTS), the room says the service is not running here and Try again goes.
+ */
+export function Answer<T>({
+  value,
+  source,
+  t,
+  children,
+  shell,
+  service,
+}: {
+  value: Resource<T>;
+  source: string;
+  /** The service behind this answer, named in the "not connected" sentence. Defaults to Protocol. */
+  service?: string;
+  t: Translate;
+  children: (data: T) => ReactNode;
+  shell?: { label: string; headers: readonly ReactNode[] };
+}) {
   const { resource, reload } = value;
+  const windowClosed = useNoAnswerWindow(value);
   if (resource.status === 'loading') return <Loading label={t('checking', { source })} />;
-  if (resource.status === 'failed')
+  if (resource.status === 'failed') {
+    const notConnected = isServiceNotConnected(resource.failure.code);
+    const words = t('serviceNotConnected', { service: service ?? t('svc_protocol') });
+    const noAnswer = !notConnected && resource.failure.code === NO_ANSWER_CODE;
+    const reason = notConnected ? (
+      <div className="failure" role="status">
+        <p>{words}</p>
+      </div>
+    ) : noAnswer ? (
+      <NoAnswerNote service={service ?? t('svc_protocol')} closed={windowClosed} reload={reload} t={t} />
+    ) : (
+      <Failure result={resource.failure} retry={reload} />
+    );
+    if (shell)
+      return (
+        <div className="protocol-refuse" data-source={source}>
+          <DataTable label={shell.label} headers={shell.headers}>
+            <tr>
+              <td colSpan={shell.headers.length}>{notConnected ? <EmptyState title={words} /> : reason}</td>
+            </tr>
+          </DataTable>
+        </div>
+      );
     return (
       <div className="protocol-refuse" data-source={source}>
         <p className="protocol-refuse__title">{t('unreachableTitle', { source })}</p>
-        {resource.failure.status === 502 || resource.failure.status === 503 || resource.failure.status === 504 ? (
-          // 502/503/504 through the gateway means the Protocol service itself is down, not a generic network fault.
-          <div className="failure" role="status">
-            <p>{t('serviceNotRunning')}</p>
-            <Button variant="secondary" onClick={reload}>
-              {t('retry')}
-            </Button>
-          </div>
-        ) : (
-          <Failure result={resource.failure} retry={reload} />
-        )}
+        {reason}
       </div>
     );
+  }
   return <>{children(resource.data)}</>;
 }
 
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
@@ -76,9 +162,11 @@ function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[];
           const found = blockersFor(action, snapshot);
           const first = found[0] as Blocker;
           const reason = t(first.key, first.params);
+          // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
+          const standalone = capital(reason);
           return (
             <li key={action} data-action={action}>
-              <Button variant="secondary" disabled aria-disabled="true" title={reason}>
+              <Button variant="secondary" disabled aria-disabled="true" title={standalone}>
                 {t(`act_${action}`)}
               </Button>
               <p className="protocol-actions__reason" role="note">
@@ -89,7 +177,7 @@ function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[];
                   <summary>{t('allBlockers')}</summary>
                   <ol>
                     {found.map((entry) => (
-                      <li key={entry.code}>{t(entry.key, entry.params)}</li>
+                      <li key={`${entry.code}:${entry.params.source ?? ''}`}>{capital(t(entry.key, entry.params))}</li>
                     ))}
                   </ol>
                 </details>
@@ -260,7 +348,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
-      <Answer value={chain} source="protocol.chainStatus" t={t}>
+      <Answer value={chain} source={t('src_chain')} t={t} shell={{ label: t('tab_status'), headers: [t('hdr_check'), t('hdr_result')] }}>
         {(c) => (
           <Rows
             t={t}
@@ -275,7 +363,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
               [t('tokenFactoryDeployed'), flag(t, c.tokenFactoryDeployed)],
               [t('usable'), flag(t, c.usable)],
               [t('launchUsable'), flag(t, c.launchUsable)],
-              ...(c.refusalCode || c.reason ? ([[t('refusalReason'), `${c.refusalCode ?? ''} ${c.reason ?? ''}`.trim()]] as const) : []),
+              ...(c.refusalCode || c.reason ? ([[t('refusalReason'), chainReasonWords(c.refusalCode)]] as const) : []),
             ]}
           />
         )}
@@ -284,7 +372,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const auditPanel = (
     <Panel title={t('auditTitle')}>
-      <Answer value={audit} source="protocol.auditStatus" t={t}>
+      <Answer value={audit} source={t('src_audit')} t={t} shell={{ label: t('auditTitle'), headers: [t('hdr_field'), t('hdr_value')] }}>
         {(a) => (
           <Rows
             t={t}
@@ -303,7 +391,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
   const venuePanel = (
     <Panel title={t('venueTitle')}>
-      <Answer value={indexer} source="indexer.status" t={t}>
+      <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
         {(i) => (
           <>
             <Rows
@@ -317,7 +405,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           </>
         )}
       </Answer>
-      <Answer value={dex} source="dex.health" t={t}>
+      <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
         {(d) => (
           <Rows
             t={t}
@@ -338,7 +426,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('tab_blocks')}>
         <p className="muted">{t('blocksNote')}</p>
-        <Answer value={indexer} source="indexer.status" t={t}>
+        <DataTable label={t('tab_blocks')} headers={[t('hdr_block'), t('hdr_time'), t('hdr_status')]}>
+          <tr>
+            <td colSpan={3}>
+              <EmptyState title={t('blocksEmpty')} />
+            </td>
+          </tr>
+        </DataTable>
+        <Answer value={indexer} source={t('src_indexer')} service={t('svc_indexer')} t={t}>
           {(i) => (
             <>
               <Rows
@@ -378,7 +473,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <Panel title={t('poolsTitle')}>
         <p className="muted">{t('poolsNote')}</p>
-        <Answer value={dex} source="dex.health" t={t}>
+        <DataTable label={t('poolsTitle')} headers={[t('hdr_pool'), t('hdr_pair'), t('hdr_liquidity')]}>
+          <tr>
+            <td colSpan={3}>
+              <EmptyState title={t('poolsEmpty')} />
+            </td>
+          </tr>
+        </DataTable>
+        <Answer value={dex} source={t('src_dex')} service={t('svc_dex')} t={t}>
           {(d) => <Rows t={t} rows={[[t('ammWired'), flag(t, d.ammVenueWired)]]} />}
         </Answer>
       </Panel>
@@ -395,7 +497,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
       <>
         {chainStatusPanel}
         <Panel title={t('tab_overview')}>
-          <Answer value={health} source="protocol.health" t={t}>
+          <Answer value={health} source={t('src_health')} t={t}>
             {(h) => (
               <Rows
                 t={t}
@@ -438,7 +540,16 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
 
   return (
     <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale}>
-      <Page title={title} description={description} eyebrow={[`${label.name}.`, label.note, t('banner')].filter(Boolean).join(' ')}>
+      <Page
+        title={title}
+        description={description}
+        eyebrow={
+          <>
+            <span>{t('bannerLine')}</span>
+            <span className="badge protocol-pill">{t('bannerPill')}</span>
+          </>
+        }
+      >
         <Tabs
           label={t('subnav')}
           items={tabs.map((entry) => entry.id)}

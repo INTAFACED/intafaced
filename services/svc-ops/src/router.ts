@@ -5,7 +5,14 @@ import {
   OPS_CONTACTS_LIST_LIMIT_UNSET,
   OPS_CUSTODY_CHAIN_UNWIRED,
   OPS_CUSTODY_KEYS_FORBIDDEN,
+  OPS_CUSTODY_KEYS_UNPUBLISHED,
+  OPS_CUSTODY_LEDGER_UNWIRED,
   OPS_CUSTODY_LIST_LIMIT_UNSET,
+  OPS_IDEMPOTENCY_CONFLICT,
+  OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+  OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_ALERT_SOURCE_UNCONFIGURED,
+  OPS_ALERT_PROBE_UNCONFIGURED,
   OPS_CUSTODY_WRAP_UNSET,
   OPS_CUSTODY_FREEZE_UNSET,
   OPS_CUSTODY_FROZEN,
@@ -24,6 +31,20 @@ import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
 import type { FounderAuthority } from './outreach/authority.js';
 import { createOutreachRouter } from './outreach/router.js';
+import {
+  alertList,
+  alertSourcePosture,
+  archivePosture,
+  assertIdempotencyKey,
+  consumeFounderApproval,
+  custodyOpsStatus,
+  parseWatermarkInput,
+  rememberIdempotent,
+  restoreWatermarksRead,
+  takeIdempotent,
+  type ApprovalConsumer,
+  type WatermarkStamp,
+} from './operator-desks.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -125,7 +146,27 @@ function mapError(err: unknown): never {
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
-export function createOpsRouter(ops: OpsService, outreach?: { crm: OutreachCrm; authority: FounderAuthority }) {
+export interface OperatorDeskConfig {
+  readonly now?: () => string;
+  readonly restoreArchiveUrl?: string | null;
+  readonly alertSourceUrl?: string | null;
+  readonly approvals?: ApprovalConsumer;
+}
+
+export function createOpsRouter(
+  ops: OpsService,
+  outreach?: { crm: OutreachCrm; authority: FounderAuthority },
+  desks: OperatorDeskConfig = {},
+) {
+  const now = desks.now ?? (() => new Date().toISOString());
+  const stamps: WatermarkStamp[] = [];
+  const idem = new Map<string, { fingerprint: string; value: unknown }>();
+  const deskError = (err: unknown): never => {
+    if (err instanceof OpsError && err.code === OPS_IDEMPOTENCY_CONFLICT) {
+      throw new TRPCError({ code: 'CONFLICT', message: `${err.code} — ${err.message}`, cause: err });
+    }
+    mapError(err);
+  };
   return router({
     ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority) } : {}),
     health: publicProcedure
@@ -395,6 +436,175 @@ export function createOpsRouter(ops: OpsService, outreach?: { crm: OutreachCrm; 
           } catch (err) {
             mapError(err);
           }
+        }),
+      ops: router({
+        status: scopedProcedure('admin:read', guards)
+          .output(
+            z.object({
+              asOf: z.string(),
+              wrap: custodyWrapSchema,
+              freeze: custodyFreezeSchema,
+              tiers: z.array(
+                z.object({
+                  id: custodyTierId,
+                  keyCount: z.null(),
+                  code: z.literal(OPS_CUSTODY_KEYS_UNPUBLISHED),
+                }),
+              ),
+              pendingApprovals: z.array(custodyApprovalSchema),
+              balances: z.object({
+                status: z.literal('unconfigured'),
+                code: z.literal(OPS_CUSTODY_LEDGER_UNWIRED),
+              }),
+            }),
+          )
+          .query(() => custodyOpsStatus(ops.listCustody(), now())),
+        createApproval: scopedProcedure('admin:treasury', guards)
+          .input(
+            z.object({
+              fromTier: z.string(),
+              toTier: z.string(),
+              amount: z.string().nullable().optional(),
+              idempotencyKey: z.string(),
+            }),
+          )
+          .output(custodyApprovalSchema)
+          .mutation(({ input }) => {
+            try {
+              const key = assertIdempotencyKey(input.idempotencyKey);
+              const fingerprint = JSON.stringify({
+                fromTier: input.fromTier,
+                toTier: input.toTier,
+                amount: input.amount ?? null,
+              });
+              const prior = takeIdempotent(idem, `custody:${key}`, fingerprint);
+              if (prior) return prior as z.infer<typeof custodyApprovalSchema>;
+              const created = ops.createApproval(input);
+              return rememberIdempotent(idem, `custody:${key}`, fingerprint, created) as z.infer<typeof custodyApprovalSchema>;
+            } catch (err) {
+              return deskError(err);
+            }
+          }),
+        execute: scopedProcedure('admin:treasury', guards)
+          .input(z.object({ id: z.string().optional(), idempotencyKey: z.string().optional() }).optional())
+          .mutation(({ input }) => {
+            try {
+              ops.executeApproval((input ?? {}) as Record<string, unknown>);
+            } catch (err) {
+              deskError(err);
+            }
+          }),
+      }),
+    }),
+
+    restore: router({
+      watermarks: scopedProcedure('admin:read', guards)
+        .output(
+          z.object({
+            asOf: z.string(),
+            archive: z.object({
+              configured: z.boolean(),
+              probed: z.literal(false),
+              code: z.enum([OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED]),
+            }),
+            watermarks: z
+              .object({
+                stamped: z.boolean(),
+                rows: z.array(
+                  z.object({
+                    service: z.string(),
+                    kind: z.string(),
+                    watermark: z.string(),
+                    recordedAt: z.string(),
+                    recordedBy: z.string(),
+                    approverId: z.string(),
+                  }),
+                ),
+              })
+              .nullable(),
+            restored: z.literal(false),
+          }),
+        )
+        .query(() => restoreWatermarksRead(desks.restoreArchiveUrl, stamps, now())),
+      record: scopedProcedure('admin:treasury', guards)
+        .input(
+          z.object({
+            service: z.string(),
+            kind: z.string(),
+            watermark: z.string(),
+            idempotencyKey: z.string(),
+            approvalId: z.string(),
+            operationId: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const posture = archivePosture(desks.restoreArchiveUrl);
+            if (!posture.configured) {
+              throw new OpsError(
+                OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+                'No joint-restore archive is configured. A watermark is not stamped, and nothing is marked restored.',
+              );
+            }
+            const key = assertIdempotencyKey(input.idempotencyKey);
+            const parsed = parseWatermarkInput(input);
+            const fingerprint = JSON.stringify({ ...parsed, approvalId: input.approvalId, operationId: input.operationId });
+            const prior = takeIdempotent(idem, `restore:${key}`, fingerprint);
+            if (prior) return prior;
+            const consumed = await consumeFounderApproval(desks.approvals, {
+              approvalId: input.approvalId,
+              operationId: input.operationId,
+              actionType: 'ops.restore.record',
+              targetService: 'svc-ops',
+              targetId: `watermark:${parsed.service}:${parsed.kind}`,
+              fields: parsed,
+              requesterId: ctx.principal.userId,
+            });
+            const row: WatermarkStamp = {
+              ...parsed,
+              recordedAt: now(),
+              recordedBy: consumed.requesterId,
+              approverId: consumed.approverId ?? '',
+            };
+            stamps.push(row);
+            return rememberIdempotent(idem, `restore:${key}`, fingerprint, {
+              ...row,
+              archive: posture,
+              restored: false as const,
+            });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
+    }),
+
+    alerts: router({
+      list: scopedProcedure('admin:read', guards)
+        .output(
+          z.object({
+            asOf: z.string(),
+            source: z.object({
+              configured: z.boolean(),
+              probed: z.literal(false),
+              code: z.enum([OPS_ALERT_SOURCE_UNCONFIGURED, OPS_ALERT_PROBE_UNCONFIGURED]),
+            }),
+            alerts: z.null(),
+            acknowledged: z.null(),
+          }),
+        )
+        .query(() => alertList(desks.alertSourceUrl, now())),
+      acknowledge: scopedProcedure('admin:write', guards)
+        .input(z.object({ alertId: z.string().optional(), idempotencyKey: z.string().optional() }).optional())
+        .mutation(() => {
+          const source = alertSourcePosture(desks.alertSourceUrl);
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `${source.code} — ${
+              source.configured
+                ? 'An alert source URL is set, but this service does not probe it and will not invent an alert to acknowledge.'
+                : 'No alert source is configured. Nothing was acknowledged.'
+            }`,
+          });
         }),
     }),
   });

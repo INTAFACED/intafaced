@@ -45,5 +45,16 @@ export const kycRecord = () => ({
   createdAt: '2026-10-08T12:00:00.000Z',
 });
 export const apiKeys = () => [
-  { id: 'key-1', name: 'Test key', prefix: 'if_test', scopes: ['read'], lastUsedAt: null, revoked: false, mode: 'sandbox' },
+  {
+    id: 'key-1',
+    name: 'Test key',
+    prefix: 'if_test',
+    scopes: ['read'],
+    lastUsedAt: null,
+    revoked: false,
+    mode: 'sandbox',
+    requireSignature: false,
+    requireNonEmptyIpAllowlist: false,
+    ipAllowlist: [],
+  },
 ];

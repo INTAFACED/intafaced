@@ -129,6 +129,8 @@ Modules may still call `rank.awardXp` directly — it is a `serviceProcedure` on
 
 **Password policy — length, not composition.** 12 characters minimum, no character-class rules. Composition requirements push people to `Password1!`; NIST dropped them for that reason.
 
+**Email confirmation.** `auth.requestEmailConfirmation` (signed-in session, not an API key) mails a one-time link to that account's own address. `auth.confirmEmail` sets `users.email_verified_at`. The token is stored only as a SHA-256, compared in constant time, and is single-use. Changing the email clears the stamp and consumes open proofs. `identity.me` returns `emailVerified`. Unset mail, lifetime (`IDENTITY_EMAIL_CONFIRM_TTL_SECONDS`), or rate budget (`IDENTITY_EMAIL_CONFIRM_RATE_MAX` and `IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS`) refuses with `auth.email_confirm_unwired`. The only transport is `IDENTITY_MAIL_TRANSPORT=local-outbox`, and only when `APP_ENV` is exactly `dev` or `test`; it appends a `LOCAL-TEST` line to `IDENTITY_LOCAL_MAIL_OUTBOX`. Staging and production stay unwired. No mail provider is configured.
+
 **Login timing.** An unknown account is compared against a _real_ hash of a random string, so it costs the same time as a wrong password. A hand-written fake would return early and leak the difference — that is an account-enumeration oracle.
 
 **TOTP — RFC 6238, implemented here.** ~60 lines of well-specified arithmetic, which lets the tests run the RFC's own published vectors. A dependency in the authentication path we cannot check against the spec is one we would be trusting blind. Constant-time comparison; ±1 step drift window.

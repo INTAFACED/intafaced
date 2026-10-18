@@ -24,6 +24,19 @@ describe('feature registry (UI-SPEC 3.4)', () => {
     for (const feature of features) expect(['live', 'blocked'], feature.id).toContain(feature.status);
     for (const feature of features.filter((row) => row.paths.length > 0)) expect(feature.status === 'hidden', feature.id).toBe(false);
   });
+  it('keeps copy trading blocked with its real blocker, and bots live with evidence', () => {
+    const rowFor = (path: string) => features.find((feature) => feature.paths.some((pattern) => matchPath(pattern, path)));
+    const copy = rowFor('/trade/copy');
+    expect(copy?.id).toBe('copy');
+    expect(copy?.status).toBe('blocked');
+    expect(copy?.reason).toMatch(/fee share/);
+    expect(copy?.reason).toMatch(/countries/);
+    const bots = rowFor('/trade/bots');
+    expect(bots?.id).toBe('bots');
+    expect(bots?.status).toBe('live');
+    expect(bots?.checked).toMatch(/TRCOPY/);
+    expect(rowFor('/otc/tradeInfo')?.status).toBe('blocked');
+  });
   it('keeps the old dead ends and the live rooms reachable, never hidden', () => {
     for (const path of [
       '/uc/recharge',
@@ -32,7 +45,8 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/portfolio/BTC/repeat-buy',
       '/bank',
       '/bank/earn',
-      '/trade/options',
+      '/trade/margin',
+      '/trade/copy',
       '/otc',
       '/otc/tradeInfo',
       '/pay/request',
@@ -52,6 +66,9 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       '/trade/spot/BTC-USDT',
       '/trade/buy',
       '/trade/convert',
+      '/trade/options',
+      '/execution',
+      '/otc',
       '/coin/BTC',
       '/portfolio/BTC',
       '/pay',
@@ -72,8 +89,9 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(isHiddenPath(path), path).toBe(false);
   });
   it('keeps the old dead ends marked blocked, so /dev/features still names the reason and the unlock', () => {
-    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'business-pay', 'more-rooms'])
+    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'more-rooms'])
       expect(featureById(id)?.status, id).toBe('blocked');
+    expect(featureById('business-pay')?.status, 'business-pay opens from the signed-in session').toBe('live');
     expect(featureById('bank')?.paths).toContain('/bank');
     expect(findRoom('/bank')?.alias, '/bank is its own page, not an alias of /money').toBeUndefined();
   });

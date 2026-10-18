@@ -5,7 +5,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MatchingEngine } from './engine/engine.js';
 import { MemoryJournal } from './engine/journal.js';
 import { registerRoutes } from './router.js';
-import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
+import { parseOperatorIds, stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 
 /**
  * S10 / TRD-0003 / OPS-0021. Opening the book and halting a market are two people.
@@ -15,6 +15,8 @@ import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-appr
 
 const SECRET = 'matching-four-eyes-open-secret-32ch!';
 const MARKET = 'BTC-USDT';
+// #4724: matching.open only runs for people on the venue's operator list.
+const OPERATOR_IDS = parseOperatorIds('ops-1, ops-confirm');
 
 function samePersonOpenApproval(): ActionApprovalConsumer {
   return {
@@ -46,7 +48,7 @@ async function mount(approvals: ActionApprovalConsumer = stubApprovalConsumer('o
     snapshotEvery: 0,
   });
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals });
+  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals, operatorIds: OPERATOR_IDS });
   await app.ready();
   return { app, engine };
 }
@@ -95,7 +97,8 @@ describe('S10 two people open the book', () => {
       operationId: 'op-1',
     });
     expect(opened.statusCode).toBe(400);
-    expect(opened.json().code).toBe('action_approval.not_founders');
+    // #4724: the distinct-approver check now runs before the founder attestation.
+    expect(opened.json().code).toBe('action_approval.missing');
     expect(engine.isListed(MARKET)).toBe(false);
     await app.close();
   });

@@ -15,6 +15,7 @@ const FAILURE_CATALOG: Readonly<Record<string, string>> = {
   'authorize.invalid_amount': 'The amount could not be authorized.',
   'capture.not_authorized': 'The payment was not authorized to capture.',
   'rail.failed': 'The payment could not be completed.',
+  'rail.not_sent': 'The payout was confirmed not sent.',
   'rail.unknown_reference': 'The payment reference was not recognized.',
   'chain.wrong_asset': 'The transfer used a different asset.',
   'chain.underpaid': 'The transfer was less than the amount due.',
@@ -29,6 +30,9 @@ const FAILURE_CATALOG: Readonly<Record<string, string>> = {
   'payout.no_destination': 'The payout has no destination.',
   'bank.not_configured': 'Bank payout is not configured.',
   'bank.rejected': 'The payout was rejected.',
+  'rail.health_stale': 'The payment rail has not confirmed it is up. Nothing was sent.',
+  'rail.probe_failed': 'The payment rail did not answer a health check. Nothing was sent.',
+  'rail.marked_down': 'The payment rail is marked down. Nothing was sent.',
 };
 
 export interface MerchantFailure {

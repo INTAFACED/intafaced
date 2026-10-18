@@ -193,6 +193,26 @@ describe('pay action-approval consume', () => {
       await expect(consume(consumerReturning('CONSUMED', 'founder-b', FOUNDERS, 'founder-a'))).resolves.toBe('founder-b');
     });
 
+    it('through the identity client: a payload mismatch is typed action_approval.payload_mismatch', async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'payload hash does not match the approved action [action_approval.payload_mismatch]',
+              data: { code: 'PRECONDITION_FAILED', httpStatus: 412 },
+            },
+          }),
+          { status: 412 },
+        )) as typeof fetch;
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!');
+        await expect(consume(client)).rejects.toMatchObject({ code: 'action_approval.payload_mismatch' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
     it('through the identity client: a pre-existing APPROVED row approved by a non-founder is refused by identity and surfaces as a failed consume', async () => {
       const realFetch = globalThis.fetch;
       globalThis.fetch = (async () =>

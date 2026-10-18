@@ -10,14 +10,16 @@ import {
   withdrawalHoldAccount,
   type Amount,
   type LedgerClient,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
+import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
-import type { RailResult } from './rails/rail-adapter.js';
+import { railBlockingReason, railReasonCode, railRefusalIfBlocking, type RailAdapter, type RailResult } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
@@ -207,8 +209,21 @@ export class UserMoneyService {
     rail: string;
     railRef: string;
     creditedBy: string;
+    /** A sandbox API key cannot credit a live balance. */
+    keyEnv?: 'sandbox';
   }): Promise<DepositRecord> {
     if (input.amount <= 0n) throw new PayError('Deposit amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox') {
+      refuseSandboxLive(
+        recipes.deposit({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail: input.rail,
+          railRef: input.railRef,
+        }),
+      );
+    }
 
     // The rail must be one the platform actually has, so `railBoundary(rail)` is
     // a boundary account reconciliation already knows about. The adapter is NOT
@@ -319,6 +334,19 @@ export class UserMoneyService {
   // ── Withdrawal ─────────────────────────────────────────────────────────────
 
   /**
+   * Refuse a fresh rail ask. This service has no injected clock, so the age is
+   * the wall clock (`railBlockingReason`'s default). Callers skip this for a
+   * `sent` replay, a held refusal's reverse, and a saved acceptance's settle.
+   */
+  private refuseFreshWithdrawal(adapter: RailAdapter): void {
+    const blocked = railBlockingReason(adapter);
+    if (!blocked) return;
+    throw new PayError(`Rail "${adapter.id}" is not usable (${blocked}). No value moved.`, 'pay.rail_failed', {
+      failureCode: railReasonCode(blocked),
+    });
+  }
+
+  /**
    * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
    *
    * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
@@ -343,8 +371,21 @@ export class UserMoneyService {
     rail: string;
     destination: { kind: string; ref: string };
     clientRef: string;
+    /** A sandbox API key cannot debit a live balance. */
+    keyEnv?: 'sandbox';
   }): Promise<WithdrawalRecord> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox') {
+      refuseSandboxLive(
+        recipes.withdrawHold({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail: input.rail,
+          withdrawalId: input.clientRef,
+        }),
+      );
+    }
 
     // Resolved before a row exists, so an unknown or payout-incapable rail fails
     // before anything is claimed — and long before anything is held.
@@ -372,6 +413,16 @@ export class UserMoneyService {
     return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
       try {
         return await withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, input.clientRef])}`, async (connection) => {
+          // A fresh ask (no row) and a finished refusal (`failed`) are refused
+          // before the claim, so a blocked rail inserts nothing and does not
+          // reopen a failed row. An existing `pending` row is still refused
+          // after the claim, below. `sent` and `held` skip this check.
+          const [priorClaim] = await connection<Array<{ status: string }>>`
+            SELECT status FROM pay.withdrawals
+             WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+          `;
+          if (!priorClaim || priorClaim.status === 'failed') this.refuseFreshWithdrawal(adapter);
+
           let claimed = await this.claimWithdrawal(input, connection);
 
           // Already finished. Returning it is the only correct answer to a retry:
@@ -401,6 +452,11 @@ export class UserMoneyService {
             if (claimed.failureCode)
               throw new PayError('Original rail refusal is unproven; withdrawal remains held', 'pay.rail_outcome_unknown');
           }
+
+          // A blocked rail refuses a fresh dispatch only. `sent` already returned.
+          // A held refusal already reversed above. A non-held claim has not posted
+          // its hold yet, so refusing here leaves available untouched.
+          if (claimed.status !== 'held') this.refuseFreshWithdrawal(adapter);
 
           // Residual #8: a terminal `failed` row is "this attempt is done", not
           // "this clientRef is dead forever". `claimWithdrawal` has already reopened
@@ -456,16 +512,22 @@ export class UserMoneyService {
           // Legacy held rows have unknown dispatch history. Never interpret their
           // next refusal as proof that no earlier send committed.
           const firstDispatch = prior.length === 0 && claimed.status !== 'held';
+          const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
+          // A saved acceptance settles below and does not ask the rail. Every
+          // other attempt records `requested` first, then either a health
+          // refusal (the adapter is not called) or the payout. Phase 3a
+          // reverses a first dispatch and answers outcome-unknown when an
+          // earlier send may have committed.
           await connection`
         INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome)
         VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
       `;
-          const accepted = prior[0]?.outcome === 'accepted' && prior[0].rail_ref;
           let result: RailResult | { ok: true; railRef: string };
           try {
             result = accepted
               ? { ok: true, railRef: accepted }
-              : await withRailSpan(adapter.id, 'payout', async () =>
+              : (railRefusalIfBlocking(adapter, { amount: claimed.amount, assetId: claimed.assetId }) ??
+                (await withRailSpan(adapter.id, 'payout', async () =>
                   adapter.payout({
                     settlementId: ledgerInput.withdrawalId,
                     merchantId: claimed.userId,
@@ -474,7 +536,7 @@ export class UserMoneyService {
                     window: 'user-withdrawal',
                     destination: claimed.destination,
                   }),
-                );
+                )));
           } catch (error) {
             // Unknown rail outcome: the hold stays. Counting may halt the next
             // withdrawal. It does not reverse this one or replace the throw.
@@ -806,4 +868,12 @@ function toWithdrawal(row: WithdrawalRow): WithdrawalRecord {
     status: row.status,
     createdAt: row.created_at,
   };
+}
+
+function refuseSandboxLive(request: PostRequest): void {
+  const live = liveAccountsIn(request);
+  if (live.length === 0) return;
+  throw new PayError('A sandbox payment cannot post to a live ledger account. NOTHING WAS POSTED.', 'pay.sandbox_live_account_refused', {
+    accounts: live.map((account) => `${account.ownerType}:${account.ownerId}:${account.kind}`),
+  });
 }

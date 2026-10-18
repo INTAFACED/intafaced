@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, formatAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
+import { shortReference } from '../../shared/reference';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { referralCopy as copy } from './referral-copy';
@@ -133,9 +134,12 @@ function OwnerRecords({ userId }: { userId: string }) {
           <Copy k="refresh" />
         </Button>
       </header>
-      <p className="referral-caption">
+      <details className="referral-caption">
+        <summary>
+          <Copy k="disclosure" />
+        </summary>
         <Copy k="owner" />: <span>{userId}</span>
-      </p>
+      </details>
       <section className="referral-block" aria-label={t('referrer')}>
         <h3>
           <Copy k="referrer" />
@@ -144,7 +148,9 @@ function OwnerRecords({ userId }: { userId: string }) {
           {(row) =>
             row ? (
               <div className="referral-relationship">
-                <p>{row.referrerId}</p>
+                <p title={row.referrerId}>
+                  <Copy k="member" params={{ ref: shortReference(row.referrerId) }} />
+                </p>
                 <p className="referral-caption">
                   <Copy k="attributed" />:{' '}
                   <time dateTime={row.attributedAt}>
@@ -172,7 +178,9 @@ function OwnerRecords({ userId }: { userId: string }) {
                   <>
                     <ol className="referral-chain">
                       {rows.map((id) => (
-                        <li key={id}>{id}</li>
+                        <li key={id} title={id}>
+                          <Copy k="member" params={{ ref: shortReference(id) }} />
+                        </li>
                       ))}
                     </ol>
                     <p className="referral-caption">

@@ -1,7 +1,7 @@
 /**
  * POST /internal/merchant-team/claim-email-invites
  *
- * svc-identity calls this after a verified sign-in. A merchant session cannot:
+ * svc-identity calls this after the account's email is confirmed. A merchant session cannot:
  * the body would let them attach someone else's email invites to their account.
  * Only an svc-identity HMAC is accepted. Other signed services are refused
  * separately from a missing signature.

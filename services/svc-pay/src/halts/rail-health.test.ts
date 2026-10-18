@@ -6,6 +6,9 @@ describe('rail-health failure codes', () => {
   it('counts rail outages, timeouts, server errors and auth failures', () => {
     for (const code of [
       'rail.down',
+      'rail.health_stale',
+      'rail.probe_failed',
+      'rail.marked_down',
       'rail.unavailable',
       'rail.timeout',
       'rail.auth_failed',

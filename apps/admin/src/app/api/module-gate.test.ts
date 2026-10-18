@@ -8,9 +8,13 @@ import * as killSwitch from './kill-switch/route';
 import * as ledgerFreeze from './ledger-freeze/route';
 import * as operatorTools from './operator-tools/route';
 import * as bankOps from './bank-ops/route';
+import * as payOps from './pay-ops/route';
+import * as payOpsTransfer from './pay-ops/transfer/route';
+import * as payOpsPage from './pay-ops/page/route';
 import * as p2pOps from './p2p-ops/route';
 import * as academyOps from './academy-ops/route';
 import * as moreOps from './more-ops/route';
+import * as protocolOps from './protocol-ops/route';
 
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
@@ -32,9 +36,13 @@ const nonCrm = [
 
 const readOnly = [
   ['bank-ops', bankOps, '/api/bank-ops'],
+  ['pay-ops', payOps, '/api/pay-ops'],
+  ['pay-ops transfer', payOpsTransfer, '/api/pay-ops/transfer?id=abcdefgh'],
+  ['pay-ops page', payOpsPage, '/api/pay-ops/page?read=pay.failed-standing&cursor=abc'],
   ['p2p-ops', p2pOps, '/api/p2p-ops'],
   ['academy-ops', academyOps, '/api/academy-ops'],
   ['more-ops', moreOps, '/api/more-ops'],
+  ['protocol-ops', protocolOps, '/api/protocol-ops'],
 ] as const;
 
 describe('route-level module gate', () => {

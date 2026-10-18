@@ -21,11 +21,22 @@ import {
   parseAmount,
   recipes,
   sub,
+  userAvailable,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
 import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
+import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
+import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
+import {
+  optionsExercises as optionsExercisesDoor,
+  optionsMarginPreview as optionsMarginPreviewDoor,
+  optionsPositions as optionsPositionsDoor,
+} from './options-doors.js';
+import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
+import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
+import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
@@ -45,6 +56,8 @@ import {
 import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
+import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
+import { recordMarketStatusTransition } from '../admin/status-history.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
 import {
   HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS,
@@ -55,6 +68,7 @@ import {
   type HoldUnknownSweepResult,
 } from './hold-outcome.js';
 import { toFill, toMarket, toOrder, type FillRow, type MarketRow, type OrderRow } from './rows.js';
+import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
 import type { RankPerksSource } from './rank-perks.js';
 import { fireAffiliateAccrue, affiliateLegsAfterFill, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
@@ -94,6 +108,14 @@ import { checkMaxOrder, checkMaxOrderNotional, resolveAdmissionLimits } from '..
 import { convertSettleIdsFor } from '../convert/ids.js';
 import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
+import {
+  bindConvertClientId,
+  exportConvertHistory,
+  listConvertHistory,
+  markConvertRefusal,
+  readConvertStatus,
+  type ConvertListQuery,
+} from '../convert/convert-history.js';
 import { isHouseMmAccount } from '../mm/seed-market.js';
 import { recoverMatchingAccountId } from '../mm/fill-account.js';
 import { HOUSE_MM_USER_UUID } from './ids.js';
@@ -117,6 +139,8 @@ import {
   type TwapParentStore,
 } from '../algo/index.js';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
+import { gateAlgoCreate } from '../algo/create-gate.js';
+import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../algo/volume-plan.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
@@ -197,6 +221,11 @@ export interface TradeServiceOptions {
    */
   futuresEnabled?: boolean;
   /**
+   * TRADE_FUTURES_TEST_SEED. Default false. When false, `test` listings are
+   * omitted from the public board and from symbol lookup. Does not enable futures.
+   */
+  futuresTestSeed?: boolean;
+  /**
    * Opaque D26-P0-05 settlement-asset-law stamp
    * (`TRADE_OPTIONS_SETTLEMENT_ASSET_LAW`).
    *
@@ -231,6 +260,12 @@ export interface TradeServiceOptions {
    * Unset / non-integer → market-buy hold refuses. Never invent 200.
    */
   marketSlippageCapBps?: number | null;
+  /**
+   * Slice mark policy. Omitted uses `DEFAULT_ALGO_MARK_POLICY` (the existing
+   * supply). A passed policy with a blank `maxAgeSeconds` is kept and the
+   * creation gate refuses it — this field does not invent a replacement.
+   */
+  algoMarkPolicy?: AlgoMarkPolicy;
   /**
    * PTX-M21 owner fee/rebate schedule (`TRADE_FEE_SCHEDULE`).
    * Default unpublished — place/fill refuse; never listing-row 10/20.
@@ -647,6 +682,7 @@ export class TradeService {
   private readonly marketLifecycle?: MarketLifecyclePort;
   private readonly spotEnabled: boolean;
   private readonly futuresEnabled: boolean;
+  private readonly futuresTestSeed: boolean;
   /** Opaque P0-05 ADR stamp; empty refuses options listing (SOCKET §13). */
   private readonly optionsSettlementAssetLaw: string;
   /** Opaque D7 fixing stamp; empty refuses options listing (after P0-05). */
@@ -655,6 +691,7 @@ export class TradeService {
   private readonly futuresSettlementFixing: string;
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
+  private readonly algoMarkPolicy: AlgoMarkPolicy;
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
@@ -691,12 +728,14 @@ export class TradeService {
     // `?? false`, and the asymmetry with the line above is the whole point: a
     // deploy that forgets to mention futures does not get futures.
     this.futuresEnabled = options.futuresEnabled ?? false;
+    this.futuresTestSeed = options.futuresTestSeed === true;
     // Empty defaults — P0-05 / D7 unset means refuse options listing, never invent law.
     this.optionsSettlementAssetLaw = options.optionsSettlementAssetLaw ?? '';
     this.optionsSettlementFixing = options.optionsSettlementFixing ?? '';
     this.futuresSettlementFixing = options.futuresSettlementFixing ?? '';
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
+    this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
@@ -799,6 +838,7 @@ export class TradeService {
       },
       {
         onChange: (parent, plan) => this.algoStore.save({ parent, plan }),
+        markPolicy: this.algoMarkPolicy,
       },
     );
   }
@@ -1031,6 +1071,7 @@ export class TradeService {
     `;
     const row = rows[0];
     if (!row) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
+    await recordMarketStatusTransition(this.sql, { marketId, fromStatus: current.status, toStatus: status });
     return toMarket(row);
   }
 
@@ -1040,14 +1081,7 @@ export class TradeService {
    */
   async markets(limit: number): Promise<Market[]> {
     const capped = publishedMarketsLimit(limit);
-    const rows = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
-        FROM trade.markets ORDER BY symbol ASC
-        LIMIT ${capped}
-    `;
+    const rows = await loadListedMarketRows(this.sql, capped, this.futuresTestSeed);
     return rows.map(toMarket);
   }
 
@@ -1098,6 +1132,7 @@ export class TradeService {
         if (stored.quote.userId !== principal.userId) {
           throw new TradeError('convert quote belongs to another user', 'trade.convert_not_owner');
         }
+        await bindConvertClientId(this.sql, principal.userId, stored.quote.quoteId, input.clientConvertId);
 
         const ids = convertSettleIdsFor(stored.quote.quoteId);
         if (stored.lifecycle === 'settled') {
@@ -1190,6 +1225,7 @@ export class TradeService {
             (err instanceof TradeError && err.code === 'trade.convert_liquidity_unavailable')
           ) {
             await this.convertStore.saveOpen(stored.quote);
+            await markConvertRefusal(this.sql, stored.quote.quoteId, err.code);
           }
           throw err;
         }
@@ -1213,6 +1249,77 @@ export class TradeService {
         return presentBoundConvertFill(bound, { ...ids, settledAt: settledAt.toISOString() });
       },
     );
+  }
+
+  convertList(principal: Principal, input: ConvertListQuery) {
+    return listConvertHistory(this.sql, principal, input, this.now());
+  }
+
+  convertStatus(principal: Principal, clientConvertId: string) {
+    return readConvertStatus(this.sql, this.ledger, principal, clientConvertId, this.now());
+  }
+
+  convertExport(principal: Principal, query: { from?: string; to?: string }) {
+    return exportConvertHistory(this.sql, principal, query, this.now());
+  }
+
+  algoList(principal: Principal, query: AlgoListQuery) {
+    return listAlgoParents(this.sql, principal, query, this.now());
+  }
+
+  algoReports(principal: Principal, query: { algoId: string; limit?: number | null; cursor?: string | null }) {
+    return listAlgoReports(this.sql, principal, query);
+  }
+
+  optionsCatalogue(principal: Principal, query: OptionsCatalogueQuery) {
+    return listOptionsCatalogue(this.sql, principal, query, this.optionsSettlementAssetLaw);
+  }
+
+  optionsPositions(principal: Principal) {
+    return optionsPositionsDoor(principal, this.optionsDoorConfig());
+  }
+
+  optionsExercises(principal: Principal, jobsEnabled: boolean) {
+    return optionsExercisesDoor(principal, { ...this.optionsDoorConfig(), jobsEnabled });
+  }
+
+  optionsMarginPreview(principal: Principal) {
+    return optionsMarginPreviewDoor(principal, this.optionsDoorConfig());
+  }
+
+  rfqList(principal: Principal, query: RfqListQuery) {
+    return listRfqHistory(this.sql, principal, query);
+  }
+
+  rfqExport(principal: Principal, query: { from?: string; to?: string }) {
+    return exportRfqHistory(this.sql, principal, query);
+  }
+
+  scaleCreate(principal: Principal, input: ScaleCreateInput) {
+    return createScaleGroup(this.scalePorts(), principal, input);
+  }
+
+  scaleGet(principal: Principal, groupId: string) {
+    return getScaleGroup(this.scalePorts(), principal, groupId);
+  }
+
+  scaleCancel(principal: Principal, groupId: string) {
+    return cancelScaleGroup(this.scalePorts(), principal, groupId);
+  }
+
+  private optionsDoorConfig() {
+    return { settlementAssetLaw: this.optionsSettlementAssetLaw, settlementFixing: this.optionsSettlementFixing };
+  }
+
+  private scalePorts() {
+    return {
+      sql: this.sql,
+      placeOrder: (principal: Principal, input: PlaceOrderInput) => this.placeOrder(principal, input),
+      cancelOrder: (principal: Principal, orderId: string) => this.cancelOrder(principal, orderId),
+      findClientOrder: (principal: Principal, input: { marketId: string; clientOrderId: string }) => this.findClientOrder(principal, input),
+      marketBySymbol: (symbol: string) => this.marketBySymbol(symbol),
+      available: async (userId: string, assetId: string) => (await this.ledger.balance(userAvailable(userId, assetId))).amount,
+    };
   }
 
   private async buildConvertQuote(userId: string, input: ConvertQuoteRequest) {
@@ -1377,6 +1484,9 @@ export class TradeService {
     }
     const orderType: OrderType = requireSupportedType(input.type);
     let tif: TimeInForce = input.seeded === true ? 'PO' : (input.tif ?? 'GTC');
+    if (tif === 'MOC') {
+      throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
+    }
     const expectedSeeded = market.paper ? false : seeded;
     const orderId = orderIdFor(userId, market.id, input.clientOrderId);
     const existing = await this.findOrder(orderId);
@@ -1455,6 +1565,7 @@ export class TradeService {
       return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
     }
     assertQty(market, input.qty);
+    await assertOperatorRiskOnPlace(this.sql, market.id, principal.userId, { price: input.price ?? null, qty: input.qty });
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
     // market orders, force post-only so the engine refuses unfair crosses).
@@ -1495,7 +1606,7 @@ export class TradeService {
       assertNotional(market, input.price, input.qty);
       fundingPrice = input.price;
     } else if (input.side === 'buy') {
-      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
       if (input.maxProtectionPrice != null && input.maxProtectionPrice < protectionPrice) {
         if (input.maxProtectionPrice <= 0n) {
           throw new TradeError('maxProtectionPrice must be positive', 'trade.invalid_price');
@@ -1510,7 +1621,7 @@ export class TradeService {
       // through an unpublished or missing bid. The bid is read once and shared
       // with the owner-limit reference below.
       const bid = await this.bestBid(market.id);
-      let floor = sellProtectionPriceFor(market, bid, this.slippageCapBps);
+      let floor = sellProtectionPriceFor(market, bid, await this.slippageCap(market.id));
       if (input.minProtectionPrice != null) {
         if (input.minProtectionPrice <= 0n) {
           throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
@@ -2154,6 +2265,14 @@ export class TradeService {
         }
         const newQty = locked.filledQty + newRemaining;
         const amendReleased = locked.amendReleased + release;
+        await appendOrderEvent(tx, {
+          orderId: locked.id,
+          parentId: parentIdFromClientOrder(locked.clientOrderId),
+          kind: 'amend',
+          quantity: formatAmount(newQty),
+          price: formatAmount(locked.price),
+          code: `amend:${version}`,
+        });
         await tx`
           UPDATE trade.orders
              SET qty = ${formatAmount(newQty)}::numeric,
@@ -2290,7 +2409,7 @@ export class TradeService {
           try {
             let reference: Amount | null = input.price ?? null;
             if (reference == null && input.side === 'buy') {
-              reference = protectionPriceFor(market, await this.bestAsk(market.id), this.slippageCapBps);
+              reference = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
               const cap = input.maxProtectionPrice;
               if (cap != null && cap > 0n && cap < reference) reference = cap;
             }
@@ -2306,7 +2425,7 @@ export class TradeService {
         // A market sell with no floor must refuse before the original is cancelled.
         if (orderType === 'market' && input.side === 'sell') {
           try {
-            sellProtectionPriceFor(market, await this.bestBid(market.id), this.slippageCapBps);
+            sellProtectionPriceFor(market, await this.bestBid(market.id), await this.slippageCap(market.id));
           } catch (err) {
             if (err instanceof TradeError && (err.code === 'trade.protection_unset' || err.code === 'trade.no_reference_price')) {
               return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', err.code, false, requestAlreadyExists);
@@ -2542,6 +2661,12 @@ export class TradeService {
       `;
       await this.finalize(orderId, 'rejected');
       return;
+    }
+
+    const accepted = await this.findOrder(orderId);
+    if (accepted) {
+      await this.noteOrderEvent(accepted, 'ack', 'ack');
+      if (result.resting?.orderId === orderId) await this.noteOrderEvent(accepted, 'rest', 'rest');
     }
 
     if (result.sequence !== null || result.resting?.version != null) {
@@ -2848,7 +2973,7 @@ export class TradeService {
     // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
     const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
     if (makerIsHouseMm || makerIsHouseMmRow) {
-      const rates = this.ratesForFill(0, taker.feeDiscountBps);
+      const rates = this.ratesForFill(0, taker.feeDiscountBps, market.kind);
       const takerBuys = fill.takerSide === 'buy';
       // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
       // (recipe throws; re-run throws). Inserting first left remainingHold
@@ -2921,6 +3046,7 @@ export class TradeService {
       });
 
       await this.refreshFilledQty(taker.id);
+      await this.notePartialIfOpen(taker.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:taker`);
 
       await this.ledger.post(
         withFillLedgerAttribution(
@@ -3013,7 +3139,7 @@ export class TradeService {
     // Both rates in one place: `tradeFill` posts them in one six-entry
     // transaction, and resolving them apart would let one side's rounding drift
     // from the other's without anything failing.
-    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps);
+    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind);
 
     const takerBuys = fill.takerSide === 'buy';
     // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe
@@ -3073,7 +3199,10 @@ export class TradeService {
     // Recomputed from the fills rather than incremented, so it is idempotent by
     // construction and `filled_qty = Σ fills.qty` is true by definition rather
     // than by hope. A test asserts it anyway.
-    for (const leg of legs) await this.refreshFilledQty(leg.order.id);
+    for (const leg of legs) {
+      await this.refreshFilledQty(leg.order.id);
+      await this.notePartialIfOpen(leg.order.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:${leg.role}`);
+    }
 
     // ── 5 · THE FILL ────────────────────────────────────────────────────────
     //
@@ -3233,12 +3362,16 @@ export class TradeService {
     }
   }
 
-  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number) {
+  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number, kind: 'spot' | 'futures' | 'options' = 'spot') {
+    if (kind === 'options') {
+      throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
+    }
     try {
-      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps);
+      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps, kind === 'futures' ? 'perpetual' : 'spot');
     } catch (err) {
       if (err instanceof FeeScheduleError) {
-        throw new TradeError(err.message, 'trade.fee_schedule_blank');
+        const code = err.code === 'trade.fee_product_unpublished' ? 'trade.fee_product_unpublished' : 'trade.fee_schedule_blank';
+        throw new TradeError(err.message, code);
       }
       throw err;
     }
@@ -3389,6 +3522,16 @@ export class TradeService {
                  updated_at = now()
            WHERE id = ${orderId}
         `;
+        const kind =
+          finalStatus === 'cancelled' ? 'cancel' : finalStatus === 'filled' ? 'fill' : finalStatus === 'expired' ? 'expire' : 'reject';
+        await appendOrderEvent(tx, {
+          orderId,
+          parentId: parentIdFromClientOrder(order.clientOrderId),
+          kind,
+          quantity: formatAmount(order.qty),
+          price: order.price === null ? null : formatAmount(order.price),
+          code: kind === 'reject' ? (reasonCode ?? 'reject') : kind,
+        });
 
         return { order, status: finalStatus };
       },
@@ -4001,6 +4144,24 @@ export class TradeService {
   }
 
   /**
+   * The order this caller already placed under `clientOrderId` on this market,
+   * or null when this request would create it. Used to tell an iceberg replay
+   * from a new order without a clock.
+   */
+  async findClientOrder(
+    principal: Principal,
+    input: { symbol?: string; marketId?: string; clientOrderId?: string },
+  ): Promise<OrderRecord | null> {
+    const clientOrderId = input.clientOrderId;
+    if (clientOrderId == null || clientOrderId.length < 1) return null;
+    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
+    if (!market) return null;
+    const order = await this.findOrder(orderIdFor(principal.userId, market.id, clientOrderId));
+    if (!order || order.userId !== principal.userId) return null;
+    return order;
+  }
+
+  /**
    * Self open/pending/recovery rows. Limit is required — same inner door as
    * private REST orders/open and tRPC orders.open. Missing / non-integer / out
    * of 1..500 refuses (never invent 100). Owner/query may pass 100 explicitly.
@@ -4355,14 +4516,7 @@ export class TradeService {
   }
 
   async marketBySymbol(symbol: string): Promise<Market | null> {
-    const rows = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
-        FROM trade.markets WHERE symbol = ${symbol}
-    `;
-    const row = rows[0];
+    const row = await loadMarketBySymbol(this.sql, symbol, this.futuresTestSeed);
     return row ? toMarket(row) : null;
   }
 
@@ -4479,6 +4633,11 @@ export class TradeService {
       );
     }
 
+    // Replay returns the stored parent and does not re-run the creation gate,
+    // so a later balance change cannot turn the same clientAlgoId into a refusal.
+    const replay = await this.replayStoredAlgo(principal.userId, input.clientAlgoId);
+    if (replay) return replay;
+
     const market = await this.requireMarket(input);
     // TWAP is spot-only by name (see `assertSpotSurface`), not because
     // `assertTradable` happens to refuse the kind.
@@ -4541,6 +4700,21 @@ export class TradeService {
     if (kind === 'pov') {
       createInput = { ...createInput, participationBps: input.participationBps };
     }
+
+    await gateAlgoCreate({
+      sql: this.sql,
+      ledger: this.ledger,
+      perks: this.perks,
+      feeSchedule: this.feeSchedule,
+      slippageCapBps: this.slippageCapBps,
+      markPolicy: this.algoMarkPolicy,
+      now: this.now(),
+      userId: principal.userId,
+      market,
+      input: createInput,
+      bid,
+      ask,
+    });
 
     // A preview must not emit the store callback or expose an active parent
     // before its durable owner admission. Children are separate decisions.
@@ -4673,6 +4847,21 @@ export class TradeService {
   }
 
   /**
+   * Same id formula as `TwapEngine.prepare`. Returns the caller's stored parent
+   * when this clientAlgoId was already admitted. A foreign row is not returned.
+   */
+  private async replayStoredAlgo(userId: string, clientAlgoId: string | undefined): Promise<TwapParent | null> {
+    const trimmed = clientAlgoId?.trim();
+    if (!trimmed) return null;
+    const id = `algo-${userId.slice(0, 8)}-${trimmed}`;
+    const live = this.algo.get(id);
+    if (live) return live.userId === userId ? live : null;
+    const stored = await this.algoStore.load(id);
+    if (!stored || stored.parent.userId !== userId) return null;
+    return stored.parent;
+  }
+
+  /**
    * Reinstall the createTwap place grant after restart. Missing/expired grant
    * leaves the in-memory map empty so placeChild still halts.
    */
@@ -4724,6 +4913,11 @@ export class TradeService {
     }
     const refusal = checkMaxOrder({ limits, quoteAsset: market.quoteAsset, price: reference, qty });
     if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+  }
+
+  /** Operator slippage cap when set; otherwise the existing service cap (which may be unset). */
+  private async slippageCap(marketId: string): Promise<number | null> {
+    return (await operatorSlippageCapBps(this.sql, marketId)) ?? this.slippageCapBps;
   }
 
   private async bestAsk(marketId: string): Promise<Amount | null> {
@@ -4795,6 +4989,30 @@ export class TradeService {
       tif,
       lifecycleProof,
     };
+  }
+
+  private async noteOrderEvent(order: OrderRecord, kind: OrderEventKind, code: string): Promise<void> {
+    await appendOrderEvent(this.sql, {
+      orderId: order.id,
+      parentId: parentIdFromClientOrder(order.clientOrderId),
+      kind,
+      quantity: formatAmount(order.qty),
+      price: order.price === null ? null : formatAmount(order.price),
+      code,
+    });
+  }
+
+  private async notePartialIfOpen(orderId: string, quantity: string, price: string, code: string): Promise<void> {
+    const order = await this.findOrder(orderId);
+    if (!order || order.filledQty <= 0n || order.filledQty >= order.qty) return;
+    await appendOrderEvent(this.sql, {
+      orderId: order.id,
+      parentId: parentIdFromClientOrder(order.clientOrderId),
+      kind: 'partial',
+      quantity,
+      price,
+      code,
+    });
   }
 
   private async refreshFilledQty(orderId: string): Promise<void> {

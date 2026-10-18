@@ -26,9 +26,24 @@ describe('team email invite normalisation and budget', () => {
     expect(loadTeamEmailInviteLimit({ PAY_TEAM_EMAIL_INVITE_MAX: '2' })).toBeUndefined();
     expect(loadTeamEmailInviteLimit({ PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '1000' })).toBeUndefined();
     expect(loadTeamEmailInviteLimit({ PAY_TEAM_EMAIL_INVITE_MAX: '0', PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '1000' })).toBeUndefined();
-    expect(loadTeamEmailInviteLimit({ PAY_TEAM_EMAIL_INVITE_MAX: '2', PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '60000' })).toEqual({
+    expect(loadTeamEmailInviteLimit({ PAY_TEAM_EMAIL_INVITE_MAX: '2', PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '60000' })).toBeUndefined();
+    expect(
+      loadTeamEmailInviteLimit({
+        PAY_TEAM_EMAIL_INVITE_MAX: '2',
+        PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '60000',
+        PAY_TEAM_EMAIL_INVITE_TTL_MS: '0',
+      }),
+    ).toBeUndefined();
+    expect(
+      loadTeamEmailInviteLimit({
+        PAY_TEAM_EMAIL_INVITE_MAX: '2',
+        PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '60000',
+        PAY_TEAM_EMAIL_INVITE_TTL_MS: '86400000',
+      }),
+    ).toEqual({
       maxPerWindow: 2,
       windowMs: 60_000,
+      ttlMs: 86_400_000,
     });
   });
 

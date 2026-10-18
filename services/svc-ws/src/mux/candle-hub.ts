@@ -155,7 +155,7 @@ export class CandleHub {
     }
     const max = this.#options.maxConnections;
     if (!isPublishedConnectionCeiling(max)) {
-      sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.maxConnectionsUnset));
+      sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxMaxSeatsUnset));
       return null;
     }
     if (this.#subscriptions.size >= max) {

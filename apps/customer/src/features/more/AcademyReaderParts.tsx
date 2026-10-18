@@ -1,10 +1,9 @@
-import { useId } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { useApi, useSession } from '../session/session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { lessonHrefFor, lessonStatus, neighbours, pathProgress, type AcademyPath, type LessonSummary, type Tracking } from './academy-lms';
-import { DisabledWithReason, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
+import { ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
 
 /** Where this lesson sits: breadcrumb, position in its path, real progress and its recorded state. */
 export function ReaderHeader({
@@ -45,7 +44,7 @@ export function ReaderHeader({
         <>
           <ProgressBar percent={progress.percent} label={t('progressLabel', { path: pathLabel(t, path) })} />
           <small className="muted">
-            <Copy k="trackedRecorded" params={{ recorded: progress.recorded, tracked: progress.tracked }} />
+            <Copy k="completedOfTotal" params={{ recorded: progress.recorded, total: progress.total }} />
           </small>
         </>
       )}
@@ -91,44 +90,6 @@ export function ReaderPager({
         </a>
       )}
     </nav>
-  );
-}
-
-/**
- * Lesson-end check. The questions are the lesson's own self-check prompts. Academy has no assessment
- * procedure, so answers cannot be sent, scored or kept: the controls are laid out and disabled with the reason.
- */
-export function Assessment({ prompts }: { prompts: readonly string[] }) {
-  const { t, Copy } = copy.useCopy();
-  const id = useId();
-  return (
-    <section className="academy-lms-assessment" aria-label={t('assessmentTitle')}>
-      <h3>
-        <Copy k="assessmentTitle" />
-      </h3>
-      <p className="muted">
-        <Copy k="assessmentIntro" />
-      </p>
-      <ol className="academy-lms-stack">
-        {prompts.map((prompt, index) => (
-          <li key={prompt}>
-            <label htmlFor={`${id}-${index}`} lang="und">
-              {prompt}
-            </label>
-            <textarea id={`${id}-${index}`} disabled aria-describedby={`${id}-reason`} placeholder={t('answerPlaceholder')} />
-          </li>
-        ))}
-      </ol>
-      <div className="academy-lms-meta">
-        <span>
-          <Copy k="scoreNotAvailable" />
-        </span>
-        <span>
-          <Copy k="attemptsNotAvailable" />
-        </span>
-      </div>
-      <DisabledWithReason id={`${id}-reason`} label={t('submitAnswers')} reason={t('assessmentReason')} />
-    </section>
   );
 }
 

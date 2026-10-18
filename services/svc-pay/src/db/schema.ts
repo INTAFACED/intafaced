@@ -437,9 +437,9 @@ export const withdrawalStatusEnum = pay.enum('withdrawal_status', ['pending', 'h
  * second withdrawal.
  *
  * `attempts` is part of the ledger hold's business key, exactly as
- * `settlements.payout_attempts` is. It advances only on a rail REFUSAL — a
- * refusal reverses the hold, so the next attempt needs a fresh key, while a
- * crash-and-resume reuses its key and stays idempotent.
+ * `settlements.payout_attempts` is. It advances only when a refusal is proved
+ * for an attempt that was not already dispatched. A crash-and-resume reuses
+ * its key. A later refusal of a dispatched attempt does not advance it.
  */
 export const withdrawals = pay.table(
   'withdrawals',
@@ -479,8 +479,11 @@ export const withdrawals = pay.table(
 );
 
 /**
- * Shareable payment link (§6.1). The raw token is shown once; only the hash
- * is stored. Public resolve returns checkout intent, never merchant secrets.
+ * Shareable payment link (§6.1). The token is the public checkout credential.
+ * `token_hash` is what public resolve looks up. `checkout_token` is that same
+ * credential, stored so a merchant who can list the link can read the checkout
+ * path again. Null means the link was minted before the credential was kept.
+ * Public resolve returns checkout intent, never merchant secrets.
  */
 export const paymentLinks = pay.table(
   'payment_links',
@@ -492,6 +495,8 @@ export const paymentLinks = pay.table(
     profileId: uuid('profile_id').references(() => paymentProfiles.id),
     tokenHash: text('token_hash').notNull(),
     tokenPrefix: text('token_prefix').notNull(),
+    /** The checkout credential, when it was stored. Null on links minted before that. */
+    checkoutToken: text('checkout_token'),
     label: text('label').notNull(),
     amount: amount('amount'),
     currency: text('currency'),
@@ -518,7 +523,33 @@ export const paymentLinks = pay.table(
     expiresAt: tstz('expires_at'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('payment_links_token_hash_idx').on(t.tokenHash), index('payment_links_merchant_idx').on(t.merchantId)],
+  (t) => [
+    uniqueIndex('payment_links_token_hash_idx').on(t.tokenHash),
+    uniqueIndex('payment_links_checkout_token_uq')
+      .on(t.checkoutToken)
+      .where(sql`${t.checkoutToken} IS NOT NULL`),
+    index('payment_links_merchant_idx').on(t.merchantId),
+  ],
+);
+
+/**
+ * Idempotency-Key journal for merchant.createLink. Owner is the merchant.
+ * Same key and same body stores one link id. Same key and a different
+ * fingerprint is a conflict. A committed row always has link_id; the column
+ * is nullable only while the create transaction is still open.
+ */
+export const paymentLinkCreateIdempotency = pay.table(
+  'payment_link_create_idempotency',
+  {
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestFingerprint: text('request_fingerprint').notNull(),
+    linkId: uuid('link_id').references(() => paymentLinks.id),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'payment_link_create_idempotency_pkey', columns: [t.merchantId, t.idempotencyKey] })],
 );
 
 /**
@@ -819,14 +850,25 @@ export const merchantPayoutDestinations = pay.table(
     railId: text('rail_id').notNull(),
     kind: text('kind').notNull(),
     ref: text('ref').notNull(),
+    /** Payable only after step-up. Rows saved by payouts before D-142 stay false. */
+    verified: boolean('verified').notNull().default(false),
+    verifiedAt: tstz('verified_at'),
+    pendingKind: text('pending_kind'),
+    pendingRef: text('pending_ref'),
+    pendingActivatesAt: tstz('pending_activates_at'),
     /** Page key for the inventory cursor. Not a second destination. */
     id: uuid('id').notNull().defaultRandom(),
+    /** True only after the owner marks this row. Existing rows stay false. */
+    isDefault: boolean('is_default').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     primaryKey({ name: 'merchant_payout_destinations_pkey', columns: [t.merchantId, t.railId] }),
     uniqueIndex('merchant_payout_destinations_id_idx').on(t.id),
+    uniqueIndex('merchant_payout_destinations_one_default_idx')
+      .on(t.merchantId)
+      .where(sql`${t.isDefault}`),
   ],
 );
 
@@ -902,7 +944,9 @@ export const merchantInvoices = pay.table(
     assetId: text('asset_id').notNull(),
     amount: amount('amount').notNull(),
     customerRef: text('customer_ref'),
+    customerEmail: text('customer_email'),
     description: text('description'),
+    dueAt: tstz('due_at'),
     paymentLinkId: uuid('payment_link_id'),
     paymentId: uuid('payment_id'),
     sentAt: tstz('sent_at'),
@@ -915,10 +959,69 @@ export const merchantInvoices = pay.table(
   (t) => [index('merchant_invoices_list_idx').on(t.merchantId, t.createdAt, t.id)],
 );
 
+/** Invoice lines. line_amount is the signed quantity times unit amount. Not a ledger post. */
+export const merchantInvoiceLines = pay.table(
+  'merchant_invoice_lines',
+  {
+    invoiceId: uuid('invoice_id').notNull(),
+    lineNo: integer('line_no').notNull(),
+    description: text('description').notNull(),
+    quantity: amount('quantity').notNull(),
+    unitAmount: amount('unit_amount').notNull(),
+    lineAmount: amount('line_amount').notNull(),
+    kind: text('kind').notNull().default('charge'),
+  },
+  (t) => [primaryKey({ name: 'merchant_invoice_lines_pkey', columns: [t.invoiceId, t.lineNo] })],
+);
+
 /**
  * One screening case per custodial send. Status is clear, review, refuse, or
  * unavailable. Factors are codes only: no name, address, or list contents.
  */
+/**
+ * One fraud review case per source and payment ref. Status moves; the decision log does not.
+ * A withdrawal hold stores the user id in merchant_id: that send has no merchant.
+ */
+export const fraudReviewCases = pay.table(
+  'fraud_review_cases',
+  {
+    id: text('id').primaryKey(),
+    merchantId: text('merchant_id').notNull(),
+    paymentRef: text('payment_ref'),
+    amount: amount('amount').notNull(),
+    assetId: text('asset_id').notNull(),
+    status: text('status').notNull(),
+    reason: text('reason').notNull(),
+    reasons: jsonb('reasons').notNull(),
+    source: text('source').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    claimedBy: text('claimed_by'),
+    claimedAt: tstz('claimed_at'),
+    decidedBy: text('decided_by'),
+    decidedAt: tstz('decided_at'),
+    resolutionNote: text('resolution_note'),
+  },
+  (t) => [
+    uniqueIndex('fraud_review_cases_source_payment_ref_uidx')
+      .on(t.source, t.paymentRef)
+      .where(sql`${t.paymentRef} is not null`),
+    index('fraud_review_cases_open_idx')
+      .on(t.createdAt, t.id)
+      .where(sql`${t.status} in ('open', 'claimed')`),
+  ],
+);
+
+/** Append-only enqueue, claim, allow, and decline. The case row is the current status. */
+export const fraudReviewDecisions = pay.table('fraud_review_decisions', {
+  decisionId: bigserial('decision_id', { mode: 'number' }).primaryKey(),
+  caseId: text('case_id').notNull(),
+  effect: text('effect').notNull(),
+  actorId: text('actor_id').notNull(),
+  note: text('note'),
+  decidedAt: tstz('decided_at').notNull(),
+});
+
 export const screeningCases = pay.table(
   'screening_cases',
   {
@@ -965,6 +1068,7 @@ export const schema = {
   merchantPermissionEvents,
   paymentProfiles,
   paymentLinks,
+  paymentLinkCreateIdempotency,
   checkoutSessions,
   payments,
   paymentEvents,
@@ -984,6 +1088,9 @@ export const schema = {
   disputeCaseRailEvents,
   merchantDisputeEvidenceContent,
   merchantInvoices,
+  merchantInvoiceLines,
   merchantInvoiceActions,
+  fraudReviewCases,
+  fraudReviewDecisions,
   screeningCases,
 };

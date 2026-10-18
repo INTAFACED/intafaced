@@ -32,7 +32,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 }
 
 const id = () => randomUUID();
-const LIMIT = { maxPerWindow: 2, windowMs: 60_000 };
+const LIMIT = { maxPerWindow: 2, windowMs: 60_000, ttlMs: 86_400_000 };
 const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
 
 const principalOf = (userId: string, over: Partial<Principal> = {}): Principal => ({
@@ -154,24 +154,27 @@ describe('merchant email team invites', () => {
     const invited = await as(host).merchantOps.team.invite({ email: 'join@example.com', role: 'developer' });
     expect(invited.userId).toBe('email:join@example.com');
     const person = id();
-    const first = await claimEmailTeamInvites(sql, { userId: person, email: 'Join@Example.com' });
+    const first = await claimEmailTeamInvites(sql, { userId: person, email: 'Join@Example.com' }, LIMIT.ttlMs);
     expect(first).toEqual({ claimed: 1, accepted: 1 });
     const row = await sql<Array<{ user_id: string; status: string; role: string }>>`
       SELECT user_id, status, role FROM pay.merchant_team_members WHERE id = ${invited.memberId}`;
     expect(row[0]).toMatchObject({ user_id: person, status: 'active', role: 'developer' });
-    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' })).toEqual({ claimed: 0, accepted: 0 });
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
 
     const other = id();
     await sql`INSERT INTO pay.merchants (user_id) VALUES (${other})`;
     await as(other).merchantOps.team.invite({ email: 'join@example.com', role: 'viewer' });
-    const second = await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' });
+    const second = await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' }, LIMIT.ttlMs);
     expect(second).toEqual({ claimed: 1, accepted: 0 });
     const pending = await sql<Array<{ user_id: string; status: string }>>`
       SELECT user_id, status FROM pay.merchant_team_members WHERE merchant_id = (SELECT id FROM pay.merchants WHERE user_id = ${other})`;
     expect(pending[0]).toMatchObject({ user_id: person, status: 'invited' });
 
     const own = await as(host).merchantOps.team.invite({ email: 'host@example.com', role: 'viewer' });
-    const ownerClaim = await claimEmailTeamInvites(sql, { userId: host, email: 'host@example.com' });
+    const ownerClaim = await claimEmailTeamInvites(sql, { userId: host, email: 'host@example.com' }, LIMIT.ttlMs);
     expect(ownerClaim).toEqual({ claimed: 1, accepted: 0 });
     const ownerRow = await sql<Array<{ user_id: string; status: string }>>`
       SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${own.memberId}`;
@@ -179,8 +182,35 @@ describe('merchant email team invites', () => {
   });
 
   it('refuses a claim that is not a real account id and does not write', async () => {
-    await expect(claimEmailTeamInvites(sql, { userId: 'email:ada@example.com', email: 'ada@example.com' })).rejects.toBeInstanceOf(
-      MerchantOpsError,
-    );
+    await expect(
+      claimEmailTeamInvites(sql, { userId: 'email:ada@example.com', email: 'ada@example.com' }, LIMIT.ttlMs),
+    ).rejects.toBeInstanceOf(MerchantOpsError);
+  });
+
+  it('does not bind when the lifetime is unset or the invite is older than it', async () => {
+    const host = id();
+    await sql`INSERT INTO pay.merchants (user_id) VALUES (${host})`;
+    const fresh = await as(host).merchantOps.team.invite({ email: 'later@example.com', role: 'viewer' });
+    const person = id();
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'later@example.com' }, undefined)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    const still = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${fresh.memberId}`;
+    expect(still[0]).toMatchObject({ user_id: 'email:later@example.com', status: 'invited' });
+
+    await sql`UPDATE pay.merchant_team_members SET updated_at = now() - interval '2 hours' WHERE id = ${fresh.memberId}`;
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'later@example.com' }, 60_000)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    const aged = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${fresh.memberId}`;
+    expect(aged[0]).toMatchObject({ user_id: 'email:later@example.com', status: 'invited' });
+
+    await as(host).merchantOps.team.invite({ email: 'later@example.com', role: 'developer' });
+    const renewed = await claimEmailTeamInvites(sql, { userId: person, email: 'later@example.com' }, 60_000);
+    expect(renewed).toEqual({ claimed: 1, accepted: 1 });
   });
 });

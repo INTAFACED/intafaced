@@ -1,7 +1,8 @@
 /**
- * Tell svc-pay that this account just signed in, so a pending email invite
- * for that mailbox can be claimed. Unwired (no pay URL) is a no-op: sign-in
- * still succeeds, and a later sign-in with the URL set claims what is left.
+ * Tell svc-pay that this account's stored mailbox is confirmed, so a pending
+ * email invite for that mailbox can be claimed. Unwired (no pay URL) is a
+ * no-op: confirmation and sign-in still succeed, and a later confirmed
+ * session with the URL set claims what is left.
  *
  * The transport ceiling is how long sign-in will wait on pay. It is not an
  * invite lifetime. A refusal or a timeout does not fail the session.
@@ -17,7 +18,7 @@ export interface MerchantEmailInviteClaimer {
   claim(input: MerchantEmailInviteClaim): Promise<void>;
 }
 
-/** How long a sign-in waits for pay before leaving the invite pending. */
+/** How long confirmation or sign-in waits for pay before leaving the invite pending. */
 const CLAIM_TRANSPORT_MS = 5_000;
 const CLAIM_PATH = '/internal/merchant-team/claim-email-invites';
 

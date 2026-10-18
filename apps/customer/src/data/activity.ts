@@ -83,6 +83,32 @@ export interface ActivityPage {
 /** Typed by what comes OUT of the parse (the kind is already normalised), which `api.query` reads as the data type. */
 export const activityPageSchema = pageShape as unknown as z.ZodType<ActivityPage>;
 
+/**
+ * A payment this device sent, as the device kept it when the bank confirmed it. Only the two fields that name the
+ * other person are read here.
+ */
+export interface DeviceSend {
+  ledgerTxId: string;
+  handle: string | null;
+}
+
+/**
+ * Names the other person on a payment this device sent, when the bank's activity line does not. The handle comes from the
+ * confirmation this device kept at the time (matched on the ledger transaction), never from a guess. A name the bank
+ * already gave always wins, and a line with no matching device record stays unnamed.
+ */
+export function withDeviceHandle<T extends Pick<ActivityItem, 'kind' | 'txId' | 'counterparty'>>(item: T, sent: readonly DeviceSend[]): T {
+  if (item.kind !== 'transfer_out' || item.counterparty) return item;
+  const match = sent.find((entry) => entry.handle && entry.ledgerTxId === item.txId);
+  return match?.handle ? { ...item, counterparty: { handle: match.handle } } : item;
+}
+export function withDeviceHandles<T extends Pick<ActivityItem, 'kind' | 'txId' | 'counterparty'>>(
+  items: readonly T[],
+  sent: readonly DeviceSend[],
+): T[] {
+  return sent.length === 0 ? [...items] : items.map((item) => withDeviceHandle(item, sent));
+}
+
 export interface ActivityFeed {
   items: ActivityItem[];
   hasMore: boolean;

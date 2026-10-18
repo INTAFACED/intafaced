@@ -3,6 +3,7 @@ import {
   ACTION_APPROVAL_NOT_AUTHORITY,
   SAME_PERSON_ACTION_TYPES,
   isSamePersonActionType,
+  samePersonTargetService,
   actionApprovalApproveInputSchema,
   actionApprovalConsumeInputSchema,
   actionApprovalIdInputSchema,
@@ -132,8 +133,17 @@ describe('same-person approvals', () => {
     });
     expect(parsed.principalUserId).toBe('u');
     expect(isSamePersonActionType('bank.step_up.transfers.toUser')).toBe(true);
+    expect(isSamePersonActionType('identity.step_up.email_change')).toBe(true);
     expect(isSamePersonActionType('matching.open')).toBe(false);
-    expect(SAME_PERSON_ACTION_TYPES.every((t) => t.startsWith('bank.step_up.'))).toBe(true);
+    expect(samePersonTargetService('identity.step_up.email_change')).toBe('svc-identity');
+    expect(samePersonTargetService('identity.step_up.phone_remove')).toBe('svc-identity');
+    expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
+    expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
+    expect(
+      SAME_PERSON_ACTION_TYPES.every(
+        (t) => t.startsWith('bank.step_up.') || t.startsWith('pay.step_up.') || t.startsWith('identity.step_up.'),
+      ),
+    ).toBe(true);
   });
 });
 

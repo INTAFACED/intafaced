@@ -362,10 +362,20 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   {
     path: 'merchant.setPayoutDestination',
     scope: 'pay:write',
-    own: 'ok',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.destination_step_up_required',
     input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
   },
-  { path: 'merchant.submitKyb', scope: 'pay:write', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },
+  {
+    path: 'merchant.payoutDestinations.change',
+    scope: 'pay:write',
+    own: 'service',
+    sessionOnly: true,
+    ownCause: 'pay.destination_step_up_required',
+    input: (i) => ({ merchantId: i.merchantId, railId: 'crypto-native', kind: 'crypto', ref: EVM_DESTINATION }),
+  },
+  { path: 'merchant.submitKyb', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-1' }) },
   {
     path: 'merchant.decideKybStub',
     scope: 'pay:write',
@@ -376,6 +386,13 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'merchant.checkoutSettings.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchant.createLink', scope: 'pay:write', own: 'ok', input: (i) => ({ merchantId: i.merchantId, label: 'probe' }) },
   { path: 'merchant.listLinks', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  {
+    path: 'merchant.getLink',
+    scope: 'pay:read',
+    own: 'ok',
+    mixed: true,
+    input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }),
+  },
   {
     path: 'merchant.deactivateLink',
     scope: 'pay:write',
@@ -434,6 +451,20 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     input: (i) => ({ merchantId: i.merchantId, limit: 50 }),
   },
   {
+    path: 'merchant.payoutDestinations.setDefault',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
+    path: 'merchant.payoutDestinations.remove',
+    scope: 'pay:write',
+    own: 'service',
+    ownCause: 'pay.payout_destination_not_found',
+    input: (i) => ({ merchantId: i.merchantId, destinationId: ghost() }),
+  },
+  {
     path: 'merchant.statement.list',
     scope: 'pay:read',
     own: 'ok',
@@ -474,7 +505,21 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   { path: 'settlement.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.release', scope: 'pay:write', own: 'service', input: (i) => ({ settlementId: i.settlementId, reason: 'probe' }) },
   // kyb.*
-  { path: 'kyb.submit', scope: 'pay:write', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-2' }) },
+  { path: 'kyb.submit', scope: 'pay:onboard', own: 'service', input: (i) => ({ merchantId: i.merchantId, kybRef: 'dossier-2' }) },
+  { path: 'fraud.getDispute', scope: 'pay:read', own: 'ok', input: (i) => ({ disputeId: i.disputeId }) },
+  {
+    path: 'fraud.enqueueReview',
+    scope: 'pay:write',
+    own: 'ok',
+    input: (i) => ({
+      id: `rev-${i.merchantId}`,
+      merchantId: i.merchantId,
+      amount: '99',
+      assetId: 'USDT',
+      recentPaymentCount: 50,
+      thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+    }),
+  },
   // sub-merchant tree, probed from outside the tree (inside-tree cases are the M3 table)
   { path: 'submerchant.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'submerchant.list', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
@@ -513,7 +558,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     ownCause: 'pay.limit_request_not_found',
     input: (i) => ({ merchantId: i.merchantId, requestId: randomUUID(), reason: 'isolation drill' }),
   },
-  // pay:payout is interactive-only, so there is no key case. "My merchant + their settlement" must look like a missing settlement.
+  // The default isolation key does not carry pay:payout (D-145), so there is no key case. "My merchant + their settlement" must look like a missing settlement.
   {
     path: 'merchantControl.approvals.request',
     scope: 'pay:payout',
@@ -826,6 +871,12 @@ export const LIST_PROCS: ListProc[] = [
     rows: arr,
   },
   {
+    name: 'trpc merchantOps.team.list',
+    call: { via: 'trpc', path: 'merchantOps.team.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).flatMap((r) => (typeof r.memberId === 'string' ? [{ id: r.memberId }] : [])),
+    expectedIds: (e) => [e.memberId, e.inviteId],
+  },
+  {
     name: 'trpc merchantOps.activity.list',
     call: { via: 'trpc', path: 'merchantOps.activity.list', input: () => ({ limit: 200 }) },
     rows: pageRows,
@@ -938,6 +989,13 @@ export const REST_ROUTES: RestRoute[] = [
     req: (i) => ({ method: 'GET', url: `/v1/payment-links?merchantId=${i.merchantId}&limit=10` }),
   },
   {
+    name: 'GET /v1/payment-links/:id',
+    scope: 'pay:read',
+    own: 'ok',
+    mixed: true,
+    req: (i) => ({ method: 'GET', url: `/v1/payment-links/${i.linkId}?merchantId=${i.merchantId}` }),
+  },
+  {
     name: 'DELETE /v1/payment-links/:id',
     scope: 'pay:write',
     own: 'service',
@@ -1018,6 +1076,7 @@ export const TREE_PROCS: TreeProc[] = [
   { path: 'submerchant.list', area: 'submerchant', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'merchant.balances', area: 'merchant.profile', input: (i) => ({ merchantId: i.merchantId, assetId: 'USDT' }) },
   { path: 'merchant.listLinks', area: 'payment.link', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
+  { path: 'merchant.getLink', area: 'payment.link', input: (i) => ({ merchantId: i.merchantId, linkId: i.linkId }) },
   { path: 'payment.get', area: 'payment', input: (i) => ({ paymentId: i.paymentId }) },
   { path: 'payment.list', area: 'payment', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },
   { path: 'settlement.list', area: 'settlement', input: (i) => ({ merchantId: i.merchantId, limit: 50 }) },

@@ -35,7 +35,7 @@ export function canCancel(order: Pick<Order, 'status' | 'recoveryRequired'>): bo
 
 /**
  * Open orders first, then the newest closed ones, at most 20 in all, each order once. Orders being checked
- * stay with the open ones (their outcome is not known yet), whichever list they came from.
+ * stay with the open ones (their outcome is not known), whichever list they came from.
  */
 export function pickRows(open: readonly Order[], closed: readonly Order[], limit = MAX_ORDER_ROWS): Order[] {
   const seen = new Set<string>();

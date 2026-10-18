@@ -5,9 +5,10 @@
  * The invite never looks up whether that address already has an account, so
  * the reply cannot say so. Sign-in claims the row onto the real account.
  *
- * The rate window is owner-published. Either value unset, blank, zero, or not
- * a positive integer leaves email invite unconfigured: the call refuses.
- * There is no default count and no default window.
+ * The rate window and the invite lifetime are owner-published. Any of them
+ * unset, blank, zero, or not a positive integer leaves email invite
+ * unconfigured: sending refuses, and a claim binds nothing. There is no
+ * default count, window, or lifetime.
  */
 
 export const EMAIL_INVITE_PREFIX = 'email:';
@@ -35,6 +36,8 @@ export function isReservedTeamUserId(userId: string): boolean {
 export interface TeamEmailInviteLimit {
   readonly maxPerWindow: number;
   readonly windowMs: number;
+  /** Pending email invites older than this are not claimed. */
+  readonly ttlMs: number;
 }
 
 const POSITIVE_INT = /^[1-9][0-9]*$/;
@@ -42,9 +45,17 @@ const POSITIVE_INT = /^[1-9][0-9]*$/;
 export function loadTeamEmailInviteLimit(env: Record<string, string | undefined>): TeamEmailInviteLimit | undefined {
   const maxRaw = env.PAY_TEAM_EMAIL_INVITE_MAX?.trim() ?? '';
   const windowRaw = env.PAY_TEAM_EMAIL_INVITE_WINDOW_MS?.trim() ?? '';
-  if (!POSITIVE_INT.test(maxRaw) || !POSITIVE_INT.test(windowRaw)) return undefined;
+  const ttlRaw = env.PAY_TEAM_EMAIL_INVITE_TTL_MS?.trim() ?? '';
+  if (!POSITIVE_INT.test(maxRaw) || !POSITIVE_INT.test(windowRaw) || !POSITIVE_INT.test(ttlRaw)) return undefined;
   const maxPerWindow = Number(maxRaw);
   const windowMs = Number(windowRaw);
-  if (!Number.isSafeInteger(maxPerWindow) || !Number.isSafeInteger(windowMs)) return undefined;
-  return { maxPerWindow, windowMs };
+  const ttlMs = Number(ttlRaw);
+  if (!Number.isSafeInteger(maxPerWindow) || !Number.isSafeInteger(windowMs) || !Number.isSafeInteger(ttlMs)) return undefined;
+  return { maxPerWindow, windowMs, ttlMs };
+}
+
+/** A published lifetime. Anything else means email invites are not claimable. */
+export function publishedTeamEmailInviteTtlMs(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isSafeInteger(value) || value < 1) return undefined;
+  return value;
 }

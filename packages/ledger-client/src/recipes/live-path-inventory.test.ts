@@ -71,11 +71,9 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 /** Frozen 12-hex digests. Editing a socket reason must change reasonFingerprint(row.reason) and fail the pin. */
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
+  { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
   { name: 'futuresInsuranceTopup', fingerprint: 'de1438cd42bc' },
-  { name: 'chargebackOpen', fingerprint: '2a3819e675b1' },
-  { name: 'chargebackShortfall', fingerprint: '79e7dbc26929' },
-  { name: 'chargebackWon', fingerprint: 'fec62702951c' },
-  { name: 'chargebackShortfallRecovered', fingerprint: 'a132139e8754' },
+  { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
 ];
@@ -84,17 +82,16 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
  * S2S `/trpc/post` catalog (`services/svc-ledger/src/recipe-gate.ts`) samples
  * every registry recipe to freeze (module, reason, legs) signatures. It never
  * `ledger.post` — not a second chargeback door (or any money writer).
- * `chargeback-ledger.ts` remains the only production post for `chargebackOpen`.
+ * `chargeback-ledger.ts` posts `chargebackOpen`, `chargebackShortfall`,
+ * `chargebackWon`, and `chargebackShortfallRecovered`.
  */
 const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
-  ['chargebackOpen', ['services/svc-pay/src/chargeback-ledger.ts', RECIPE_GATE_CATALOG]],
-  ['chargebackShortfall', [RECIPE_GATE_CATALOG]],
-  ['chargebackWon', [RECIPE_GATE_CATALOG]],
-  ['chargebackShortfallRecovered', [RECIPE_GATE_CATALOG]],
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
+  ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
   ['futuresInsuranceTopup', [RECIPE_GATE_CATALOG]],
+  ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
 ]);
@@ -109,11 +106,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (66 = 58 live + 8 socket)', () => {
+  it('pins live vs §13 socket counts on tip (67 = 61 live + 6 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 58, socket: 8 });
-    expect(inventory.recipes).toHaveLength(66);
-    expect(liveRecipeKeys(inventory)).toHaveLength(58);
+    expect(counts).toEqual({ live: 61, socket: 6 });
+    expect(inventory.recipes).toHaveLength(67);
+    expect(liveRecipeKeys(inventory)).toHaveLength(61);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 
@@ -182,7 +179,7 @@ describe('D26-P2-11 executed MemoryLedger for §13 socket recipes', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('orderHoldAmend conserves (live — qty-up extra hold, same pot as orderHold)', async () => {
+  it('orderHoldAmend conserves (socket — qty-up extra hold, same pot as orderHold)', async () => {
     await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('200'), rail: 'test', railRef: 'd26-amend' }));
     await ledger.post(recipes.orderHold({ orderId: 'o-1', userId: USER, assetId: 'USDT', amount: amt('100') }));
     await ledger.post(recipes.orderHoldAmend({ orderId: 'o-1', userId: USER, assetId: 'USDT', amount: amt('50'), sequence: 1 }));
@@ -209,7 +206,7 @@ describe('D26-P2-11 executed MemoryLedger for §13 socket recipes', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('chargebackOpen + shortfall conserves (socket — pay.rails park)', async () => {
+  it('chargebackOpen + shortfall conserves (live — svc-pay chargeback-ledger)', async () => {
     await ledger.post(
       recipes.paymentCapture({
         paymentId: 'pay-d26',

@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { createTestDatabase } from '@intafaced/db';
 import { MemoryLedger } from '@intafaced/ledger-client';
@@ -23,7 +25,22 @@ const TRADE = '00000000-0000-4000-8000-0000000000a6';
 const OFFER = '00000000-0000-4000-8000-0000000000f0';
 const run = promisify(execFile);
 const runner = fileURLToPath(new URL('../scripts/migrate.ts', import.meta.url));
-const tsx = fileURLToPath(new URL('../../../node_modules/.bin/tsx', import.meta.url));
+const compiledRunner = join(dirname(runner), '.migration-down-runner.mjs');
+
+/**
+ * Strip the runner once. Three `--import tsx` boots each recompile this CLI
+ * (cold `node --import tsx` was 173–234ms before any query, 2026-10-18). The
+ * compiled file sits next to `migrate.ts` so `import.meta.url` still resolves
+ * `../drizzle`.
+ */
+function compileRunner(): void {
+  const tsxPackage = createRequire(fileURLToPath(import.meta.url)).resolve('tsx/package.json');
+  const { transformSync } = createRequire(tsxPackage)('esbuild') as {
+    transformSync: (source: string, options: { loader: 'ts'; format: 'esm'; target: 'node20' }) => { code: string };
+  };
+  const { code } = transformSync(readFileSync(runner, 'utf8'), { loader: 'ts', format: 'esm', target: 'node20' });
+  writeFileSync(compiledRunner, code);
+}
 
 describe('native transactional P2P counter down', () => {
   it('excludes an actual service claim before the guard and retains its history through DDL rollback', async () => {
@@ -86,9 +103,16 @@ describe('native transactional P2P counter down', () => {
   });
 
   it('runs the production down runner atomically with tracking, restoring DDL on tracking failure', async () => {
-    const db = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations: [] });
-    const invoke = (args: string[]) => run(tsx, [runner, ...args], { env: { ...process.env, DATABASE_URL: db.url }, timeout: 5000 });
+    compileRunner();
+    let db: Awaited<ReturnType<typeof createTestDatabase>> | undefined;
     try {
+      db = await createTestDatabase({ service: 'p2p', url: process.env.TEST_DATABASE_URL, migrations: [] });
+      const invoke = (args: string[]) =>
+        run(process.execPath, [compiledRunner, ...args], {
+          env: { ...process.env, DATABASE_URL: db!.url },
+          timeout: 5000,
+          killSignal: 'SIGKILL',
+        });
       await invoke([]);
       expect(await db.sql`SELECT name FROM p2p.__migrations WHERE name=${upFile}`).toHaveLength(1);
       await db.sql.unsafe(
@@ -109,7 +133,12 @@ describe('native transactional P2P counter down', () => {
       expect(await db.sql`SELECT name FROM p2p.__migrations`).toHaveLength(0);
       expect((await db.sql`SELECT to_regclass('p2p.p2p_trades') AS trades`)[0]?.trades).toBeNull();
     } finally {
-      await db.drop();
+      await db?.drop();
+      try {
+        unlinkSync(compiledRunner);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
     }
   }, 15000);
 });

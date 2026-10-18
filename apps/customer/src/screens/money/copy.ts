@@ -38,12 +38,17 @@ const messages = {
   Value: 'Value',
   Available: 'Available',
   'In orders': 'In orders',
+  'In spaces': 'In spaces',
+  'Spaces figure missing': 'What you keep in spaces could not be read right now, so Available and In orders may not add up to Amount.',
+  'Spaces left out of amount': 'Amount here leaves out money kept in spaces. It is listed under Your spaces below.',
+  'Held read apart':
+    'Available, In orders and In spaces don’t add up to Amount right now. Money on hold for an approval counts in Amount but not in these columns.',
   Share: 'Share',
   'Small balances': 'Small balances',
   '{count} coins under $1': '{count} coins under $1',
   '1 coin under $1': '1 coin under $1',
-  'Your accounts': 'Your accounts',
-  'Your accounts note': 'Money you have set aside in named accounts. It is already counted in your total.',
+  'Your accounts': 'Your spaces',
+  'Your accounts note': 'Money you have set aside in named spaces. It is already counted in your total.',
   'Nothing held': 'You don’t hold anything yet.',
   'Nothing held body': 'Buy crypto, or ask someone on INTAFACED to send you USDT.',
   'Buy crypto': 'Buy crypto',
@@ -169,8 +174,8 @@ const messages = {
   'Money out direction': 'Money out',
   'Set aside note': 'This money is set aside for an open order. It comes back if the order is cancelled.',
   'Add a note': 'Add a note',
-  'Add a note reason': 'Notes on transactions are not supported by the activity service yet.',
-  'Dispute reason': 'There is no way to dispute a transaction online yet. Contact support with the reference.',
+  'Add a note reason': 'Notes on transactions are not supported by the activity service.',
+  'Dispute reason': 'There is no way to dispute a transaction online. Contact support with the reference.',
 } as const;
 
 export const moneyCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.money', messages);

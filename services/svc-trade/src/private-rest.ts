@@ -1,5 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
+import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
+import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
@@ -27,7 +30,7 @@ import {
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { MARKETS_LIMIT_MAX, OpenOrdersLimitUnsetError, type AmendOrderInput, type PlaceOrderInput } from './spot/trade-service.js';
-import type { OwnerFeeSchedule } from './spot/fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
 import {
   TradeError,
   type AmendOrderOutcome,
@@ -38,7 +41,8 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
-import { presentFuturesErrorWire } from './futures/futures-error-wire.js';
+import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
+import { resolveOpenPositionMode } from './futures/account-mode.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './futures/margin-mode.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
@@ -53,7 +57,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  * Paths match `REST_ROUTES` in `@intafaced/exchange-contract`:
  *   GET    /api/v1/orders/open     scope: trade:read  (?symbol=&limit=)
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
- *   GET    /api/v1/admin/fees        scope: admin:read (configured market fee strings)
+ *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
  *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms)
  *   GET    /api/v1/orders/:id      scope: trade:read
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
@@ -74,6 +78,8 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/adl-disclosure     scope: trade:read  (copy + ack — DIRECTION:34)
  *   POST   /api/v1/futures/adl-disclosure/ack scope: trade:write (ack before open)
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
+ *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
+ *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
  *   POST   /api/v1/positions       scope: trade:write (open funded position — F3)
  *   DELETE /api/v1/positions/:id   scope: trade:write (close + release margin — F3)
  *
@@ -109,6 +115,17 @@ export interface PrivateRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   serviceName: string;
+  convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  icebergDisplay?: IcebergDisplayStore;
+  /**
+   * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
+   * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
+   */
+  findClientOrder?(
+    principal: Principal,
+    input: { symbol?: string; marketId?: string; clientOrderId?: string },
+  ): Promise<OrderRecord | null>;
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
@@ -153,8 +170,8 @@ export interface PrivateRestDeps {
    * self-only is enforced here at the edge of this surface.
    */
   userBalances(userId: string): Promise<readonly Balance[]>;
-  /** Open futures positions for the principal (empty [] when none). */
-  listPositions(principal: Principal, symbol?: string): Promise<Position[]>;
+  /** Open futures positions for the principal (empty [] when none). Optional clientOpenId is the caller's own key. */
+  listPositions(principal: Principal, symbol?: string, clientOpenId?: string): Promise<Position[]>;
   /** Closed/liquidated rows for the principal (empty [] when none). */
   listClosedPositions(principal: Principal, input: { symbol?: string; limit: number; sinceMs?: number }): Promise<Position[]>;
   /** One owned futures row. Missing / not theirs → 404, never another user's row. */
@@ -180,10 +197,24 @@ export interface PrivateRestDeps {
       collateralClass?: string;
       /** Required retry key — same as spot clientOrderId; see positionIdFor. */
       clientOpenId: string;
+      reduceOnly?: boolean;
+      positionMode?: 'one_way' | 'hedge';
     },
   ): Promise<Position>;
   /** Close at the current mark. No price parameter, for the same reason. */
   closePosition(principal: Principal, positionId: string): Promise<Position>;
+  /** Partial close. Quantity equal to the size is a full close. */
+  closePositionQuantity?(principal: Principal, positionId: string, input: { quantity: string; clientCloseId: string }): Promise<Position>;
+  closeAllPositions?(
+    principal: Principal,
+    input: { clientBatchId: string; market?: string },
+  ): Promise<{ results: readonly { positionId: string; status: 'closed' | 'refused'; code?: string; reason?: string }[] }>;
+  marginSummary?(principal: Principal): Promise<unknown>;
+  readAccountMode?(principal: Principal): Promise<{ mode: 'one_way' | 'hedge' | null; source: string; code?: string }>;
+  writeAccountMode?(
+    principal: Principal,
+    input: { mode: unknown; clientModeId: string },
+  ): Promise<{ mode: 'one_way' | 'hedge' | null; source: string; code?: string }>;
   /**
    * Isolated live re-leverage within the explicit owner/listing cap. Extra IM
    * via ledger recipes; missing position 404; over-cap / would-be liquidation / insufficient
@@ -225,6 +256,20 @@ export interface PrivateRestDeps {
    * (candidate side). Empty [] when none — never invents events.
    */
   listAdlDisclosureEvents(principal: Principal, limit: number): Promise<AdlActionDisclosureWire[]>;
+  /**
+   * Funding settlement postings for one position the caller owns.
+   * Empty payments means no funding yet. Another account's id is not found.
+   */
+  listFundingPayments?(
+    principal: Principal,
+    positionId: string,
+    cursor: string | undefined,
+  ): Promise<{
+    payments: readonly { time: string; rate: string | null; rateReason: string | null; amount: string; direction: 'paid' | 'received' }[];
+    nextCursor: string | null;
+  }>;
+  /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
+  listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
 }
 
 /**
@@ -471,10 +516,6 @@ export function presentCcxtTradingFee(market: Market) {
 }
 
 /**
- * Build `Record<symbol, TradingFee>` from markets that expose integer bps.
- * Markets without usable rates are skipped; zero markets → `{}` (honest empty).
- */
-/**
  * Customer fee card. Maker/taker are the owner schedule, once per symbol.
  * Listing-row bps are not copied onto this wire.
  */
@@ -499,14 +540,49 @@ export function presentAccountFees(
   return out;
 }
 
-export function presentTradingFees(markets: Market[]): Record<string, ReturnType<typeof presentCcxtTradingFee>> {
-  const out: Record<string, ReturnType<typeof presentCcxtTradingFee>> = {};
-  for (const market of markets) {
-    if (!Number.isInteger(market.makerBps) || market.makerBps < 0) continue;
-    if (!Number.isInteger(market.takerBps) || market.takerBps < 0) continue;
-    out[market.symbol] = presentCcxtTradingFee(market);
-  }
-  return out;
+/** Where the operator fee read gets its numbers. Listing-row bps are not charged and never appear on this wire. */
+export const ADMIN_FEE_SOURCE = 'TRADE_FEE_SCHEDULE' as const;
+
+export interface AdminMarketFee {
+  readonly symbol: string;
+  readonly kind: Market['kind'];
+  /** Which published block the fill path reads for this market kind. Options have none. */
+  readonly product: 'spot' | 'perpetual' | null;
+  /** Rates before any per-customer rank discount, as decimal strings. Null with a `refusal` when the block is unpublished. */
+  readonly charged: {
+    readonly makerBps: string;
+    readonly takerBps: string;
+    readonly makerRate: string;
+    readonly takerRate: string;
+  } | null;
+  readonly refusal: 'trade.fee_product_unpublished' | null;
+}
+
+/**
+ * Operator view of the fees customers are charged: the owner `TRADE_FEE_SCHEDULE`, resolved per market kind the way the
+ * fill path does (spot → top-level rates, futures → `perpetual` block, options → unpublished). Bps and rates are decimal
+ * strings. Rank discounts are per customer and are not applied here.
+ */
+export function presentAdminFees(markets: readonly Market[], schedule: Extract<OwnerFeeSchedule, { published: true }>) {
+  const rows: AdminMarketFee[] = markets.map((market) => {
+    const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+    const rates = product ? publishedProductBps(schedule, product) : null;
+    return {
+      symbol: market.symbol,
+      kind: market.kind,
+      product,
+      charged: rates
+        ? {
+            makerBps: String(rates.makerBps),
+            takerBps: String(rates.takerBps),
+            makerRate: bpsToFeeRate(rates.makerBps),
+            takerRate: bpsToFeeRate(rates.takerBps),
+          }
+        : null,
+      refusal: rates ? null : ('trade.fee_product_unpublished' as const),
+    };
+  });
+  return { source: ADMIN_FEE_SOURCE, version: schedule.version, markets: rows };
 }
 
 /**
@@ -574,6 +650,9 @@ export function mapCreateOrderBody(body: CreateOrderRequest): PlaceOrderInput {
   }
   if (body.reduceOnly === true) {
     throw new TradeError('reduceOnly is not supported on spot', 'trade.order_type_unsupported');
+  }
+  if (body.timeInForce === 'MOC') {
+    throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
   }
 
   let tif = body.timeInForce;
@@ -814,6 +893,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return principal;
   }
 
+  attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
+
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
@@ -873,7 +955,15 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     try {
       requireScope(principal, 'admin:read');
-      return reply.code(200).send(presentTradingFees(await deps.markets(MARKETS_LIMIT_MAX)));
+      const schedule = deps.feeSchedule;
+      if (!schedule || schedule.published !== true) {
+        return reply.code(503).send({
+          code: 'ExchangeNotAvailable',
+          message: FEE_SCHEDULE_RESIDUAL,
+          intafacedCode: 'trade.fee_schedule_blank',
+        });
+      }
+      return reply.code(200).send(presentAdminFees(await deps.markets(MARKETS_LIMIT_MAX), schedule));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -1102,13 +1192,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * never invents leverage/mark. `closing` is a voluntary exit waiting on a mark
    * (ADR 2026-08-07) and must not look like a normal open. Optional ?symbol= filters.
    */
-  app.get<{ Querystring: { symbol?: string } }>('/api/v1/positions', async (req, reply) => {
+  app.get<{ Querystring: { symbol?: string; clientOpenId?: string } }>('/api/v1/positions', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
     try {
       requireScope(principal, 'trade:read');
-      const rows = await deps.listPositions(principal, req.query.symbol);
+      const rows = await deps.listPositions(principal, req.query.symbol, req.query.clientOpenId);
       return reply.code(200).send(presentOpenPositions(rows));
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -1196,6 +1286,25 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const marginMode = body.marginMode === 'isolated' ? ('isolated' as const) : undefined;
       const collateralClass = typeof body.collateralClass === 'string' ? body.collateralClass : undefined;
 
+      if (body.reduceOnly !== undefined && body.reduceOnly !== true && body.reduceOnly !== false) {
+        return reply.code(400).send({
+          ...badRequest('reduceOnly must be a boolean', 'trade.reduce_only_invalid').body,
+        });
+      }
+      const reduceOnly = body.reduceOnly === true;
+      let positionMode: 'one_way' | 'hedge' | undefined;
+      if (!reduceOnly) {
+        const stored = deps.readAccountMode ? await deps.readAccountMode(principal) : null;
+        const decision = resolveOpenPositionMode({
+          requested: body.positionMode,
+          stored: stored?.mode ?? null,
+        });
+        if (!decision.ok) {
+          return reply.code(400).send({ error: decision.code, message: decision.reason });
+        }
+        if (body.positionMode != null || stored?.mode != null) positionMode = decision.mode;
+      }
+
       if (!symbol || !side || !size) {
         return reply.code(400).send({
           ...badRequest('symbol, side, size|contracts required', 'trade.bad_request').body,
@@ -1218,6 +1327,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         leverage,
         marginMode,
         clientOpenId,
+        ...(reduceOnly ? { reduceOnly: true } : {}),
+        ...(positionMode !== undefined ? { positionMode } : {}),
         ...(collateralClass !== undefined ? { collateralClass } : {}),
       });
       return reply.code(200).send(pos);
@@ -1226,6 +1337,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         return reply.code(err.status).send({ error: err.code, message: err.message });
       }
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1286,6 +1398,46 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const rows = await deps.listAdlDisclosureEvents(principal, limit);
       return reply.code(200).send(rows);
     } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/liquidations', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listLiquidations) {
+      return reply.code(503).send({
+        error: 'trade.liquidations_unwired',
+        message: 'liquidation history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listLiquidations(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>('/api/v1/positions/:id/funding-payments', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listFundingPayments) {
+      return reply.code(503).send({
+        error: 'trade.funding_payments_unwired',
+        message: 'funding payment history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listFundingPayments(principal, req.params.id, req.query.cursor));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -1367,8 +1519,130 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(200).send(pos);
     } catch (err) {
       if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/close', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.closePositionQuantity) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'partial close is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const supplied = suppliedPriceFields(body);
+      if (supplied.length > 0) return reply.code(400).send(priceNotAcceptedBody(supplied));
+      if (typeof body.quantity !== 'string' || typeof body.clientCloseId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('quantity and clientCloseId are required decimal/string fields', 'trade.client_close_id_required').body,
+        });
+      }
+      const pos = await deps.closePositionQuantity(principal, req.params.id, {
+        quantity: body.quantity,
+        clientCloseId: body.clientCloseId,
+      });
+      return reply.code(200).send(pos);
+    } catch (err) {
+      if (err instanceof MoneyError) {
+        return reply.code(400).send({ error: 'trade.close_quantity_invalid', message: err.message });
+      }
+      if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
+        return reply.code(err.status).send(presentFuturesErrorWire(err));
+      }
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post('/api/v1/futures/positions/close-all', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.closeAllPositions) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'close-all is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.clientBatchId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('clientBatchId is required', 'trade.client_batch_id_required').body,
+        });
+      }
+      const market = typeof body.market === 'string' ? body.market : undefined;
+      const result = await deps.closeAllPositions(principal, { clientBatchId: body.clientBatchId, ...(market ? { market } : {}) });
+      return reply.code(200).send(result);
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/margin-summary', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.marginSummary) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'margin summary is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.marginSummary(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/position-mode', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.readAccountMode) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'position mode is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.readAccountMode(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.put('/api/v1/futures/position-mode', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.writeAccountMode) {
+      return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'position mode is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.clientModeId !== 'string') {
+        return reply.code(400).send({
+          ...badRequest('clientModeId is required', 'trade.client_mode_id_required').body,
+        });
+      }
+      const state = await deps.writeAccountMode(principal, { mode: body.mode, clientModeId: body.clientModeId });
+      return reply.code(200).send(state);
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -1858,8 +2132,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     let input: PlaceOrderInput;
+    let displayQty: string | null = null;
     try {
       input = mapCreateOrderBody(parsed.data);
+      const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
+      input = attached.input;
+      displayQty = attached.displayQty;
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -1867,10 +2145,46 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const order = await deps.placeOrder(principal, input);
+      const prior =
+        displayQty && deps.findClientOrder
+          ? await deps.findClientOrder(principal, { symbol: input.symbol, marketId: input.marketId, clientOrderId: input.clientOrderId })
+          : null;
+      let order: OrderRecord;
+      try {
+        order = await deps.placeOrder(principal, input);
+      } catch (placeErr) {
+        if (displayQty && deps.icebergDisplay && deps.findClientOrder && prior == null) {
+          try {
+            const row = await deps.findClientOrder(principal, {
+              symbol: input.symbol,
+              marketId: input.marketId,
+              clientOrderId: input.clientOrderId,
+            });
+            if (row) await deps.icebergDisplay.remember(row.id, principal.userId, displayQty);
+          } catch {
+            // The customer's answer stays the original place error.
+          }
+        }
+        throw placeErr;
+      }
+      if (displayQty && deps.icebergDisplay) {
+        if (deps.findClientOrder && prior) {
+          const storedPeak = await deps.icebergDisplay.read(order.id);
+          if (!storedPeak) {
+            throw new TradeError(
+              'iceberg displayQty cannot be added to an order that was not placed as an iceberg',
+              TRADE_ICEBERG_DISPLAY_INVALID,
+            );
+          }
+        } else {
+          await deps.icebergDisplay.remember(order.id, principal.userId, displayQty);
+        }
+      }
+      const stored = deps.icebergDisplay ? await deps.icebergDisplay.read(order.id) : displayQty;
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
-      return reply.code(201).send(presentCcxtOrder(order, symbol));
+      const wire = presentCcxtOrder(order, symbol);
+      return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

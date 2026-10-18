@@ -342,6 +342,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 10/20. Operator publishes; not a retry loop and not a symbol to drop.
    */
   'trade.fee_schedule_blank': { ccxt: 'BadRequest', status: 400 },
+  /** This product has no published rate. The spot rate is not a substitute. */
+  'trade.fee_product_unpublished': { ccxt: 'BadRequest', status: 400 },
   /**
    * Paper markets do not settle. Not a venue fault and not a retry: funding
    * the zero hold to make tradeFill succeed is the bug this refuses.
@@ -376,6 +378,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.min_qty_exceeds_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_missing': { ccxt: 'InvalidOrder', status: 400 },
   'trade.iceberg_display_not_smaller': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.iceberg_display_invalid': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_strike': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_expiry': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_qty': { ccxt: 'InvalidOrder', status: 400 },
@@ -431,7 +434,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_price_band': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_mark_unusable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_mark_missing': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.algo_mark_invalid': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.algo_mark_policy_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_insufficient_balance': { ccxt: 'InsufficientFunds', status: 400 },
+  'trade.algo_balance_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * Child cancel failed and the parent was left non-cancelled. Caller must
@@ -446,6 +452,18 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** ADR 2026-08-08: resume would more than double the order's own duration. */
   'trade.algo_resume_extends_too_far': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
+  /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
+  'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator price collar. Not retryable at the same price. */
+  'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
+  'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
+  /**
+   * A circuit breaker is set and no reference mark exists. The order may be
+   * well formed; the venue refuses every order until that reference is real.
+   * 400 so a bot does not retry a missing price.
+   */
+  'trade.circuit_breaker_reference_unset': { ccxt: 'ExchangeError', status: 400 },
 };
 
 /**
@@ -464,6 +482,8 @@ const AUTH_ERROR_MAP: Record<AuthErrorCode, Arm> = {
   /** Step-up required — the credential is valid, the session is not enough. */
   'mfa.required': { ccxt: 'AuthenticationError', status: 401 },
   'scope.denied': { ccxt: 'PermissionDenied', status: 403 },
+  /** Held on the token, refused because the credential is an API key. */
+  'scope.interactive_only': { ccxt: 'PermissionDenied', status: 403 },
   'tier.insufficient': { ccxt: 'PermissionDenied', status: 403 },
   'ownership.denied': { ccxt: 'PermissionDenied', status: 403 },
 };

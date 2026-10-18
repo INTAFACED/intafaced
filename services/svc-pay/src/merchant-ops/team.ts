@@ -18,7 +18,8 @@ import { emailInviteToken, isReservedTeamUserId, normaliseTeamInviteEmail, type 
  *   - The owner is never a row, so "cannot remove the last admin" holds by
  *     construction: the owner is always there.
  *   - An invitation only becomes access when the invited person accepts it,
- *     or when an email invite is claimed at sign-in and the one-team rule allows it.
+ *     or when a confirmed mailbox claims an email invite that is still inside
+ *     the published lifetime and the one-team rule allows it.
  *   - Someone who owns a merchant, or is on another team, cannot JOIN (one
  *     active team per account). That is checked when they accept, never when
  *     they are invited, so an invite reveals nothing about an outside account.
@@ -276,7 +277,9 @@ export class TeamService {
       !Number.isInteger(limit.maxPerWindow) ||
       limit.maxPerWindow < 1 ||
       !Number.isInteger(limit.windowMs) ||
-      limit.windowMs < 1
+      limit.windowMs < 1 ||
+      !Number.isInteger(limit.ttlMs) ||
+      limit.ttlMs < 1
     ) {
       throw new MerchantOpsError('pay.team_email_invite_unconfigured', 'precondition');
     }

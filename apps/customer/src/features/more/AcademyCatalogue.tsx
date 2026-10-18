@@ -69,7 +69,7 @@ export function AcademyCatalogue({ lessons, tracking, certId, selectedPath }: Pr
             ))}
           </div>
           <p className="muted">
-            <Copy k="trackingBoundary" />
+            <Copy k="trackingSource" />
           </p>
         </div>
       </Panel>
@@ -86,38 +86,29 @@ function PathCard({ path, tracking, active }: { path: PathSummary; tracking: Tra
       <h3>{pathLabel(t, path.path)}</h3>
       <div className="academy-lms-meta">
         <span>
-          <Copy k="lessonCount" params={{ count: path.lessons.length }} />
+          {path.lessons.length === 1 ? <Copy k="lessonCountOne" /> : <Copy k="lessonCount" params={{ count: path.lessons.length }} />}
         </span>
         <span>
           <Copy k="minutes" params={{ minutes: path.minutes }} />
         </span>
         {path.playbooks > 0 && (
           <span>
-            <Copy k="playbookCount" params={{ count: path.playbooks }} />
+            {path.playbooks === 1 ? <Copy k="playbookCountOne" /> : <Copy k="playbookCount" params={{ count: path.playbooks }} />}
           </span>
         )}
         {path.workbooks > 0 && (
           <span>
-            <Copy k="workbookCount" params={{ count: path.workbooks }} />
+            {path.workbooks === 1 ? <Copy k="workbookCountOne" /> : <Copy k="workbookCount" params={{ count: path.workbooks }} />}
           </span>
         )}
       </div>
-      {progress.percent === null ? (
-        <p className="muted">
-          <Copy k="noTrackedProgress" />
-        </p>
-      ) : (
+      {progress.percent !== null && (
         <>
           <ProgressBar percent={progress.percent} label={t('progressLabel', { path: pathLabel(t, path.path) })} />
           <p>
-            <Copy k="trackedRecorded" params={{ recorded: progress.recorded, tracked: progress.tracked }} />
+            <Copy k="completedOfTotal" params={{ recorded: progress.recorded, total: progress.total }} />
           </p>
         </>
-      )}
-      {progress.untracked > 0 && progress.tracked > 0 && (
-        <p className="muted">
-          <Copy k="untrackedCount" params={{ count: progress.untracked }} />
-        </p>
       )}
       <div>
         <a className="academy-learning-link" href={`/academy?${new URLSearchParams({ path: path.path })}`}>
@@ -140,19 +131,15 @@ function PathDetail({ path, tracking, certId }: { path: PathSummary; tracking: T
             <Copy k="allPaths" />
           </a>
         </div>
-        {progress.percent === null ? (
-          <p className="muted">
-            <Copy k="noTrackedProgress" />
-          </p>
-        ) : (
+        {progress.percent !== null && (
           <>
             <ProgressBar percent={progress.percent} label={t('progressLabel', { path: pathLabel(t, path.path) })} />
             <p role="status">
-              <Copy k="trackedRecorded" params={{ recorded: progress.recorded, tracked: progress.tracked }} />
+              <Copy k="completedOfTotal" params={{ recorded: progress.recorded, total: progress.total }} />
             </p>
           </>
         )}
-        {progress.percent === 100 && progress.untracked === 0 ? (
+        {progress.percent === 100 ? (
           <p>
             <Copy k="pathAllRecorded" />
           </p>

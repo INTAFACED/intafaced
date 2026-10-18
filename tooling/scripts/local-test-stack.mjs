@@ -41,6 +41,15 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
+  ensureFounderVaultDraft,
+  enrolTestStackFounders,
+  founderIdentityEnv,
+  foundersEnrolled,
+  planFounderIdentityRestart,
+  readFounderPinStamp,
+  writeFounderPinStamp,
+} from './local-test-founders.mjs';
+import {
   localStackState,
   assertActiveLocalStack,
   processRecordMatches,
@@ -226,6 +235,18 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+function localOperatorIds() {
+  try {
+    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
+    return ['a', 'b']
+      .map((k) => ops[k]?.userId)
+      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
+      .join(',');
+  } catch {
+    return '';
+  }
+}
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
@@ -613,6 +634,9 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
+    // OPS-0001: do not set LEDGER_CALLER_BINDING here. Unset means report, so
+    // this shared secret still posts. Per-service secrets are optional and
+    // stay unset. See services/svc-ledger/CALLER-BINDING.md.
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through
@@ -692,6 +716,8 @@ function serviceDefs(secrets) {
         WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
         IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
         IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
+        // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
+        PAY_URL: urlOf('pay'),
         // Edge reads each caller's current account authority with this key; without it
         // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
         IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
@@ -700,8 +726,21 @@ function serviceDefs(secrets) {
         // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
         // test accounts; "LOCAL TEST — not a real approval".
         IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+        // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
+        // transport, a lifetime, and a rate budget are published. local-outbox is refused
+        // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
+        // not an owner decision. The confirm link is written to the outbox file, labelled
+        // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
+        IDENTITY_MAIL_TRANSPORT: 'local-outbox',
+        IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
+        IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+        IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+        IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+        // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
+        // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
+        ...identityFounderEnv(),
       }),
     },
     {
@@ -714,6 +753,13 @@ function serviceDefs(secrets) {
         // Opening a market needs a two-person approval that matching consumes from identity
         // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
         IDENTITY_URL: urlOf('identity'),
+        // Matching reads order:<id> holds read-only from the ledger at boot; without it a journal with resting orders boots closed (matching.hold_check_unwired).
+        LEDGER_URL: urlOf('ledger'),
+        // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
+        // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
+        // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
+        // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
+        ...(localOperatorIds() ? { MATCHING_OPERATOR_IDS: localOperatorIds() } : {}),
       }),
     },
     {
@@ -772,6 +818,8 @@ function serviceDefs(secrets) {
         PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
         PAY_LINK_DEFAULT_TTL_DAYS: '30',
         PAY_LINK_MAX_TTL_DAYS: '365',
+        // LOCAL-TEST value, not INTAFACED pricing. 250 bps is a labelled stand-in so the local portal can show a fee. The product stays unset wherever this variable is absent.
+        PAY_MERCHANT_STARTER_FEE_BPS: '250',
       }),
     },
     {
@@ -820,9 +868,14 @@ function serviceDefs(secrets) {
         DATABASE_URL: dbUrl('svc_p2p', secrets),
         LEDGER_URL: urlOf('ledger'),
         IDENTITY_URL: urlOf('identity'),
-        // The house fee (P2P_FEE_BPS) and offer caps are owner-unpublished money numbers: left unset, so the
-        // service refuses those steps by name. The clocks below have no default and the service will not boot
-        // without them; they are LOCAL TEST values (the figures the service's own messages name), not owner decisions.
+        // Offer caps stay unset (owner-unpublished). P2P_FEE_BPS=0 is an explicit LOCAL TEST free cut:
+        // parseOwnerIntegerEnv accepts 0, and trades.take posts a 0 bps cut instead of refusing fee_bps_unset.
+        // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
+        // values (the figures the service's own messages name), not owner decisions.
+        // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
+        LOCAL_TEST_KMS: '1',
+        LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
+        P2P_FEE_BPS: '0',
         P2P_ESCROW_DEADLINE_SECONDS: '120',
         P2P_PAYMENT_DEADLINE_SECONDS: '900',
         P2P_RELEASE_DEADLINE_SECONDS: '1800',
@@ -1026,16 +1079,67 @@ function ensureStreams() {
   say(`  nats streams: ${r.stdout.trim()}`);
 }
 
+/** Invite hashes and, once enrolled, the two local-test founder ids. A bad vault contributes nothing. */
+function identityFounderEnv() {
+  const file = path.join(STATE, 'founders.json');
+  if (!fs.existsSync(file)) return {};
+  let vault;
+  try {
+    vault = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    fail(`local test founder vault is unreadable: ${err instanceof Error ? err.message : err}`);
+  }
+  return founderIdentityEnv(vault);
+}
+
 async function startNodeService(def) {
-  const port = Number(def.env().HTTP_PORT);
+  const env = def.env();
+  const port = Number(env.HTTP_PORT);
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   if (ownedAlive(procs[def.name]) && (await httpGet(url, 2000)).status === 200) return;
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
+  if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], def.env(), path.join(REPO, 'services', `svc-${def.name}`));
+  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
   await waitHealthy(def.name, url, pid);
+}
+
+async function restartIdentity() {
+  say('  identity: restarting so the local test founder pair is the configured pair');
+  await stopProc('identity', readProcs().identity);
+  const def = serviceDefs(readJson(P.secrets)).find((d) => d.name === 'identity');
+  await startNodeService(def);
+}
+
+/**
+ * Seed local_test_founder_a and local_test_founder_b on this stack's identity and
+ * pin IDENTITY_FOUNDER_* to those two ids. No-op when identity or edge is not up.
+ */
+async function ensureLocalTestFounders() {
+  const identityUp = (await httpGet(`${urlOf('identity')}/health`, 2000)).status === 200;
+  const edgeUp = (await httpGet(`${urlOf('edge')}/health`, 2000)).status === 200;
+  if (!identityUp || !edgeUp) {
+    say('  founders: identity or edge is not up, so the local test founder pair was not enrolled on this run');
+    return;
+  }
+  const marker = readJson(P.marker);
+  const edgeUrl = urlOf('edge');
+  const { vaultPath } = ensureFounderVaultDraft({ stateDir: STATE, marker, edgeUrl, log: say });
+  const readVault = () => JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+  let vault = readVault();
+  const plan = planFounderIdentityRestart({ enrolled: foundersEnrolled(vault), stamp: readFounderPinStamp(STATE), vault });
+  if (plan.restartBeforeEnrol) await restartIdentity();
+  if (!foundersEnrolled(vault)) {
+    say('  founders: enrolling local_test_founder_a and local_test_founder_b on this stack');
+    await enrolTestStackFounders({ stateDir: STATE, marker, edgeUrl, log: say });
+    vault = readVault();
+    await restartIdentity();
+  } else if (plan.restartToPin) {
+    await restartIdentity();
+  }
+  if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
 }
 
 async function startCustomer() {
@@ -1153,7 +1257,19 @@ async function cmdStart(flags) {
   );
   await startNats();
   ensureStreams();
+  // Vault before identity starts, so the first boot already has the invite hashes.
+  // Enrolment itself waits until edge is up (below).
+  try {
+    ensureFounderVaultDraft({ stateDir: STATE, marker: readJson(P.marker), edgeUrl: urlOf('edge'), log: say });
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
   for (const def of wanted) await startNodeService(def);
+  try {
+    await ensureLocalTestFounders();
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
@@ -1171,6 +1287,12 @@ async function cmdStart(flags) {
   }
   say('');
   say(`  ${describeCustomerDist()}`);
+  const pinned = identityFounderEnv();
+  say(
+    pinned.IDENTITY_FOUNDER_NITRO_USER_ID && pinned.IDENTITY_FOUNDER_PHANTOM_USER_ID
+      ? '  Founders: local_test_founder_a and local_test_founder_b are the identity pair on this stack'
+      : '  Founders: pair not pinned (identity and edge must both be up)',
+  );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
@@ -1271,6 +1393,15 @@ async function cmdRestart(names) {
   await cmdStart([]);
 }
 
+// The local customer server does not start svc-ws and does not read
+// CUSTOMER_WS_URL into a proxy. The typed refusal names that key. Wiring the
+// upstream is the local-stack owner's job; this default stays a refusal.
+const WS_UPSTREAM_REFUSAL = {
+  code: 'ws.upstream_unset',
+  key: 'CUSTOMER_WS_URL',
+  message: 'CUSTOMER_WS_URL is not wired. The local test stack has no WebSocket upstream and does not start svc-ws.',
+};
+
 // ── Customer static server + reverse proxy ──────────────────────────────────
 
 const MIME = {
@@ -1325,12 +1456,7 @@ function serveCustomer(port = PORTS.customer) {
 
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     if (p.startsWith('/ws/')) {
-      return send(
-        res,
-        503,
-        'application/json',
-        JSON.stringify({ error: 'ws_not_started', message: 'The WebSocket service is not part of the local test stack.' }),
-      );
+      return send(res, 503, 'application/json', JSON.stringify(WS_UPSTREAM_REFUSAL));
     }
     if (p.startsWith('/api/')) {
       const headers = {};
@@ -1407,9 +1533,13 @@ function serveCustomer(port = PORTS.customer) {
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
   });
-  // No WebSocket service: refuse upgrades instead of hanging.
+  // No WebSocket upstream is published. The refusal names CUSTOMER_WS_URL and
+  // does not start svc-ws or proxy when that key is set.
   server.on('upgrade', (req, socket) => {
-    socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    const body = JSON.stringify(WS_UPSTREAM_REFUSAL);
+    socket.end(
+      `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
   });
   server.listen(port, HOST);
 }
@@ -1537,22 +1667,41 @@ async function cmdFund(rawArgs) {
   say(`  available ${bal.amount} ${asset}   (read back from svc-ledger)`);
 }
 
+/** Env each local service would get. Starts nothing. Placeholder secrets only. */
+export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
+  return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
+}
+
+function runningAsCli() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
 // ── Entry ───────────────────────────────────────────────────────────────────
 
-const [cmd = 'start', ...rest] = process.argv.slice(2);
-if (cmd === '__serve-customer')
-  serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
-else if (cmd === 'start' && rest[0] === 'customer-dist')
-  cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
-else if (cmd === 'start') await cmdStart(rest);
-else if (cmd === 'stop') await cmdStop(rest);
-else if (cmd === 'plan') cmdPlan(rest);
-else if (cmd === 'restart') await cmdRestart(rest);
-else if (cmd === 'fund') await cmdFund(rest);
-else if (cmd === 'customer-dist') cmdCustomerDist(rest);
-else if (cmd === 'status') {
-  const ok = await healthTable({ gateMarket: true });
-  say('');
-  say(`  ${describeCustomerDist()}`);
-  process.exit(ok ? 0 : 1);
-} else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+if (runningAsCli()) await runCli();
+
+async function runCli() {
+  const [cmd = 'start', ...rest] = process.argv.slice(2);
+  if (cmd === '__serve-customer')
+    serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === 'start' && rest[0] === 'customer-dist')
+    cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
+  else if (cmd === 'start') await cmdStart(rest);
+  else if (cmd === 'stop') await cmdStop(rest);
+  else if (cmd === 'plan') cmdPlan(rest);
+  else if (cmd === 'restart') await cmdRestart(rest);
+  else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'customer-dist') cmdCustomerDist(rest);
+  else if (cmd === 'status') {
+    const ok = await healthTable({ gateMarket: true });
+    say('');
+    say(`  ${describeCustomerDist()}`);
+    process.exit(ok ? 0 : 1);
+  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+}

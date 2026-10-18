@@ -191,6 +191,7 @@ export interface PlaceOrderRequest {
   readonly symbol: string;
   readonly side: 'buy' | 'sell';
   readonly type: VenueOrderType;
+  /** Quantity in base units (never quote value), for limit and market orders alike. */
   readonly amount: Amount;
   /** Required on a limit order, refused on a market order. */
   readonly price?: Amount;

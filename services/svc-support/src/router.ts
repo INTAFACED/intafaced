@@ -19,6 +19,7 @@ import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
+import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
 
 const queueEntrySchema = z.object({
@@ -64,6 +65,7 @@ function mapError(err: unknown): never {
       err.code === 'support.kb.not_published' ||
       err.code === 'support.kb_version_unknown' ||
       err.code === 'support.identity_grounding_unwired' ||
+      err.code === 'support.order.user_mismatch' ||
       err.code === 'support.settle.refused' ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
       err.code === 'support.queue_list_limit_unset' ||
@@ -72,12 +74,24 @@ function mapError(err: unknown): never {
       err.code === 'support.list_comments_limit_unset' ||
       err.code === 'support.list_events_limit_unset' ||
       err.code === 'support.list_kb_limit_unset' ||
+      err.code === 'support.staff_bootstrap' ||
+      err.code === 'support.release.not_queueable' ||
+      err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
       err.code === 'support.attachment_too_large'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
+    }
+    if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
+      throw new TRPCError({ code: 'FORBIDDEN', message });
+    }
+    if (err.code === 'support.idempotency_conflict') {
+      throw new TRPCError({ code: 'CONFLICT', message });
+    }
+    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found') {
+      throw new TRPCError({ code: 'NOT_FOUND', message });
     }
     throw new TRPCError({ code: 'BAD_REQUEST', message });
   }
@@ -263,6 +277,27 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             ticketId: input.ticketId,
             asOperator: ctx.principal!.scopes.includes('support:ops'),
             limit: input.limit,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * One order, read for this ticket. `userId` is not an input: it comes off
+     * the ticket. A mismatch is refused. Trade silence is `unknown`, not a
+     * cancel. No ledger post.
+     */
+    ticketOrder: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), orderId: z.string().uuid() }).strict())
+      .output(ticketOrderReadSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.readTicketOrder({
+            operatorId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            orderId: input.orderId,
           });
         } catch (err) {
           mapError(err);
@@ -705,6 +740,90 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             operatorId: ctx.principal!.userId,
             ticketId: input.ticketId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Counts across the whole queue, not one page. */
+    queueMetrics: scopedProcedure('support:ops')
+      .output(
+        z.object({
+          asOf: z.string(),
+          total: z.number().int(),
+          open: z.number().int(),
+          pending: z.number().int(),
+          resolved: z.number().int(),
+          closed: z.number().int(),
+          unassigned: z.number().int(),
+          claimed: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.queueMetrics();
+      }),
+
+    staffList: scopedProcedure('support:ops')
+      .output(
+        z.array(
+          z.object({
+            userId: z.string(),
+            role: z.enum(['agent', 'lead']),
+            appointedBy: z.string(),
+            appointedAt: z.string(),
+          }),
+        ),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.listStaff();
+      }),
+
+    staffAppoint: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          userId: z.string().uuid(),
+          role: z.enum(['agent', 'lead']),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The current assignee returns the ticket to the queue. */
+    unclaim: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), idempotencyKey: z.string().min(8).max(200) }))
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A lead assigns or reassigns a ticket to another staff member. */
+    assign: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          assigneeId: z.string().uuid(),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.assignTo({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

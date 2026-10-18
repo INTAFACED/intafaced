@@ -7,7 +7,7 @@ const en = {
   payment: 'External payment to verify',
   verify: 'Check your bank account. A buyer’s payment claim is not proof that you received it.',
   buyerInstruction: 'Use the agreed payment details. Mark payment sent only after you make the external payment.',
-  sellerWaiting: 'The buyer has not reported payment sent. Escrow cannot be released here yet.',
+  sellerWaiting: 'The buyer has not reported payment sent, so escrow cannot be released here.',
   buyerWaiting:
     'Payment is marked sent. The seller must verify receipt before releasing escrow. Inspect the order or raise a dispute if needed.',
   disputed: 'A dispute is open. Inspect its status and evidence; release requires the recorded resolution.',
@@ -27,8 +27,17 @@ const en = {
   refundTo: 'Asset returns to',
   releaseTo: 'Release to',
   gross: 'Escrow release quantity (gross)',
-  releaseTerms:
-    'The fee and net asset amount to the buyer are not returned here. This authorizes release under the order’s settlement terms.',
+  releaseTerms: 'The fee and the net amount the buyer receives aren’t shown here. Releasing follows the order’s settlement terms.',
+  resultTitle: 'Result',
+  youReceived: 'You received',
+  youSent: 'You sent',
+  youPaidExternal: 'You paid (external payment)',
+  youReceivedExternal: 'You received (external payment)',
+  receivedValue: '{amount} {asset} released from escrow, before any service fee',
+  sentValue: '{amount} {asset} released from your escrow',
+  serviceFee: 'Service fee',
+  serviceFeeValue: 'Not on the order record this page reads. It is taken from the released amount.',
+  releasePending: 'Release recorded. The ledger payout isn’t confirmed.',
 } as const;
 const es = {
   seller: 'Eres el vendedor',
@@ -38,7 +47,7 @@ const es = {
   payment: 'Pago externo que debes verificar',
   verify: 'Comprueba tu cuenta bancaria. La declaración del comprador no demuestra que hayas recibido el pago.',
   buyerInstruction: 'Usa los datos de pago acordados. Marca el pago como enviado solo después de realizarlo.',
-  sellerWaiting: 'El comprador no ha comunicado el envío del pago. Aún no puedes liberar el depósito aquí.',
+  sellerWaiting: 'El comprador no ha comunicado el envío del pago. Por eso no puedes liberar el depósito aquí.',
   buyerWaiting:
     'El pago figura como enviado. El vendedor debe comprobar la recepción antes de liberar el depósito. Consulta el pedido o abre una disputa si es necesario.',
   disputed: 'Hay una disputa abierta. Consulta su estado y las pruebas; la liberación requiere una resolución registrada.',
@@ -59,7 +68,17 @@ const es = {
   releaseTo: 'Liberar a',
   gross: 'Cantidad bruta que se libera del depósito',
   releaseTerms:
-    'Aquí no se devuelve la comisión ni el importe neto del activo para el comprador. Autorizas la liberación según las condiciones del pedido.',
+    'Aquí no se muestran la comisión ni el importe neto que recibe el comprador. La liberación sigue las condiciones de liquidación de la orden.',
+  resultTitle: 'Resultado',
+  youReceived: 'Recibiste',
+  youSent: 'Enviaste',
+  youPaidExternal: 'Pagaste (pago externo)',
+  youReceivedExternal: 'Recibiste (pago externo)',
+  receivedValue: '{amount} {asset} liberados del depósito, antes de cualquier comisión del servicio',
+  sentValue: '{amount} {asset} liberados de tu depósito',
+  serviceFee: 'Comisión del servicio',
+  serviceFeeValue: 'No figura en el registro del pedido que lee esta página. Se descuenta del importe liberado.',
+  releasePending: 'Liberación registrada. El pago en el libro mayor no está confirmado.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   seller: 'Vous êtes le vendeur',
@@ -69,7 +88,7 @@ const fr = {
   payment: 'Paiement externe à vérifier',
   verify: 'Vérifiez votre compte bancaire. La déclaration de l’acheteur ne prouve pas que vous avez reçu le paiement.',
   buyerInstruction: 'Utilisez les coordonnées convenues. Indiquez le paiement comme envoyé uniquement après l’avoir effectué.',
-  sellerWaiting: 'L’acheteur n’a pas signalé l’envoi du paiement. Vous ne pouvez pas encore libérer le séquestre ici.',
+  sellerWaiting: 'L’acheteur n’a pas signalé l’envoi du paiement. Vous ne pouvez donc pas libérer le séquestre ici.',
   buyerWaiting:
     'Le paiement est indiqué comme envoyé. Le vendeur doit vérifier sa réception avant de libérer le séquestre. Consultez la commande ou ouvrez un litige si nécessaire.',
   disputed: 'Un litige est ouvert. Consultez son état et ses preuves ; la libération nécessite une résolution enregistrée.',
@@ -90,6 +109,16 @@ const fr = {
   releaseTo: 'Libérer à',
   gross: 'Quantité brute libérée du séquestre',
   releaseTerms:
-    'Les frais et le montant net de l’actif pour l’acheteur ne sont pas renvoyés ici. Vous autorisez la libération selon les conditions de la commande.',
+    'Les frais et le montant net reçu par l’acheteur ne sont pas affichés ici. La libération suit les conditions de règlement de la commande.',
+  resultTitle: 'Résultat',
+  youReceived: 'Vous avez reçu',
+  youSent: 'Vous avez envoyé',
+  youPaidExternal: 'Vous avez payé (paiement externe)',
+  youReceivedExternal: 'Vous avez reçu (paiement externe)',
+  receivedValue: '{amount} {asset} libérés du séquestre, avant tout frais de service',
+  sentValue: '{amount} {asset} libérés de votre séquestre',
+  serviceFee: 'Frais de service',
+  serviceFeeValue: 'Absents du dossier de la commande lu par cette page. Ils sont prélevés sur le montant libéré.',
+  releasePending: 'Libération enregistrée. Le paiement dans le grand livre n’est pas confirmé.',
 } satisfies Record<keyof typeof en, string>;
 export const orderCopy = defineCopy('pay.p2p.order', en, { es, fr });

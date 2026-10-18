@@ -20,6 +20,7 @@ import {
   feeDiscountBps,
   isUnlocked,
   parseFeeDiscountSchedule,
+  stakeWeight,
   unlockDate,
   type FeeDiscountSchedule,
   type StakeTier,
@@ -124,6 +125,11 @@ export class TokenError extends Error {
       | 'token.buyback_book_empty'
       | 'token.params_missing'
       | 'token.params_invalid'
+      /**
+       * A token_params column the action needs is null or blank. The name of
+       * that column is `config`. Never filled in from a compiled default.
+       */
+      | 'token.params_unset'
       | 'token.proposal_not_found'
       | 'token.proposal_not_open'
       | 'token.proposal_window'
@@ -154,9 +160,28 @@ export class TokenError extends Error {
       /**
        * Grant / listing close tallied but did not execute. Value does not move.
        */
-      | 'token.governance_execute_unwired',
+      | 'token.governance_execute_unwired'
+      /** `TOKEN_ASSET_ID` is only the env.ts default. A preview must not price an unpublished asset. */
+      | 'token.staking_asset_unpublished'
+      /** Tier is not one of flex / m3 / m12. */
+      | 'token.stake_tier_unknown'
+      /** Stake amount is zero or negative. The stake path refuses the same. */
+      | 'token.stake_amount_invalid'
+      /** History page size unset. Blank / non-finite / <1 refuses. Never invent 50. */
+      | 'token.history_list_limit_unset'
+      /** Opaque history cursor did not decode. */
+      | 'token.history_cursor_invalid'
+      /** How many future epochs to project. Blank refuses. Never invent a length. */
+      | 'token.emission_schedule_count_unset'
+      /**
+       * A payout row has no matching ledger transaction, or the transaction
+       * disagrees with the stored id. The table amount is not a substitute.
+       */
+      | 'token.ledger_tx_unread',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
+    /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
+    readonly config?: string,
   ) {
     super(message);
     this.name = 'TokenError';
@@ -185,6 +210,154 @@ export function assertStakesListLimit(limit: number | undefined): number {
     throw new TokenError('Stake list limit is unset', 'token.stakes_list_limit_unset');
   }
   return Math.min(200, n);
+}
+
+/** Page size for owner history reads. Blank / non-finite / <1 refuses. Never invent 50. */
+export function assertHistoryListLimit(limit: number | undefined): number {
+  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit)) {
+    throw new TokenError('History list limit is unset', 'token.history_list_limit_unset');
+  }
+  const n = Math.floor(limit);
+  if (n < 1) {
+    throw new TokenError('History list limit is unset', 'token.history_list_limit_unset');
+  }
+  return Math.min(200, n);
+}
+
+/** How many epochs `emissionSchedule` projects. Blank refuses. Never invent a length. */
+export function assertEmissionScheduleCount(count: number | undefined): number {
+  if (count === undefined || typeof count !== 'number' || !Number.isFinite(count)) {
+    throw new TokenError('Emission schedule length is unset', 'token.emission_schedule_count_unset');
+  }
+  const n = Math.floor(count);
+  if (n < 1) {
+    throw new TokenError('Emission schedule length is unset', 'token.emission_schedule_count_unset');
+  }
+  return Math.min(200, n);
+}
+
+const HISTORY_CURSOR_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+export interface HistoryCursor {
+  readonly at: string;
+  readonly key: string;
+}
+
+/** Opaque keyset cursor. `at` is the database microsecond timestamp, not a JS Date. */
+export function encodeHistoryCursor(at: string, key: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, at, key }), 'utf8').toString('base64url');
+}
+
+export function decodeHistoryCursor(raw: string): HistoryCursor {
+  if (raw.length < 1 || raw.length > 512 || !/^[A-Za-z0-9_-]+$/.test(raw)) {
+    throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+  }
+  const { v, at, key } = parsed as { v?: unknown; at?: unknown; key?: unknown };
+  if (v !== 1 || typeof at !== 'string' || !HISTORY_CURSOR_AT.test(at)) {
+    throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+  }
+  if (typeof key !== 'string' || key.length < 1 || key.length > 128) {
+    throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+  }
+  return { at, key };
+}
+
+export interface StakePreview {
+  readonly tier: StakeTier;
+  readonly unlocksAt: string | null;
+  readonly multiplierBps: number;
+  readonly effectiveWeight: string;
+}
+
+/**
+ * What `stake` will store for this amount and tier at `at`.
+ *
+ * Pure: no row, no ledger post. Unlock and multiplier are `unlockDate` and
+ * `STAKE_TIERS`, the same calls `claimStakePending` makes. Weight is
+ * `stakeWeight`, the same function yield and governance use. An unknown tier
+ * or an unpublished staking asset refuses. No penalty and no early exit.
+ */
+export function previewStakeTerms(input: { amount: Amount; tier: string; at: Date; stakingAssetPublished: boolean }): StakePreview {
+  if (!input.stakingAssetPublished) {
+    throw new TokenError('Staking asset is not published', 'token.staking_asset_unpublished');
+  }
+  if (!Object.hasOwn(STAKE_TIERS, input.tier)) {
+    throw new TokenError(`Unknown stake tier "${input.tier}"`, 'token.stake_tier_unknown');
+  }
+  if (input.amount <= 0n) {
+    throw new TokenError('Stake amount must be positive', 'token.stake_amount_invalid');
+  }
+  const tier = input.tier as StakeTier;
+  const unlocksAt = unlockDate(tier, input.at);
+  return {
+    tier,
+    unlocksAt: unlocksAt === null ? null : unlocksAt.toISOString(),
+    multiplierBps: STAKE_TIERS[tier].multiplierBps,
+    effectiveWeight: formatAmount(stakeWeight(input.amount, tier)),
+  };
+}
+
+export interface UnstakePreview {
+  /** `locked_until` while `unstake` would refuse `token.stake_locked` for the lock. */
+  readonly status: 'locked_until' | 'ready' | 'closing' | 'pending' | 'closed';
+  readonly unlocksAt: string | null;
+  readonly amount: string;
+  /**
+   * What `unstake` does once the lock has passed: return the full principal.
+   * Null when today's path refuses and does not return principal (pending, closed).
+   * There is no penalty and no early-exit amount.
+   */
+  readonly afterUnlock: 'full_principal' | null;
+  readonly refusal: 'token.stake_locked' | 'token.stake_closed' | null;
+}
+
+export interface PayoutHistoryItem {
+  readonly windowId: string;
+  readonly amount: string | null;
+  readonly assetId: string | null;
+  readonly ledgerTxId: string | null;
+  /** Set when the ledger transaction could not be read. The table amount is not used. */
+  readonly reason: 'ledger_tx_unread' | null;
+}
+
+export interface PayoutHistoryPage {
+  readonly items: PayoutHistoryItem[];
+  readonly nextCursor: string | null;
+}
+
+export interface VoteHistoryItem {
+  readonly proposalId: string;
+  readonly title: string | null;
+  readonly titleReason: 'proposal_title_unset' | null;
+  readonly choice: 'for' | 'against' | 'abstain';
+  /** Weight stored on the ballot. Never recomputed from a later stake. */
+  readonly weight: string;
+  readonly castAt: string;
+}
+
+export interface VoteHistoryPage {
+  readonly items: VoteHistoryItem[];
+  readonly nextCursor: string | null;
+}
+
+export interface EmissionScheduleView {
+  readonly params: {
+    readonly initialEpochReward: string;
+    readonly halvingIntervalEpochs: number;
+    readonly maxSupply: string;
+  } | null;
+  readonly epochs: Array<{ readonly epoch: number; readonly reward: string }> | null;
+  readonly missing: string | null;
+  readonly reason: 'token.params_unset' | 'token.params_missing' | 'token.params_invalid' | null;
 }
 
 /**
@@ -347,6 +520,14 @@ export interface StakeRecord {
   status: 'pending' | 'active' | 'unstaking' | 'closed';
 }
 
+function proposalTitle(body: unknown): { title: string | null; reason: 'proposal_title_unset' | null } {
+  if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+    const title = (body as Record<string, unknown>).title;
+    if (typeof title === 'string' && title.trim() !== '') return { title, reason: null };
+  }
+  return { title: null, reason: 'proposal_title_unset' };
+}
+
 /** NULL, whitespace, or `{}` — an undecided ladder, not a zero discount. */
 function feeScheduleBlank(raw: unknown): boolean {
   if (raw == null) return true;
@@ -355,7 +536,17 @@ function feeScheduleBlank(raw: unknown): boolean {
   return false;
 }
 
-/** A non-fresh pending buyback claim is released only after this long (DB clock): longer than the ledger client's 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has landed or died. */
+/** Blank operator config. `config` is the column name; no value is invented. */
+function throwParamsUnset(config: string): never {
+  throw new TokenError(`${config} is unset`, 'token.params_unset', undefined, config);
+}
+
+/**
+ * A pending buyback claim is released only this long after the last burn/post
+ * attempt (`last_post_at`, database clock): longer than the ledger client's
+ * 25 s post deadline plus the ledger's 15 s lock wait, so a late burn has
+ * landed or died. The claim's `created_at` is not this clock.
+ */
 const BUYBACK_QUIET_SECONDS = 120;
 
 export class TokenService {
@@ -861,10 +1052,201 @@ export class TokenService {
   }
 
   /**
+   * Stake terms for an amount that has not been written.
+   * `stakingAssetPublished` is the caller's read of the environment, not the
+   * zod default. Writes nothing.
+   */
+  previewStake(input: { amount: Amount; tier: string; at?: Date; stakingAssetPublished: boolean }): StakePreview {
+    return previewStakeTerms({
+      amount: input.amount,
+      tier: input.tier,
+      at: input.at ?? new Date(),
+      stakingAssetPublished: input.stakingAssetPublished,
+    });
+  }
+
+  /**
+   * What `unstake` would do for this owner's stake. Reads one row. Writes nothing.
+   * Another user's id is `token.stake_not_found` — the row is not confirmed.
+   * A lock reports `locked_until` and the unlock time. After that instant the
+   * service returns the full principal. No penalty and no early-exit path.
+   */
+  async previewUnstake(stakeId: string, userId: string, now: Date = new Date()): Promise<UnstakePreview> {
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        user_id: string;
+        amount: string;
+        tier: StakeTier;
+        started_at: Date;
+        unlocks_at: Date | null;
+        status: string;
+      }>
+    >`
+      SELECT id, user_id, amount, tier, started_at, unlocks_at, status
+        FROM token.stakes WHERE id = ${stakeId}
+    `;
+    const row = rows[0];
+    if (!row || row.user_id !== userId) {
+      throw new TokenError(`Stake ${stakeId} not found`, 'token.stake_not_found');
+    }
+    if (row.status !== 'active' && row.status !== 'unstaking' && row.status !== 'closed' && row.status !== 'pending') {
+      throw new TokenError(`Stake ${stakeId} not found`, 'token.stake_not_found');
+    }
+
+    const amount = formatAmount(parseAmount(row.amount));
+    const unlocksAt = row.unlocks_at ? row.unlocks_at.toISOString() : null;
+
+    if (row.status === 'closed') {
+      return { status: 'closed', unlocksAt, amount, afterUnlock: null, refusal: 'token.stake_closed' };
+    }
+    if (row.status === 'pending') {
+      return { status: 'pending', unlocksAt, amount, afterUnlock: null, refusal: 'token.stake_locked' };
+    }
+    if (row.status === 'unstaking') {
+      return { status: 'closing', unlocksAt, amount, afterUnlock: 'full_principal', refusal: null };
+    }
+    if (!isUnlocked(row.tier, row.started_at, now)) {
+      return { status: 'locked_until', unlocksAt, amount, afterUnlock: 'full_principal', refusal: 'token.stake_locked' };
+    }
+    return { status: 'ready', unlocksAt, amount, afterUnlock: 'full_principal', refusal: null };
+  }
+
+  /**
+   * The caller's yield instructions, newest first. Amount and the ledger
+   * reference are the `yield_payouts` row. The asset is the one this service
+   * books; publication of that asset is `token.terms`, not this list.
+   */
+  async yieldHistory(userId: string, limit: number | undefined, cursor?: string): Promise<PayoutHistoryPage> {
+    const page = await this.listOwnYieldRows(userId, limit, cursor);
+    return {
+      items: page.rows.map((row) => ({
+        windowId: row.window_id,
+        amount: formatAmount(parseAmount(row.amount)),
+        assetId: this.assetId,
+        ledgerTxId: row.ledger_tx_id,
+        reason: null,
+      })),
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  /**
+   * The caller's revenue distributions. The value moved only as `rewardPay`
+   * (`reward:yield:<window>:<user>`). The payout row is the index of windows;
+   * the amount, asset and transaction id are read through ledger-client.
+   * A missing transaction does not fall back to the table amount.
+   */
+  async revenueShareHistory(userId: string, limit: number | undefined, cursor?: string): Promise<PayoutHistoryPage> {
+    const page = await this.listOwnYieldRows(userId, limit, cursor);
+    const items: PayoutHistoryItem[] = [];
+    for (const row of page.rows) {
+      const tx = await this.ledger.getTxByKey(`reward:yield:${row.window_id}:${userId}`);
+      const debit = tx?.entries.find((entry) => entry.direction === 'debit');
+      const idAgrees = tx !== null && (row.ledger_tx_id === null || tx.id === row.ledger_tx_id);
+      if (!tx || !debit || !idAgrees) {
+        items.push({
+          windowId: row.window_id,
+          amount: null,
+          assetId: null,
+          ledgerTxId: null,
+          reason: 'ledger_tx_unread',
+        });
+        continue;
+      }
+      items.push({
+        windowId: row.window_id,
+        amount: formatAmount(debit.amount),
+        assetId: debit.assetId,
+        ledgerTxId: tx.id,
+        reason: null,
+      });
+    }
+    return { items, nextCursor: page.nextCursor };
+  }
+
+  /**
+   * The caller's ballots across proposals, newest first. Weight is the column
+   * written at cast time. A later stake does not change it. Title is
+   * `proposals.body.title` when that string is set; otherwise null.
+   */
+  async myVotes(userId: string, limit: number | undefined, cursor?: string): Promise<VoteHistoryPage> {
+    const page = assertHistoryListLimit(limit);
+    const mark = cursor === undefined ? null : decodeHistoryCursor(cursor);
+    if (mark && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mark.key)) {
+      throw new TokenError('History cursor is not valid', 'token.history_cursor_invalid');
+    }
+    const rows = await this.sql<
+      Array<{
+        proposal_id: string;
+        body: unknown;
+        choice: 'for' | 'against' | 'abstain';
+        weight: string;
+        cast_at: Date;
+        cast_cursor: string;
+        id: string;
+      }>
+    >`
+      SELECT v.proposal_id, p.body, v.choice, v.weight::text AS weight, v.cast_at, v.id,
+             to_char(v.cast_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cast_cursor
+        FROM token.governance_votes v
+        JOIN token.proposals p ON p.id = v.proposal_id
+       WHERE v.user_id = ${userId}
+         ${mark ? this.sql`AND (v.cast_at, v.id) < (${mark.at}::timestamptz, ${mark.key}::uuid)` : this.sql``}
+       ORDER BY v.cast_at DESC, v.id DESC
+       LIMIT ${page + 1}
+    `;
+    const kept = rows.slice(0, page);
+    const last = kept[kept.length - 1];
+    return {
+      items: kept.map((row) => {
+        const title = proposalTitle(row.body);
+        return {
+          proposalId: row.proposal_id,
+          title: title.title,
+          titleReason: title.reason,
+          choice: row.choice,
+          weight: formatAmount(parseAmount(row.weight)),
+          castAt: row.cast_at.toISOString(),
+        };
+      }),
+      nextCursor: rows.length > page && last ? encodeHistoryCursor(last.cast_cursor, last.id) : null,
+    };
+  }
+
+  private async listOwnYieldRows(
+    userId: string,
+    limit: number | undefined,
+    cursor: string | undefined,
+  ): Promise<{
+    rows: Array<{ window_id: string; amount: string; ledger_tx_id: string | null; planned_cursor: string }>;
+    nextCursor: string | null;
+  }> {
+    const page = assertHistoryListLimit(limit);
+    const mark = cursor === undefined ? null : decodeHistoryCursor(cursor);
+    const rows = await this.sql<Array<{ window_id: string; amount: string; ledger_tx_id: string | null; planned_cursor: string }>>`
+      SELECT window_id, amount::text AS amount, ledger_tx_id,
+             to_char(planned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS planned_cursor
+        FROM token.yield_payouts
+       WHERE user_id = ${userId}
+         ${mark ? this.sql`AND (planned_at, window_id) < (${mark.at}::timestamptz, ${mark.key})` : this.sql``}
+       ORDER BY planned_at DESC, window_id DESC
+       LIMIT ${page + 1}
+    `;
+    const kept = rows.slice(0, page);
+    const last = kept[kept.length - 1];
+    return {
+      rows: kept,
+      nextCursor: rows.length > page && last ? encodeHistoryCursor(last.planned_cursor, last.window_id) : null,
+    };
+  }
+
+  /**
    * The published fee-decay schedule (§4.3), read from `token_params`.
    *
    * The row is the authority, not `DEFAULT_FEE_DISCOUNT_SCHEDULE`. A blank
-   * schedule refuses with `token.params_invalid`. There is no fallback fee.
+   * schedule refuses with `token.params_unset` and names
+   * `token_params.fee_discount_schedule`. There is no fallback fee.
    */
   async feeDiscountSchedule(now: number = Date.now()): Promise<FeeDiscountSchedule> {
     const cached = this.feeScheduleCache;
@@ -878,10 +1260,16 @@ export class TokenService {
     }
     const raw = rows[0]!.fee_discount_schedule;
     if (feeScheduleBlank(raw)) {
-      throw new TokenError('token_params.fee_discount_schedule is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.fee_discount_schedule');
     }
 
-    const schedule = parseFeeDiscountSchedule(raw);
+    let schedule: FeeDiscountSchedule;
+    try {
+      schedule = parseFeeDiscountSchedule(raw);
+    } catch (err) {
+      if (err instanceof TokenError) throw err;
+      throw new TokenError('token_params.fee_discount_schedule is not a valid schedule', 'token.params_invalid');
+    }
     this.feeScheduleCache = { schedule, loadedAt: now };
     return schedule;
   }
@@ -902,10 +1290,10 @@ export class TokenService {
     const buybackRaw = rows[0]!.buyback_bps;
     const burnRaw = rows[0]!.burn_split_bps;
     if (buybackRaw == null || buybackRaw.trim() === '') {
-      throw new TokenError('token_params.buyback_bps is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.buyback_bps');
     }
     if (burnRaw == null || burnRaw.trim() === '') {
-      throw new TokenError('token_params.burn_split_bps is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.burn_split_bps');
     }
     const params: BuybackParams = {
       buybackBps: Number(buybackRaw),
@@ -936,14 +1324,17 @@ export class TokenService {
     if (rows.length === 0) throw new TokenError('token_params singleton row is missing — run migrations', 'token.params_missing');
     const row = rows[0]!;
     if (row.total_supply == null || row.total_supply.trim() === '') {
-      throw new TokenError('token_params.total_supply is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.total_supply');
     }
     if (row.halving_interval == null) {
-      throw new TokenError('token_params.halving_interval is blank', 'token.params_invalid');
+      throwParamsUnset('token_params.halving_interval');
     }
     const curve = row.emission_curve;
-    if (curve === null || typeof curve !== 'object' || Array.isArray(curve)) {
-      throw new TokenError('token_params.emission_curve is missing or not an object', 'token.params_invalid');
+    if (feeScheduleBlank(curve)) {
+      throwParamsUnset('token_params.emission_curve');
+    }
+    if (typeof curve !== 'object' || Array.isArray(curve)) {
+      throw new TokenError('token_params.emission_curve is not an object', 'token.params_invalid');
     }
     const curveObj = curve as Record<string, unknown>;
     const initialRaw = curveObj.initialEpochReward;
@@ -954,7 +1345,7 @@ export class TokenService {
       );
     }
     if (typeof initialRaw !== 'string' || initialRaw.trim() === '') {
-      throw new TokenError('token_params.emission_curve.initialEpochReward is required', 'token.params_invalid');
+      throwParamsUnset('token_params.emission_curve.initialEpochReward');
     }
     const params: EmissionParams = {
       initialEpochReward: parseAmount(initialRaw),
@@ -1489,6 +1880,23 @@ export class TokenService {
       return { runId: claimed.id, burned: claimed.burned, toRewards: claimed.toRewards };
     }
 
+    if (toBurn > 0n) {
+      const stamped = await this.stampBuybackPostAttempt(claimed.id);
+      if (!stamped) {
+        const held = await this.sql<Array<{ status: BuybackRunStatus; tokens_burned: string; tokens_to_rewards: string }>>`
+          SELECT status, tokens_burned, tokens_to_rewards FROM token.buyback_runs WHERE id = ${claimed.id}
+        `;
+        const row = held[0];
+        if (row?.status === 'settled') {
+          return { runId: claimed.id, burned: parseAmount(row.tokens_burned), toRewards: parseAmount(row.tokens_to_rewards) };
+        }
+        throw new TokenError(
+          `Buyback run ${input.runId} is no longer a pending claim — refusing to burn. The quiet-period release won the row, and NOTHING was posted`,
+          'token.buyback_run_conflict',
+        );
+      }
+    }
+
     try {
       if (toBurn > 0n) {
         await this.ledger.post(
@@ -1517,19 +1925,51 @@ export class TokenService {
   }
 
   /**
+   * Mark this pending row as a burn attempt before the ledger post.
+   *
+   * One read-committed transaction, `FOR UPDATE` on the row: a concurrent
+   * quiet-period release queues on the same lock and then reads this
+   * `last_post_at`, so it cannot delete a claim whose burn is about to be
+   * sent. Returns false when the row is already gone or no longer pending —
+   * the caller must not post.
+   */
+  private async stampBuybackPostAttempt(runId: string): Promise<boolean> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const locked = await tx<Array<{ id: string }>>`
+          SELECT id FROM token.buyback_runs
+           WHERE id = ${runId} AND status = 'pending'
+           FOR UPDATE
+        `;
+        if (!locked[0]) return false;
+        await tx`
+          UPDATE token.buyback_runs
+             SET last_post_at = clock_timestamp()
+           WHERE id = ${runId} AND status = 'pending'
+        `;
+        return true;
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /**
    * Pending claim, no market-buy on the book.
    *
    * A fresh insert from this call posted nothing — release so the window is
    * not held hostage. A retry of an older pending row is released only when
-   * `getTxByKey` says the burn key is absent AND the row is older than
-   * BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone is not
-   * "never": the burn from the earlier attempt can still be queued behind the
-   * ledger's chain-tip lock after the client gave up (25 s deadline; the
-   * ledger's own statement timeout is 15 s), and deleting the claim then frees
-   * the revenue window while a late burn lands — a later run could burn the
-   * same window again. `getTxByKey` answers null only for a key the ledger says
-   * it has not booked (the read-only `txByKey` door); when it cannot answer
-   * (ledger down, malformed, inconsistent) it throws — that must stay
+   * `getTxByKey` says the burn key is absent AND `last_post_at` is null or
+   * older than BUYBACK_QUIET_SECONDS on the database clock. "Absent now" alone
+   * is not "never": the burn from the earlier attempt can still be queued
+   * behind the ledger's chain-tip lock after the client gave up (25 s deadline;
+   * the ledger's own statement timeout is 15 s). The clock is the last attempt,
+   * not `created_at`: a claim can be hours old when a retry posts. Deleting on
+   * claim age frees the window while that late burn lands. The delete takes
+   * the same row lock as `stampBuybackPostAttempt`, so the two cannot both
+   * pass. `getTxByKey` answers null only for a key the ledger says it has not
+   * booked (the read-only `txByKey` door); when it cannot answer (ledger down,
+   * malformed, inconsistent) it throws — that must stay
    * `token.buyback_tokens_unmoved`, never a 500, and unknown ≠ absent.
    */
   private async refuseUnbookedBuyback(claimedId: string, runId: string, tokensBought: Amount, opts: { fresh: boolean }): Promise<never> {
@@ -1543,11 +1983,26 @@ export class TokenService {
       }
     }
     if (release) {
-      await this.sql`
-        DELETE FROM token.buyback_runs
-        WHERE id = ${claimedId} AND status = 'pending'
-          AND (${opts.fresh} OR created_at < now() - make_interval(secs => ${BUYBACK_QUIET_SECONDS}))
-      `;
+      await transaction(
+        this.sql,
+        async (tx) => {
+          const locked = await tx<Array<{ releasable: boolean }>>`
+            SELECT (
+              last_post_at IS NULL
+              OR last_post_at < clock_timestamp() - make_interval(secs => ${BUYBACK_QUIET_SECONDS})
+            ) AS releasable
+              FROM token.buyback_runs
+             WHERE id = ${claimedId} AND status = 'pending'
+             FOR UPDATE
+          `;
+          if (locked[0]?.releasable !== true) return;
+          await tx`
+            DELETE FROM token.buyback_runs
+             WHERE id = ${claimedId} AND status = 'pending'
+          `;
+        },
+        { isolation: 'read committed' },
+      );
     }
     throw new TokenError(
       `Buyback run ${runId} asserted tokensBought=${formatAmount(tokensBought)} ${this.assetId} but that figure did not move on the ledger — no recipe books a market-buy into the rewards engine. Refusing to settle a DB-only buyback. A burn from the engine would spend fee revenue, not purchased tokens`,
@@ -1719,6 +2174,50 @@ export class TokenService {
       SELECT COALESCE(MAX(epoch) + 1, 0) AS next FROM token.emission_epochs WHERE closed = true
     `;
     return Number(rows[0]?.next ?? 0);
+  }
+
+  /**
+   * Schedule parameters and the next `count` epoch rewards.
+   *
+   * Rewards are `epochReward`, the function `claimEmissionEpoch` uses. Blank
+   * `token_params` returns null and the missing key — never `DEFAULT_EMISSION_PARAMS`.
+   * This read does not insert an epoch row.
+   */
+  async emissionSchedule(count: number | undefined): Promise<EmissionScheduleView> {
+    const n = assertEmissionScheduleCount(count);
+    let params: EmissionParams;
+    try {
+      params = await this.emissionParams();
+    } catch (err) {
+      if (
+        err instanceof TokenError &&
+        (err.code === 'token.params_unset' || err.code === 'token.params_missing' || err.code === 'token.params_invalid')
+      ) {
+        return {
+          params: null,
+          epochs: null,
+          missing: err.config ?? 'token_params',
+          reason: err.code,
+        };
+      }
+      throw err;
+    }
+    const start = await this.nextEmissionEpoch();
+    const epochs: Array<{ epoch: number; reward: string }> = [];
+    for (let i = 0; i < n; i++) {
+      const epoch = start + i;
+      epochs.push({ epoch, reward: formatAmount(epochReward(epoch, params)) });
+    }
+    return {
+      params: {
+        initialEpochReward: formatAmount(params.initialEpochReward),
+        halvingIntervalEpochs: params.halvingIntervalEpochs,
+        maxSupply: formatAmount(params.maxSupply),
+      },
+      epochs,
+      missing: null,
+      reason: null,
+    };
   }
 
   /**

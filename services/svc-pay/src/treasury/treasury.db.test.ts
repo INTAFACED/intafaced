@@ -1,16 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayService } from '../payment-service.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
+import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
 import { RailRegistry } from '../rails/registry.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';
@@ -22,21 +23,11 @@ import { loadTreasuryLimits, loadTreasuryMode } from './config.js';
 import { treasuryExposureView, type ConversionInventorySource } from './exposure.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const migrations = [
-  '0000_pay_init.sql',
-  '0001_pay_user_money.sql',
-  '0002_pay_payment_links.sql',
-  '0003_pay_checkout_sessions.sql',
-  '0005_pay_merchant_kyb.sql',
-  '0006_pay_merchant_status_history.sql',
-  '0014_pay_merchant_payout_destinations.sql',
-  '0018_pay_founder_controls_admission.sql',
-  '0037_pay_withdrawal_rail_attempts.sql',
-  '0058_pay_halts.sql',
-  '0059_pay_treasury_exposure_indexes.sql',
-  '0071_pay_merchant_names.sql',
-  '0073_pay_settlement_read.sql',
-].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
+const drizzleDir = join(here, '..', '..', 'drizzle');
+const migrations = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 const SECRET = 'svc-pay-treasury-test-secret-at-least-32-characters';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -70,7 +61,13 @@ describe('W5 treasury exposure (real Postgres)', () => {
     sql = db.sql;
   }, 120_000);
 
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
   beforeEach(async () => {
+    restorePayoutShim = installPayoutDestinationShim(sql);
     await truncatePayForTest(
       sql,
       'pay',

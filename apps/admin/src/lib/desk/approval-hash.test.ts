@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { edgeActionPayloadHash } from '../../../../../services/svc-edge/src/action-approval-consume';
 import { academyActionPayloadHash } from '../../../../../services/svc-academy/src/action-approval-consume';
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
+import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
@@ -39,6 +40,21 @@ describe('payload hash equals the owning service’s own function', () => {
       academyActionPayloadHash('academy.ambassador.unfreeze', { userId }),
     );
   });
+  it('academy appoint and residency decision', () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const id = '5a3b9c10-1111-4222-8333-444455556666';
+    expect(payloadHashFor({ kind: 'academy.ambassador.appoint', userId })).toBe(
+      academyActionPayloadHash('academy.ambassador.appoint', { userId }),
+    );
+    for (const decision of ['accepted', 'rejected'] as const) {
+      expect(payloadHashFor({ kind: 'academy.residency.decide', id, decision })).toBe(
+        academyActionPayloadHash('academy.residency.decide', { id, decision }),
+      );
+    }
+    expect(payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'accepted' })).not.toBe(
+      payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'rejected' }),
+    );
+  });
   it('the decision is part of the vendor hash: approve and reject never share one', () => {
     const base = {
       kind: 'market.vendor.vet',
@@ -56,6 +72,49 @@ describe('payload hash equals the owning service’s own function', () => {
     const kill = payloadHashFor({ kind: 'edge.kill', module: 'pay', disabled: true, reason: 'twelve chars!' });
     const resume = payloadHashFor({ kind: 'edge.kill', module: 'pay', disabled: false, reason: 'twelve chars!' });
     expect(kill).not.toBe(resume);
+  });
+});
+
+describe('card freeze and listing takedown hashes equal the services’ own functions', () => {
+  const cardId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const listingId = '5a3b9c10-1111-4222-8333-444455556666';
+  it('bank.ops.setCardStatus binds the card and the status, with fields sorted under `fields`; the reason is not in it', () => {
+    for (const status of ['frozen', 'active'] as const) {
+      expect(payloadHashFor({ kind: 'bank.card.status', cardId, status, reason: 'owner reported the card stolen' })).toBe(
+        bankActionPayloadHash('bank.ops.setCardStatus', { cardId, status }),
+      );
+    }
+    expect(payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).toBe(
+      payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'a different reason entirely' }),
+    );
+    expect(payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).not.toBe(
+      payloadHashFor({ kind: 'bank.card.status', cardId, status: 'active', reason: 'owner reported the card stolen' }),
+    );
+  });
+  it('market.takedown binds the listing AND the reason, so a changed reason is a different request', () => {
+    expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toBe(
+      marketActionPayloadHash('market.takedown', { listingId, reason: 'sells a forbidden product' }),
+    );
+    expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).not.toBe(
+      payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product!' }),
+    );
+  });
+  it('are proposed against the target each service consumes: svc-bank by verb, svc-market by listing id', () => {
+    expect(proposeInputFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).toMatchObject(
+      {
+        actionType: 'bank.ops.setCardStatus',
+        targetService: 'svc-bank',
+        targetId: 'bank.ops.setCardStatus',
+        expectedVersion: '1',
+        policyVersion: 'v1',
+      },
+    );
+    expect(proposeInputFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toMatchObject({
+      actionType: 'market.takedown',
+      targetService: 'svc-market',
+      targetId: listingId,
+      expectedVersion: '1',
+    });
   });
 });
 
@@ -79,6 +138,22 @@ describe('the identity approval is proposed against the target the service consu
     expect(proposeInputFor({ kind: 'academy.ambassador.unfreeze', userId })).toMatchObject({
       targetService: 'svc-academy',
       targetId: 'academy.ambassador.unfreeze',
+    });
+  });
+  it('academy appoint and residency decision target their own verb at version 1, the ids the service consumes against', () => {
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    expect(proposeInputFor({ kind: 'academy.ambassador.appoint', userId })).toMatchObject({
+      actionType: 'academy.ambassador.appoint',
+      targetService: 'svc-academy',
+      targetId: 'academy.ambassador.appoint',
+      expectedVersion: '1',
+      policyVersion: 'v1',
+    });
+    expect(proposeInputFor({ kind: 'academy.residency.decide', id: userId, decision: 'rejected' })).toMatchObject({
+      actionType: 'academy.residency.decide',
+      targetService: 'svc-academy',
+      targetId: 'academy.residency.decide',
+      expectedVersion: '1',
     });
   });
   it('edge kill targets svc-edge kill:<module> at version 1', () => {

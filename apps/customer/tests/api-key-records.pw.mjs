@@ -13,6 +13,9 @@ const record = {
   lastUsedAt: '2026-10-10T08:00:00.000Z',
   revoked: false,
   mode: 'live',
+  requireSignature: false,
+  requireNonEmptyIpAllowlist: false,
+  ipAllowlist: [],
 };
 const securityKey = `intafaced.customer.security.v1:${ownerA}`;
 const original = ` [ ${JSON.stringify({ requestId: '33333333-3333-4333-8333-333333333333', owner: ownerA, kind: 'logout', state: 'sent', createdAt: '2026-10-10T08:00:00.000Z' })} ] `;

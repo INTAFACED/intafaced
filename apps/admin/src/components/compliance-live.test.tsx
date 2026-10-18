@@ -61,7 +61,7 @@ const render = (over: Partial<ComplianceViewProps> = {}) => renderToStaticMarkup
 describe('live compliance state', () => {
   it('shows the edge’s verdicts with their time, and says the geo verdict is for the console’s own request', () => {
     const html = render();
-    expect(html).toContain('As of 2026-10-17T03:00:00.000Z');
+    expect(html).toContain('As of 03:00:00 UTC');
     expect(html).toContain('Geo-block verdict: refused');
     expect(html).toContain('THIS console’s own request');
     expect(html).toContain('no blocked list is invented');

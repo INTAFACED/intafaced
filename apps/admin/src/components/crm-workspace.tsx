@@ -5,7 +5,7 @@ import { CrmMetrics, CrmTasks, CrmCampaigns, CrmDuplicates, CrmExports, CrmEnqui
 import { CrmMessages } from './crm-messages';
 import { CrmPrivacy } from './crm-privacy';
 import { Callout, CrmIcon } from './crm-callout';
-import { crmDate, crmLocalDate, crmRelative, crmTime } from '@/lib/crm-browser';
+import { crmDate, crmLocalDate, crmRelative, crmUpdatedText } from '@/lib/crm-browser';
 import { describeDue, overdueText } from '@/lib/crm-due';
 import { RESTORED_EDITS_NOTICE, RETAINED_EDITS_NOTICE, RETENTION_BLOCKED_NOTICE, SAVED_NOTICE, detailNotices } from '@/lib/crm-notices';
 import { createDiscardConfirm, keepEditingBeforeSave, type DiscardQuestion } from '@/lib/crm-discard-confirm';
@@ -39,6 +39,7 @@ import {
   type DraftValues,
 } from '@/lib/crm-drafts';
 import { enquiryIdFromSearch, signInHref } from '@/lib/crm-return';
+import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from '@/lib/crm-refusal';
 import type {
   CrmActivity,
   CrmContact,
@@ -280,8 +281,8 @@ function answerText(key: string, value: unknown): string {
   return String(value);
 }
 
-/** session = 401/403 (sign in again); conflict = 409/412 (changed or refused); other = anything else. */
-export type CrmErrorKind = 'session' | 'conflict' | 'other';
+/** session = 401/403 (sign in again); conflict = a real version conflict (409/412); unconfigured = CRM is not set up here; other = anything else. */
+export type CrmErrorKind = CrmRefusalKind;
 export class CrmRequestError extends Error {
   constructor(
     message: string,
@@ -293,11 +294,13 @@ export class CrmRequestError extends Error {
 async function readJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: 'no-store' });
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403)
-      throw new CrmRequestError('Your founder session is unavailable. Sign in again.', 'session');
-    if (response.status === 409 || response.status === 412)
-      throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', 'conflict');
-    throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', 'other');
+    const kind = crmRefusalKind(response.status, crmUpstreamCode(await response.json().catch(() => null)));
+    if (kind === 'unconfigured') throw new CrmRequestError(CRM_NOT_CONFIGURED_TEXT, kind);
+    if (kind === 'session') throw new CrmRequestError('Your founder session is unavailable. Sign in again.', kind);
+    if (kind === 'refused') throw new CrmRequestError(CRM_REFUSED_TEXT, kind);
+    if (kind === 'conflict')
+      throw new CrmRequestError('The enquiry changed or this action was refused. Reload it and review before retrying.', kind);
+    throw new CrmRequestError('The workspace could not confirm this request. Refresh the enquiry before retrying.', kind);
   }
   return (await response.json()) as T;
 }
@@ -1006,7 +1009,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
             <h1>{heading.title}</h1>
           </div>
           <div className="adm-crm-refresh">
-            {lastUpdated && <span className="adm-subtle">Updated {crmTime(lastUpdated)}</span>}
+            {lastUpdated && <span className="adm-subtle">{crmUpdatedText(lastUpdated)}</span>}
             <button
               type="button"
               onClick={() => {
@@ -1153,7 +1156,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
               <a className="adm-link" href={signInHref(detail?.opportunity.id)}>
                 Sign in
               </a>
-            ) : errorKind === 'conflict' ? (
+            ) : errorKind === 'conflict' || errorKind === 'refused' ? (
               <button
                 type="button"
                 disabled={busy}
@@ -1499,7 +1502,7 @@ export function CrmWorkspace({ csrf, userId }: { csrf: string; userId: string })
                                   <a className="adm-link" href={signInHref(detail.opportunity.id)}>
                                     Sign in
                                   </a>
-                                ) : detailErrorKind === 'conflict' ? (
+                                ) : detailErrorKind === 'conflict' || detailErrorKind === 'refused' ? (
                                   <button type="button" disabled={busy} onClick={() => void refresh()}>
                                     Reload this enquiry
                                   </button>

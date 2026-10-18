@@ -138,3 +138,38 @@ export async function withSessionAdvisoryLocks<T>(
     if (gate) leave(gate);
   }
 }
+
+/**
+ * Try `pg_try_advisory_lock(hashtext(namespace), hashtext(key))`. Another
+ * session already holding it returns `{ acquired: false }` without waiting,
+ * so a second replica skips the pass instead of running it later.
+ *
+ * This does not take a gate slot. The recovery pass holds the lock on its own
+ * one-connection client while the job bodies take loan locks on the main pool.
+ * Putting both on the gate would nest: the pass would occupy a slot and then
+ * wait for another, and a full gate would never free (the note at the top).
+ */
+export async function trySessionAdvisoryLock<T>(
+  sql: Sql,
+  namespace: string,
+  key: string,
+  body: () => Promise<T>,
+): Promise<{ acquired: true; value: T } | { acquired: false }> {
+  if (namespace.trim() === '') throw new Error('A session advisory lock needs a namespace');
+  const reserved = await sql.reserve();
+  let held = false;
+  try {
+    const [row] = await reserved<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_lock(hashtext(${namespace}), hashtext(${key})) AS locked
+    `;
+    if (row?.locked !== true) return { acquired: false };
+    held = true;
+    return { acquired: true, value: await body() };
+  } finally {
+    try {
+      if (held) await reserved`SELECT pg_advisory_unlock(hashtext(${namespace}), hashtext(${key}))`;
+    } finally {
+      reserved.release();
+    }
+  }
+}

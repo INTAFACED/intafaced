@@ -6,14 +6,38 @@ import { isSupportedFiat } from '@intafaced/config';
 import type { EventBus } from '@intafaced/events';
 import {
   InsufficientFundsError,
+  compare,
   formatAmount,
   parseAmount,
   recipes,
   mulBps,
+  sub,
   tradeEscrowAccount,
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import {
+  DepthError,
+  boardRowToOffer,
+  claimWriteKey,
+  disputeOpenForTrade,
+  eitherBlocked,
+  encodeOfferCursor,
+  finishWriteKey,
+  insertChatMessage,
+  listChatMessages,
+  listContacts,
+  markChatRead,
+  releasedCounts,
+  requestHash,
+  selectOfferBoard,
+  setContact,
+  throwWriteClaim,
+  tradesCsv,
+  tradesReleasedIn30Days,
+  unreadChatCount,
+  type ChatMessage,
+} from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
 import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
 import {
@@ -176,7 +200,24 @@ export type P2pErrorCode =
   // improvised here is the appearance of protection without the substance.
   | 'p2p.instrument_kms_required'
   | 'p2p.escrow_terms_unproven'
-  | 'p2p.escrow_lock_uncertain';
+  | 'p2p.escrow_lock_uncertain'
+  | 'p2p.idempotency_conflict'
+  | 'p2p.idempotency_in_progress'
+  | 'p2p.offer_cursor_invalid'
+  | 'p2p.blocked'
+  | 'p2p.offer_update_empty'
+  | 'p2p.chat_attachment_unwired'
+  | 'p2p.chat_text_required'
+  | 'p2p.chat_list_limit_unset'
+  | 'p2p.export_range_invalid'
+  | 'p2p.contact_self'
+  | 'p2p.ops_offers_limit_unset'
+  | 'p2p.ops_trades_limit_unset'
+  | 'p2p.ops_cursor_invalid'
+  | 'p2p.ops_count_invalid'
+  | 'p2p.dispute_resolve_no_four_eyes'
+  | 'p2p.dispute_resolve_approval_mismatch'
+  | 'p2p.dispute_resolve_approval_consumed';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -611,6 +652,11 @@ export interface DisputeRecord {
   moderatorViews: number;
   escalatedAt: Date | null;
   escalations: number;
+  /** Moderator who escalated by hand. Null when only the timeout sweep has re-armed. */
+  escalatedBy: string | null;
+  escalationReason: string | null;
+  /** Null while open. false = single moderator. true = approval consumed with the ruling. */
+  fourEyes: boolean | null;
 }
 
 interface TradeRow {
@@ -677,6 +723,9 @@ interface DisputeRow {
   moderator_views: number;
   escalated_at: Date | null;
   escalations: number;
+  escalated_by: string | null;
+  escalation_reason: string | null;
+  four_eyes: boolean | null;
 }
 
 /**
@@ -831,6 +880,8 @@ export class P2pService {
     methods?: unknown[];
     terms?: string;
     offerId?: string;
+    /** Client-chosen key. A retry with the same key and the same body returns the first offer. */
+    idempotencyKey?: string;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
 
@@ -899,36 +950,98 @@ export class P2pService {
      * scams. The merchant programme is the record that justifies a bigger
      * promise, so the badge and the ceiling are one control seen from two sides.
      *
-     * CREATE only. Standing is read on every create (or treated as not-in-
+     * CREATE always. Standing is read on every create (or treated as not-in-
      * programme when no reader is wired) so a non-approved maker never inherits
      * the merchant slot. Missing reader + armed policy still applies the
      * standard band — skipping the check would let every size through.
-     * Existing offers are never re-judged: breaking live liquidity to apply a
-     * new rule costs makers real money for a change they did not ask for.
+     * An edit checks the same ceiling when the maker sends a new maxAmt,
+     * whether or not the size goes up. An edit that does not send maxAmt
+     * leaves the existing promise alone.
      */
     const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
     if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
 
     const totalAmt = input.totalAmt ?? input.maxAmt;
-    const offerId = input.offerId ?? crypto.randomUUID();
+    const clientOfferId = input.offerId;
+    const idempotencyKey = input.idempotencyKey?.trim() || undefined;
+    const createHashValue = requestHash([
+      input.makerId,
+      input.side,
+      input.asset,
+      fiatCurrency,
+      input.priceType,
+      formatAmount(input.price),
+      formatAmount(input.minAmt),
+      formatAmount(input.maxAmt),
+      formatAmount(totalAmt),
+      JSON.stringify(input.methods ?? []),
+      input.terms ?? '',
+      clientOfferId ?? '',
+    ]);
 
-    const rows = await this.sql<OfferRow[]>`
-      INSERT INTO p2p.offers (
-        id, maker_id, side, asset, fiat_currency, price_type, price,
-        min_amt, max_amt, total_amt, remaining_amt, methods, terms, status
-      )
-      VALUES (
-        ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
-        ${input.priceType}, ${formatAmount(input.price)}::numeric,
-        ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
-        ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
-        ${this.sql.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active'
-      )
-      RETURNING *
-    `;
+    let replayId: string | null = null;
+    let createdRow: OfferRow | null = null;
+    try {
+      const written = await transaction(
+        this.sql,
+        async (tx) => {
+          const offerId = clientOfferId ?? crypto.randomUUID();
+          if (idempotencyKey) {
+            const claim = await claimWriteKey(tx, {
+              actorId: input.makerId,
+              scope: 'offer.create',
+              idempotencyKey,
+              requestHash: createHashValue,
+            });
+            if (claim.kind === 'replay' && claim.subjectId) return { replayId: claim.subjectId };
+            throwWriteClaim(claim);
+          } else if (clientOfferId) {
+            const existing = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`;
+            if (existing[0]) {
+              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt)) {
+                throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
+              }
+              return { replayId: clientOfferId };
+            }
+          }
 
-    const offer = toOffer(rows[0]!);
+          const rows = await tx<OfferRow[]>`
+            INSERT INTO p2p.offers (
+              id, maker_id, side, asset, fiat_currency, price_type, price,
+              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status
+            )
+            VALUES (
+              ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
+              ${input.priceType}, ${formatAmount(input.price)}::numeric,
+              ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
+              ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
+              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active'
+            )
+            RETURNING *
+          `;
+          if (idempotencyKey) {
+            await finishWriteKey(tx, {
+              actorId: input.makerId,
+              scope: 'offer.create',
+              idempotencyKey,
+              subjectId: offerId,
+            });
+          }
+          return { row: rows[0]! };
+        },
+        { isolation: 'read committed', maxAttempts: 1 },
+      );
+      if ('replayId' in written && written.replayId) replayId = written.replayId;
+      else if ('row' in written && written.row) createdRow = written.row;
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+
+    if (replayId) return this.loadOfferRaw(replayId);
+    if (!createdRow) throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
+    const offer = toOffer(createdRow);
 
     await this.bus.publish(
       'p2pOfferCreated',
@@ -1231,6 +1344,9 @@ export class P2pService {
             // record raises limits platform-wide (§6.2 → §4.1).
             throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
           }
+          if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
+            throw new P2pError('p2p.blocked', 'p2p.blocked');
+          }
           // Computed here rather than after pricing, because the refusal below
           // has to name the seller in the access log.
           const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
@@ -1276,14 +1392,16 @@ export class P2pService {
           const inserted = await tx<TradeRow[]>`
             INSERT INTO p2p.p2p_trades (
               id, offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency,
-              amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at
+              amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at,
+              terms_snapshot
             )
             VALUES (
               ${input.tradeId}, ${offer.id}, ${input.takerId}, ${offer.makerId}, ${sellerId}, ${buyerId},
               ${offer.asset}, ${offer.fiatCurrency},
               ${formatAmount(priced.amount)}::numeric, ${formatAmount(priced.price)}::numeric,
               ${formatAmount(priced.fiatAmount)}::numeric, ${input.method}, ${feeBps},
-              'created', ${tx.json(deadlines as never)}, ${deadlineAt}, ${now}
+              'created', ${tx.json(deadlines as never)}, ${deadlineAt}, ${now},
+              ${offer.terms}
             )
             ON CONFLICT (id) DO NOTHING
             RETURNING *
@@ -1858,6 +1976,16 @@ export class P2pService {
     moderatorId: string;
     resolution: 'release' | 'refund';
     notes?: string;
+    /**
+     * When true, `consumeApproval` runs inside this ruling transaction after
+     * the rows are written and before commit. A throw rolls the ruling back
+     * and `settle` is not called, so escrow does not move. Default false:
+     * one moderator, and the dispute row records `four_eyes = false`.
+     * Attempts is 1 on this path so a serialization retry cannot consume
+     * the approval twice.
+     */
+    fourEyes?: boolean;
+    consumeApproval?: (binding: { disputeId: string; winner: 'buyer' | 'seller'; note: string }) => Promise<void>;
   }): Promise<TradeRecord> {
     // Asked here first for a legible error, and asked again by the database —
     // `p2p.is_natural_person_id`, drizzle/0003. Same rule, two places, the same
@@ -1882,6 +2010,16 @@ export class P2pService {
       assertReleasePostable(trade.amount, trade.feeBps);
     }
 
+    const fourEyes = input.fourEyes === true;
+    const note = input.notes ?? '';
+    const winner = input.resolution === 'release' ? 'buyer' : 'seller';
+    if (fourEyes && !input.consumeApproval) {
+      throw new P2pError(
+        'p2p.dispute_resolve_no_four_eyes — P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL is on and this ruling has no approval',
+        'p2p.dispute_resolve_no_four_eyes',
+      );
+    }
+
     return withMoneySpan(
       'p2p.resolveDispute',
       {
@@ -1894,7 +2032,9 @@ export class P2pService {
         // ONE transaction: the moderator's ruling, the loser's record, and the
         // trade's resolution all commit together or not at all. A ruling that
         // survived without its resolution would be a decision the settlement
-        // sweep could never act on.
+        // sweep could never act on. When four-eyes is on, the approval is
+        // consumed in this same transaction, after the writes and before
+        // commit. settle() — the escrow move — runs only after that commit.
         const disputeId = await transaction(
           this.sql,
           async (tx) => {
@@ -1918,7 +2058,8 @@ export class P2pService {
             await tx`
               UPDATE p2p.p2p_disputes
                  SET status = 'resolved', moderator_id = ${input.moderatorId}, resolution = ${input.resolution},
-                     resolution_notes = ${input.notes ?? null}, resolved_at = ${now}
+                     resolution_notes = ${input.notes ?? null}, resolved_at = ${now},
+                     four_eyes = ${fourEyes}
                WHERE id = ${dispute.id}
             `;
 
@@ -1935,9 +2076,13 @@ export class P2pService {
               now,
             });
 
+            if (fourEyes && input.consumeApproval) {
+              await input.consumeApproval({ disputeId: dispute.id, winner, note });
+            }
+
             return dispute.id;
           },
-          { isolation: 'read committed', maxAttempts: 5 },
+          { isolation: 'read committed', maxAttempts: fourEyes ? 1 : 5 },
         );
 
         // Published after the commit, never inside it: an event for a decision
@@ -2419,30 +2564,137 @@ export class P2pService {
    * SLA, the SLA was missed, and the queue orders by it — moving it would push
    * the most neglected dispute to the bottom of the list a moderator reads.
    */
+  /**
+   * A moderator escalates an open dispute by hand. Same re-arm as the timeout
+   * sweep: `escalated_at` sticks at the first time, `escalations` increments,
+   * the trade deadline moves to the re-check, the dispute SLA stays put, and
+   * no ledger recipe runs. The actor is recorded. A replay of `clientRequestId`
+   * returns the escalated row and does not re-arm again.
+   */
+  async escalateOpenDispute(input: { disputeId: string; actorId: string; reason: string; clientRequestId: string }): Promise<{
+    disputeId: string;
+    tradeId: string;
+    escalatedAt: Date;
+    escalations: number;
+    deadlineAt: Date;
+    actorId: string;
+    reason: string;
+    replay: boolean;
+  }> {
+    if (!isNaturalPersonId(input.actorId)) {
+      throw new P2pError(`A dispute is escalated by a person. "${input.actorId}" is not a natural-person id.`, 'p2p.ruling_not_attributed');
+    }
+    const request = requestHash([input.actorId, input.disputeId, input.reason]);
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          const disputes = await tx<DisputeRow[]>`
+            SELECT * FROM p2p.p2p_disputes WHERE id = ${input.disputeId} FOR UPDATE
+          `;
+          const dispute = disputes[0];
+          if (!dispute) throw new P2pError(`Dispute ${input.disputeId} not found`, 'p2p.dispute_not_found');
+          if (dispute.status === 'resolved') {
+            throw new P2pError(`Dispute ${dispute.id} is already resolved`, 'p2p.dispute_already_resolved');
+          }
+          const trade = await this.lockTrade(tx, dispute.trade_id);
+          if (trade.status !== 'disputed' || trade.resolution !== null) {
+            throw new P2pError(`Dispute ${dispute.id} is already resolved`, 'p2p.dispute_already_resolved');
+          }
+
+          const claim = await claimWriteKey(tx, {
+            actorId: input.actorId,
+            scope: 'dispute.escalate',
+            idempotencyKey: input.clientRequestId,
+            requestHash: request,
+          });
+          if (claim.kind === 'replay') {
+            const current = await tx<DisputeRow[]>`SELECT * FROM p2p.p2p_disputes WHERE id = ${dispute.id}`;
+            const row = current[0]!;
+            if (!row.escalated_at || !trade.deadlineAt) {
+              throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
+            }
+            return {
+              disputeId: row.id,
+              tradeId: row.trade_id,
+              escalatedAt: row.escalated_at,
+              escalations: Number(row.escalations),
+              deadlineAt: trade.deadlineAt,
+              actorId: row.escalated_by ?? input.actorId,
+              reason: row.escalation_reason ?? input.reason,
+              replay: true,
+            };
+          }
+          throwWriteClaim(claim);
+
+          const stamped = await this.writeEscalation(tx, dispute.trade_id, {
+            actorId: input.actorId,
+            reason: input.reason,
+          });
+          await finishWriteKey(tx, {
+            actorId: input.actorId,
+            scope: 'dispute.escalate',
+            idempotencyKey: input.clientRequestId,
+            subjectId: dispute.id,
+          });
+          return { ...stamped, disputeId: dispute.id, actorId: input.actorId, reason: input.reason, replay: false };
+        },
+        { isolation: 'read committed', maxAttempts: 1 },
+      );
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
   private async escalateDispute(tradeId: string): Promise<void> {
     await transaction(
       this.sql,
       async (tx) => {
         const trade = await this.lockTrade(tx, tradeId);
         if (trade.status !== 'disputed' || trade.resolution !== null) return;
-
-        const now = await txNow(tx);
-        const nextCheck = escalationDeadline(now, this.deadlines);
-
-        await tx`
-          UPDATE p2p.p2p_disputes
-             SET escalated_at = COALESCE(escalated_at, ${now}), escalations = escalations + 1
-           WHERE trade_id = ${tradeId} AND status = 'open'
-        `;
-
-        // `deadlines.disputeBy` keeps the ORIGINAL SLA. The re-check is not a
-        // new promise to the parties and must not be recorded as one.
-        await tx`
-          UPDATE p2p.p2p_trades SET deadline_at = ${nextCheck} WHERE id = ${tradeId} AND resolution IS NULL
-        `;
+        await this.writeEscalation(tx, tradeId);
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /**
+   * The sweep and a manual escalation share this write. The dispute SLA
+   * (`p2p_disputes.deadline_at`) is not moved. The trade deadline is.
+   */
+  private async writeEscalation(
+    tx: Sql,
+    tradeId: string,
+    actor?: { actorId: string; reason: string },
+  ): Promise<{ tradeId: string; escalatedAt: Date; escalations: number; deadlineAt: Date }> {
+    const now = await txNow(tx);
+    const nextCheck = escalationDeadline(now, this.deadlines);
+    const disputes = await tx<DisputeRow[]>`
+      UPDATE p2p.p2p_disputes
+         SET escalated_at = COALESCE(escalated_at, ${now}),
+             escalations = escalations + 1,
+             escalated_by = COALESCE(escalated_by, ${actor?.actorId ?? null}),
+             escalation_reason = COALESCE(escalation_reason, ${actor?.reason ?? null})
+       WHERE trade_id = ${tradeId} AND status = 'open'
+      RETURNING *
+    `;
+    const dispute = disputes[0];
+    const trades = await tx<Array<{ deadline_at: Date }>>`
+      UPDATE p2p.p2p_trades SET deadline_at = ${nextCheck}
+       WHERE id = ${tradeId} AND resolution IS NULL
+      RETURNING deadline_at
+    `;
+    const deadlineAt = trades[0]?.deadline_at;
+    if (actor && (!dispute?.escalated_at || !deadlineAt)) {
+      throw new P2pError(`Trade ${tradeId} has no open dispute`, 'p2p.dispute_not_found');
+    }
+    return {
+      tradeId,
+      escalatedAt: dispute?.escalated_at ?? now,
+      escalations: Number(dispute?.escalations ?? 0),
+      deadlineAt: deadlineAt ?? nextCheck,
+    };
   }
 
   private async publishExpired(
@@ -2661,6 +2913,368 @@ export class P2pService {
     return drift.length === 0 ? { ok: true } : { ok: false, drift };
   }
 
+  // ── Customer depth (screens: edit, quote, chat, contacts, mine, export) ──
+
+  async updateOffer(input: {
+    offerId: string;
+    makerId: string;
+    idempotencyKey: string;
+    price?: Amount;
+    minAmt?: Amount;
+    maxAmt?: Amount;
+    totalAmt?: Amount;
+    methods?: unknown[];
+    terms?: string;
+  }): Promise<OfferRecord> {
+    if (
+      input.price === undefined &&
+      input.minAmt === undefined &&
+      input.maxAmt === undefined &&
+      input.totalAmt === undefined &&
+      input.methods === undefined &&
+      input.terms === undefined
+    ) {
+      throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+    }
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!idempotencyKey) throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+    const hash = requestHash([
+      input.offerId,
+      input.price === undefined ? '' : formatAmount(input.price),
+      input.minAmt === undefined ? '' : formatAmount(input.minAmt),
+      input.maxAmt === undefined ? '' : formatAmount(input.maxAmt),
+      input.totalAmt === undefined ? '' : formatAmount(input.totalAmt),
+      input.methods === undefined ? '' : JSON.stringify(input.methods),
+      input.terms ?? '',
+    ]);
+
+    if (input.methods) {
+      if (!Array.isArray(input.methods) || input.methods.length === 0) {
+        throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodsRequired), 'p2p.offer_methods_required');
+      }
+      const preview = await this.loadOfferRaw(input.offerId);
+      if (preview.makerId !== input.makerId) throw new P2pError('Only the maker can edit an offer', 'p2p.not_a_party');
+      const registered = await this.instruments.enabledMethodKeys();
+      if (missingSellDestinations(input.methods, registered).length > 0) {
+        throw new InstrumentError(resolveP2pCopy(P2P_COPY.methodUnknown), 'p2p.instrument_method_unknown');
+      }
+      if (preview.side === 'sell') {
+        const live = await this.instruments.liveMethodKeys(preview.makerId, preview.fiatCurrency);
+        if (missingSellDestinations(input.methods, live).length > 0) {
+          throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
+        }
+      }
+    }
+
+    try {
+      const written = await transaction(this.sql, async (tx) => {
+        const claim = await claimWriteKey(tx, {
+          actorId: input.makerId,
+          scope: 'offer.update',
+          idempotencyKey,
+          requestHash: hash,
+        });
+        if (claim.kind === 'replay' && claim.subjectId) return { replayId: claim.subjectId };
+        throwWriteClaim(claim);
+
+        const locked = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`;
+        const current = locked[0];
+        if (!current) throw new P2pError(`Offer ${input.offerId} not found`, 'p2p.offer_not_found');
+        const offer = toOffer(current);
+        if (offer.makerId !== input.makerId) throw new P2pError('Only the maker can edit an offer', 'p2p.not_a_party');
+        if (offer.status === 'closed') {
+          throw new P2pError(`Offer ${offer.id} is closed and cannot be edited`, 'p2p.offer_not_active');
+        }
+
+        const price = input.price ?? offer.price;
+        const minAmt = input.minAmt ?? offer.minAmt;
+        const maxAmt = input.maxAmt ?? offer.maxAmt;
+        let totalAmt = input.totalAmt ?? offer.totalAmt;
+        if (price <= 0n || minAmt <= 0n) throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+        if (compare(minAmt, maxAmt) > 0 || compare(maxAmt, totalAmt) > 0) {
+          throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+        }
+        const filled = sub(offer.totalAmt, offer.remainingAmt);
+        if (compare(totalAmt, filled) < 0) {
+          throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+        }
+        const remainingAmt = sub(totalAmt, filled);
+        if (input.maxAmt !== undefined) {
+          const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
+          const verdict = checkOfferLimit({ status: standing, maxAmt, asset: offer.asset, policy: this.offerLimits });
+          if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
+        }
+        const methods = input.methods ?? offer.methods;
+        const terms = input.terms ?? offer.terms;
+        if (!Array.isArray(methods) || methods.length === 0) {
+          throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodsRequired), 'p2p.offer_methods_required');
+        }
+
+        const rows = await tx<OfferRow[]>`
+          UPDATE p2p.offers
+             SET price = ${formatAmount(price)}::numeric,
+                 min_amt = ${formatAmount(minAmt)}::numeric,
+                 max_amt = ${formatAmount(maxAmt)}::numeric,
+                 total_amt = ${formatAmount(totalAmt)}::numeric,
+                 remaining_amt = ${formatAmount(remainingAmt)}::numeric,
+                 methods = ${tx.json(methods as never)},
+                 terms = ${terms},
+                 updated_at = now()
+           WHERE id = ${offer.id}
+          RETURNING *
+        `;
+        await finishWriteKey(tx, {
+          actorId: input.makerId,
+          scope: 'offer.update',
+          idempotencyKey,
+          subjectId: offer.id,
+        });
+        return { row: rows[0]! };
+      });
+      if ('replayId' in written && written.replayId) return this.loadOfferRaw(written.replayId);
+      if ('row' in written && written.row) return toOffer(written.row);
+      throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
+  /**
+   * Fee and reservation preview. Does not lock inventory and does not post.
+   * Fee comes from the service policy. Unset fee refuses. No estimate.
+   */
+  async quoteTake(input: { offerId: string; takerId: string; amount: Amount; method: string }): Promise<{
+    amount: Amount;
+    price: Amount;
+    fiatAmount: Amount;
+    feeBps: number;
+    fee: Amount;
+    netAmount: Amount;
+    reservationExpiresAt: Date;
+  }> {
+    this.assertTradingEnabled();
+    const offer = await this.loadOfferRaw(input.offerId);
+    if (offer.status !== 'active') {
+      throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
+    }
+    if (offer.makerId === input.takerId) throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
+    if (await eitherBlocked(this.sql, offer.makerId, input.takerId)) {
+      throw new P2pError('p2p.blocked', 'p2p.blocked');
+    }
+    if (!methodAllowed(offer.methods, input.method)) {
+      throw new InstrumentError(resolveP2pCopy(P2P_COPY.takeRefused), 'p2p.take_refused');
+    }
+    assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
+    const referencePrice =
+      offer.priceType === 'float' ? ((await this.referencePrices?.price(offer.asset, offer.fiatCurrency)) ?? null) : null;
+    const priced = quote({
+      amount: input.amount,
+      priceType: offer.priceType,
+      price: offer.price,
+      referencePrice,
+      fiatCurrency: offer.fiatCurrency,
+    });
+    const feeBps = publishedFeeBps(this.feeBps);
+    assertReleasePostable(input.amount, feeBps);
+    const fee = mulBps(input.amount, feeBps);
+    const netAmount = sub(input.amount, fee);
+    const reservationExpiresAt = deadlineFor('created', new Date(), this.deadlines);
+    if (!reservationExpiresAt) throw new P2pError('p2p.escrow_deadline_unset', 'p2p.escrow_deadline_unset');
+    return { amount: priced.amount, price: priced.price, fiatAmount: priced.fiatAmount, feeBps, fee, netAmount, reservationExpiresAt };
+  }
+
+  async listOfferBoard(
+    filter: {
+      asset?: string;
+      fiatCurrency?: string;
+      side?: 'buy' | 'sell';
+      makerId?: string;
+      methodId?: string;
+      minFiat?: string;
+      viewerId?: string;
+      limit?: number;
+      cursor?: string | null;
+    } = {},
+  ): Promise<{ offers: OfferRecord[]; nextCursor: string | null }> {
+    const limit = assertOfferListLimit(filter.limit);
+    let minFiat: Amount | null = null;
+    if (filter.minFiat !== undefined) {
+      try {
+        minFiat = parseAmount(filter.minFiat);
+      } catch {
+        throw new P2pError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
+      }
+      if (minFiat < 0n) throw new P2pError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
+    }
+    let rows;
+    try {
+      rows = await selectOfferBoard(this.sql, {
+        asset: filter.asset,
+        fiatCurrency: filter.fiatCurrency?.toUpperCase(),
+        side: filter.side,
+        makerId: filter.makerId,
+        methodId: filter.methodId,
+        minFiat,
+        viewerId: filter.viewerId ?? null,
+        limit,
+        cursor: filter.cursor ?? null,
+      });
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+    const raw = rows.map(boardRowToOffer);
+    const offers = await this.projectBoardMethods(raw);
+    const lastRaw = raw[raw.length - 1];
+    const nextCursor = raw.length === limit && lastRaw ? encodeOfferCursor(lastRaw) : null;
+    return { offers, nextCursor };
+  }
+
+  async releasedTradeCounts(offerIds: readonly string[]): Promise<Map<string, number>> {
+    return releasedCounts(this.sql, offerIds);
+  }
+
+  async tradesInWindow(userId: string): Promise<number> {
+    return tradesReleasedIn30Days(this.sql, userId);
+  }
+
+  /** Read-only. True when this trade has a dispute that is still open. */
+  async disputeOpen(tradeId: string): Promise<boolean> {
+    return disputeOpenForTrade(this.sql, tradeId);
+  }
+
+  async sendChatMessage(input: {
+    tradeId: string;
+    senderId: string;
+    clientId: string;
+    text: string;
+    asModerator: boolean;
+    attachment?: unknown;
+  }): Promise<{ message: ChatMessage; created: boolean }> {
+    if (input.attachment !== undefined) {
+      throw new P2pError('p2p.chat_attachment_unwired', 'p2p.chat_attachment_unwired');
+    }
+    await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
+    try {
+      return await insertChatMessage(this.sql, input);
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
+  async listChatMessages(input: {
+    tradeId: string;
+    viewerId: string;
+    asModerator: boolean;
+    cursor?: string | null;
+    limit?: number;
+  }): Promise<{ messages: ChatMessage[]; nextCursor: string | null; unread: number }> {
+    await this.assertChatParticipant(input.tradeId, input.viewerId, input.asModerator);
+    const limit = assertChatListLimit(input.limit);
+    const page = await listChatMessages(this.sql, { tradeId: input.tradeId, cursor: input.cursor ?? null, limit });
+    const unread = await unreadChatCount(this.sql, input.tradeId, input.viewerId);
+    if (page.nextCursor === null) await markChatRead(this.sql, input.tradeId, input.viewerId);
+    return { ...page, unread };
+  }
+
+  async unreadChat(input: { tradeId: string; viewerId: string; asModerator: boolean }): Promise<number> {
+    await this.assertChatParticipant(input.tradeId, input.viewerId, input.asModerator);
+    return unreadChatCount(this.sql, input.tradeId, input.viewerId);
+  }
+
+  async setContact(input: {
+    ownerId: string;
+    peerId: string;
+    kind: 'follow' | 'block';
+    present: boolean;
+    idempotencyKey: string;
+  }): Promise<{ following: string[]; blocking: string[] }> {
+    try {
+      await setContact(this.sql, input);
+    } catch (err) {
+      if (err instanceof DepthError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+    return listContacts(this.sql, input.ownerId);
+  }
+
+  async listContacts(ownerId: string): Promise<{ following: string[]; blocking: string[] }> {
+    return listContacts(this.sql, ownerId);
+  }
+
+  async listMyDisputes(input: {
+    userId: string;
+    status?: 'open' | 'resolved';
+    limit?: number;
+    cursor?: string | null;
+  }): Promise<{ disputes: DisputeRecord[]; nextCursor: string | null }> {
+    const limit = assertDisputeListLimit(input.limit);
+    const cursor = input.cursor ?? null;
+    const rows = await this.sql<DisputeRow[]>`
+      SELECT d.*
+        FROM p2p.p2p_disputes d
+        JOIN p2p.p2p_trades t ON t.id = d.trade_id
+       WHERE (t.buyer_id = ${input.userId} OR t.seller_id = ${input.userId})
+         AND (${input.status ?? null}::text IS NULL OR d.status::text = ${input.status ?? null})
+         AND (
+           ${cursor}::uuid IS NULL
+           OR (d.opened_at, d.id) < (
+             (SELECT c.opened_at FROM p2p.p2p_disputes c WHERE c.id = ${cursor}::uuid),
+             ${cursor}::uuid
+           )
+         )
+       ORDER BY d.opened_at DESC, d.id DESC
+       LIMIT ${limit}
+    `;
+    const disputes = rows.map(toDispute);
+    const last = disputes[disputes.length - 1];
+    return { disputes, nextCursor: disputes.length === limit && last ? last.id : null };
+  }
+
+  async exportTrades(input: { userId: string; from: string; to: string }): Promise<{ csv: string; rows: number }> {
+    const from = new Date(input.from);
+    const to = new Date(input.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
+      throw new P2pError('p2p.export_range_invalid', 'p2p.export_range_invalid');
+    }
+    const rows = await this.sql<TradeRow[]>`
+      SELECT * FROM p2p.p2p_trades
+       WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
+         AND created_at >= ${from}
+         AND created_at <= ${to}
+       ORDER BY created_at ASC, id ASC
+    `;
+    const trades = rows.map(toTrade);
+    const csv = tradesCsv(
+      input.userId,
+      trades.map((trade) => ({
+        id: trade.id,
+        offerId: trade.offerId,
+        sellerId: trade.sellerId,
+        buyerId: trade.buyerId,
+        asset: trade.asset,
+        amount: formatAmount(trade.amount),
+        fiatCurrency: trade.fiatCurrency,
+        fiatAmount: formatAmount(trade.fiatAmount),
+        price: formatAmount(trade.price),
+        method: trade.method,
+        status: trade.status,
+        resolution: trade.resolution,
+        createdAt: trade.createdAt.toISOString(),
+      })),
+    );
+    return { csv, rows: trades.length };
+  }
+
+  private async assertChatParticipant(tradeId: string, userId: string, asModerator: boolean): Promise<TradeRecord> {
+    const trade = await this.getTrade(tradeId);
+    if (trade.buyerId === userId || trade.sellerId === userId) return trade;
+    if (asModerator && (await disputeOpenForTrade(this.sql, tradeId))) return trade;
+    throw unknownTrade(tradeId);
+  }
+
   // ── internals ──────────────────────────────────────────────────────────────
 
   private assertTradingEnabled(): void {
@@ -2813,6 +3427,9 @@ function toDispute(row: DisputeRow): DisputeRecord {
     moderatorViews: Number(row.moderator_views ?? 0),
     escalatedAt: row.escalated_at ?? null,
     escalations: Number(row.escalations ?? 0),
+    escalatedBy: row.escalated_by ?? null,
+    escalationReason: row.escalation_reason ?? null,
+    fourEyes: row.four_eyes ?? null,
   };
 }
 
@@ -2956,6 +3573,44 @@ export { evidenceVisibleTo };
  * or it passed here and was refused a layer down by `attachToTrade`. Keyed
  * comparison is the same rule on both sides of the door.
  */
+function sameCreate(
+  offer: OfferRecord,
+  input: {
+    makerId: string;
+    side: 'buy' | 'sell';
+    asset: string;
+    priceType: PriceType;
+    price: Amount;
+    minAmt: Amount;
+    maxAmt: Amount;
+    methods?: unknown[];
+    terms?: string;
+  },
+  fiatCurrency: string,
+  totalAmt: Amount,
+): boolean {
+  return (
+    offer.makerId === input.makerId &&
+    offer.side === input.side &&
+    offer.asset === input.asset &&
+    offer.fiatCurrency === fiatCurrency &&
+    offer.priceType === input.priceType &&
+    offer.price === input.price &&
+    offer.minAmt === input.minAmt &&
+    offer.maxAmt === input.maxAmt &&
+    offer.totalAmt === totalAmt &&
+    offer.terms === (input.terms ?? '') &&
+    JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? [])
+  );
+}
+
+function assertChatListLimit(limit: number | undefined): number {
+  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit) || Math.floor(limit) < 1) {
+    throw new P2pError('p2p.chat_list_limit_unset', 'p2p.chat_list_limit_unset');
+  }
+  return Math.min(200, Math.floor(limit));
+}
+
 function methodAllowed(methods: unknown[], method: string): boolean {
   // An offer with no declared methods accepts anything — the maker's terms text
   // is the contract in that case. An offer WITH methods accepts only those.

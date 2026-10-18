@@ -14,14 +14,14 @@ import {
   ratio,
   Skeleton,
   sub,
-  type Holding,
+  type HomeHolding,
 } from './deps';
 
 /** How many holdings the side card lists before it offers "See all". */
 const SHOWN = 6;
 
 /** Today's change of one holding as a ratio of what it was worth a day ago; unknown when either figure is. */
-function changeRatio(holding: Holding): string | null {
+function changeRatio(holding: HomeHolding): string | null {
   const value = dec(holding.usdValue);
   const change = dec(holding.usdChange24h);
   if (value === null || change === null) return null;
@@ -33,7 +33,7 @@ function changeRatio(holding: Holding): string | null {
  * "Your crypto" (taste call T2-A, provisional): each coin the person holds with its icon, amount, value and
  * today's change, from the data layer's holdings. Sits above Popular in the right column.
  */
-export function YourCrypto({ holdings, hidden }: { holdings: Holding[]; hidden: boolean }) {
+export function YourCrypto({ holdings, hidden }: { holdings: HomeHolding[]; hidden: boolean }) {
   const copy = homeCopy.useCopy();
   const { t } = copy;
   const crypto = holdings.filter((holding) => holding.class === 'crypto');

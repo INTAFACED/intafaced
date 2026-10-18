@@ -10,7 +10,7 @@ export function DisabledAction({
 }: {
   label: ReactNode;
   reason: ReactNode;
-  variant?: 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost';
 }) {
   const id = useId();
   return (
@@ -18,6 +18,33 @@ export function DisabledAction({
       <Button variant={variant} disabled aria-describedby={id}>
         {label}
       </Button>
+      <p id={id} className="money-caption">
+        {reason}
+      </p>
+    </div>
+  );
+}
+
+/** Several controls that are blocked for one reason: the buttons sit side by side and the reason is said once. */
+export function DisabledActions({
+  labels,
+  reason,
+  variant = 'secondary',
+}: {
+  labels: ReactNode[];
+  reason: ReactNode;
+  variant?: 'primary' | 'secondary' | 'ghost';
+}) {
+  const id = useId();
+  return (
+    <div className="bd-disabled">
+      <div className="actions">
+        {labels.map((label, index) => (
+          <Button key={index} variant={variant} disabled aria-describedby={id}>
+            {label}
+          </Button>
+        ))}
+      </div>
       <p id={id} className="money-caption">
         {reason}
       </p>

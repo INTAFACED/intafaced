@@ -65,6 +65,31 @@ export const tradeSchema = z.object({
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
 });
+/** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
+export const chatMessageSchema = z.object({
+  id,
+  tradeId: id,
+  senderId: z.string(),
+  clientId: z.string(),
+  text: z.string(),
+  createdAt: z.string(),
+});
+export const chatPageSchema = z.object({
+  messages: z.array(chatMessageSchema),
+  nextCursor: z.string().nullable(),
+  unread: z.number().int().nonnegative(),
+});
+/** `chat.messages.send`: the stored message, `created: false` when the same client id had already been stored. */
+export const chatSentSchema = chatMessageSchema.extend({
+  created: z.boolean(),
+  notify: z.object({
+    delivered: z.boolean(),
+    code: z.enum(['p2p.chat_notify_delivered', 'p2p.chat_notify_unwired', 'p2p.chat_notify_failed']),
+  }),
+});
+export const chatUnreadSchema = z.object({ tradeId: id, unread: z.number().int().nonnegative() });
+/** `contacts.list` and every contacts mutation answer with the caller's whole lists of account ids. */
+export const contactsSchema = z.object({ following: z.array(z.string()), blocking: z.array(z.string()) });
 export const instrumentSchema = z.object({
   id,
   methodId: z.string(),
@@ -148,8 +173,26 @@ export const reputationSchema = z
     avgReleaseSecs: z.number().int().nonnegative().max(2147483647),
     badges: z.array(z.string()),
     merchant: z.boolean().nullable(),
+    /** Public handle from identity. Null or absent when the service has none to give; never guessed. */
+    handle: z.string().nullish(),
+    memberSince: z.string().nullish(),
+    /** Whether identity's public profile was read: `unwired` and `absent` explain a missing handle. */
+    profile: z
+      .object({ status: z.enum(['unwired', 'found', 'absent']) })
+      .passthrough()
+      .optional(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
+/** What `trades.quote` returns: exact figures for one take, before anything is locked. */
+export const takeQuoteSchema = z.object({
+  amount: positiveAmount,
+  price: amount,
+  fiatAmount: amount,
+  feeBps: z.number().int().nonnegative().max(9999),
+  fee: amount,
+  netAmount: amount,
+  reservationExpiresAt: z.string().datetime({ offset: true }),
+});
 export const p2pStandingSchema = z.object({
   userId: z.string(),
   status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
@@ -174,6 +217,10 @@ export const merchantSchema = z.object({
   kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
   kybRef: z.string().nullable(),
   feeBps: z.number().nullable(),
+  starterFee: z
+    .object({ bps: z.number().int().min(0).max(10_000), source: z.literal('local_test') })
+    .nullable()
+    .optional(),
 });
 export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
@@ -195,6 +242,8 @@ export const newLinkSchema = z.object({
   label: z.string(),
   expiresAt: z.string().datetime({ offset: true }),
   maxUses: z.number().int().nullable(),
+  /** The service's own checkout address: a path from its public base, or a full web address. Older services omit it. */
+  checkoutUrl: z.string().min(1).max(2048).nullish(),
 });
 export const resolvedLinkSchema = z.object({
   id,
@@ -219,6 +268,8 @@ export const checkoutSchema = z.object({
 });
 export const paymentSchema = z.object({
   id,
+  customerRef: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   merchantId: id,
   profileId: id.nullable(),
   amount,
@@ -393,5 +444,11 @@ export const webhookDeliverySchema = z.object({
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+export type ChatPage = z.infer<typeof chatPageSchema>;
+export type ChatSent = z.infer<typeof chatSentSchema>;
+export type Contacts = z.infer<typeof contactsSchema>;
+export type TakeQuote = z.infer<typeof takeQuoteSchema>;
+export type Reputation = z.infer<typeof reputationSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;

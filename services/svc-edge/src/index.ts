@@ -1,10 +1,11 @@
 import Fastify from 'fastify';
-import { AuthError } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
 import { readEdgeAuthority } from './live-authority.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
+import { httpMatchingOperator } from './matching-operator-door.js';
 import { resolveRequestRegion } from './geo-region.js';
 import { CORS_ENFORCED_ENVS, edgeOriginAllowlist, registerCors } from './cors.js';
 import { env } from './env.js';
@@ -18,7 +19,8 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState } from './kill-switch.js';
-import { registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
+import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperatorRoutes } from './matching-proxy.js';
+import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
 import { exchangePrincipal } from './principal-exchange.js';
@@ -177,25 +179,29 @@ const tokenConfig = {
 /** §14.6 — the operator kill-switch, and the first one in the platform anything can reach. */
 const killSwitches = new KillSwitchState({ statePath: env.EDGE_KILL_STATE_PATH });
 
+const sessionLive = async (principal: Principal) => {
+  if (
+    principal.kid ||
+    principal.sub_account ||
+    !(await readEdgeAuthority(principal, {
+      identityUrl: env.IDENTITY_URL,
+      identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+    }))
+  )
+    throw new AuthError('Operator session is not live', 'token.invalid');
+};
+
 const admin = createAdminApi(killSwitches, {
   tokens: tokenConfig,
-  sessionLive: async (principal) => {
-    if (
-      principal.kid ||
-      principal.sub_account ||
-      !(await readEdgeAuthority(principal, {
-        identityUrl: env.IDENTITY_URL,
-        identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
-      }))
-    )
-      throw new AuthError('Operator session is not live', 'token.invalid');
-  },
+  sessionLive,
   // Null when unset, and the console is told. `LEDGER_URL` is a URL, not a
   // secret — `env.ts` withholds `DATABASE_URL`, `NATS_URL` and
   // `INTERNAL_SERVICE_SECRET` from this service, and none of them is needed
   // here: the edge forwards the operator's own token and holds no credential of
   // the ledger's.
   ledger: env.LEDGER_URL ? httpLedgerOperator(env.LEDGER_URL, env.UPSTREAM_TIMEOUT_MS) : null,
+  complianceQueuePath: env.EDGE_COMPLIANCE_QUEUE_PATH,
+  reconcileLastPath: env.EDGE_RECONCILE_LAST_PATH,
   approvals: createHttpEdgeApprovalConsumer({
     identityUrl: env.IDENTITY_URL,
     edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -287,7 +293,28 @@ registerGeoBlockGuard(app);
 // Network fail-closed on /api — product Done bar for VPN/signal residual.
 // Must not invent a partner; refuses only when env arms fail-closed / flagged.
 registerNetworkAccessGuard(app);
-registerAdminRoutes(app, admin);
+registerAdminRoutes(
+  app,
+  admin,
+  env.MATCHING_URL && env.EDGE_PRINCIPAL_SECRET
+    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, env.EDGE_PRINCIPAL_SECRET)
+    : null,
+);
+
+const matchingUrl = readMatchingUrl(env.MATCHING_URL);
+const matchingSecret = env.MATCHING_EDGE_SIGNING_SECRET;
+registerMatchingOperatorRoutes(app, {
+  tokens: tokenConfig,
+  authenticateWrite: (header) => admin.authenticate(header),
+  sessionLive,
+  matching: matchingUrl && matchingSecret ? httpMatchingControl(matchingUrl, matchingSecret, env.UPSTREAM_TIMEOUT_MS) : null,
+  blocked: !matchingUrl
+    ? { code: 'matching_unconfigured', key: 'MATCHING_URL' }
+    : !matchingSecret
+      ? { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' }
+      : null,
+  readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
+});
 
 registerWidgetRampRoute(app);
 
@@ -321,7 +348,7 @@ await app.register(async (api) => {
 
     if (isS2sPath(target.path)) {
       // Belt: the onRequest hook already refuses this. Kept so a future route
-      // that skips the hook cannot open the S2S plane.
+      // that skips the hook cannot open the service plane.
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 
@@ -428,7 +455,7 @@ await app.register(async (api) => {
       allowedOrigins: cors.origins,
     });
     if (csrf) {
-      return reply.code(403).send({ error: userCopy('edge.origin_not_allowed'), code: csrf.code });
+      return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
     }
 
     const body = upstreamBody(req.method, req.body);

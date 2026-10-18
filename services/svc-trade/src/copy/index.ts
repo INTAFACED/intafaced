@@ -49,6 +49,15 @@ export {
 } from './auto-mirror-place.js';
 export type { PlaceFollowerOrderPort, PlaceFollowerOrderInput, InspectCopyMarket } from './auto-mirror-place.js';
 export {
+  parseCopyDisclosureLawJson,
+  UNPUBLISHED_COPY_DISCLOSURE_LAW,
+  UNPUBLISHED_COPY_DISCLOSURE_VIEW,
+  COPY_DISCLOSURE_LAW_KEY,
+  type CopyDisclosureLaw,
+  type CopyDisclosureView,
+  type CopyDisclosureAcceptanceRecord,
+} from './disclosure.js';
+export {
   parseCopyFeeShareLawJson,
   parseCopyJurisdictionLawJson,
   requirePublishedCopyFeeShareLaw,
@@ -95,6 +104,7 @@ export {
 } from './copy-lifecycle.js';
 export {
   COPY_FLATTEN_DISPOSITION,
+  COPY_FLATTEN_PARTIAL_RESIDUAL,
   COPY_FLATTEN_REFUSED_RESIDUAL,
   applyCopyFlatten,
   flattenFollowerCopyPosition,
@@ -104,6 +114,7 @@ export {
   type FlattenCopyPositionInput,
   type FlattenCopyPositionPort,
 } from './copy-flatten.js';
+export { copyFlattenClientOrderId, createFollowerFlattenPort, type FollowerFlattenPortDeps } from './follower-flatten-port.js';
 export {
   bindCopyFollowerLimits,
   bindEnvelopeLimits,

@@ -49,20 +49,22 @@ Edge answers `502 Connection unavailable` for any route whose service is not run
 
 "Reachable" means the door answers with the service's own responses. These parts stay **not connected** on purpose, because they need a real outside provider or an owner decision, and the service says so by name instead of inventing an answer:
 
-| Door               | Not connected              | Why                                                                                                                                                                                 |
-| ------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Navigator / Agents | Model provider             | `AGENTS_PROVIDER=upstream` aimed at a closed port; the service's built-in mock is not used. Metering is off, so no usage fee is charged.                                            |
-| Blueprint          | Neural engine              | `BLUEPRINT_ENGINE_MODE=http` aimed at a closed port; the stub engine is not used. Card PNG renderer is unset.                                                                       |
-| Academy            | Live classes, video        | No LiveKit and no video storage. Paper-trading market limit is owner-unpublished and unset.                                                                                         |
-| P2P                | Fee, offer caps, deadlines | Owner-unpublished, so unset. Payment-instrument encryption has no provider locally.                                                                                                 |
-| Notifications      | Email, push, SMS           | No gateway; the in-app inbox works.                                                                                                                                                 |
-| Market             | House commission           | Owner-unpublished, unset.                                                                                                                                                           |
-| Quant              | Data lake, venue vault     | Not connected.                                                                                                                                                                      |
-| Execution          | Outside venues             | `EXECUTION_VENUE_IDS` is empty, so nothing can route off-platform.                                                                                                                  |
-| Token              | Emissions, yield, buyback  | Background jobs off, like Bank's.                                                                                                                                                   |
-| Mining             | The whole service          | Not started: `svc-mining-pool` listens on `0.0.0.0` in its code, which breaks the loopback-only rule. The Mining room is a static "unavailable" page; its health probe answers 502. |
+| Door               | Not connected             | Why                                                                                                                                                                                     |
+| ------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigator / Agents | Model provider            | `AGENTS_PROVIDER=upstream` aimed at a closed port; the service's built-in mock is not used. Metering is off, so no usage fee is charged.                                                |
+| Blueprint          | Neural engine             | `BLUEPRINT_ENGINE_MODE=http` aimed at a closed port; the stub engine is not used. Card PNG renderer is unset.                                                                           |
+| Academy            | Live classes, video       | No LiveKit and no video storage. Paper-trading market limit is owner-unpublished and unset.                                                                                             |
+| P2P                | Offer caps                | Caps stay unset (owner-unpublished). The house fee is an explicit LOCAL TEST free cut (`P2P_FEE_BPS=0`). Payment-instrument details are sealed with a local-test key, not an owner KMS. |
+| Notifications      | Email, push, SMS          | No gateway; the in-app inbox works.                                                                                                                                                     |
+| Market             | House commission          | Owner-unpublished, unset.                                                                                                                                                               |
+| Quant              | Data lake, venue vault    | Not connected.                                                                                                                                                                          |
+| Execution          | Outside venues            | `EXECUTION_VENUE_IDS` is empty, so nothing can route off-platform.                                                                                                                      |
+| Token              | Emissions, yield, buyback | Background jobs off, like Bank's.                                                                                                                                                       |
+| Mining             | The whole service         | Not started: `svc-mining-pool` listens on `0.0.0.0` in its code, which breaks the loopback-only rule. The Mining room is a static "unavailable" page; its health probe answers 502.     |
 
 Not started because the Customer app never calls them: Protocol, DEX, Indexer, Tax, Ops (operator back-office) and the data-lake door.
+
+Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` and `LOCAL_TEST_KMS_DIR` to `<state>/p2p-kms`. The first boot writes `p2p-instrument.local-test.key` there, mode 0600, and seals new instrument details as `{"_sealed":"local-test:v1:..."}`. Health keeps `instrumentKmsConfigured: false` and adds `instrumentKeyProvider: "local-test"`. This is not owner KMS. `P2P_FEE_BPS=0` is an explicit LOCAL TEST free cut, the same kind of published zero as `MARKET_HOUSE_COMMISSION_BPS=0` in `.env.example`: `trades.take` posts a 0 bps cut, so the buyer receives the whole amount, instead of refusing `p2p.fee_bps_unset`. Undo: unset `LOCAL_TEST_KMS` and `LOCAL_TEST_KMS_DIR`, then `pnpm local:stack:restart p2p`. After that restart a sealed row refuses with `p2p.instrument_kms_required` and is not returned as account details. No other service gets either variable.
 
 ## Screening
 
@@ -96,8 +98,10 @@ On this stack only, the stack may stand in for three people who do not exist loc
 
 1. **Owner publishes the market lifecycle.** For each orderable 24/7 crypto spot market it posts a real publication to svc-trade's signed internal route `/internal/market-lifecycle` (HMAC with the stack's `INTERNAL_SERVICE_SECRET`). Authority, grant and dossier ids start with `local-test:`; the free text says "LOCAL TEST — not an owner or legal approval". It lasts 30 days and is renewed when under a week is left.
 2. **Matching opens the book.** svc-matching's `open` needs a two-person approval from svc-identity. The script signs in two labelled operators (`local_test_operator_a`, `local_test_operator_b`; credentials and TOTP secrets in `~/.intafaced/local-test-stack/operators.json`, mode 600), operator A proposes, operator B approves with a second factor, and matching consumes the approval. Needs `IDENTITY_URL` on matching and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` (600, a local test value) and `IDENTITY_TOTP_SECRET_KEY` on identity; the stack sets all three.
-3. **Operator verifies test accounts.** An account submits its own `full` request (`kyc.submit`; nobody can submit for someone else), then operator A approves it with a consumed approval from operator B. The operator token is minted for a real signed-in operator session the way `.env.example` documents for operator principals, because user sessions never carry `admin:compliance`. The world watcher runs this for any account that has a pending request, so **a new account only has to tap Verify** (the stack submits requests only for the three test accounts whose passwords it holds). Accounts the stack cannot sign in as (including the founder's) are listed by `verify`.
+3. **Operator verifies test accounts.** An account submits its own `full` request (`kyc.submit`; nobody can submit for someone else), then operator A approves it with a consumed approval from operator B. The operator token is minted for a real signed-in operator session the way `.env.example` documents for operator principals, because user sessions never carry `admin:compliance`. The world watcher runs this for any account that has a pending request, so **a new account only has to tap Verify** (the stack submits requests only for the three test accounts whose passwords it holds). Accounts the stack cannot sign in as are listed by `verify`.
 4. **Sanctions list.** The stack env sets `INTAFACED_SCREENING_FAIL_CLOSED=off` so the labelled test fixture (kept outside this repo) is read as "a list exists". It is not counsel's list.
+
+**Local test founders.** On start, the stack seeds `local_test_founder_a` and `local_test_founder_b` on this identity only. Password and TOTP are in `~/.intafaced/local-test-stack/founders.json` (mode 600). `IDENTITY_FOUNDER_NITRO_USER_ID` and `IDENTITY_FOUNDER_PHANTOM_USER_ID` are set to those two ids, so founder KYB approval can run here. They are not the Docker stack founders (`pnpm local:founder` writes `.env.founder-secrets.local` for edge :4000) and they are not the test operators. Merchant populate reads `founders.json` and no other vault.
 
 What production refuses today: #4606/#4607 refuse `local-test:` market lifecycle records in svc-trade, and refuse to boot svc-trade with a test sanctions list or `INTAFACED_SCREENING_FAIL_CLOSED=off` outside explicit `APP_ENV` dev/test. Nothing yet refuses the other stand-ins below: screening `off` in other services when `APP_ENV` is unset, the `local-test:` fee-schedule version, `local-test:v1` approvals, the test operator accounts and their approved verifications, or the unlabelled number stand-ins (tracked in #4611 and #4612). Markers a production check can refuse: any id or label starting `local-test:`; operator handles `local_test_operator_*` and emails `@local-test.invalid`; `policyVersion` `local-test:v1`; KYC jurisdiction `ZZ`; the env values `INTAFACED_SCREENING_FAIL_CLOSED=off` and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` set by this stack. Containment: every command refuses unless `LOCAL-TEST-STACK.json` exists and every target is `http://127.0.0.1:<a port the marker lists>`. Test: `node tooling/scripts/local-test-gates.test.mjs`.
 
@@ -110,3 +114,51 @@ Trade commercial values (LOCAL TEST, not owner decisions, option B 2026-10-13; r
 Convert settles against house market-maker inventory (principal quotes, not book trades), so that pot must hold both sides: `pnpm local:fund house BTC 100` and `pnpm local:fund house USDT 5000000` (LOCAL TEST inventory through the real ledger; without it an accepted Convert fails with `Insufficient BTC`). The market runner's taker spends its USDT as it trades, so top it up before a manual trade session.
 
 Trade order preview reads the shared screening switch (`screeningFailClosedFromEnv`) like placing does, so with `INTAFACED_SCREENING_FAIL_CLOSED=off` the order form previews as orderable for a verified test user. After changing any service env here, restart only the services whose env changed (`pnpm local:stack:restart <names>`); a service started before the change keeps the old env until restarted.
+
+## Local test content
+
+`local:seed` writes labelled TEST rows so Earn, Loans, Convert and P2P have something to show on this stack only. It is not a production default. It does not enable a feature flag, set a service env, or restart anything. Every amount is an exact decimal string. The figures below live only in `tooling/scripts/local-test-seed.mjs`.
+
+```
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state ~/.intafaced/s3-trade-20261015
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs status --state ~/.intafaced/s3-trade-20261015
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs unseed --state ~/.intafaced/s3-trade-20261015
+```
+
+Without `--state`, the directory is `~/.intafaced/local-test-stack`. `pnpm local:seed` is the same script. It refuses unless `LOCAL_TEST=1`, `NODE_ENV` is not `production`, `APP_ENV` (if set) is `dev` or `test`, and `<state>/LOCAL-TEST-STACK.json` is a local test stack marker. Database URLs are built only from that directory's `secrets.json` and marker (loopback host, marker postgres port). A `DATABASE_URL` in the environment is ignored.
+
+Undo is `unseed`. It closes matching earn pools and loan products and disables the P2P method. It does not delete rows and it does not reverse ledger credits.
+
+Earn and loan reserves are funded by a labelled TEST deposit on rail `local-test` into a fixed TEST funder, then moved into each reserve. The funder id is `00000000-0000-4000-8000-00000000c0de`. It is a labelled local TEST funder, not a person. Each deposit uses `recipes.deposit` with rail ref `LOCAL-TEST-seed-funder-<slug>-v1`. A repeat of that deposit is a ledger no-op. Earn moves the balance with `recipes.earnPoolFund` from that funder's available balance (funding id `local-test-seed-<slug>`). The USDT loan reserve uses slug `loan-reserve-USDT` and `recipes.loanReserveFund` (funding id `local-test-seed-loan-reserve-USDT`, amount `1000000`). House inventory does not use the funder. It is credited from rail `local-test` straight into the house market-maker account.
+
+Opening a loan still refuses where this stack has no price marks (see Real vs test). The Loans room can list the products below. The seed does not invent marks.
+
+Earn pools (funding id `local-test-seed-<slug>`):
+
+| Name                                                              | Asset | Kind     | Term    | APR     | Reserve   |
+| ----------------------------------------------------------------- | ----- | -------- | ------- | ------- | --------- |
+| `TEST · USDT flexible 400 bps (local test, not a real rate)`      | USDT  | flexible | —       | 400 bps | `1000000` |
+| `TEST · USDT fixed 30 days 600 bps (local test, not a real rate)` | USDT  | fixed    | 30 days | 600 bps | `1000000` |
+| `TEST · USDC flexible 350 bps (local test, not a real rate)`      | USDC  | flexible | —       | 350 bps | `1000000` |
+| `TEST · BTC flexible 100 bps (local test, not a real rate)`       | BTC   | flexible | —       | 100 bps | `10`      |
+
+Loan products (policy copied from the passing `DEFAULT_LIQUIDATION_POLICY` fixture: margin call 7500, liquidation 8500, insolvency 9500, target 6500, penalty 200 bps, tranche 2500 bps, grace 3600 seconds; APR 1000 bps; max LTV 5000 bps). Both borrow and quote USDT. The USDT lending reserve is `1000000`, slug `loan-reserve-USDT`.
+
+| Name                                                                    | Collateral |
+| ----------------------------------------------------------------------- | ---------- |
+| `TEST · BTC collateral against USDT debt (local test, not a real rate)` | BTC        |
+| `TEST · ETH collateral against USDT debt (local test, not a real rate)` | ETH        |
+
+Convert house inventory (`recipes.marketMakerSeedFund`, rail `local-test`, seed id `LOCAL-TEST-seed-house-<ASSET>-v1`). Convert prices a spot book (`services/svc-trade/src/convert/quote.ts`) and settles base against quote. The stack's default markets are BTC/USDT, BTC/USDC, ETH/USDT, ETH/USDC and IFC/USDT, so both sides of each are stocked. No user account is credited.
+
+| Asset | Amount    |
+| ----- | --------- |
+| BTC   | `100`     |
+| ETH   | `1000`    |
+| USDT  | `5000000` |
+| USDC  | `5000000` |
+| IFC   | `1000000` |
+
+P2P method `local_test_bank`, country `*` (any country), label `TEST bank transfer (local test, not a real rail)`, enabled, two plain text fields (`holder`, `reference`). A seller still adds their own TEST instrument in the app. `unseed` disables this method.
+
+Every ledger post carries `LOCAL TEST FUNDS — not real money`. `status` prints what is present and an as-of time. An empty stack prints `nothing seeded`.

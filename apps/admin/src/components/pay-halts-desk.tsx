@@ -22,6 +22,7 @@ import { fetchPayHalts, newRequestId, postHalt, type HaltReply, type HaltRequest
 import type { Part, PayHaltsRead } from '@/lib/pay-halts/types';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
 
 /**
  * PAYMENTS HALTS — stop an operation, or resume it with a second founder.
@@ -71,7 +72,7 @@ export function HaltStatesTable({ states }: { states: readonly PayHaltState[] })
               <td>{s.halted ? <Chip tone="danger">HALTED</Chip> : <Chip tone="live">Running</Chip>}</td>
               <td>{s.reason ?? '—'}</td>
               <td>{s.source === 'auto_trip' ? 'Automatic trip' : s.actorUserId ? shortId(s.actorUserId) : '—'}</td>
-              <td>{s.changedAt ?? 'never changed'}</td>
+              <td>{s.changedAt ? formatWhen(s.changedAt) : 'never changed'}</td>
               <td>{s.version}</td>
             </tr>
           ))}
@@ -118,7 +119,7 @@ export function PendingClearsTable({
                   {shortId(p.requestedByUserId)}
                   {mine ? ' (you)' : ''}
                 </td>
-                <td>{p.requestedAt}</td>
+                <td>{formatWhen(p.requestedAt)}</td>
                 <td>
                   {mine ? (
                     <span className="dk-muted">A different founder has to confirm</span>
@@ -156,7 +157,7 @@ export function HaltHistoryTable({ events }: { events: readonly PayHaltEvent[] }
         <tbody>
           {events.map((e, i) => (
             <tr key={`${e.changedAt}-${i}`}>
-              <td>{e.changedAt ?? '—'}</td>
+              <td>{e.changedAt ? formatWhen(e.changedAt) : '—'}</td>
               <td>{SCOPE_LABEL[e.scope]}</td>
               <td>{describeTarget(e.target)}</td>
               <td>{e.halted ? 'Halted' : 'Cleared'}</td>
@@ -244,7 +245,7 @@ export function PayHaltsDeskView(p: PayHaltsViewProps) {
         <button type="button" className="adm-btn" onClick={p.onRead} disabled={p.loading}>
           {p.loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{read ? `As of ${read.asOf} (when this console read svc-pay)` : 'No read yet'}</span>
+        <span className="dk-asof">{read ? `As of ${formatAsOf(read.asOf)} (when this console read svc-pay)` : 'No read yet'}</span>
       </div>
       <p className="dk-muted">
         Stopping an operation is one founder and immediate. Resuming one takes two different founders: the first records it and the halt

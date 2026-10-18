@@ -16,12 +16,13 @@ import {
   serviceProcedure,
   TRPCError,
 } from '@intafaced/contracts';
-import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
+import { AuthError as GuardError, hasScope, requireMfa } from '@intafaced/auth';
 import { ActionApprovalError, type ActionApprovalService } from './auth/action-approval-service.js';
 import {
   audienceOfApproval,
   isInteractiveFounderPrincipal,
   isOperatorPrincipal,
+  isTradeOpsOperatorPrincipal,
   type ApprovalSubject,
 } from './auth/action-approval-audience.js';
 import { AuthError, type AuthService } from './auth/auth-service.js';
@@ -107,6 +108,7 @@ function toTrpc(err: unknown): never {
         : err.code === 'action_approval.not_requester' ||
             err.code === 'action_approval.service_mismatch' ||
             err.code === 'action_approval.operator_only' ||
+            err.code === 'action_approval.trade_ops_only' ||
             err.code === 'action_approval.founder_only'
           ? 'FORBIDDEN'
           : err.code === 'action_approval.founders_unavailable'
@@ -132,6 +134,16 @@ export function createActionApprovalRouter(
    * need an operator principal. `self` is only a stored same-person row (its own door). Decided from the whole request (type, target service and
    * target id), not the type string alone.
    */
+  async function callerAccess(
+    principal: Parameters<typeof isOperatorPrincipal>[0],
+  ): Promise<{ operator: boolean; founder: boolean; tradeOps: boolean; adminRead: boolean }> {
+    const operator = isOperatorPrincipal(principal, privilegedUserIds);
+    const founder = isInteractiveFounderPrincipal(principal) && (await svc.isFounder(principal.userId));
+    const tradeOps = isTradeOpsOperatorPrincipal(principal);
+    const adminRead = hasScope(principal.scopes, 'admin:read');
+    return { operator, founder, tradeOps, adminRead };
+  }
+
   async function assertAudienceFor(principal: Parameters<typeof isOperatorPrincipal>[0], subject: ApprovalSubject | null): Promise<void> {
     // An unknown approval id falls through to the service's own `not_found`; nothing is disclosed here.
     if (subject === null) return;
@@ -140,6 +152,12 @@ export function createActionApprovalRouter(
     if (audience === 'founder') {
       if (!isInteractiveFounderPrincipal(principal) || !(await svc.isFounder(principal.userId))) {
         throw new ActionApprovalError('this action type is a founder-only action', 'action_approval.founder_only');
+      }
+      return;
+    }
+    if (audience === 'trade_ops') {
+      if (!isTradeOpsOperatorPrincipal(principal)) {
+        throw new ActionApprovalError('this action type is a trade-ops operator action', 'action_approval.trade_ops_only');
       }
       return;
     }
@@ -227,6 +245,38 @@ export function createActionApprovalRouter(
           }
         }),
 
+      /**
+       * Pending approvals this caller may decide, or the caller's own requests.
+       * A session that is neither an operator nor a founder is refused the pending
+       * view. `mine` is the caller's own rows. Limit is required — omit is not a page.
+       */
+      list: protectedProcedure
+        .input(z.object({ view: z.enum(['pending', 'mine']), limit: z.number().int().min(1).max(100) }))
+        .output(z.object({ approvals: z.array(actionApprovalSchema), pageFull: z.boolean() }))
+        .query(async ({ ctx, input }) => {
+          try {
+            const access = await callerAccess(ctx.principal);
+            if (input.view === 'pending' && !access.operator && !access.founder) {
+              throw new ActionApprovalError('pending approvals are an operator or founder read', 'action_approval.operator_only');
+            }
+            return await svc.listForCaller(ctx.principal.userId, input.view, input.limit, access);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** One approval by id. The requester, or an operator/founder in its audience. */
+      get: protectedProcedure
+        .input(z.object({ approvalId: z.string().min(1).max(128) }))
+        .output(actionApprovalSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            return await svc.getForCaller(ctx.principal.userId, input.approvalId, await callerAccess(ctx.principal));
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
       revoke: protectedProcedure
         .input(actionApprovalIdInputSchema)
         .output(actionApprovalSchema)
@@ -265,7 +315,7 @@ export function createActionApprovalRouter(
                 message: 'consumeForEdge is only for svc-edge kill-switch approvals',
               });
             }
-            return await svc.consume('svc-edge', input);
+            return await svc.consume('svc-edge', { ...input, consumerPrincipalId: ctx.principal.userId });
           } catch (err) {
             toTrpc(err);
           }

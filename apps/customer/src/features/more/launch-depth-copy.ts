@@ -19,11 +19,11 @@ const en = {
   step_issuance: 'Issue the asset',
   step_issuance_body: 'Deploy the asset so it exists on the platform.',
   step_issuance_reason:
-    'Blocked: issuance is held. The issuance template has not been audited, and no customer deployment procedure exists. This room calls no deployment or chain procedure.',
+    'Blocked: issuance is on hold. The issuance template has not been audited, so customers can’t issue assets. This room starts nothing on any chain.',
   step_compliance: 'Compliance review',
   step_compliance_body: 'Staff review the issuer and the asset before it can be listed or sold.',
   step_compliance_reason:
-    'Blocked: no customer procedure submits an asset for review. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.',
+    'Blocked: customers can’t submit an asset for review. The Risk and Compliance agent only drafts screening support for staff and never approves an issuer.',
   step_listing: 'List on a trading market',
   step_listing_body: 'Request a market for the asset so people can trade it.',
   step_listing_reason:
@@ -48,7 +48,7 @@ const en = {
   issue_supply: 'The supply must be a positive number.',
   issue_decimals: 'Decimals must be a whole number from 0 to 18.',
   issue_saleShare: 'The sale share must be a whole number from 1 to 100.',
-  draftValid: 'The terms are well formed. They cannot be submitted yet because issuance is blocked.',
+  draftValid: 'The terms are well formed. They cannot be submitted because issuance is blocked.',
   draftInvalid: 'Fix these fields',
   submitAction: 'Submit for issuance',
   submitReason: 'Unavailable: issuance is blocked, so there is nowhere to submit these terms.',
@@ -76,7 +76,7 @@ const en = {
   flag_sparse_vestings: 'Few vestings on record',
   participationTitle: 'Your launch participation',
   participationBody:
-    'Sale subscriptions, allocations and refunds would be listed here with the round they belong to. They cannot be read yet, so nothing is counted.',
+    'Sale subscriptions, allocations and refunds would be listed here with the round they belong to. No sale-round service exists, so they cannot be read and nothing is counted.',
   participationUnavailable: 'Unavailable, not zero. An unreadable record does not mean you have no orders.',
   filterRound: 'Sale round',
   filterStatus: 'Status',
@@ -110,11 +110,11 @@ const es = {
   step_issuance: 'Emitir el activo',
   step_issuance_body: 'Despliega el activo para que exista en la plataforma.',
   step_issuance_reason:
-    'Bloqueado: la emisión está retenida. La plantilla de emisión no se ha auditado y no existe ningún procedimiento de despliegue para clientes. Esta sala no invoca ningún procedimiento de despliegue ni de cadena.',
+    'Bloqueado: la emisión está en pausa. La plantilla de emisión no ha sido auditada, así que los clientes no pueden emitir activos. Esta sala no inicia nada en ninguna cadena.',
   step_compliance: 'Revisión de cumplimiento',
   step_compliance_body: 'El personal revisa al emisor y el activo antes de poder listarlo o venderlo.',
   step_compliance_reason:
-    'Bloqueado: ningún procedimiento para clientes envía un activo a revisión. El agente de Riesgo y Cumplimiento solo redacta apoyo de verificación para el personal y nunca aprueba a un emisor.',
+    'Bloqueado: los clientes no pueden enviar un activo a revisión. El agente de Riesgo y Cumplimiento solo prepara apoyo de revisión para el personal y nunca aprueba a un emisor.',
   step_listing: 'Listar en un mercado de negociación',
   step_listing_body: 'Solicita un mercado para el activo para que se pueda negociar.',
   step_listing_reason:
@@ -140,7 +140,7 @@ const es = {
   issue_supply: 'El suministro debe ser un número positivo.',
   issue_decimals: 'Los decimales deben ser un número entero de 0 a 18.',
   issue_saleShare: 'La parte de venta debe ser un número entero de 1 a 100.',
-  draftValid: 'Las condiciones están bien formadas. Aún no se pueden enviar porque la emisión está bloqueada.',
+  draftValid: 'Las condiciones están bien formadas. No se pueden enviar porque la emisión está bloqueada.',
   draftInvalid: 'Corrige estos campos',
   submitAction: 'Enviar para emisión',
   submitReason: 'No disponible: la emisión está bloqueada, así que no hay dónde enviar estas condiciones.',
@@ -169,7 +169,7 @@ const es = {
   flag_sparse_vestings: 'Pocos vestings registrados',
   participationTitle: 'Tu participación en lanzamientos',
   participationBody:
-    'Aquí se listarían las suscripciones, asignaciones y reembolsos de ventas con la ronda a la que pertenecen. Todavía no se pueden leer, así que no se cuenta nada.',
+    'Aquí se listarían las suscripciones, asignaciones y reembolsos de ventas con la ronda a la que pertenecen. No existe un servicio de rondas de venta, así que no se pueden leer y no se cuenta nada.',
   participationUnavailable: 'No disponible, no es cero. Un registro ilegible no significa que no tengas órdenes.',
   filterRound: 'Ronda de venta',
   filterStatus: 'Estado',
@@ -203,11 +203,11 @@ const fr = {
   step_issuance: 'Émettre l’actif',
   step_issuance_body: 'Déploie l’actif pour qu’il existe sur la plateforme.',
   step_issuance_reason:
-    'Bloqué : l’émission est suspendue. Le modèle d’émission n’a pas été audité et aucune procédure de déploiement client n’existe. Cette salle n’appelle aucune procédure de déploiement ou de chaîne.',
+    'Bloqué : l’émission est en pause. Le modèle d’émission n’a pas été audité, donc les clients ne peuvent pas émettre d’actifs. Cette salle ne lance rien sur aucune chaîne.',
   step_compliance: 'Revue de conformité',
   step_compliance_body: 'L’équipe examine l’émetteur et l’actif avant toute cotation ou vente.',
   step_compliance_reason:
-    'Bloqué : aucune procédure client ne soumet un actif à la revue. L’agent Risque et Conformité ne rédige que des aides au filtrage pour l’équipe et n’approuve jamais un émetteur.',
+    'Bloqué : les clients ne peuvent pas soumettre un actif à examen. L’agent Risque et Conformité ne prépare qu’un appui de contrôle pour l’équipe et n’approuve jamais un émetteur.',
   step_listing: 'Coter sur un marché de négociation',
   step_listing_body: 'Demande un marché pour l’actif afin qu’il puisse être négocié.',
   step_listing_reason:
@@ -233,7 +233,7 @@ const fr = {
   issue_supply: 'L’offre doit être un nombre positif.',
   issue_decimals: 'Les décimales doivent être un entier de 0 à 18.',
   issue_saleShare: 'La part de vente doit être un entier de 1 à 100.',
-  draftValid: 'Les conditions sont bien formées. Elles ne peuvent pas encore être soumises car l’émission est bloquée.',
+  draftValid: 'Les conditions sont bien formées. Elles ne peuvent pas être soumises car l’émission est bloquée.',
   draftInvalid: 'Corrige ces champs',
   submitAction: 'Soumettre pour émission',
   submitReason: 'Indisponible : l’émission est bloquée, il n’y a donc nulle part où soumettre ces conditions.',
@@ -262,7 +262,7 @@ const fr = {
   flag_sparse_vestings: 'Peu de vestings enregistrés',
   participationTitle: 'Ta participation aux lancements',
   participationBody:
-    'Les souscriptions, allocations et remboursements de ventes seraient listés ici avec le tour auquel ils appartiennent. Ils ne peuvent pas encore être lus : rien n’est compté.',
+    'Les souscriptions, allocations et remboursements de ventes seraient listés ici avec le tour auquel ils appartiennent. Aucun service de tours de vente n’existe : ils ne peuvent donc pas être lus et rien n’est compté.',
   participationUnavailable: 'Indisponible, pas zéro. Un dossier illisible ne signifie pas que tu n’as aucun ordre.',
   filterRound: 'Tour de vente',
   filterStatus: 'Statut',

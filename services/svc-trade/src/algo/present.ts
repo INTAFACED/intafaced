@@ -59,6 +59,48 @@ export function assertParentHasNoMoneyFields(parent: TwapParent): void {
  * D26-P1-T4 / ADR honesty: a progress view must never report filled qty when
  * no child fills were supplied. Children emitted ≠ filled.
  */
+export interface AlgoChildView {
+  readonly orderId: string;
+  readonly sliceIndex: number;
+  readonly time: string;
+}
+
+export interface AlgoMissView {
+  readonly sliceIndex: number;
+  readonly time: string;
+  readonly code: string;
+}
+
+/**
+ * algo.get body. `filledQty` is the caller's sum of child fills.
+ * Children and misses are the stored lists. children.length is not a fill.
+ */
+export function presentAlgoDesk(
+  parent: TwapParent,
+  filledQty: string,
+): {
+  children: AlgoChildView[];
+  misses: AlgoMissView[];
+  filledQty: string;
+} {
+  if (filledQty.trim() === '') {
+    throw new Error('algo get filledQty is blank — refuse to invent one from childrenEmitted');
+  }
+  return {
+    children: parent.children.map((child) => ({
+      orderId: child.orderId,
+      sliceIndex: child.sliceIndex,
+      time: child.placedAt.toISOString(),
+    })),
+    misses: parent.misses.map((miss) => ({
+      sliceIndex: miss.sliceIndex,
+      time: miss.at.toISOString(),
+      code: miss.code,
+    })),
+    filledQty,
+  };
+}
+
 export function assertProgressHasNoInventedFills(view: AlgoProgressView, filledFromChildren: Amount): void {
   if (filledFromChildren === 0n && view.filledQty !== '0' && view.filledQty !== '0.0') {
     throw new Error(`algo progress invented filledQty=${view.filledQty} with zero child fills`);

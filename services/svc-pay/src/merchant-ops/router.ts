@@ -1,6 +1,12 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  anyScopeProcedure,
+  merchantCustomerSeriesInputSchema,
+  merchantCustomerSeriesSchema,
+  router,
+  scopedProcedure,
+} from '@intafaced/contracts';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -95,6 +101,7 @@ function makeParts(deps: MerchantOpsDeps) {
 
 export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const read = scopedProcedure('pay:read', { module: 'pay' });
+  const onboardOrRead = anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' });
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const { need } = makeParts(deps);
   const kick =
@@ -181,7 +188,22 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               assetId: assetIdIn,
               amount: z.string().trim().min(1).max(80),
               customerRef: z.string().trim().min(1).max(200).optional(),
+              customerEmail: z.string().trim().min(3).max(254).optional(),
               description: z.string().trim().min(1).max(2000).optional(),
+              dueAt: iso.optional(),
+              lineItems: z
+                .array(
+                  z
+                    .object({
+                      description: z.string().trim().min(1).max(500),
+                      quantity: z.string().trim().min(1).max(80),
+                      unitAmount: z.string().trim().min(1).max(80),
+                      kind: z.enum(['charge', 'credit']).default('charge'),
+                    })
+                    .strict(),
+                )
+                .max(40)
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.create(await callerOf(ctx), input))),
@@ -296,8 +318,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
       }),
 
       kyb: router({
-        current: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().kyb.current(await callerOf(ctx)))),
-        history: read
+        current: onboardOrRead
+          .input(z.object({}).strict())
+          .query(({ ctx }) => wrapOps(async () => need().kyb.current(await callerOf(ctx)))),
+        history: onboardOrRead
           .input(z.object({ limit: limitInput, cursor: cursorInput }))
           .query(({ ctx, input }) => wrapOps(async () => need().kyb.history(await callerOf(ctx), input))),
       }),

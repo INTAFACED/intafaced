@@ -17,12 +17,14 @@ const messages = {
   closeDialog: 'Close dialog',
   beforeDispatch: 'Request stopped before dispatch.',
   accountChanged: 'The account context changed. Review the action again in the current account.',
-  gatewayUnreachable: 'The gateway could not reach the service. Try again when the connection returns.',
+  gatewayUnreachable: 'We couldn’t reach the service. Try again when the connection returns.',
   gatewayUncertain: 'The gateway did not confirm an outcome. Check the original request before trying again.',
-  unreadableRefusal: 'The request was refused ({status}); no readable explanation was returned.',
-  unreadableRead: 'The service returned an unreadable response.',
+  unreadableRefusal: 'The request was refused and no explanation was given.',
+  unreadableRead: 'The service sent a reply we couldn’t read.',
   unreadableWrite: 'The response could not be read. Check the original request before trying again.',
-  serviceRefusal: 'The service refused this request ({status}).',
+  serviceRefusal: 'The service refused this request.',
+  serviceNoAnswer: 'The service didn’t answer. Try again in a moment.',
+  serviceNotConnected: 'This service isn’t connected here.',
   unverifiedRead: 'The service response could not be verified.',
   unverifiedWrite: 'The service response could not be verified. Check the original request before trying again.',
   stopped: 'Request stopped.',
@@ -31,7 +33,7 @@ const messages = {
   loadFailed: 'This information could not be loaded.',
   passkeyIdentifier: 'Enter your email or handle before using a passkey.',
   passkeySecure: 'Passkeys require a secure browser connection.',
-  passkeyAssertion: 'No passkey assertion was returned.',
+  passkeyAssertion: 'The passkey didn’t return a sign-in.',
   passkeySignInStopped: 'Passkey sign-in was cancelled or timed out.',
   passkeySignInFailed: 'The browser could not complete passkey sign-in.',
   passkeyMissing: 'The browser did not return a new passkey.',
@@ -55,12 +57,14 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     closeDialog: 'Cerrar diálogo',
     beforeDispatch: 'La solicitud se detuvo antes de enviarse.',
     accountChanged: 'La cuenta ha cambiado. Revisa la acción de nuevo en la cuenta actual.',
-    gatewayUnreachable: 'La pasarela no pudo contactar con el servicio. Inténtalo cuando se restablezca la conexión.',
+    gatewayUnreachable: 'No pudimos contactar con el servicio. Inténtalo cuando se restablezca la conexión.',
     gatewayUncertain: 'La pasarela no confirmó el resultado. Comprueba la solicitud original antes de volver a intentarlo.',
-    unreadableRefusal: 'La solicitud fue rechazada ({status}); no se recibió una explicación legible.',
-    unreadableRead: 'El servicio devolvió una respuesta ilegible.',
+    unreadableRefusal: 'La solicitud fue rechazada y no se dio ninguna explicación.',
+    unreadableRead: 'El servicio envió una respuesta que no pudimos leer.',
     unreadableWrite: 'No se pudo leer la respuesta. Comprueba la solicitud original antes de volver a intentarlo.',
-    serviceRefusal: 'El servicio rechazó esta solicitud ({status}).',
+    serviceRefusal: 'El servicio rechazó esta solicitud.',
+    serviceNoAnswer: 'El servicio no respondió. Inténtalo de nuevo en un momento.',
+    serviceNotConnected: 'Este servicio no está conectado aquí.',
     unverifiedRead: 'No se pudo verificar la respuesta del servicio.',
     unverifiedWrite: 'No se pudo verificar la respuesta del servicio. Comprueba la solicitud original antes de volver a intentarlo.',
     stopped: 'Solicitud detenida.',
@@ -70,7 +74,7 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     loadFailed: 'No se pudo cargar esta información.',
     passkeyIdentifier: 'Introduce tu correo o nombre de usuario antes de usar una clave de acceso.',
     passkeySecure: 'Las claves de acceso requieren una conexión segura en el navegador.',
-    passkeyAssertion: 'No se recibió una respuesta de la clave de acceso.',
+    passkeyAssertion: 'La clave de acceso no devolvió un inicio de sesión.',
     passkeySignInStopped: 'El inicio de sesión con clave de acceso se canceló o agotó el tiempo.',
     passkeySignInFailed: 'El navegador no pudo completar el inicio de sesión con la clave de acceso.',
     passkeyMissing: 'El navegador no devolvió una nueva clave de acceso.',
@@ -93,12 +97,14 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     closeDialog: 'Fermer la fenêtre',
     beforeDispatch: 'La requête a été interrompue avant son envoi.',
     accountChanged: 'Le compte a changé. Vérifiez à nouveau l’action dans le compte actuel.',
-    gatewayUnreachable: 'La passerelle n’a pas pu joindre le service. Réessayez lorsque la connexion sera rétablie.',
+    gatewayUnreachable: 'Nous n’avons pas pu joindre le service. Réessayez lorsque la connexion sera rétablie.',
     gatewayUncertain: 'La passerelle n’a pas confirmé le résultat. Vérifiez la requête initiale avant de réessayer.',
-    unreadableRefusal: 'La requête a été refusée ({status}) ; aucune explication lisible n’a été reçue.',
-    unreadableRead: 'Le service a renvoyé une réponse illisible.',
+    unreadableRefusal: 'La requête a été refusée et aucune explication n’a été donnée.',
+    unreadableRead: 'Le service a envoyé une réponse que nous n’avons pas pu lire.',
     unreadableWrite: 'La réponse n’a pas pu être lue. Vérifiez la requête initiale avant de réessayer.',
-    serviceRefusal: 'Le service a refusé cette requête ({status}).',
+    serviceRefusal: 'Le service a refusé cette requête.',
+    serviceNoAnswer: 'Le service n’a pas répondu. Réessayez dans un instant.',
+    serviceNotConnected: 'Ce service n’est pas connecté ici.',
     unverifiedRead: 'La réponse du service n’a pas pu être vérifiée.',
     unverifiedWrite: 'La réponse du service n’a pas pu être vérifiée. Vérifiez la requête initiale avant de réessayer.',
     stopped: 'Requête interrompue.',
@@ -108,7 +114,7 @@ export const uiCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy
     loadFailed: 'Ces informations n’ont pas pu être chargées.',
     passkeyIdentifier: 'Saisissez votre e-mail ou pseudonyme avant d’utiliser une clé d’accès.',
     passkeySecure: 'Les clés d’accès nécessitent une connexion sécurisée dans le navigateur.',
-    passkeyAssertion: 'Aucune réponse de la clé d’accès n’a été reçue.',
+    passkeyAssertion: 'La clé d’accès n’a pas renvoyé de connexion.',
     passkeySignInStopped: 'La connexion par clé d’accès a été annulée ou a expiré.',
     passkeySignInFailed: 'Le navigateur n’a pas pu terminer la connexion par clé d’accès.',
     passkeyMissing: 'Le navigateur n’a pas renvoyé de nouvelle clé d’accès.',
@@ -124,6 +130,10 @@ type SharedKey =
   | 'gatewayUncertain'
   | 'unreadableRead'
   | 'unreadableWrite'
+  | 'unreadableRefusal'
+  | 'serviceRefusal'
+  | 'serviceNoAnswer'
+  | 'serviceNotConnected'
   | 'unverifiedRead'
   | 'unverifiedWrite'
   | 'stopped'
@@ -138,9 +148,8 @@ type SharedKey =
   | 'passkeyMissing'
   | 'passkeyCreateStopped'
   | 'passkeyCreateFailed';
-export type UiMessage = { key: SharedKey } | { key: 'unreadableRefusal' | 'serviceRefusal'; status: number };
+export type UiMessage = { key: SharedKey };
 
 export function uiMessage(message: UiMessage, locale: UiLocale = currentPreferences().language) {
-  const copy = uiCopy.forLocale(locale);
-  return 'status' in message ? copy.t(message.key, { status: message.status }) : copy.t(message.key);
+  return uiCopy.forLocale(locale).t(message.key);
 }

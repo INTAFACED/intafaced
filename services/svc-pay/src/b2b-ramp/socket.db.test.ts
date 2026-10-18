@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import type { Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createFounderAuthority } from '../founder-authority.js';
+import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { BankStatementReconciliation, type BankStatementLine } from './socket.js';
 import { createB2bRampRouter } from './router.js';
 import { B2bRampError } from './errors.js';
@@ -26,9 +27,10 @@ import { B2bRampError } from './errors.js';
 const PORT = 54951;
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
-const migrations = ['0000_pay_init.sql', '0064_pay_merchant_team.sql', '0078_pay_b2b_ramp.sql'].map((name) =>
-  readFileSync(join(drizzle, name), 'utf8'),
-);
+const migrations = readdirSync(drizzle)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((name) => readFileSync(join(drizzle, name), 'utf8'));
 
 const onEnv = { PAY_B2B_RAMP: 'on', APP_ENV: 'test' };
 const offEnv = { PAY_B2B_RAMP: 'off', APP_ENV: 'prod' };
@@ -106,7 +108,12 @@ describe('W10 bank-statement reconciliation (Postgres)', () => {
   }, 120_000);
 
   beforeEach(async () => {
-    await db.truncateAll();
+    const tables = await db.sql<Array<{ tablename: string }>>`
+      SELECT tablename FROM pg_tables WHERE schemaname = ${db.schema}
+    `;
+    if (tables.length === 0) return;
+    const list = tables.map((t) => `"${db.schema}"."${t.tablename}"`).join(', ');
+    await truncatePayForTest(db.sql, db.schema, `TRUNCATE ${list} RESTART IDENTITY CASCADE`);
   });
 
   afterAll(async () => {

@@ -24,7 +24,9 @@ import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
+import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { RailRegistry } from './rails/registry.js';
+import { railFailure } from './rails/rail-adapter.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
@@ -83,7 +85,10 @@ const migrations = [
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
   '0006_pay_merchant_status_history.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
   '0014_pay_merchant_payout_destinations.sql',
+  '0090_pay_payout_destination_verified.sql',
   '0018_pay_founder_controls_admission.sql',
   // Payment and settlement reads select the stored pricing row. The table is empty here.
   '0050_pay_control_tiers.sql',
@@ -96,6 +101,9 @@ const migrations = [
   // dispute.opened records a rail due date. Evidence metadata is the parent of the byte table.
   '0065_pay_merchant_dispute_responses.sql',
   '0083_pay_dispute_deadlines_evidence.sql',
+  // createPaymentLink stores checkout_token and the create idempotency journal.
+  '0087_pay_payment_link_checkout.sql',
+  '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';
@@ -209,7 +217,14 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       checkoutSessionTtlSeconds: 900,
       maxOpenSessionsPerLink: 25,
     });
+    restorePayoutShim = installPayoutDestinationShim(sql);
   }, 30_000);
+
+  let restorePayoutShim: (() => void) | undefined;
+  afterEach(() => {
+    restorePayoutShim?.();
+    restorePayoutShim = undefined;
+  });
 
   afterAll(async () => {
     await db?.drop();
@@ -1071,11 +1086,11 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('still names an uncovered chargeback and plans nothing', async () => {
+    it('refuses an unfunded shortfall before planning, and plans nothing', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
-      await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.invalid_amount' });
+      await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.chargeback_shortfall_unfunded' });
       expect((await events(payment.id)).filter((e) => e === 'chargeback.opening_planned')).toHaveLength(0);
     });
 
@@ -1095,9 +1110,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       let armed = true;
       const flaky = new Proxy(ledger, {
         get(target, prop, receiver) {
-          // The chargeback void's dispute-key lookup used to be the only getTxByKey on this path.
-          // A settlement key is answered: the pot is decided from that post. Any other key still throws,
-          // which is what proves a failed dispute-key lookup does not stop the void.
+          // A settlement key is answered: the pot is decided from that post. Any other key throws.
+          // Opening and reverse lookups propagate that as pay.chargeback_ledger_failed.
+          // voidChargebackPlan still swallows its own lookup.
           if (prop === 'getTxByKey' && opts.productionLookup) {
             const read = target.getTxByKey.bind(target);
             return async (key: string) => {
@@ -1253,7 +1268,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('webhook: when even the freshly computed plan is short, the redelivery gets the named uncovered refusal', async () => {
+    it('webhook: when even the freshly computed plan is short, the redelivery records a refused dispute and posts nothing', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
@@ -1278,13 +1293,17 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(outcome.applied).toBe(true);
       const c = defaultDisputeCaseStore.get(disputeId);
       expect(c?.ledgerWire).toBe('refused');
-      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
+      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+      expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
       expect(openedTxs()).toHaveLength(0);
+      expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
+      expect(ledger.reconcile()).toEqual({ ok: true });
       expect(await count(payment.id, 'chargeback.opening_planned')).toBe(1);
       expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
     });
 
-    it('production client (getTxByKey throws): a stale stored plan still re-plans and books through the webhook', async () => {
+    it('production client (getTxByKey throws): a stale stored plan is not voided when the lookup fails', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
@@ -1295,19 +1314,19 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toThrow(/upstream unavailable/);
       await settle(m.id, 'w-prod-stale');
 
-      const outcome = await flaky.handleWebhook('card-sandbox', delivery);
-      expect(outcome.applied).toBe(true);
-      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerWire).toBe('posted');
-      expect(openedTxs()).toHaveLength(1);
-      expect(await count(payment.id, 'chargeback.opening_planned')).toBe(2);
-      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
+      await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toMatchObject({
+        code: 'pay.chargeback_ledger_failed',
+      });
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+      expect(openedTxs()).toHaveLength(0);
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(0);
     });
 
-    it('production client (getTxByKey throws): a fresh plan that is still short gets the named refusal and the marker is written', async () => {
+    it('production client (getTxByKey throws): a fresh plan that is still short records a refused dispute and posts nothing', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
-      const flaky = flakyPay('down', undefined, { productionLookup: true });
+      const flaky = flakyPay('down');
       const disputeId = `dsp-prod-short-${payment.id}`;
       const delivery = disputeWebhook(payment, disputeId, 'evt_prod_short');
 
@@ -1325,22 +1344,62 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
       const outcome = await flaky.handleWebhook('card-sandbox', delivery);
       expect(outcome.applied).toBe(true);
-      expect(outcome.duplicate).toBe(false);
-      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
-      // The delivery marker was written, so the rail's next redelivery is a duplicate, not another loop.
-      expect((await flaky.handleWebhook('card-sandbox', delivery)).duplicate).toBe(true);
+      const c = defaultDisputeCaseStore.get(disputeId);
+      expect(c?.ledgerWire).toBe('refused');
+      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+      expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+      expect(openedTxs()).toHaveLength(0);
+      expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
+      expect(ledger.reconcile()).toEqual({ ok: true });
       expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
     });
 
-    it('production client (getTxByKey throws): a refusal for funds surfaces as InsufficientFundsError, not as the lookup failure', async () => {
+    it('unfunded-shortfall branch with a throwing lookup does not void the plan and rejects pay.chargeback_ledger_failed', async () => {
+      const m = await merchant(0);
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      const flaky = flakyPay('down');
+      const disputeId = `dsp-lookup-short-${payment.id}`;
+      const delivery = disputeWebhook(payment, disputeId, 'evt_lookup_short');
+
+      await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toThrow(/upstream unavailable/);
+      const settlement = await settle(m.id, 'w-lookup-short');
+      await ledger.post(
+        recipes.merchantProceedsPayoutHold({
+          merchantId: m.id,
+          assetId: 'USDT',
+          amount: settlement.net,
+          rail: 'crypto-native',
+          withdrawalId: `${settlement.id}:lookup-short`,
+        }),
+      );
+      const real = ledger.getTxByKey.bind(ledger);
+      ledger.getTxByKey = async (key: string) => {
+        if (key.startsWith('pay.chargeback.')) throw new Error('ledger lookup down');
+        return real(key);
+      };
+      try {
+        await expect(flaky.handleWebhook('card-sandbox', delivery)).rejects.toMatchObject({
+          code: 'pay.chargeback_ledger_failed',
+        });
+      } finally {
+        ledger.getTxByKey = real;
+      }
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(0);
+      expect(defaultDisputeCaseStore.get(disputeId)).toBeNull();
+      expect(openedTxs()).toHaveLength(0);
+    });
+
+    it('production client (getTxByKey throws): a funds refusal does not treat the lookup failure as an empty book', async () => {
       const m = await merchant(0);
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       const flaky = flakyPay('insufficient', undefined, { productionLookup: true });
       await expect(
         flaky.openChargeback({ disputeId: 'dp-prod-3', paymentId: payment.id, merchantId: m.id, amount: '100', assetId: 'USDT' }),
-      ).rejects.toBeInstanceOf(InsufficientFundsError);
-      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(1);
+      ).rejects.toMatchObject({ code: 'pay.chargeback_ledger_failed' });
+      expect(await count(payment.id, 'chargeback.opening_plan_voided')).toBe(0);
     });
 
     it('does not void a plan that another delivery booked while this one was being refused for funds', async () => {
@@ -1623,6 +1682,75 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       await expect(pay.authorize(payment.id)).rejects.toThrow();
       await expect(pay.authorize(payment.id)).rejects.toMatchObject({ code: 'pay.invalid_transition' });
     });
+
+    it('an adapter health refusal during authorize leaves the payment created', async () => {
+      class AuthorizeHealthRefusalCard extends CardSandboxAdapter {
+        override async authorize(intent: Parameters<CardSandboxAdapter['authorize']>[0]) {
+          return railFailure({
+            railRef: `ch_${intent.paymentId}`,
+            amount: intent.amount,
+            assetId: intent.assetId,
+            failureCode: 'rail.health_stale',
+            failureReason: 'rail.health_stale',
+          });
+        }
+      }
+
+      const refusalCard = new AuthorizeHealthRefusalCard({ secret: SECRET, toleranceSeconds: 300 });
+      expect(refusalCard.health().healthy).toBe(true);
+      const local = new PayService(sql, ledger, new RailRegistry([refusalCard, crypto, new BankPayoutAbsentAdapter()]), {
+        checkoutRiskBand: 'low',
+        payoutDestinations: dests,
+        routingProfiles: TEST_CHECKOUT_PROFILES,
+        linkDefaultTtlDays: 30,
+        linkMaxTtlDays: 365,
+        checkoutSessionTtlSeconds: 900,
+        maxOpenSessionsPerLink: 25,
+      });
+      const m = await local.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 250 } });
+      const payment = await local.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+
+      await expect(local.authorize(payment.id)).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.health_stale' },
+      });
+      expect((await local.getPayment(payment.id)).status).toBe('created');
+      expect((await local.history(payment.id, 50)).map((event) => event.event)).toEqual(['created']);
+    });
+
+    it('a marked-down rail refuses authorize before the adapter is called', async () => {
+      const m = await merchant();
+      const payment = await pay.createPayment({
+        merchantId: m.id,
+        amount: amt('100'),
+        assetId: 'USDT',
+        method: 'card',
+        railAdapter: 'card-sandbox',
+        instrument: { kind: 'card', token: 'tok_ok' },
+      });
+      let authorizeCalls = 0;
+      const realAuthorize = card.authorize.bind(card);
+      card.authorize = async (intent) => {
+        authorizeCalls += 1;
+        return realAuthorize(intent);
+      };
+      card.setHealthy(false);
+
+      await expect(pay.authorize(payment.id)).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.marked_down' },
+      });
+      expect(authorizeCalls).toBe(0);
+      expect((await pay.getPayment(payment.id)).status).toBe('created');
+      expect(await events(payment.id)).toEqual(['created']);
+    });
   });
 
   // ── Webhooks ──────────────────────────────────────────────────────────────
@@ -1781,13 +1909,13 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('dispute.opened names refuse when pots cannot cover — no invented shortfall', async () => {
+    it('dispute.opened records an unfunded shortfall as a refused dispute and posts nothing', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await settle(m.id, 'w-cb-uncovered');
       // After 250 bps, merchant available is 97.5 and clearing is empty.
-      // A 100 chargeback cannot be covered; shortfall stays refuse-closed.
+      // The house fund is empty, so the shortfall is refused before a plan is stored.
       const disputeId = `dsp-uncovered-${payment.id}`;
       const outcome = await pay.handleWebhook(
         'card-sandbox',
@@ -1800,12 +1928,15 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
           disputeId,
         }),
       );
-
       expect(outcome.applied).toBe(true);
       const c = defaultDisputeCaseStore.get(disputeId);
       expect(c?.ledgerWire).toBe('refused');
-      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_uncovered');
-      expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
+      expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+      expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+      expect(ledger.journal().some((t) => t.reason === 'pay.chargeback.opened' || t.reason.includes('shortfall'))).toBe(false);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+      expect((await events(payment.id)).filter((event) => event === 'chargeback.opening_planned')).toHaveLength(0);
     });
   });
 
@@ -2816,13 +2947,12 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const settlement = await settle(m.id, 'payout-cutoff-race');
       const destinations = new MerchantPayoutDestinationStore(sql);
       const originalDestination = { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' };
-      await destinations.persist({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
+      await destinations.seedVerified({ merchantId: m.id, railId: 'crypto-native', ...originalDestination });
       const guardedPay = new PayService(sql, ledger, rails, { payoutDestinations: destinations });
       const cutoff = await beginMerchantCutoff(m.id, 'suspended');
       const payout = guardedPay.payoutSettlement({
         settlementId: settlement.id,
         railId: 'crypto-native',
-        destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f01' },
       });
       const result = expect(payout).rejects.toMatchObject({ code: 'pay.merchant_inactive' });
       try {
@@ -2900,10 +3030,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       };
       await expect(pay.payoutSettlement(request)).rejects.toThrow('test.hold_crash');
       await sql`UPDATE pay.merchants SET status='suspended' WHERE id=${m.id}`;
-      await expect(
-        pay.payoutSettlement({ ...request, destination: { kind: 'crypto', ref: '0x0000000000000000000000000000000000000f02' } }),
-      ).rejects.toMatchObject({ code: 'pay.payout_recovery_conflict' });
-      await expect(pay.payoutSettlement({ ...request, railId: 'card-sandbox' })).rejects.toMatchObject({
+      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'card-sandbox' })).rejects.toMatchObject({
         code: 'pay.payout_recovery_conflict',
       });
       expect((await dests.require({ merchantId: m.id, railId: 'crypto-native' })).ref).toBe(request.destination.ref);
@@ -3399,7 +3526,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
           railId: 'crypto-native',
           destination: { kind: 'bank', ref: 'GB82WEST12345698765432' },
         }),
-      ).rejects.toMatchObject({ code: 'pay.destination_kind_mismatch' });
+      ).rejects.toMatchObject({ code: 'pay.payout_destination_not_allowed' });
 
       expect(await proceedsOf(m.id)).toBe('12');
       expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
@@ -3433,7 +3560,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const payment = await cryptoPayment(m.id, '11');
       await pay.capture(payment.id);
       const settlement = await settle(m.id, 'w-payout-stored');
-      await dests.persist({
+      await dests.seedVerified({
         merchantId: m.id,
         railId: 'crypto-native',
         kind: 'crypto',
@@ -4237,6 +4364,22 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         livePay.createPaymentLink({ merchantId: m.id, label: 'Invoice', amount: amt('10'), currency: 'USDT' }),
       ).rejects.toMatchObject({ code: 'pay.kyb_required' });
       expect(await sql`SELECT id FROM pay.payment_links WHERE merchant_id = ${m.id}`).toHaveLength(0);
+    });
+
+    it('live-only createPaymentLink refuses KYB before an unset lifetime, and does not keep the key', async () => {
+      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
+      const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
+      await expect(
+        livePay.createPaymentLink({
+          merchantId: m.id,
+          label: 'Invoice',
+          amount: amt('10'),
+          currency: 'USDT',
+          idempotencyKey: 'kyb-before-ttl',
+        }),
+      ).rejects.toMatchObject({ code: 'pay.kyb_required' });
+      expect(await sql`SELECT id FROM pay.payment_links WHERE merchant_id = ${m.id}`).toHaveLength(0);
+      expect(await sql`SELECT idempotency_key FROM pay.payment_link_create_idempotency WHERE merchant_id = ${m.id}`).toHaveLength(0);
     });
 
     it('reports an unknown session token as not found rather than an empty session', async () => {

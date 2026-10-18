@@ -7,6 +7,8 @@ import { fetchNotify } from '@/lib/notify/browser';
 import { channelStats, failureRows, spanOf, type DeliveriesRead, type NotifyView } from '@/lib/notify/model';
 import { shortId } from '@/lib/desk/desk-model';
 import './desk.css';
+import { formatAsOf, formatWhen } from '@/lib/as-of';
+import { codeWords } from '@/lib/desk/words';
 
 /**
  * NOTIFY DELIVERY HEALTH — read-only.
@@ -33,7 +35,7 @@ export function ChannelTable({ read }: { read: DeliveriesRead }) {
     <div className="dk-stack" data-testid="channel-stats">
       {span ? (
         <p className="dk-muted">
-          Covers the {read.rows.length} most recently updated deliveries, from {span.from} to {span.to}.{' '}
+          Covers the {read.rows.length} most recently updated deliveries, from {formatWhen(span.from)} to {formatWhen(span.to)}.{' '}
           {span.pageFull
             ? `The page is full (${read.limit}), so older deliveries exist that are not counted. These are not all-time figures.`
             : 'svc-notify returned nothing older.'}
@@ -73,8 +75,10 @@ export function ChannelTable({ read }: { read: DeliveriesRead }) {
                   <td>
                     {s.acceptedPercent === null ? 'nothing settled yet' : `${s.acceptedPercent}% (${s.counts.accepted} of ${s.settled})`}
                   </td>
-                  <td>{s.oldestPendingCreatedAt ?? '—'}</td>
-                  <td>{s.topRefusalCodes.length === 0 ? '—' : s.topRefusalCodes.map((c) => `${c.code} ×${c.count}`).join(', ')}</td>
+                  <td>{s.oldestPendingCreatedAt ? formatWhen(s.oldestPendingCreatedAt) : '—'}</td>
+                  <td>
+                    {s.topRefusalCodes.length === 0 ? '—' : s.topRefusalCodes.map((c) => `${codeWords(c.code)} ×${c.count}`).join(', ')}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -109,14 +113,14 @@ export function FailureList({ read }: { read: DeliveriesRead }) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.updatedAt}</td>
+              <td>{formatWhen(r.updatedAt)}</td>
               <td>{r.channel}</td>
               <td>
                 <Chip tone={r.status === 'refused' ? 'warn' : 'danger'}>{r.status}</Chip>
               </td>
               <td className="dk-packet">{r.refusalCode ?? '—'}</td>
               <td>{r.attempts}</td>
-              <td>{r.attemptedAt ?? 'never attempted'}</td>
+              <td>{r.attemptedAt ? formatWhen(r.attemptedAt) : 'never attempted'}</td>
               <td className="dk-packet">{shortId(r.notificationId)}</td>
             </tr>
           ))}
@@ -145,7 +149,7 @@ export function NotifyDeskView({ view, loading, onRefresh }: NotifyViewProps) {
         <button type="button" className="adm-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Reading…' : 'Refresh'}
         </button>
-        <span className="dk-asof">{view ? `As of ${view.asOf} (when this console read svc-notify)` : 'No read yet'}</span>
+        <span className="dk-asof">{view ? `As of ${formatAsOf(view.asOf)} (when this console read svc-notify)` : 'No read yet'}</span>
       </div>
       {!view && <p className="dk-why">svc-notify could not be read. Nothing is shown rather than a guess.</p>}
       {view && view.health.kind === 'ok' && (

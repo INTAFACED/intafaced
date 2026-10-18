@@ -3,6 +3,7 @@ export { cn } from './cn.js';
 export { Wordmark } from './wordmark.js';
 export { Button, buttonVariants, type ButtonProps } from './button.js';
 export { Tabs, TabsList, TabsTab, TabsPanel, TabsTrigger, TabsContent, type TabsListProps } from './tabs.js';
+export { SubNav, type SubNavItem, type SubNavProps } from './sub-nav.js';
 export { ToggleGroup, ToggleGroupItem, type ToggleGroupProps, type ToggleGroupVariant } from './toggle-group.js';
 export { SegmentedControl, type SegmentedControlProps, type SegmentedItem } from './segmented.js';
 export {
@@ -116,3 +117,8 @@ export { Badge, type BadgeProps, type BadgeTone, type BadgeVariant } from './bad
 export { StatusChip, type StatusChipProps } from './status-chip.js';
 export { freshnessOf, formatAsOf, msUntilFreshnessChange, type Freshness, type FreshnessInput } from './freshness.js';
 export { useFreshnessClock, type UseFreshnessClockOptions } from './use-freshness-clock.js';
+
+/* Pay portal components (feat/pay-portal-nav-options). */
+export { DataTable } from './data-table.js';
+export { ChoiceGroup } from './choice-group.js';
+export { ReviewDialog } from './review-dialog.js';

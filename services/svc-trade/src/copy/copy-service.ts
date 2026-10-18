@@ -17,7 +17,6 @@ import { randomUUID } from 'node:crypto';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import {
-  autoMirrorPlaceStatus,
   copyLimitPriceFromPlan,
   copyMirrorClientOrderId,
   parseCopyPlaceMirrorFlag,
@@ -29,17 +28,22 @@ import {
   type PlaceFollowerOrderPort,
 } from './auto-mirror-place.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
-import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
+import { presentCopyOpsStatus, presentCustomerCopyDesk, type CopyDeskFacts } from './desk-status.js';
+import { COPY_FEE_SHARE_RESIDUAL, CopyError } from './errors.js';
 import {
-  copyLawResidual,
-  copyLawStatusLine,
   requirePublishedCopyFeeShareLaw,
   UNPUBLISHED_COPY_FEE_SHARE_LAW,
   UNPUBLISHED_COPY_JURISDICTION_LAW,
   type CopyFeeShareLaw,
   type CopyJurisdictionLaw,
 } from './fee-share-law.js';
-import { applyCopyFlatten, flattenFollowerCopyPosition, presentCopyFlattenAck, type FlattenCopyPositionPort } from './copy-flatten.js';
+import {
+  applyCopyFlatten,
+  COPY_FLATTEN_REFUSED_RESIDUAL,
+  flattenFollowerCopyPosition,
+  presentCopyFlattenAck,
+  type FlattenCopyPositionPort,
+} from './copy-flatten.js';
 import {
   applyCopyDetach,
   applyCopyPause,
@@ -72,6 +76,23 @@ import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { bindEnvelopeLimits, type CopyLeaderLimitSettings } from './follower-limits.js';
+import {
+  acceptCopyDisclosure,
+  readCopyDisclosure,
+  requireCopyDisclosureForMirror,
+  UNPUBLISHED_COPY_DISCLOSURE_LAW,
+  type CopyDisclosureLaw,
+} from './disclosure.js';
+import {
+  LeaderDirectory,
+  memoryLeaderDirectory,
+  type ListLeadersQuery,
+  type OperatorListingResult,
+  type SetLeaderStateInput,
+} from './leader-directory.js';
+import type { LeaderDirectoryPage } from './leader-listing.js';
+import type { LeaderEventsPage } from './leader-events.js';
+import type { UpsertLeaderListingInput } from './leader-listing.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
 export type FollowerFillFee = {
@@ -104,6 +125,8 @@ const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
   jurisdictionLaw?: CopyJurisdictionLaw;
+  /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
+  disclosureLaw?: CopyDisclosureLaw;
   now?: () => Date;
   /** Defaults to in-memory. Production wires SqlCopyFollowStore. */
   store?: CopyFollowStore;
@@ -137,6 +160,8 @@ export interface CopyServiceOptions {
    * this. Absent → copy.flatten refuses rather than invent a close.
    */
   flattenCopyPosition?: FlattenCopyPositionPort;
+  /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
+  directory?: LeaderDirectory;
 }
 
 type FollowRef = { followId: string };
@@ -199,6 +224,7 @@ export class CopyService {
   private readonly store: CopyFollowStore;
   private readonly feeShareLaw: CopyFeeShareLaw;
   private readonly jurisdictionLaw: CopyJurisdictionLaw;
+  private readonly disclosureLaw: CopyDisclosureLaw;
   private readonly now: () => Date;
   private readonly placeFollowerOrder: PlaceFollowerOrderPort | null;
   private readonly placeMirrorEnabled: boolean;
@@ -206,6 +232,7 @@ export class CopyService {
   private readonly lookupFollowerFillFee: LookupFollowerFillFeePort | null;
   private readonly lookupLeaderFill: LookupLeaderFillPort | null;
   private readonly flattenCopyPosition: FlattenCopyPositionPort | null;
+  private readonly directory: LeaderDirectory;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -214,6 +241,7 @@ export class CopyService {
     this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
+    this.disclosureLaw = options.disclosureLaw ?? UNPUBLISHED_COPY_DISCLOSURE_LAW;
     this.now = options.now ?? (() => new Date());
     this.store = options.store ?? new MemoryCopyFollowStore();
     this.placeFollowerOrder = options.placeFollowerOrder ?? null;
@@ -222,37 +250,57 @@ export class CopyService {
     this.lookupFollowerFillFee = options.lookupFollowerFillFee ?? null;
     this.lookupLeaderFill = options.lookupLeaderFill ?? null;
     this.flattenCopyPosition = options.flattenCopyPosition ?? null;
+    this.directory =
+      options.directory ??
+      memoryLeaderDirectory({
+        now: this.now,
+        feeShareLaw: this.feeShareLaw,
+        countActive: (leaderId) => this.store.countActiveFollowsByLeader(leaderId),
+      });
+  }
+
+  private async presentFollow(follow: CopyFollow, currentExposure: Amount = 0n) {
+    return presentCopyFollow(follow, currentExposure, await this.directory.listingIdentity(follow.leaderId));
+  }
+
+  private deskFacts(): CopyDeskFacts {
+    return {
+      mounted: true,
+      fee: this.feeShareLaw,
+      jurisdiction: this.jurisdictionLaw,
+      placeEnabled: this.placeMirrorEnabled && this.placeFollowerOrder !== null,
+    };
+  }
+
+  /** Customer desk. Codes only — sentences are on opsStatus. */
+  deskStatus() {
+    return presentCustomerCopyDesk(this.deskFacts());
+  }
+
+  /** Operator desk. Same codes, plus the sentences. */
+  opsStatus() {
+    return presentCopyOpsStatus(this.deskFacts());
+  }
+
+  /** Blank-law refusals carry the same blocker codes as deskStatus. */
+  private blankLawRefusal(err: unknown): never {
+    if (err instanceof CopyError && (err.code === 'trade.copy_fee_share_blank' || err.code === 'trade.copy_jurisdiction_blank')) {
+      throw new CopyError(err.message, err.code, err.residual, err.orderIds, this.deskStatus().blockers);
+    }
+    throw err;
+  }
+
+  /** Current owner disclosure and whether this caller accepted that version. */
+  disclosure(principal: Principal) {
+    return readCopyDisclosure(this.disclosureLaw, this.store, principal.userId);
   }
 
   /**
-   * Desk honesty for D26-P1-T3: sovereign shape is always on; rates /
-   * jurisdiction stay refuse-closed until owner publishes P0-02 / P0-15.
+   * Record this caller's acceptance of the current published version.
+   * Same follower and version returns the first row.
    */
-  deskStatus() {
-    const feeSharePublished = this.feeShareLaw.published === true;
-    const jurisdictionPublished = this.jurisdictionLaw.published === true;
-    return {
-      /** SPEC-SOVEREIGN §2–§4 — never invent pooling, P&L fees, or ranking. */
-      sovereign: {
-        shape: 'sovereign' as const,
-        custody: false,
-        feeModel: 'protocol_fee_share' as const,
-        pnlFeeForbidden: true,
-        rankingForbidden: true,
-        killUnfollowReal: true,
-      },
-      feeSharePublished,
-      leaderShareBps: feeSharePublished ? String(this.feeShareLaw.leaderShareBps) : null,
-      jurisdictionPublished,
-      statusLine: copyLawStatusLine(this.feeShareLaw, this.jurisdictionLaw),
-      residual: copyLawResidual(this.feeShareLaw, this.jurisdictionLaw),
-      residuals: {
-        rates: feeSharePublished ? null : COPY_FEE_SHARE_RESIDUAL,
-        jurisdiction: jurisdictionPublished ? null : COPY_JURISDICTION_RESIDUAL,
-        autoMirrorPlace: this.placeMirrorEnabled && this.placeFollowerOrder ? null : COPY_PLACE_DISABLED_RESIDUAL,
-      },
-      autoMirrorPlace: autoMirrorPlaceStatus(this.placeMirrorEnabled && this.placeFollowerOrder !== null),
-    };
+  acceptDisclosure(principal: Principal, input: { version: string; clientAcceptId: string }) {
+    return acceptCopyDisclosure(this.disclosureLaw, this.store, principal.userId, input, this.now());
   }
 
   /**
@@ -261,6 +309,21 @@ export class CopyService {
    */
   async placeMirrorForFollow(principal: Principal, input: { followId: string; fillId: string; leaderPaper: boolean }) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
+      let follow: CopyFollow;
+      try {
+        follow = await this.requireOwnedFollow(store, principal, input.followId);
+      } catch (err) {
+        // Flag off stays the public door: a missing follow must not become "not found".
+        if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+          throw new CopyError(
+            'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
+            'trade.copy_place_disabled',
+            COPY_PLACE_DISABLED_RESIDUAL,
+          );
+        }
+        throw err;
+      }
+      await this.directory.refuseNewMirror(follow.leaderId);
       if (!this.placeMirrorEnabled) {
         throw new CopyError(
           'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
@@ -270,7 +333,7 @@ export class CopyService {
       }
       requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
-      const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
       await this.refuseIfFollowRegionClosed(store, follow);
       if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
         throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
@@ -361,7 +424,7 @@ export class CopyService {
             })
           : follow;
         const currentExposure = await this.store.getExposure(current.followId);
-        return presentCopyFollow(current, currentExposure);
+        return this.presentFollow(current, currentExposure);
       }),
     );
   }
@@ -401,7 +464,8 @@ export class CopyService {
   async follow(
     principal: Principal,
     input: {
-      leaderId: string;
+      leaderId?: string;
+      leaderRef?: string;
       region: string;
       permittedMarkets: readonly string[];
       maxNotionalPerOrder: string;
@@ -413,11 +477,13 @@ export class CopyService {
       leaderSettings?: CopyLeaderLimitSettings;
     },
   ) {
-    const region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
-    const leaderId = input.leaderId.trim();
-    if (!leaderId) {
-      throw new CopyError('leaderId is required', 'trade.copy_envelope_invalid');
+    let region: string;
+    try {
+      region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+    } catch (err) {
+      this.blankLawRefusal(err);
     }
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     if (leaderId === principal.userId) {
       throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
     }
@@ -465,12 +531,35 @@ export class CopyService {
       }),
     );
     try {
-      await this.store.saveFollow(follow, 0n);
+      await this.directory.admitNewFollow(leaderId, this.store, follow);
     } catch (err) {
       if (err instanceof CopyError) throw err;
       rethrowCopyFollowUnique(err);
     }
-    return presentCopyFollow(follow);
+    return this.presentFollow(follow);
+  }
+
+  async listLeaders(principal: Principal, input: ListLeadersQuery): Promise<LeaderDirectoryPage> {
+    void principal;
+    return this.directory.listLeaders(input);
+  }
+
+  async followEvents(principal: Principal, input: { followId: string; limit?: number; cursor?: string | null }): Promise<LeaderEventsPage> {
+    const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
+    return this.directory.followEvents({
+      leaderUserId: follow.leaderId,
+      since: follow.createdAt,
+      limit: input.limit,
+      cursor: input.cursor,
+    });
+  }
+
+  upsertListing(principal: Principal, input: UpsertLeaderListingInput): Promise<OperatorListingResult> {
+    return this.directory.upsertListing(principal, input);
+  }
+
+  setLeaderState(principal: Principal, input: SetLeaderStateInput): Promise<OperatorListingResult> {
+    return this.directory.setLeaderState(principal, input);
   }
 
   /** Unilateral unfollow — does not require fee-share law; always allowed. */
@@ -513,7 +602,7 @@ export class CopyService {
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
       return {
-        ...presentCopyFollow(next, currentExposure),
+        ...(await this.presentFollow(next, currentExposure)),
         sessionKeyId: generated.id,
         sessionKey: generated.key,
       };
@@ -527,7 +616,7 @@ export class CopyService {
       const next: CopyFollow = { ...follow, sessionKeyRevoked: true };
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
-      return presentCopyFollow(next, currentExposure);
+      return this.presentFollow(next, currentExposure);
     });
   }
 
@@ -591,6 +680,14 @@ export class CopyService {
   async flatten(principal: Principal, input: FollowRef) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
       const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      // Flag off or place port unwired: refuse and leave the follow attached (TRD-0723).
+      if (!this.placeMirrorEnabled || !this.placeFollowerOrder || !this.flattenCopyPosition) {
+        throw new CopyError(
+          'copy.flatten is refuse-closed until the follower flatten port is wired — never invent a close',
+          'trade.copy_flatten_refused',
+          COPY_FLATTEN_REFUSED_RESIDUAL,
+        );
+      }
       const closed = await flattenFollowerCopyPosition(principal, follow, this.flattenCopyPosition);
       const next = applyCopyFlatten(follow);
       await store.saveFollow(next);
@@ -605,7 +702,7 @@ export class CopyService {
       const next: CopyFollow = { ...follow, feeShareKilled: true };
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
-      return presentCopyFollow(next, currentExposure);
+      return this.presentFollow(next, currentExposure);
     });
   }
 
@@ -630,6 +727,8 @@ export class CopyService {
 
   private async planMirrorForFollowExclusive(store: CopyFollowStore, principal: Principal, input: PlanMirrorInput) {
     const follow = await this.requireOwnedFollow(store, principal, input.followId);
+    await this.directory.refuseNewMirror(follow.leaderId);
+    await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
     await this.refuseIfFollowRegionClosed(store, follow);
     requireNewCopyIntentAllowed(follow);
 

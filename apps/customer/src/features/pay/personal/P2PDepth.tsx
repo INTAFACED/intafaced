@@ -1,20 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button } from '../../../shared/ui';
-import { displayAmount } from '../../../shared/money';
-import { PayDetails, PaySection } from '../components';
-import type { Offer, Trade } from '../schemas';
+import { PayDetails } from '../components';
+import { StatusTag } from '@intafaced/ui';
+import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
-import {
-  checkTake,
-  disputeStages,
-  escrowView,
-  offerMethodIds,
-  timeLeft,
-  type OrderAction,
-  type OrderFilter,
-  type StepId,
-  type StepState,
-} from './p2p-model';
+import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
 import './p2p-depth.css';
 
 /** A plain, always-visible reason. Used where a control exists but the service behind it does not. */
@@ -33,6 +22,26 @@ const ACTION_KEY = {
   cancel: 'actionCancel',
   dispute: 'actionDispute',
 } as const satisfies Record<OrderAction, string>;
+
+const STATUS_KEY = {
+  created: 'statusCreated',
+  escrowed: 'statusEscrowed',
+  fiat_sent: 'statusFiatSent',
+  released: 'statusReleased',
+  cancelled: 'statusCancelled',
+  disputed: 'statusDisputed',
+} as const satisfies Record<Trade['status'], string>;
+
+/** An order's status in words a person uses, never the machine value. */
+export function TradeStatus({ status }: { status: Trade['status'] }) {
+  const { t } = p2pDepth.useCopy();
+  return (
+    <StatusTag
+      status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : status === 'disputed' ? 'pending' : 'working'}
+      label={t(STATUS_KEY[status])}
+    />
+  );
+}
 
 /** The escrow path of one order: where it is, whose turn it is, what can be done now, and the deadline. */
 export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | null }) {
@@ -55,11 +64,23 @@ export function EscrowPath({ trade, userId }: { trade: Trade; userId: string | n
             : view.outcome === 'cancelled'
               ? t('closedCancelled')
               : t('stepClosed');
+  const stepNow = (id: StepId) => view.steps.find((step) => step.id === id)?.state === 'current';
+  // The step in progress says what is being waited for, not the name of a step that has not happened.
   const labels: Record<StepId, string> = {
     created: t('stepCreated'),
     escrowed: t('stepEscrowed'),
-    fiat_sent: t('stepFiatSent'),
-    closed: closedLabel,
+    fiat_sent:
+      stepNow('fiat_sent') && view.outcome === 'open'
+        ? view.role === 'buyer'
+          ? t('stepWaitPaidYou')
+          : t('stepWaitPaid')
+        : t('stepFiatSent'),
+    closed:
+      stepNow('closed') && view.outcome === 'open'
+        ? view.role === 'seller'
+          ? t('stepWaitReleaseYou')
+          : t('stepWaitRelease')
+        : closedLabel,
   };
   const stateLabel = (state: StepState) =>
     state === 'done' ? t('stateDone') : state === 'current' ? t('stateCurrent') : state === 'unknown' ? t('stateUnknown') : '';
@@ -160,33 +181,6 @@ export function DisputeProgress({
   );
 }
 
-/** The order conversation. Every control is shown; none can send, because no chat service is connected. */
-export function OrderChat() {
-  const { t } = p2pDepth.useCopy();
-  return (
-    <PaySection title={t('chatLabel')}>
-      <div className="p2p-chat" data-testid="order-chat">
-        <P2PReason title={t('chatReasonTitle')}>{t('chatReasonBody')}</P2PReason>
-        <div className="p2p-chat-thread" role="log" aria-label={t('chatLabel')}>
-          {t('chatEmpty')}
-        </div>
-        <form className="p2p-chat-compose" onSubmit={(event) => event.preventDefault()}>
-          <fieldset disabled style={{ display: 'contents' }}>
-            <label className="field" style={{ flex: 1 }}>
-              <span>{t('chatLabel')}</span>
-              <textarea placeholder={t('chatPlaceholder')} rows={2} />
-            </label>
-            <Button type="submit" variant="primary" disabled>
-              {t('chatSend')}
-            </Button>
-          </fieldset>
-        </form>
-        <p className="muted">{t('chatSendOff')}</p>
-      </div>
-    </PaySection>
-  );
-}
-
 /** Buy / sell / all and payment method for the offer board. */
 export function OfferTabs({ side, onSide }: { side: '' | 'buy' | 'sell'; onSide: (side: '' | 'buy' | 'sell') => void }) {
   const { t } = p2pDepth.useCopy();
@@ -238,78 +232,4 @@ export function OrderFilterTabs({
   );
 }
 
-/**
- * Placing an order on someone else's offer. The quantity is checked against the offer's limits and the external
- * payment is shown exactly (price × quantity). The order itself stays off: the service returns no fee or reservation
- * preview, and an order locks money in escrow, so it is not placed blind.
- */
-export function TakeOfferPanel({ offer }: { offer: Offer }) {
-  const { t, languageFor, directionFor } = p2pDepth.useCopy();
-  const methods = offerMethodIds(offer);
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('');
-  const check = checkTake(offer, amount);
-  const problem =
-    check.kind === 'empty'
-      ? t('takeNeedAmount')
-      : check.kind === 'invalid'
-        ? t('takeInvalid')
-        : check.kind === 'belowMin'
-          ? t('takeBelowMin')
-          : check.kind === 'aboveMax'
-            ? t('takeAboveMax')
-            : check.kind === 'aboveRemaining'
-              ? t('takeAboveRemaining')
-              : null;
-  return (
-    <section
-      className="p2p-take"
-      aria-label={t('takeTitle')}
-      lang={languageFor('takeTitle')}
-      dir={directionFor('takeTitle')}
-      data-testid="take-offer"
-    >
-      <h3>{t('takeTitle')}</h3>
-      <form onSubmit={(event) => event.preventDefault()} className="form-stack" noValidate>
-        <label className="field">
-          <span>{t('takeAmount', { asset: offer.asset })}</span>
-          <input
-            inputMode="decimal"
-            autoComplete="off"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            aria-invalid={problem !== null && check.kind !== 'empty'}
-          />
-          {problem && check.kind !== 'empty' ? <small className="error-text">{problem}</small> : null}
-        </label>
-        <label className="field">
-          <span>{t('takeMethod')}</span>
-          <select value={method} onChange={(event) => setMethod(event.target.value)}>
-            <option value="">{methods.length ? '—' : t('takeNoMethods')}</option>
-            {methods.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <PayDetails
-          values={[
-            [
-              t('takeTotal'),
-              check.kind === 'ok'
-                ? check.fiatTotal === null
-                  ? t('takeFloat')
-                  : `${displayAmount(check.fiatTotal)} ${offer.fiatCurrency}`
-                : '—',
-            ],
-          ]}
-        />
-        <Button type="submit" variant="primary" disabled data-testid="take-review">
-          {t('takeReview')}
-        </Button>
-      </form>
-      <P2PReason title={t('takeOffTitle')}>{t('takeOffBody')}</P2PReason>
-    </section>
-  );
-}
+export { TakeOfferPanel } from './TakeOffer';

@@ -2,6 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
+import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -22,13 +23,11 @@ export const amount = (value: string | null | undefined, asset: string) =>
   value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
+/** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
 export function date(value: string | null) {
   if (!value) return copyText('components.none');
   if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  const { language, timeZone } = currentPreferences();
-  return new Date(value).toLocaleString(language, {
-    ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-  });
+  return stamp(value, currentPreferences().timeZone);
 }
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
@@ -84,8 +83,7 @@ export function Continuation({ count, limit, onMore }: { count: number; limit: n
     <div className="money-continuation">
       <span>
         {count}
-        <Text k="components.records.returned.requested.limit" />
-        {limit}.{' '}
+        <Text k="components.records.returned.requested.limit" />.{' '}
         {count >= limit
           ? limit < 200
             ? copyText('components.more.records.may.exist')
@@ -120,6 +118,10 @@ export type ActionSpec = {
   fields?: ActionField[];
   initial?: Record<string, string>;
   facts?: [string, string][];
+  /** Rows shown above the fields while filling in the form (balance, pool, APR, term...). */
+  formFacts?: [string, string][];
+  /** Rows worked out from what has been typed so far (estimates). Shown with the form and again in the review. */
+  liveRows?: (values: Record<string, string>) => [string, string][];
   notes: string[];
   input: (values: Record<string, string>, requestId: string) => Record<string, unknown>;
   validate?: (input: Record<string, unknown>) => string | null;
@@ -490,6 +492,16 @@ export function MutationDialog({
               review();
             }}
           >
+            {Boolean(spec.formFacts?.length) && (
+              <dl className="detail-list money-form-facts">
+                {spec.formFacts!.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {spec.fields?.map((field) =>
               field.options ? (
                 <label className="field" key={field.name}>
@@ -538,6 +550,16 @@ export function MutationDialog({
                 />
               ),
             )}
+            {spec.liveRows && (
+              <dl className="detail-list money-form-facts" aria-live="polite">
+                {spec.liveRows(values).map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {errors.form && (
               <p className="error-text" role="alert">
                 {errors.form}
@@ -565,6 +587,12 @@ export function MutationDialog({
                       values[field.name] ??
                       copyText('components.none')}
                   </dd>
+                </div>
+              ))}
+              {spec.liveRows?.(values).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
                 </div>
               ))}
             </dl>

@@ -22,6 +22,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'academy.room_not_found': 'error.notFound',
   'academy.session_not_found': 'error.notFound',
   'academy.curriculum_not_found': 'error.notFound',
+  'academy.path_not_found': 'error.notFound',
   'academy.cert_not_found': 'error.notFound',
   'academy.not_host': 'error.forbidden',
   'academy.host_rights_required': 'error.forbidden',

@@ -243,6 +243,36 @@ export type BankErrorCode =
    * The missing piece is an outside company, the card issuer.
    */
   | 'bank.rewards_issuer_unset'
+  /**
+   * Cashback for this user is posted in more than one asset.
+   * The read will not add those figures into one number.
+   */
+  | 'bank.rewards_asset_ambiguous'
+  /** A physical card was asked for without a delivery address. */
+  | 'bank.card_shipping_address_required'
+  /** A retried issue disagreed with the card type or delivery address already stored. */
+  | 'bank.card_issue_conflict'
+  /** A command id was reused for a different card change. */
+  | 'bank.card_command_conflict'
+  /** A replacement id was reused for a different card, or the reason disagreed. */
+  | 'bank.card_replace_conflict'
+  /**
+   * No live issuer can return a PAN. card-sim has no card number.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pan_issuer_unset'
+  /**
+   * No live issuer can view or set a PIN.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_pin_issuer_unset'
+  /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
+  | 'bank.card_pin_invalid'
+  /**
+   * No live issuer can push a card into Apple Pay or Google Pay.
+   * The missing piece is `socket.live-issuer`.
+   */
+  | 'bank.card_wallet_issuer_unset'
   // ── Ramps (§8.1 / D-S-09, crypto ledger half) ──────────────────────────
   /**
    * NO RAMP PROGRAMME IS CONFIGURED.
@@ -277,6 +307,35 @@ export type BankErrorCode =
    */
   | 'bank.no_fiat_rail'
   | 'bank.fiat_ramp_socket'
+  /**
+   * On-ramp quote has no rate/fee source. A pay amount, fee, or FX rate is not invented.
+   * The missing piece is socket.psp-partners plus a published price.
+   */
+  | 'bank.onramp_rate_unset'
+  /** No quote row for this caller. */
+  | 'bank.onramp_quote_missing'
+  /** The quote's published expiry has passed. Nothing is charged. */
+  | 'bank.onramp_quote_expired'
+  /** The partner answered without a hosted URL or bank-transfer instruction. None is invented. */
+  | 'bank.onramp_instruction_missing'
+  /**
+   * Crypto off-ramp has no published fee schedule. Zero is not assumed.
+   * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
+   */
+  | 'bank.offramp_fee_unset'
+  /** Fee plus net does not equal the amount. The service does not adjust either figure. */
+  | 'bank.offramp_fee_inconsistent'
+  /**
+   * Crypto custody is not connected. No asset list, minimum, address, or
+   * incoming deposit is invented.
+   */
+  | 'bank.deposit_custody_unset'
+  /** Custody published a catalogue or address this service will not repeat. */
+  | 'bank.deposit_catalogue_invalid'
+  /** The asset or network is not in the published catalogue. */
+  | 'bank.deposit_asset_unpublished'
+  /** Custody returned more incoming deposits than this door will publish. None are dropped. */
+  | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
@@ -469,7 +528,89 @@ export type BankErrorCode =
   /** The approval was already spent on a different operation. Ask again. */
   | 'bank.step_up_used'
   /** Identity could not answer, or is not wired. Nothing was posted; fail closed. */
-  | 'bank.step_up_unavailable';
+  | 'bank.step_up_unavailable'
+  /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
+  | 'bank.personal_transfer_terms_unset'
+  /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
+  | 'bank.personal_transfer_fee_unwired'
+  | 'bank.personal_transfer_limit_exceeded'
+  | 'bank.personal_transfer_daily_limit_exceeded'
+  /** Same transfer id, different note, payee, amount, request, or reference. */
+  | 'bank.personal_transfer_conflict'
+  | 'bank.personal_transfer_not_found'
+  | 'bank.personal_note_invalid'
+  /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
+  | 'bank.personal_reference_invalid'
+  | 'bank.personal_request_not_found'
+  | 'bank.personal_request_closed'
+  | 'bank.personal_request_expired'
+  | 'bank.personal_request_not_payer'
+  | 'bank.personal_request_not_payee'
+  | 'bank.personal_request_amount_mismatch'
+  /** The transfer's recipient is not the request's payee. Nothing is posted. */
+  | 'bank.personal_request_payee_mismatch'
+  | 'bank.personal_request_claim_held'
+  | 'bank.personal_request_conflict'
+  | 'bank.personal_request_self'
+  | 'bank.personal_request_list_limit_unset'
+  | 'bank.personal_request_payer_unknown'
+  | 'bank.pay_request_notify_unwired'
+  /** IDENTITY_URL is unset, so a request cannot name either person. */
+  | 'bank.party_handles_unset'
+  /** Identity did not answer a handle lookup. Nothing was created. */
+  | 'bank.party_handles_unavailable'
+  /**
+   * The same business id already exists for someone else, or for different
+   * rules. Both answers use this one code so the caller cannot tell them apart.
+   */
+  | 'bank.business_conflict'
+  /** The owner cannot lift a freeze an operator placed. */
+  | 'bank.card_operator_frozen'
+  /** An operator write named no reason, or fewer than 10 characters. */
+  | 'bank.ops_reason_too_short'
+  /** Card programme from/to was omitted, unreadable, or not a positive span. */
+  | 'bank.card_programme_span_unset'
+  /** Card programme span is longer than 92 days. */
+  | 'bank.card_programme_span_too_long'
+  /** Ramp health window was omitted or outside 1..720 hours. */
+  | 'bank.ramp_health_window_unset'
+  /** Transfer health window was omitted or outside 1..720 hours. */
+  | 'bank.transfer_health_window_unset'
+  /** Failed-transfer window was omitted or outside 1..720 hours. */
+  | 'bank.failed_transfers_window_unset'
+  /** Failed-transfer page size unpublished. Blank is not 50. */
+  | 'bank.failed_transfers_limit_unset'
+  /** Failed-transfer cursor was not a page this service issued. */
+  | 'bank.failed_transfers_cursor_invalid'
+  /**
+   * Operator transfer drill-down. Unknown and malformed ids share this code
+   * so the shape of the id is not an existence oracle.
+   */
+  | 'bank.ops_transfer_not_found'
+  /** Operator business-approval page size unpublished. Blank is not 50. */
+  | 'bank.ops_business_approvals_limit_unset'
+  /** A transfer id was reused with a different note or reference. */
+  | 'bank.transfer_message_conflict'
+  /** The activity id is not in this customer's history. */
+  | 'bank.activity_not_found'
+  /** Lookup stopped before history ended, so absence is not proven. */
+  | 'bank.activity_lookup_bounded'
+  /** A from/to or amount range is backwards. */
+  | 'bank.activity_range'
+  /** A note command id was reused with different text. */
+  | 'bank.activity_note_conflict'
+  /** A dispute id was reused with a different reason or transaction. */
+  | 'bank.activity_dispute_conflict'
+  /** This customer already has an open dispute on that transaction. */
+  | 'bank.activity_dispute_exists'
+  /** Statement dates are backwards or longer than 366 days. */
+  | 'bank.statement_range'
+  /** PDF statements are one UTC calendar month. */
+  | 'bank.statement_pdf_one_month'
+  /** More posted lines than a statement file will carry. Narrow the dates. */
+  | 'bank.statement_too_large'
+  /** No service secret, or activity could not be read, so no file was built. */
+  | 'bank.statement_unavailable';
 
 export class BankError extends Error {
   constructor(

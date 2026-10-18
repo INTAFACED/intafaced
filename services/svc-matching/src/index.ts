@@ -1,7 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Fastify from 'fastify';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { createHttpLedgerClient } from '@intafaced/ledger-client';
 import { env } from './env.js';
 import { MatchingEngine, MemorySnapshotSink } from './engine/engine.js';
 import { installCodFence } from './engine/cod-fence.js';
@@ -24,8 +26,10 @@ import { shutdownMatching } from './shutdown.js';
 import { registerHealth } from './health.js';
 import { registerMetrics } from './metrics.js';
 import { registerRoutes } from './router.js';
-import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createIdentityApprovalClient, parseOperatorIds, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { openAfterReplay } from './open-after-replay.js';
+import { createReplayHoldLookup, unwiredReplayHoldLookup } from './replay-hold.js';
 
 installCodFence();
 installAuctionUncross();
@@ -86,9 +90,6 @@ const engine = new MatchingEngine({
   enabled: env.MATCHING_ENGINE_ENABLED,
 });
 
-// Replay before listening — not after, and never lazily on first request.
-const recovered = await engine.recover();
-
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 
 /**
@@ -112,6 +113,9 @@ registerHealth(app, env.SERVICE_NAME, engine, journal);
  */
 app.get('/ready', async (_req, reply) => {
   if (!engine.isEnabled) return reply.code(503).send({ ready: false, reason: 'matching.engine flag is off' });
+  if (!engine.admissionOpen) {
+    return reply.code(503).send({ ready: false, reason: engine.admissionReason ?? 'matching.hold_check_unreachable' });
+  }
   return { ready: true, sequence: engine.markets.length };
 });
 
@@ -126,34 +130,68 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   bodyBind: 'require',
   rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
+  operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
+  ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
 });
 
-await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+const holds = env.LEDGER_URL
+  ? createReplayHoldLookup(
+      createHttpLedgerClient({
+        baseUrl: env.LEDGER_URL,
+        sign: (payload) => serviceAuthHeadersForBody('svc-matching', env.INTERNAL_SERVICE_SECRET, payload),
+        timeoutMs: 4_000,
+        retries: 1,
+        retryBaseDelayMs: 200,
+      }),
+    )
+  : unwiredReplayHoldLookup();
 
-// The boot line carries the resting count too. Recovery previously reported
-// records and markets, which say how much was replayed and not what is now
-// standing — and what is now standing is the part another system has to agree
-// with.
-//
-// BOOT CHECK, NOT BOOT REPAIR — deliberately. This service cannot reconcile by
-// itself: it has no `DATABASE_URL` (`env.ts` says so, and why), so it does not
-// know whether anyone is holding funds against these orders. Comparing requires
-// the counterpart's view, which arrives over `POST /reconcile`. What boot CAN
-// do honestly is refuse to be quiet about the condition, and that is this.
-//
-// It does not exit non-zero. An engine that replayed orders is still the only
-// thing that can cancel them, and a process that dies on the way up cannot be
-// asked anything — including "what are you holding".
+// Replay, confirm holds, then listen. A startup publish that keeps timing out
+// exits here — the process has not called listen, so it is not a half-started
+// engine. A hold service that cannot be asked still listens, with /ready 503
+// and the reason on /health, and submit refuses. The book does not open.
+const boot = await openAfterReplay({
+  engine,
+  holds,
+  listen: async () => {
+    await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
+  },
+});
+if (boot.exit !== 0) {
+  const message = boot.message ?? 'svc-matching startup publish failed';
+  app.log.error(message);
+  console.error(message);
+  try {
+    await bus.close();
+  } catch {
+    // The bus is why we are leaving. Closing it must not hide the timeout.
+  }
+  journal.close();
+  process.exit(boot.exit);
+}
+
 const restingAtBoot = engine.restingOrderCount;
-app.log.info({ port: env.HTTP_PORT, ...recovered, restingOrders: restingAtBoot }, 'svc-matching ready — books replayed from journal');
+app.log.info(
+  {
+    port: env.HTTP_PORT,
+    ...boot.recovered,
+    restingOrders: restingAtBoot,
+    holdCheck: boot.gate,
+  },
+  boot.gate?.open
+    ? 'svc-matching ready — books replayed from journal'
+    : 'svc-matching up — replay hold check failed closed, market stays closed',
+);
 
-if (restingAtBoot > 0) {
+if (boot.gate && !boot.gate.open) {
+  app.log.error(
+    { reason: boot.gate.reason, restingOrders: restingAtBoot },
+    'replayed resting orders were not confirmed against ledger holds — market stays closed',
+  );
+} else if (boot.gate && (boot.gate.pulled.length > 0 || boot.gate.halted.length > 0)) {
   app.log.warn(
-    { restingOrders: restingAtBoot, markets: engine.markets.length },
-    'engine replayed live orders from the journal — nothing here has checked that anyone still holds funds for them. ' +
-      'The journal survives a database reset, so these books can outlive the orders that justified them. ' +
-      'Compare before trusting them: GET /markets/:marketId/orders for this side, POST /reconcile with the ' +
-      "order owner's view for both (service credentials required; see services/svc-matching/README.md).",
+    { pulled: boot.gate.pulled, halted: boot.gate.halted },
+    'replayed orders whose holds were missing, short, or unreadable were pulled or their markets halted',
   );
 }
 

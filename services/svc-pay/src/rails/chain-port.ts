@@ -76,7 +76,23 @@ export interface CryptoChainPort {
    */
   inboundTransfer(address: string): Promise<ConfirmedTransfer | null>;
   send(request: ChainSendRequest): Promise<{ txHash: string }>;
+  /**
+   * The outbound transfer already journalled for this business key.
+   * `not_sent` is a positive answer that this port never broadcast it.
+   * `unknown` means a broadcast may have left and this port cannot prove either way.
+   */
+  lookupSend(idempotencyKey: string): Promise<ChainSendLookup>;
+  /**
+   * One cheap liveness check. MemoryChain resolves. A live chain reads its
+   * chain id and must not scan blocks. UnconfiguredChain throws.
+   */
+  ping(): Promise<void>;
 }
+
+export type ChainSendLookup =
+  | { readonly state: 'sent'; readonly txHash: string; readonly amount: Amount | null; readonly assetId: string | null }
+  | { readonly state: 'not_sent' }
+  | { readonly state: 'unknown' };
 
 /**
  * In-memory chain — the reference implementation of the port.
@@ -114,6 +130,17 @@ export class MemoryChain implements CryptoChainPort {
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     this.takeCallError();
     return this.transfers.get(address) ?? null;
+  }
+
+  async lookupSend(idempotencyKey: string): Promise<ChainSendLookup> {
+    const hit = this.outbound.find((row) => row.idempotencyKey === idempotencyKey);
+    if (!hit) return { state: 'not_sent' };
+    return { state: 'sent', txHash: hit.txHash, amount: hit.amount, assetId: hit.assetId };
+  }
+
+  /** In-process. There is no RPC to fail. */
+  async ping(): Promise<void> {
+    this.takeCallError();
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
@@ -267,5 +294,15 @@ export class UnconfiguredChain implements CryptoChainPort {
   async send(): Promise<{ txHash: string }> {
     // The one that matters. There is no fabricated hash on this path.
     throw new ChainNotConfiguredError('broadcast an outbound transfer');
+  }
+
+  async lookupSend(): Promise<ChainSendLookup> {
+    // Not `not_sent`. That would let a reconciler reverse a payout whose
+    // broadcast this process can no longer see because nothing is configured.
+    throw new ChainNotConfiguredError('look up an outbound transfer');
+  }
+
+  async ping(): Promise<void> {
+    throw new ChainNotConfiguredError('probe the chain');
   }
 }

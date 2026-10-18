@@ -114,7 +114,43 @@ export type AcademyErrorCode =
   /** S3 signing region unset — never invent us-east-1. */
   | 'academy.video_s3_region_unset'
   /** Lobby ceiling unset — never invent a seat count. */
-  | 'academy.room_capacity_unset';
+  | 'academy.room_capacity_unset'
+  /** Programme prerequisites the caller has not enrolled in. */
+  | 'academy.prerequisite_unmet'
+  /** touchLesson secondsRead outside 0..TOUCH_LESSON_MAX_SECONDS. */
+  | 'academy.seconds_out_of_range'
+  /** Video slug is not on the named spine. */
+  | 'academy.video_not_found'
+  /** Watch position is negative, not an integer, or past a set duration. */
+  | 'academy.video_position_out_of_range'
+  /** Leave found no enrolment for this caller. */
+  | 'academy.enrollment_not_found'
+  /** Operator completionsByItem path is not a curriculum path. */
+  | 'academy.path_not_found'
+  /** opsMetrics from/to is not a UTC day range inside OPS_METRICS_MAX_DAYS. */
+  | 'academy.metrics_range_invalid'
+  | 'academy.my_completions_list_limit_unset'
+  | 'academy.residency_cohorts_list_limit_unset'
+  | 'academy.my_upcoming_sessions_list_limit_unset'
+  | 'academy.grant_audit_list_limit_unset'
+  /** Lesson has no owner-published assessment. */
+  | 'academy.assessment_unpublished'
+  /** Assessment questions exist and the pass mark does not. */
+  | 'academy.pass_mark_unset'
+  | 'academy.assessment_invalid'
+  /** Owner-published attempt cap reached. */
+  | 'academy.attempt_limit'
+  /** Owner-published cooldown has not elapsed. */
+  | 'academy.attempt_cooldown'
+  /** Path has no owner-published certificate definition. */
+  | 'academy.certificate_unpublished'
+  /** certVerify rate max or window is blank. */
+  | 'academy.verify_rate_unset'
+  /** certVerify caller address is missing. Fail closed. */
+  | 'academy.verify_address_unset'
+  /** certVerify over the published per-address limit. */
+  | 'academy.verify_rate_limited'
+  | 'academy.holder_name_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -187,6 +223,27 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.video_url_ttl_unset',
   'academy.video_s3_region_unset',
   'academy.room_capacity_unset',
+  'academy.prerequisite_unmet',
+  'academy.seconds_out_of_range',
+  'academy.video_not_found',
+  'academy.video_position_out_of_range',
+  'academy.enrollment_not_found',
+  'academy.path_not_found',
+  'academy.metrics_range_invalid',
+  'academy.my_completions_list_limit_unset',
+  'academy.residency_cohorts_list_limit_unset',
+  'academy.my_upcoming_sessions_list_limit_unset',
+  'academy.grant_audit_list_limit_unset',
+  'academy.assessment_unpublished',
+  'academy.pass_mark_unset',
+  'academy.assessment_invalid',
+  'academy.attempt_limit',
+  'academy.attempt_cooldown',
+  'academy.certificate_unpublished',
+  'academy.verify_rate_unset',
+  'academy.verify_address_unset',
+  'academy.verify_rate_limited',
+  'academy.holder_name_invalid',
 ] as const;
 
 /** L3 — catalog size. */

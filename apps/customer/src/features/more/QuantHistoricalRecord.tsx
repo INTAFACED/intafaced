@@ -2,10 +2,11 @@ import { displayAmount } from '../../shared/money';
 import { Panel } from '../../shared/ui';
 import { t as copyText } from './copy';
 import { analysisCopy } from './quant-analysis-copy';
-import type { HistoricalSnapshot } from './quant-analysis';
+import { HYPOTHESIS_COPY, MODEL_COPY, type HistoricalSnapshot } from './quant-analysis';
 export function QuantHistoricalRecord({ snapshot, view }: { snapshot: HistoricalSnapshot | null; view: object }) {
   const { Copy, t, requestedLocale, languageFor, directionFor } = analysisCopy.useCopy();
   const record = snapshot?.view === view ? snapshot : null;
+  const modelName = (kind: string) => (kind in MODEL_COPY ? t(MODEL_COPY[kind as keyof typeof MODEL_COPY]) : kind);
   const count = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 });
   const time = (value: string) => (
     <time dateTime={value} lang={requestedLocale}>
@@ -34,7 +35,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 <Copy k="claim" />
               </p>
               <p>
-                <Copy k="verdict" /> · <span lang="en">{record.data.outOfSampleLabel}</span>
+                <Copy k="verdict" /> · {t(HYPOTHESIS_COPY[record.request.outOfSampleStatus])}
               </p>
               <p>
                 <Copy k="variants" />: <span lang={requestedLocale}>{count.format(record.request.strategyVariantCount)}</span>
@@ -103,7 +104,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
               {(['fees', 'slippage', 'latency'] as const).map((key) => (
                 <section key={key}>
                   <h4>
-                    {t(key)} · <span lang="zxx">{record.request.costModel[key].kind}</span>
+                    {t(key)} · {modelName(record.request.costModel[key].kind)}
                   </h4>
                   <p lang="und">{record.request.costModel[key].source}</p>
                 </section>

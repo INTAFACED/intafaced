@@ -15,7 +15,7 @@ const en = {
   openPublic: 'Open public campaigns',
   detailTitle: 'Campaign detail',
   detailBody:
-    'A campaign’s page would show its rules, tasks, dates, eligibility and reward terms. Select a campaign from the catalogue to open it; none can be selected yet.',
+    'A campaign’s page would show its rules, tasks, dates, eligibility and reward terms. Select a campaign from the catalogue to open it; none can be selected.',
   journeyTitle: 'How a campaign runs',
   journeyLabel: 'Campaign steps',
   stateBlocked: 'Blocked',
@@ -30,7 +30,7 @@ const en = {
   step_tasks_reason: 'Blocked: no task or progress records can be read or written without the participation service.',
   step_reward: 'Receive the reward',
   step_reward_body: 'Rewards are credited to your account through the ledger once a campaign confirms them.',
-  step_reward_reason: 'Blocked: no reward budget or payout procedure is published, so no reward is promised or shown.',
+  step_reward_reason: 'Blocked: no reward budget or payout method is published, so no reward is promised or shown.',
   mineTitle: 'Your campaign participation',
   mineUnavailable:
     'Unavailable, not zero. Your joined campaigns, task progress and rewards cannot be loaded, which does not mean you have none.',
@@ -39,7 +39,7 @@ const en = {
   mineRewards: 'Rewards earned',
   mineUnknown: 'Unavailable',
   channelsNote:
-    'Email, push and SMS campaign delivery need a published channel configuration and an audience permission contract. This room cannot trigger a broadcast.',
+    'Email, push and SMS campaigns need a configured delivery channel and audience permission. This room can’t send a broadcast.',
   proposeTitle: 'Propose a campaign',
   proposeIntro:
     'Write a proposal for a person to review. It is a draft only: it is never published, it cannot claim returns, and it carries no incentive budget.',
@@ -79,7 +79,7 @@ const es = {
   openPublic: 'Abrir campañas públicas',
   detailTitle: 'Detalle de la campaña',
   detailBody:
-    'La página de una campaña mostraría sus reglas, tareas, fechas, requisitos y condiciones de recompensa. Selecciona una campaña del catálogo para abrirla; todavía no se puede seleccionar ninguna.',
+    'La página de una campaña mostraría sus reglas, tareas, fechas, requisitos y condiciones de recompensa. Selecciona una campaña del catálogo para abrirla; no se puede seleccionar ninguna.',
   journeyTitle: 'Cómo se desarrolla una campaña',
   journeyLabel: 'Pasos de la campaña',
   stateBlocked: 'Bloqueado',
@@ -96,7 +96,7 @@ const es = {
   step_reward: 'Recibir la recompensa',
   step_reward_body: 'Las recompensas se acreditan en tu cuenta a través del libro mayor cuando una campaña las confirma.',
   step_reward_reason:
-    'Bloqueado: no se publica ningún presupuesto de recompensas ni procedimiento de pago, así que no se promete ni se muestra ninguna recompensa.',
+    'Bloqueado: no hay presupuesto de recompensas ni método de pago publicados, así que no se promete ni se muestra ninguna recompensa.',
   mineTitle: 'Tu participación en campañas',
   mineUnavailable:
     'No disponible, no es cero. No se pueden cargar tus campañas, progreso de tareas ni recompensas, lo que no significa que no tengas.',
@@ -105,7 +105,7 @@ const es = {
   mineRewards: 'Recompensas obtenidas',
   mineUnknown: 'No disponible',
   channelsNote:
-    'El envío de campañas por correo, notificación push y SMS necesita una configuración de canales publicada y un contrato de permiso de audiencia. Esta sala no puede lanzar un envío masivo.',
+    'Las campañas por correo, push y SMS necesitan un canal de envío configurado y permiso de la audiencia. Esta sala no puede enviar difusiones.',
   proposeTitle: 'Proponer una campaña',
   proposeIntro:
     'Escribe una propuesta para que una persona la revise. Es solo un borrador: nunca se publica, no puede afirmar rendimientos y no incluye presupuesto de incentivos.',
@@ -146,7 +146,7 @@ const fr = {
   openPublic: 'Ouvrir les campagnes publiques',
   detailTitle: 'Détail de la campagne',
   detailBody:
-    'La page d’une campagne afficherait ses règles, tâches, dates, conditions d’éligibilité et récompenses. Sélectionne une campagne du catalogue pour l’ouvrir ; aucune ne peut encore l’être.',
+    'La page d’une campagne afficherait ses règles, tâches, dates, conditions d’éligibilité et récompenses. Sélectionne une campagne du catalogue pour l’ouvrir ; aucune ne peut l’être.',
   journeyTitle: 'Comment se déroule une campagne',
   journeyLabel: 'Étapes de la campagne',
   stateBlocked: 'Bloqué',
@@ -164,7 +164,7 @@ const fr = {
   step_reward: 'Recevoir la récompense',
   step_reward_body: 'Les récompenses sont créditées sur ton compte via le grand livre une fois qu’une campagne les confirme.',
   step_reward_reason:
-    'Bloqué : aucun budget de récompense ni procédure de paiement n’est publié : aucune récompense n’est promise ni affichée.',
+    'Bloqué : aucun budget de récompenses ni mode de paiement n’est publié ; aucune récompense n’est donc promise ni affichée.',
   mineTitle: 'Ta participation aux campagnes',
   mineUnavailable:
     'Indisponible, pas zéro. Tes campagnes, ta progression et tes récompenses ne peuvent pas être chargées, ce qui ne veut pas dire que tu n’en as pas.',
@@ -173,7 +173,7 @@ const fr = {
   mineRewards: 'Récompenses obtenues',
   mineUnknown: 'Indisponible',
   channelsNote:
-    'L’envoi de campagnes par e-mail, notification push et SMS nécessite une configuration de canaux publiée et un contrat d’autorisation d’audience. Cette salle ne peut pas déclencher de diffusion.',
+    'Les campagnes par e-mail, push et SMS nécessitent un canal d’envoi configuré et l’autorisation de l’audience. Cette salle ne peut pas envoyer de diffusion.',
   proposeTitle: 'Proposer une campagne',
   proposeIntro:
     'Rédige une proposition qu’une personne examinera. C’est seulement un brouillon : il n’est jamais publié, ne peut pas revendiquer de rendement et ne porte aucun budget d’incitation.',

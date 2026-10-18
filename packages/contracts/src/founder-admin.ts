@@ -7,6 +7,7 @@ import {
   payAmountStringSchema,
   payAssetCodeSchema,
   payDestinationKindSchema,
+  payBpsSchema,
   payMerchantIdSchema,
   payRailIdSchema,
   payReasonSchema,
@@ -17,6 +18,8 @@ import {
 } from './merchant-control.js';
 import { merchantMetricsSnapshotSchema, metricsFreshnessSchema, payAssetAmountSchema, payMetricWindowSchema } from './merchant-metrics.js';
 import { payHaltOperatorStatusSchema } from './pay-halts.js';
+import { merchantStarterFeeSchema } from './merchant-portal.js';
+import { payDestinationDefaultSchema } from './pay-portal-reads.js';
 
 /**
  * FOUNDER ADMIN — wire contract (workstream W0, built by W2/W4).
@@ -416,6 +419,22 @@ const disputeItemSchema = z
     responseDueSource: z.enum(['rail_event']).nullable(),
     ledgerWire: z.enum(['posted', 'refused']),
     ledgerRefuseCode: z.string().nullable(),
+    /**
+     * Posted chargeback transactions. Null when no effect has been recorded.
+     * `feePosted` is false: pay pricing has no dispute fee, so none is posted.
+     */
+    ledgerEffect: z
+      .object({
+        openingTxId: z.string().nullable(),
+        shortfallTxId: z.string().nullable(),
+        wonTxId: z.string().nullable(),
+        recoveredTxId: z.string().nullable(),
+        feePosted: z.literal(false),
+        feeNote: z.string().min(1),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -448,7 +467,7 @@ const destinationItemSchema = z
     kind: z.string().min(1).max(32),
     destinationMasked: z.string().min(1).max(64),
     screeningState: z.literal('not_recorded'),
-    defaultFlag: z.literal('unset'),
+    defaultFlag: payDestinationDefaultSchema,
     createdAt: payTimestampSchema,
     lastUsedAt: payTimestampSchema.nullable(),
   })
@@ -657,6 +676,10 @@ export const founderMerchantSectionSchema = z.discriminatedUnion('section', [
           mode: z.enum(['gateway', 'psp', 'payfac']),
           kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
           kybRef: z.string().nullable(),
+          /** Stored on the merchant row. Null when that row has no fee. */
+          feeBps: payBpsSchema.nullable(),
+          /** Published local-test starter fee, the same value `merchant.me` returns. Null when it is not set. */
+          starterFee: merchantStarterFeeSchema.nullable(),
         })
         .strict(),
       items: z.array(kybHistoryItemSchema),

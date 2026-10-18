@@ -10,7 +10,7 @@ import { MemoryLedger, parseAmount, recipes, type LedgerClient } from '@intaface
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { maskDestination } from '../control/mask-destination.js';
 import { teamReadFromSql } from '../merchant-team-read.js';
-import { MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
+import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from '../merchant-payout-destination.js';
 import { PayError, PayService, type PayErrorCode } from '../payment-service.js';
 import type { PayFail } from './common.js';
 import { listMerchantStatement } from './statement.js';
@@ -50,6 +50,14 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
     .withPassword('intafaced')
     .start();
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
+}
+
+async function writeCtx(userId: string): Promise<Context> {
+  const { token } = await issueAccessToken(
+    { userId, sessionId: randomUUID(), scopes: ['pay:read', 'pay:write'], tier: 'full', mfa: true },
+    authConfig,
+  );
+  return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: randomUUID() };
 }
 
 async function ctx(userId: string): Promise<Context> {
@@ -110,6 +118,7 @@ describe('merchant portal reads', () => {
     ]);
     pay = new PayService(sql, ledger, rails, {
       checkoutRiskBand: 'low',
+      payoutDestinations: memoryPayoutDestinations(),
       linkDefaultTtlDays: 30,
       linkMaxTtlDays: 365,
       checkoutSessionTtlSeconds: 900,
@@ -379,8 +388,6 @@ describe('merchant portal reads', () => {
        WHERE merchant_id = ${mine.id} AND rail_id = 'card-sandbox'`;
 
     const owner = router.createCaller(await ctx(OWNER));
-    expect('setDefault' in owner.merchant.payoutDestinations).toBe(false);
-    expect('remove' in owner.merchant.payoutDestinations).toBe(false);
     const first = await owner.merchant.payoutDestinations.list({ merchantId: mine.id, limit: 1 });
     expect(first.items).toHaveLength(1);
     expect(first.nextCursor).toEqual(expect.any(String));
@@ -427,6 +434,92 @@ describe('merchant portal reads', () => {
     expect(await refused(owner.merchant.statement.list({ merchantId: mine.id }))).toMatchObject({
       pay: 'pay.statement_list_limit_unset',
     });
+  });
+
+  it('marks one default and refuses to remove a destination an in-flight payout still names', async () => {
+    const mine = await merchant(OWNER);
+    const other = await merchant(OTHER);
+    await member(mine.id, VIEWER, 'viewer');
+    const iban = 'GB82WEST12345698765432';
+    const store = new MerchantPayoutDestinationStore(sql);
+    await store.persist({ merchantId: mine.id, railId: 'crypto-native', kind: 'crypto', ref: DEST });
+    await store.persist({ merchantId: mine.id, railId: 'card-sandbox', kind: 'bank', ref: iban });
+    await store.persist({ merchantId: other.id, railId: 'crypto-native', kind: 'crypto', ref: DEST });
+    const owner = router.createCaller(await writeCtx(OWNER));
+    const listed = await owner.merchant.payoutDestinations.list({ merchantId: mine.id, limit: 10 });
+    expect(listed.items.every((item) => item.defaultFlag === 'unset')).toBe(true);
+    const crypto = listed.items.find((item) => item.railId === 'crypto-native');
+    const bank = listed.items.find((item) => item.railId === 'card-sandbox');
+    if (!crypto || !bank) throw new Error('expected both destinations');
+    const marked = await owner.merchant.payoutDestinations.setDefault({ merchantId: mine.id, destinationId: crypto.id });
+    expect(marked).toMatchObject({ id: crypto.id, defaultFlag: 'default', screeningState: 'not_recorded' });
+    expect(JSON.stringify(marked)).not.toContain(DEST);
+    await owner.merchant.payoutDestinations.setDefault({ merchantId: mine.id, destinationId: bank.id });
+    const after = await owner.merchant.payoutDestinations.list({ merchantId: mine.id, limit: 10 });
+    expect(after.items.find((item) => item.id === crypto.id)?.defaultFlag).toBe('unset');
+    expect(after.items.find((item) => item.id === bank.id)?.defaultFlag).toBe('default');
+    expect(JSON.stringify(after)).not.toContain(DEST);
+    expect(JSON.stringify(after)).not.toContain(iban);
+
+    const viewer = router.createCaller(await writeCtx(VIEWER));
+    const viewerOwn = await refused(viewer.merchant.payoutDestinations.setDefault({ merchantId: mine.id, destinationId: crypto.id }));
+    const viewerMissing = await refused(
+      viewer.merchant.payoutDestinations.setDefault({ merchantId: randomUUID(), destinationId: crypto.id }),
+    );
+    expect(viewerOwn).toEqual(viewerMissing);
+    expect(viewerOwn.pay).toBe('pay.merchant_not_found');
+
+    const [otherRow] = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.merchant_payout_destinations WHERE merchant_id = ${other.id}`;
+    const missingDest = await refused(owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: randomUUID() }));
+    const foreignDest = await refused(owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: otherRow!.id }));
+    expect(missingDest).toEqual(foreignDest);
+    expect(missingDest.pay).toBe('pay.payout_destination_not_found');
+
+    const { settlement } = await settled(mine.id, '2026-10-18');
+    const [cryptoRow] = await sql<Array<{ rail_id: string; kind: string; ref: string }>>`
+      SELECT rail_id, kind, ref FROM pay.merchant_payout_destinations WHERE id = ${crypto.id}`;
+    await sql`
+      INSERT INTO pay.control_payout_approvals (
+        merchant_id, settlement_id, asset_code, amount, rail_id, destination_kind, destination_ref,
+        payload_hash, status, founder_required, maker_user_id, expires_at
+      ) VALUES (
+        ${mine.id}, ${settlement.id}, 'USDT', 1, ${cryptoRow!.rail_id}, ${cryptoRow!.kind}, ${cryptoRow!.ref},
+        ${'sha256:' + 'ab'.repeat(32)}, 'pending', false, ${OWNER}, ${new Date(Date.now() + 3_600_000)}
+      )`;
+    expect((await refused(owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: crypto.id }))).pay).toBe(
+      'pay.payout_destination_in_flight',
+    );
+    await sql`
+      UPDATE pay.control_payout_approvals
+         SET status = 'voided'
+       WHERE merchant_id = ${mine.id} AND destination_ref = ${cryptoRow!.ref}`;
+    expect(await owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: crypto.id })).toEqual({
+      removed: true,
+    });
+
+    const [bankRow] = await sql<Array<{ rail_id: string; kind: string; ref: string }>>`
+      SELECT rail_id, kind, ref FROM pay.merchant_payout_destinations WHERE id = ${bank.id}`;
+    const admissionId = randomUUID();
+    await sql`
+      INSERT INTO pay.payout_admissions (
+        id, settlement_id, merchant_id, merchant_user_id, attempt, business_id,
+        net, asset_id, rail_id, destination_kind, destination_ref, "window", merchant_control_version
+      ) VALUES (
+        ${admissionId}, ${settlement.id}, ${mine.id}, ${OWNER}, 0, ${'adm-' + admissionId},
+        1, 'USDT', ${bankRow!.rail_id}, ${bankRow!.kind}, ${bankRow!.ref}, '2026-10-18', 0
+      )`;
+    expect((await refused(owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: bank.id }))).pay).toBe(
+      'pay.payout_destination_in_flight',
+    );
+    await sql`
+      INSERT INTO pay.payout_outcomes (admission_id, kind, payload)
+      VALUES (${admissionId}, 'rail_refused', ${sql.json({ failureCode: 'test' })})`;
+    expect(await owner.merchant.payoutDestinations.remove({ merchantId: mine.id, destinationId: bank.id })).toEqual({
+      removed: true,
+    });
+    const gone = await owner.merchant.payoutDestinations.list({ merchantId: mine.id, limit: 10 });
+    expect(gone.items).toEqual([]);
   });
 
   it('floors lifecycle status to the column when migration 0073 timestamps were not backfilled', async () => {
@@ -575,10 +668,15 @@ describe('merchant portal reads', () => {
       to: new Date('2030-01-01T00:00:00.000Z'),
     });
     await pause(30);
+    await pay.destinationBook().seedVerified({
+      merchantId: mine.id,
+      railId: 'card-sandbox',
+      kind: 'bank',
+      ref: 'DE89370400440532013000',
+    });
     await pay.payoutSettlement({
       settlementId: settlement.id,
       railId: 'card-sandbox',
-      destination: { kind: 'bank', ref: 'DE89370400440532013000' },
     });
 
     const captureTx = await ledger.getTxByKey(`payment.capture:${payment.id}`);

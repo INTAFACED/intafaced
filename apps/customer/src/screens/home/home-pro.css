@@ -59,6 +59,8 @@
     flex-direction: column;
     flex: none;
     min-width: 0;
+    /* On a phone the change line and the "not counted" note wrap inside the card instead of widening the page. */
+    max-width: 100%;
   }
   .hp-label {
     display: flex;

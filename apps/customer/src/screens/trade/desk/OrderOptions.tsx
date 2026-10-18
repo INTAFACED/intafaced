@@ -12,7 +12,7 @@ const TYPE_KEY = {
 } as const satisfies Record<UnsupportedType, string>;
 
 /**
- * The order kinds the market does not take yet (stop-limit, take profit / stop loss, OCO, trailing), listed in the
+ * The order kinds the market does not take (stop-limit, take profit / stop loss, OCO, trailing), listed in the
  * strip's last slot the way the public spot desks list TP/SL, but disabled: each row is greyed and one line says why.
  */
 export function MoreOrderTypes() {

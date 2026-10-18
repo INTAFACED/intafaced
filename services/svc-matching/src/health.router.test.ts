@@ -27,7 +27,11 @@ async function mount(): Promise<{ app: FastifyInstance; engine: MatchingEngine; 
   const engine = new MatchingEngine({ journal, bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
   const app = Fastify({ logger: false });
   registerHealth(app, 'svc-matching', engine, journal);
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return { app, engine, journal };
 }
@@ -57,6 +61,9 @@ describe('GET /health venueHalted', () => {
       markets: 0,
       restingOrders: 0,
       journalRecords: 0,
+      admissionOpen: true,
+      admissionReason: null,
+      holdHalted: [],
     });
   });
 

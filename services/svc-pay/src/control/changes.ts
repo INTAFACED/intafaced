@@ -7,6 +7,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError, requireDualControl } from '../dual-control.js';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';
+import { assertReserveMayBeConfigured } from './reserve.js';
 import { closePendingForCapChange, closePendingForTierChange } from './limit-requests.js';
 import { assertValidRule, PricingConfigError, type PricingBand, type PricingRule } from './pricing.js';
 import { pricingRuleBodySchema, tierDefinitionSchema, type PricingRuleBody, type TierDefinitionInput } from './schemas.js';
@@ -230,6 +231,9 @@ export class ChangeService {
       const { rollingReserveBps, holdDays } = change.reserve;
       if ((rollingReserveBps === null) !== (holdDays === null))
         throw new Refused('a reserve needs both a percentage and a hold period, or neither');
+      // Fail closed: a percentage would be shown as held, and nothing books it.
+      // Thrown (not Refused) so the transaction rolls back and no change row is written.
+      assertReserveMayBeConfigured(change.reserve);
       const before = cur?.reserve_override ?? null;
       const after = { rollingReserveBps, holdDays };
       return {
@@ -351,6 +355,7 @@ export class ChangeService {
         approval_thresholds: unknown;
         founder_thresholds: unknown;
         approval_ttl_seconds: number;
+        merchant_visible: boolean;
       }>
     >`
       SELECT * FROM pay.control_tiers WHERE id = ${tier.id}
@@ -360,6 +365,7 @@ export class ChangeService {
       tier.reserve && tier.reserve.rollingReserveBps !== null
         ? { bps: tier.reserve.rollingReserveBps, holdDays: tier.reserve.holdDays }
         : null;
+    const merchantVisible = tier.merchantVisible === true;
     const after = {
       name: tier.name,
       archetype: tier.archetype,
@@ -368,6 +374,7 @@ export class ChangeService {
       approvalThresholds: approval,
       founderThresholds: founder,
       approvalTtlSeconds: tier.approvalTtlSeconds,
+      merchantVisible,
     };
     const before = cur
       ? {
@@ -378,6 +385,7 @@ export class ChangeService {
           approvalThresholds: cur.approval_thresholds,
           founderThresholds: cur.founder_thresholds,
           approvalTtlSeconds: cur.approval_ttl_seconds,
+          merchantVisible: cur.merchant_visible,
         }
       : null;
     const version = BigInt(cur?.version ?? '0');
@@ -395,14 +403,15 @@ export class ChangeService {
             UPDATE pay.control_tiers SET name = ${tier.name}, archetype = ${tier.archetype}, caps = ${q.json(caps as never)},
                    reserve_bps = ${reserve?.bps ?? null}, reserve_hold_days = ${reserve?.holdDays ?? null},
                    approval_thresholds = ${q.json(approval as never)}, founder_thresholds = ${q.json(founder as never)},
-                   approval_ttl_seconds = ${tier.approvalTtlSeconds}, version = version + 1, updated_by = ${actor}, updated_at = now()
+                   approval_ttl_seconds = ${tier.approvalTtlSeconds}, merchant_visible = ${merchantVisible},
+                   version = version + 1, updated_by = ${actor}, updated_at = now()
              WHERE id = ${tier.id}
           `;
         } else {
           await q`
-            INSERT INTO pay.control_tiers (id, name, archetype, caps, reserve_bps, reserve_hold_days, approval_thresholds, founder_thresholds, approval_ttl_seconds, updated_by)
+            INSERT INTO pay.control_tiers (id, name, archetype, caps, reserve_bps, reserve_hold_days, approval_thresholds, founder_thresholds, approval_ttl_seconds, merchant_visible, updated_by)
             VALUES (${tier.id}, ${tier.name}, ${tier.archetype}, ${q.json(caps as never)}, ${reserve?.bps ?? null}, ${reserve?.holdDays ?? null},
-                    ${q.json(approval as never)}, ${q.json(founder as never)}, ${tier.approvalTtlSeconds}, ${actor})
+                    ${q.json(approval as never)}, ${q.json(founder as never)}, ${tier.approvalTtlSeconds}, ${merchantVisible}, ${actor})
           `;
         }
       },

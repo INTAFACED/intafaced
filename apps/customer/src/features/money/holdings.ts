@@ -47,3 +47,41 @@ export function useHoldings() {
     return { ok: true, data: { assets: heldAssets(overview.holdings, spaces), spaces, holdings: overview.holdings } };
   }, `${userId}:holdings`);
 }
+
+/** What the named spaces hold of one asset, and what the whole is when the account quantity is known. Exact decimals only. */
+export type SpaceTotal = { assetId: string; inSpaces: string; spaceCount: number; accountQuantity: string | null; total: string | null };
+
+/**
+ * Named spaces are kept apart from the account quantity, so the overview adds them in a line of their own.
+ * `total` is only given when the bank returned the account quantity for that asset; otherwise the line says
+ * "plus X in spaces" and nothing is summed from a figure the bank did not give. Unreadable balances are skipped.
+ */
+export function spaceTotals(spaces: readonly Pick<Space, 'assetId' | 'balance' | 'kind'>[], holdings: readonly Holding[]): SpaceTotal[] {
+  const sums = new Map<string, { sum: bigint; count: number }>();
+  for (const space of spaces) {
+    if (space.kind !== 'named') continue;
+    let value: bigint;
+    try {
+      value = parseAmount(space.balance);
+    } catch {
+      continue;
+    }
+    const known = sums.get(space.assetId) ?? { sum: 0n, count: 0 };
+    sums.set(space.assetId, { sum: known.sum + value, count: known.count + 1 });
+  }
+  const result: SpaceTotal[] = [];
+  for (const [assetId, { sum, count }] of sums) {
+    if (sum <= 0n) continue;
+    const quantity = holdings.find((holding) => holding.assetId === assetId)?.quantity ?? null;
+    let total: string | null = null;
+    if (quantity !== null) {
+      try {
+        total = formatAmount(parseAmount(quantity) + sum);
+      } catch {
+        total = null;
+      }
+    }
+    result.push({ assetId, inSpaces: formatAmount(sum), spaceCount: count, accountQuantity: quantity, total });
+  }
+  return result.sort((a, b) => a.assetId.localeCompare(b.assetId));
+}

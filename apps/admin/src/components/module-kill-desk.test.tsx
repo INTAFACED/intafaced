@@ -35,7 +35,7 @@ describe('the current-state badge', () => {
     const html = render();
     expect(html).toContain('data-state="running"');
     expect(html).toContain('trade is not listed as killed at the edge');
-    expect(html).toContain('As of 2026-10-17T03:00:00.000Z');
+    expect(html).toContain('As of 03:00:00 UTC');
   });
   it('killed: says so, with the recorded reason and the last change with both people', () => {
     const html = render({ snapshot: killed as never });

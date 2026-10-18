@@ -763,7 +763,7 @@
     cursor: not-allowed;
   }
 
-  /* Order strip: Limit / Market, the order kinds this market does not take yet, and time in force */
+  /* Order strip: Limit / Market, the order kinds this market does not take, and time in force */
   .dk-order-head {
     display: flex;
     flex-wrap: wrap;

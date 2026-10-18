@@ -4,10 +4,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { selectPendingForApproval } from './local-test-gates.mjs';
 import {
   ACADEMY_PATHS,
   GuardError,
@@ -23,6 +24,7 @@ import {
   doneKey,
   fromScaled,
   isSkippedAccount,
+  isTestAccount,
   parseLoginFile,
   parsePopulateArgs,
   pendingWelcomes,
@@ -53,6 +55,21 @@ import {
   pickReusableKybApproval,
   planKybFounderApproval,
   planMerchantPopulate,
+  MERCHANT_DISPUTE,
+  MERCHANT_PAYOUT_FALLBACK_RAIL,
+  MERCHANT_SETTLEMENT_ASSET,
+  OPEN_DISPUTE_ACTION,
+  merchantDisputeId,
+  merchantSettlementWindows,
+  openDisputeApprovalFields,
+  openDisputeApprovalSql,
+  openDisputeHashedBody,
+  openDisputePayloadHash,
+  planMerchantDispute,
+  planMerchantPayoutRequest,
+  planMerchantSettlement,
+  planPairApproval,
+  utcDayLabel,
   populateTransferId,
   populateUuid,
   publishedStarterFeeBps,
@@ -63,6 +80,19 @@ import {
   summarizeResults,
   toScaled,
   welcomeRef,
+  localEmailOutboxPath,
+  MERCHANT_OWNER,
+  OwnerFactor,
+  enrolledTestOperatorPair,
+  readMerchantOwner,
+  accessTokenMfa,
+  freshTotpCode,
+  loginRequestBody,
+  ownerFactorRefusal,
+  stackPaths,
+  totpStepAt,
+  planEmailConfirm,
+  readLatestEmailConfirmToken,
 } from './local-test-world.mjs';
 
 delete process.env.LOCAL_STACK_STATE; // the checks below assume the default state folder unless they pass an env
@@ -175,9 +205,13 @@ try {
   );
 
   // The two stand-in operators (local-test-gates.mjs) get no welcome funds and are never picked as the founder.
+  // The local test founder pair is also not a customer.
   assert.equal(isSkippedAccount('local_test_operator_a'), true);
   assert.equal(isSkippedAccount('local_test_operator_b'), true);
   assert.equal(isSkippedAccount('local_test_operators_real_person'), false);
+  assert.equal(isSkippedAccount('local_test_founder_a'), true);
+  assert.equal(isSkippedAccount('local_test_founder_b'), true);
+  assert.deepEqual(pendingWelcomes({ users: [{ id: 'fa', handle: 'local_test_founder_a' }], ledgerAssets: ['USDT'], done: new Set() }), []);
   assert.equal(
     pickFounder([
       { id: 'f', handle: 'Luffy', email: 'a@b.c', createdAt: '2026-10-13 17:23:43' },
@@ -356,6 +390,7 @@ try {
   assert.equal(publishedStarterFeeBps({ PAY_DEFAULT_FEE_BPS: '150' }), null);
   assert.equal(publishedStarterFeeBps({ PAY_MERCHANT_STARTER_FEE_BPS: 'nope' }), null);
   assert.equal(isPayScopeRefusal('Scope "pay:read" is required [FORBIDDEN]'), true);
+  assert.equal(isPayScopeRefusal('Scope "pay:onboard" is required [FORBIDDEN]'), true);
   assert.equal(isPayScopeRefusal('starter fee is not configured'), false);
   assert.equal(merchantPaymentId(userId, 1), merchantPaymentId(userId, 1));
   assert.notEqual(merchantPaymentId(userId, 1), merchantPaymentId(userId, 2));
@@ -420,6 +455,173 @@ try {
   assert.equal(filled.stop, null);
   assert.deepEqual(filled.actions, []);
   assert.equal(merchantInvoiceId(userId, 1), merchantInvoiceId(userId, 1));
+
+  // ── populate: settlement, payout request and dispute read first and never repeat ──
+  assert.equal(utcDayLabel('2026-10-17T23:59:59.000Z'), '2026-10-17');
+  assert.equal(utcDayLabel('2026-10-18T01:00:00+08:00'), '2026-10-17');
+  assert.equal(utcDayLabel('nope'), null);
+  const seedPay = (n, status, createdAt, capturedAmount = '1') => ({ id: merchantPaymentId(userId, n), status, createdAt, capturedAmount });
+  // Only the spec payments that reach captured count; a failed or refunded one never opens a window.
+  assert.deepEqual(
+    merchantSettlementWindows(userId, [
+      seedPay(3, 'captured', '2026-10-17T10:00:00Z'),
+      seedPay(7, 'settled', '2026-10-16T10:00:00Z'),
+      seedPay(5, 'refunded', '2026-10-15T10:00:00Z'),
+      seedPay(4, 'failed', '2026-10-14T10:00:00Z'),
+    ]),
+    ['2026-10-16', '2026-10-17'],
+  );
+  assert.deepEqual(merchantSettlementWindows(userId, [seedPay(3, 'created', '2026-10-17T10:00:00Z')]), []);
+  const dsPosted = { id: 's1', window: '2026-10-17', assetId: 'USDT', status: 'posted', net: '29.25' };
+  const dsFirstRun = planMerchantSettlement({ windows: ['2026-10-17'], settlements: [] });
+  assert.deepEqual(dsFirstRun, { run: ['2026-10-17'], exists: [] });
+  const dsRerun = planMerchantSettlement({ windows: ['2026-10-17'], settlements: [dsPosted] });
+  assert.deepEqual(dsRerun.run, [], 'a window that already has a settlement is never run again');
+  assert.equal(dsRerun.exists[0].id, 's1');
+  assert.deepEqual(planMerchantSettlement({ windows: ['2026-10-17'], settlements: [{ ...dsPosted, assetId: 'EUR' }] }).run, ['2026-10-17']);
+  assert.equal(MERCHANT_SETTLEMENT_ASSET, 'USDT');
+
+  assert.deepEqual(planMerchantPayoutRequest({ settlements: [], approvals: [] }), { target: null, existing: null });
+  assert.equal(
+    planMerchantPayoutRequest({ settlements: [{ ...dsPosted, status: 'paid_out' }], approvals: [] }).target,
+    null,
+    'a sent payout is not requested again',
+  );
+  assert.equal(planMerchantPayoutRequest({ settlements: [{ ...dsPosted, net: '0' }], approvals: [] }).target, null);
+  const dsAsked = planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [] });
+  assert.equal(dsAsked.target.id, 's1');
+  assert.equal(dsAsked.existing, null);
+  for (const status of ['pending', 'approved', 'consumed']) {
+    assert.equal(
+      planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a1', settlementId: 's1', status }] }).existing
+        .approvalId,
+      'a1',
+    );
+  }
+  for (const status of ['expired', 'rejected', 'voided']) {
+    assert.equal(
+      planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a1', settlementId: 's1', status }] }).existing,
+      null,
+    );
+  }
+  assert.equal(
+    planMerchantPayoutRequest({ settlements: [dsPosted], approvals: [{ approvalId: 'a2', settlementId: 'other', status: 'pending' }] })
+      .existing,
+    null,
+  );
+  assert.equal(MERCHANT_PAYOUT_FALLBACK_RAIL, 'crypto-native');
+
+  const dsMId = '44444444-4444-4444-8444-444444444444';
+  const disputeFields = {
+    disputeId: merchantDisputeId(userId),
+    paymentId: merchantPaymentId(userId, MERCHANT_DISPUTE.n),
+    merchantId: dsMId,
+    amount: '12',
+    assetId: 'USDT',
+  };
+  assert.equal(merchantDisputeId(userId), merchantDisputeId(userId));
+  assert.ok(merchantDisputeId(userId).startsWith(POPULATE_PREFIX));
+  assert.equal(MERCHANT_PAYMENTS.find((p) => p.n === MERCHANT_DISPUTE.n).want, 'captured', 'only a captured payment is disputed');
+  const openPlan = planMerchantDispute({
+    userId,
+    merchantId: dsMId,
+    payments: [seedPay(3, 'captured', '2026-10-17T10:00:00Z', '12')],
+    existing: null,
+  });
+  assert.equal(openPlan.kind, 'open');
+  assert.deepEqual(openPlan.fields, disputeFields);
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'settled', '2026-10-17T10:00:00Z', '12')], existing: null })
+      .kind,
+    'open',
+  );
+  assert.equal(
+    planMerchantDispute({
+      userId,
+      merchantId: dsMId,
+      payments: [seedPay(3, 'captured', '2026-10-17T10:00:00Z', '12')],
+      existing: { status: 'open' },
+    }).kind,
+    'exists',
+  );
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'created', '2026-10-17T10:00:00Z', '0')], existing: null }).kind,
+    'skip',
+  );
+  assert.equal(
+    planMerchantDispute({ userId, merchantId: dsMId, payments: [seedPay(3, 'disputed', '2026-10-17T10:00:00Z', '12')], existing: null })
+      .kind,
+    'skip',
+  );
+  assert.equal(planMerchantDispute({ userId, merchantId: dsMId, payments: [], existing: null }).kind, 'skip');
+  // The approval binding matches svc-pay fraudOpenDisputeFields + payActionPayloadHash (approval-bindings.ts, #5010):
+  // reason (trimmed) and the disputed flag are bound, in this key order.
+  assert.equal(OPEN_DISPUTE_ACTION, 'pay.fraud_open_dispute');
+  const boundDispute = { ...disputeFields, reasonCode: MERCHANT_DISPUTE.reasonCode, markPaymentDisputed: true };
+  assert.deepEqual(Object.keys(openDisputeApprovalFields(boundDispute)), [
+    'disputeId',
+    'paymentId',
+    'merchantId',
+    'amount',
+    'assetId',
+    'reasonCode',
+    'markPaymentDisputed',
+  ]);
+  assert.deepEqual(Object.keys(openDisputeHashedBody(boundDispute))[0], 'actionType');
+  const disputeHash = openDisputePayloadHash(boundDispute);
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, amount: '13' }));
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, reasonCode: 'other' }), 'the reason is bound');
+  assert.notEqual(disputeHash, openDisputePayloadHash({ ...boundDispute, markPaymentDisputed: false }), 'the flag is bound');
+  assert.equal(
+    openDisputePayloadHash({ ...boundDispute, reasonCode: `  ${MERCHANT_DISPUTE.reasonCode} ` }),
+    disputeHash,
+    'trimmed like svc-pay',
+  );
+  // Pinned vector: computed once from svc-pay's field order, so a key-order or encoding drift fails here.
+  assert.equal(
+    openDisputePayloadHash({
+      disputeId: 'd-1',
+      paymentId: 'p-1',
+      merchantId: 'm-1',
+      amount: '12',
+      assetId: 'USDT',
+      reasonCode: 'LOCAL-TEST product_not_received',
+      markPaymentDisputed: true,
+    }),
+    'sha256:f445656c779dce9f47fe5497bc2764437b0a7a45692bbb216ae795bf1b5cc554',
+  );
+  const dsDsql = openDisputeApprovalSql(disputeHash);
+  assert.match(dsDsql, /action_type = 'pay\.fraud_open_dispute'/);
+  assert.match(dsDsql, /status IN \('PENDING', 'APPROVED'\)/);
+  assert.throws(() => openDisputeApprovalSql("x' OR 1=1 --"), /not sha256/);
+  // Pair approval: no proposal without two distinct approvers; an open dsRow is dsReused, never filed twice.
+  const dsPairA = { userId: 'op-a' };
+  const dsPairB = { userId: 'op-b' };
+  const dsBase = { actionType: OPEN_DISPUTE_ACTION, payloadHash: disputeHash, policyVersion: 'v1', missing: 'no pair' };
+  assert.deepEqual(planPairApproval({ ...dsBase, pair: [dsPairA], open: [] }), { propose: false, refusal: 'no pair' });
+  assert.deepEqual(planPairApproval({ ...dsBase, pair: [dsPairA, { userId: 'op-a' }], open: [] }), { propose: false, refusal: 'no pair' });
+  const dsFresh = planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [] });
+  assert.equal(dsFresh.propose, true);
+  assert.equal(dsFresh.proposal.targetId, OPEN_DISPUTE_ACTION);
+  assert.equal(dsFresh.proposerUserId, 'op-a');
+  assert.equal(dsFresh.approverUserId, 'op-b');
+  const dsRow = {
+    approvalId: 'ap',
+    operationId: 'op',
+    actionType: OPEN_DISPUTE_ACTION,
+    payloadHash: disputeHash,
+    status: 'PENDING',
+    requesterId: 'op-a',
+  };
+  const dsReused = planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [dsRow] });
+  assert.equal(dsReused.propose, false);
+  assert.equal(dsReused.reuse.approvalId, 'ap');
+  assert.equal(dsReused.approverUserId, 'op-b');
+  assert.equal(planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [{ ...dsRow, requesterId: 'stranger' }] }).propose, false);
+  assert.equal(
+    planPairApproval({ ...dsBase, pair: [dsPairA, dsPairB], open: [{ ...dsRow, payloadHash: `sha256:${'cd'.repeat(32)}` }] }).propose,
+    true,
+  );
 
   // ── live KYB: hash field set matches svc-pay, and an open proposal is not filed again ──
   const identityHash = `sha256:${'ab'.repeat(32)}`;
@@ -504,38 +706,63 @@ try {
   assert.equal(noMerchant.proposal, undefined);
 
   const half = enrolledLocalFounders({
-    founders: [{ key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true }],
+    founders: [
+      { key: 'a', handle: 'local_test_founder_a', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+    ],
   });
   assert.equal(half, null);
   const enrolled = enrolledLocalFounders({
     founders: [
-      { key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
-      { key: 'phantom', handle: 'local_phantom', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
-      {
-        key: 'operator',
-        handle: 'local_test_operator_a',
-        userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-        password: 'pw',
-        totpSecret: 'SECRET',
-        totpConfirmed: true,
-      },
+      { key: 'b', handle: 'local_test_founder_b', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      { key: 'a', handle: 'local_test_founder_a', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
     ],
   });
   assert.deepEqual(
     enrolled.map((f) => f.handle),
-    ['local_nitro', 'local_phantom'],
+    ['local_test_founder_a', 'local_test_founder_b'],
   );
   assert.equal(enrolledLocalFounders({ founders: [{ ...enrolled[0], totpConfirmed: false }, enrolled[1]] }), null);
+  assert.equal(
+    enrolledLocalFounders({
+      founders: [
+        ...enrolled,
+        {
+          key: 'operator',
+          handle: 'local_test_operator_a',
+          userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          password: 'pw',
+          totpSecret: 'SECRET',
+          totpConfirmed: true,
+        },
+      ],
+    }),
+    null,
+  );
+  assert.equal(
+    enrolledLocalFounders({
+      founders: [
+        { key: 'nitro', handle: 'local_nitro', userId: pair[0].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+        { key: 'phantom', handle: 'local_phantom', userId: pair[1].userId, password: 'pw', totpSecret: 'SECRET', totpConfirmed: true },
+      ],
+    }),
+    null,
+  );
 
   const sql = openKybApprovalSql(payloadHash);
   assert.ok(sql.includes(`payload_hash = '${payloadHash}'`));
   assert.ok(sql.includes("'PENDING'"));
   assert.equal(sql.includes(merchantId), false);
   assert.throws(() => openKybApprovalSql(merchantId), /not sha256/);
-  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: '/tmp/a' }), ['/tmp/a/.env.founder-secrets.local']);
-  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: 'relative' }), ['/tmp/a/.env.founder-secrets.local']);
+  assert.deepEqual(founderVaultFiles({ stateDir: '/tmp/stack-state' }), ['/tmp/stack-state/founders.json']);
+  assert.deepEqual(founderVaultFiles({ scriptRepo: '/tmp/a', stackRepo: '/tmp/a' }), []);
+  assert.deepEqual(founderVaultFiles({ stateDir: 'relative' }), []);
+  assert.equal(KYB_FOUNDERS_MISSING.includes('pnpm local:founder'), false);
+  assert.match(KYB_FOUNDERS_MISSING, /local_test_founder_a/);
+  assert.match(KYB_FOUNDERS_MISSING, /founders\.json/);
 
   const worldSrc = readFileSync(script, 'utf8');
+  assert.equal(worldSrc.includes('.env.founder-secrets.local'), false);
+  assert.equal(worldSrc.includes('pnpm local:founder'), false);
   const kybFn = worldSrc.slice(
     worldSrc.indexOf('async function decideKybByFounderPair'),
     worldSrc.indexOf('async function runMerchantAction'),
@@ -546,6 +773,322 @@ try {
   assert.ok(kybFn.indexOf('KYB_FOUNDERS_MISSING') < kybFn.indexOf('actionApproval.propose'));
   assert.equal(worldSrc.includes('bps (published)'), false);
   assert.ok(worldSrc.includes('bps from PAY_MERCHANT_STARTER_FEE_BPS'));
+
+  const line =
+    'LOCAL-TEST purpose=email-confirm email=Owner@Example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=abc%2Bdef\n' +
+    'LOCAL-TEST purpose=password-reset email=owner@example.com expires=2026-10-17T00:00:00.000Z link=completePasswordReset?code=nope\n' +
+    'LOCAL-TEST purpose=email-confirm email=other@example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=other\n';
+  assert.equal(readLatestEmailConfirmToken(line, 'owner@example.com'), 'abc+def');
+  assert.equal(readLatestEmailConfirmToken(line, 'other@example.com'), 'other');
+  assert.equal(readLatestEmailConfirmToken('no link here', 'owner@example.com'), null);
+  assert.deepEqual(planEmailConfirm({ emailVerified: true, outboxText: line, email: 'owner@example.com' }), {
+    action: 'already-confirmed',
+    token: null,
+  });
+  assert.deepEqual(planEmailConfirm({ emailVerified: false, outboxText: line, email: 'owner@example.com' }), {
+    action: 'confirm',
+    token: 'abc+def',
+  });
+  assert.equal(planEmailConfirm({ emailVerified: false, outboxText: '', email: 'owner@example.com' }).token, null);
+  assert.equal(localEmailOutboxPath({ LOCAL_STACK_STATE: '/tmp/stack-state' }, '/tmp/home'), '/tmp/stack-state/email-outbox.log');
+  const confirmFn = worldSrc.slice(
+    worldSrc.indexOf('async function confirmSeededOwnerEmail'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(confirmFn, /auth\.requestEmailConfirmation/);
+  assert.match(confirmFn, /auth\.confirmEmail/);
+  assert.equal(confirmFn.includes('email_verified_at'), false);
+  assert.equal(confirmFn.includes('UPDATE'), false);
+  assert.equal(worldSrc.includes('grant law unpublished'), false);
+  const merchantFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(merchantFn.indexOf('confirmSeededOwnerEmail') < merchantFn.indexOf('resignInForMerchantScopes'));
+  assert.match(merchantFn, /pay:onboard/);
+  const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
+  assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
+
+  // ── populate: the new merchant block never sends a payout, never refunds, reads before it writes ──
+  const moneyFn = worldSrc.slice(worldSrc.indexOf('async function populateMerchantMoneyBlock'), worldSrc.indexOf('function trpcData'));
+  assert.ok(moneyFn.length > 500);
+  assert.equal(/settlement\.payout|payment\.refund|refund-payment/.test(moneyFn), false, 'no payout send and no refund here');
+  assert.equal(/'settlement\.payout'/.test(worldSrc), false, 'populate never calls settlement.payout');
+  assert.match(moneyFn, /'settlement\.list'/);
+  assert.match(moneyFn, /'merchantControl\.approvals\.list'/);
+  assert.match(moneyFn, /'fraud\.getDispute'/);
+  assert.ok(moneyFn.indexOf("'settlement.list'") < moneyFn.indexOf("'settlement.run'"), 'settlement is read before it is run');
+  assert.ok(
+    moneyFn.indexOf("'merchantControl.approvals.list'") < moneyFn.indexOf("'merchantControl.approvals.request'"),
+    'approvals are read before a request',
+  );
+  assert.ok(
+    moneyFn.indexOf("'fraud.getDispute'") < moneyFn.indexOf('openDisputeByApprovalPair('),
+    'a dispute is read before the approvers sign in',
+  );
+  assert.match(moneyFn, /'exists'/);
+  assert.match(moneyFn, /'refused'/);
+  assert.ok(moneyFn.indexOf('planMerchantSettlement') < moneyFn.indexOf("'settlement.run'"));
+  assert.ok(moneyFn.indexOf("'settlement.run'") < moneyFn.indexOf("'merchantControl.approvals.request'"));
+  assert.ok(
+    moneyFn.indexOf("'merchantControl.approvals.request'") < moneyFn.indexOf('openDisputeByApprovalPair('),
+    'dispute comes after settlement and request',
+  );
+  const disputeFn = worldSrc.slice(
+    worldSrc.indexOf('async function openDisputeByApprovalPair'),
+    worldSrc.indexOf('async function populateMerchantMoneyBlock'),
+  );
+  assert.match(disputeFn, /signInTestOperatorPair/);
+  assert.match(disputeFn, /loadEnrolledFounders/);
+  assert.match(disputeFn, /'admin:treasury'/);
+  assert.equal(/local_nitro|local_phantom/.test(disputeFn), false, "never the founders' real accounts");
+  assert.ok(disputeFn.indexOf('planPairApproval') < disputeFn.indexOf("'fraud.openDispute'"));
+  assert.match(worldSrc, /if \(merchantId && moneyOpen\) await populateMerchantMoneyBlock\(ctx, merchantId\)/);
+
+  // ── Owner second factor: login with TOTP, outbox link, enrolment store ───
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }), { identifier: 'o@x.invalid', password: 'pw' });
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, ''), { identifier: 'o@x.invalid', password: 'pw' });
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, '123456'), {
+    identifier: 'o@x.invalid',
+    password: 'pw',
+    totpCode: '123456',
+  });
+  // The exact line identity's local-outbox mail writes for an email-confirm (localMailLine).
+  const realLine = `LOCAL-TEST purpose=email-confirm email=owner@example.com expires=2026-10-18T00:10:00.000Z link=confirmEmail?token=${encodeURIComponent('Zx-_9+/=')}\n`;
+  assert.equal(readLatestEmailConfirmToken(realLine, 'OWNER@example.com'), 'Zx-_9+/=');
+  assert.equal(readLatestEmailConfirmToken(realLine + realLine.replace('Zx-_9', 'newer'), 'owner@example.com'), 'newer+/=');
+  {
+    let clock = 10 * 30_000 + 5_000;
+    const waits = [];
+    const out = await freshTotpCode({
+      secret: 'S',
+      lastStep: 10,
+      totp: async (secret) => `code-for-${secret}`,
+      now: () => clock,
+      wait: async (ms) => {
+        waits.push(ms);
+        clock += 10_000;
+      },
+    });
+    assert.equal(out.code, 'code-for-S');
+    assert.equal(out.step, 11);
+    assert.ok(waits.length >= 2, 'waits for the next 30 second step instead of replaying one');
+    const noWait = await freshTotpCode({ secret: 'S', lastStep: 0, totp: () => 'c', now: () => clock, wait: () => assert.fail('no wait') });
+    assert.equal(noWait.step, totpStepAt(clock));
+  }
+  {
+    assert.equal(stackPaths(home).merchantOwner.startsWith(stackPaths(home).stateDir), true);
+    const factorDir = mkdtempSync(join(tmpdir(), 'owner-factor-'));
+    try {
+      const file = join(factorDir, 'sub', 'owner-factor.json');
+      let clock = 100 * 30_000;
+      const mk = () => new OwnerFactor({ file, totp: (secret) => `${secret}:code`, now: () => clock, wait: async () => (clock += 30_000) });
+      const f = mk();
+      assert.equal(f.secret, null);
+      assert.equal(await f.nextCode(), undefined, 'no secret, no code on the login');
+      f.savePending('PENDINGSECRET0000', ['rc1', 'rc2']);
+      assert.equal(mk().pendingSecret, 'PENDINGSECRET0000');
+      assert.equal(mk().secret, null);
+      f.adoptPending(100);
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      const saved = JSON.parse(readFileSync(file, 'utf8'));
+      assert.match(saved.label, /LOCAL TEST/);
+      assert.equal(saved.secret, 'PENDINGSECRET0000');
+      assert.equal(saved.pendingSecret, undefined);
+      // step 100 is spent: the next login code must come from a later step.
+      const code = await mk().nextCode();
+      assert.equal(code, 'PENDINGSECRET0000:code');
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).lastStep, 101);
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+    } finally {
+      rmSync(factorDir, { recursive: true, force: true });
+    }
+  }
+  {
+    // F1: the clock moves across a 30 s boundary while the code is being made; code and step must agree.
+    let clock = 50 * 30_000 + 29_900;
+    const out = await freshTotpCode({
+      secret: 'S',
+      lastStep: 40,
+      totp: async (secret, t) => {
+        clock += 500;
+        return `${secret}@${totpStepAt(t)}`;
+      },
+      now: () => clock,
+      wait: () => assert.fail('no wait'),
+    });
+    assert.equal(out.step, 50);
+    assert.equal(out.code, 'S@50');
+    assert.ok(totpStepAt(clock) > out.step, 'the clock really crossed the boundary');
+  }
+  {
+    const mfaToken = (mfa) => `h.${Buffer.from(JSON.stringify({ mfa })).toString('base64url')}.s`;
+    assert.equal(accessTokenMfa(mfaToken(true)), true);
+    assert.equal(accessTokenMfa(mfaToken(false)), false);
+    assert.equal(accessTokenMfa('garbage'), null);
+    const dir = mkdtempSync(join(tmpdir(), 'owner-factor-b-'));
+    try {
+      const file = join(dir, 'f.json');
+      let clock = 200 * 30_000;
+      const mk = () =>
+        new OwnerFactor({ file, totp: (s, t) => `${s}@${totpStepAt(t)}`, now: () => clock, wait: async () => (clock += 30_000) });
+      const f = mk();
+      f.savePending('PENDING-LIVE-SECRET', ['rc']);
+      f.markPendingStep(200);
+      assert.equal(mk().pendingLastStep, 200, 'a later login never repeats the confirm step');
+      assert.equal(readdirSync(dir).length, 1, 'atomic write leaves no tmp file behind');
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      f.adoptPending(201);
+      assert.equal(mk().secret, 'PENDING-LIVE-SECRET');
+      assert.equal(mk().data.pendingStep, undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const login = worldSrc.slice(worldSrc.indexOf('  async login() {'), worldSrc.indexOf('  async ensureAccount()'));
+    assert.match(login, /pendingSecret/);
+    assert.match(login, /adoptPending/);
+    assert.match(worldSrc, /writePrivateAtomic[\s\S]*fsyncSync[\s\S]*renameSync/);
+    assert.equal(
+      worldSrc.includes('unlinkSync(this.file') || worldSrc.includes('rmSync(this.file'),
+      false,
+      'never deletes the factor file',
+    );
+  }
+  assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /holds|does not hold/);
+  assert.match(ownerFactorRefusal('Two-factor is already enrolled [CONFLICT]'), /nothing was reset/);
+  assert.match(ownerFactorRefusal('Verify with your second factor [FORBIDDEN]'), /cannot drive/);
+  assert.equal(ownerFactorRefusal('boom [X]'), 'boom [X]');
+  const factorFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureOwnerSecondFactor'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(factorFn, /totp\.enrol/);
+  assert.match(factorFn, /totp\.confirm/);
+  assert.ok(
+    factorFn.indexOf('savePending') < factorFn.indexOf('totp.confirm', factorFn.indexOf('savePending')),
+    'secret is written down before it is confirmed',
+  );
+  assert.equal(/console\.log|log\(/.test(factorFn.replace(/record\(/g, '')), false, 'the factor step never prints or logs');
+  assert.equal(/secret\}|\$\{.*[sS]ecret/.test(factorFn), false, 'no secret goes into a message');
+  assert.equal(factorFn.includes('UPDATE'), false);
+  // Separate merchant owner: the main test customer is never given a factor or an enrolment.
+  assert.ok(worldSrc.includes('new EdgeClient(account, factor)'));
+  assert.equal(stackPaths(home).merchantOwner.endsWith('merchant-owner.json'), true);
+  assert.equal(MERCHANT_OWNER.handle, 'test_merchant_owner');
+  assert.match(MERCHANT_OWNER.email, /@local-test\.invalid$/);
+  assert.equal(isTestAccount({ handle: MERCHANT_OWNER.handle, email: MERCHANT_OWNER.email }), true);
+  const ownerFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureMerchantOwner'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(ownerFn, /ensureAccount/);
+  assert.ok(ownerFn.indexOf('setAccount(account)') < ownerFn.indexOf('ensureAccount'), 'credentials are written before the register call');
+  const cmdFn = worldSrc.slice(worldSrc.indexOf('async function cmdPopulate'), worldSrc.indexOf('async function main'));
+  assert.equal(/OwnerFactor|totp|factor/i.test(cmdFn), false, 'the main test account signs in with a password only');
+  assert.equal(worldSrc.includes('world-owner-factor'), false);
+  {
+    const pending = [
+      { id: 'r1', userId: 'u1', tier: 'full' },
+      { id: 'r2', userId: 'u2', tier: 'full' },
+      { id: 'r3', userId: 'u1', tier: 'basic' },
+      { id: 'r4', userId: 'u1', tier: 'institutional' },
+    ];
+    assert.deepEqual(
+      selectPendingForApproval(pending).map((r) => r.id),
+      ['r1', 'r2', 'r3'],
+    );
+    assert.deepEqual(
+      selectPendingForApproval(pending, ['u1']).map((r) => r.id),
+      ['r1', 'r3'],
+      'a request from anyone else is never picked',
+    );
+    assert.deepEqual(selectPendingForApproval(pending, ['nobody']), []);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[friend\.userId\] \}\)/);
+    assert.match(worldSrc, /approvePending\(gctx, null, \{ userIds: \[userId\] \}\)/);
+  }
+  {
+    const op = (l, extra = {}) => ({
+      handle: `local_test_operator_${l}`,
+      userId: `00000000-0000-4000-8000-00000000000${l === 'a' ? 1 : 2}`,
+      password: 'pw',
+      totpSecret: 'SECRETSECRETSECRET',
+      lastStep: 5,
+      ...extra,
+    });
+    const ready = { operators: { a: op('a'), b: op('b') } };
+    assert.deepEqual(
+      enrolledTestOperatorPair(ready).map((x) => x.handle),
+      ['local_test_operator_a', 'local_test_operator_b'],
+    );
+    assert.equal(JSON.stringify(enrolledTestOperatorPair(ready)).includes('SECRET'), false, 'no secret leaves the file');
+    assert.equal(enrolledTestOperatorPair(null), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a') } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { totpSecret: '' }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { password: undefined }) } }), null);
+    assert.equal(enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { handle: 'real_person' }) } }), null);
+    assert.equal(
+      enrolledTestOperatorPair({ operators: { a: op('a'), b: op('b', { userId: op('a').userId }) } }),
+      null,
+      'two distinct people',
+    );
+    const pairFn = worldSrc.slice(
+      worldSrc.indexOf('async function signInTestOperatorPair'),
+      worldSrc.indexOf('function loadEnrolledFounders'),
+    );
+    assert.match(pairFn, /operatorSessions/);
+    assert.equal(pairFn.includes('writePrivate') || pairFn.includes('writeFileSync'), false, 'never writes a second credentials file');
+    assert.match(worldSrc, /signedIn = founders \? await signInLocalFounders[\s\S]*signInTestOperatorPair/);
+  }
+  const kycFn = worldSrc.slice(
+    worldSrc.indexOf('async function ensureOwnerKycFull'),
+    worldSrc.indexOf('async function populateMerchantStep'),
+  );
+  assert.match(kycFn, /kyc\.submit/);
+  assert.match(kycFn, /approvePending/);
+  assert.match(kycFn, /other pending verification request/, "only the owner's own request is ever approved");
+  assert.ok(kycFn.indexOf('others.length') < kycFn.indexOf('approvePending'));
+  const stepFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantStep'),
+    worldSrc.indexOf('function emptyMerchantObservation'),
+  );
+  assert.ok(stepFn.indexOf('ensureOwnerKycFull') < stepFn.indexOf('resignInForMerchantScopes'));
+  assert.ok(
+    stepFn.indexOf("'create-merchant', 'submit-kyb', 'decide-kyb'") < stepFn.indexOf("'railHealth'"),
+    'onboarding runs before the pay:read reads',
+  );
+  {
+    const d = mkdtempSync(join(tmpdir(), 'merchant-owner-'));
+    try {
+      const file = join(d, 'merchant-owner.json');
+      assert.equal(readMerchantOwner(file), null);
+      const f = new OwnerFactor({ file, totp: () => '000000' });
+      f.setAccount({ handle: 'test_merchant_owner', email: 'o@local-test.invalid', password: 'pw-test', userId: 'u-1' });
+      f.savePending('SECRETSECRETSECRET', ['rc']);
+      f.adoptPending(7);
+      assert.deepEqual(readMerchantOwner(file), {
+        handle: 'test_merchant_owner',
+        email: 'o@local-test.invalid',
+        password: 'pw-test',
+        userId: 'u-1',
+        totpSecret: 'SECRETSECRETSECRET',
+        lastStep: 7,
+      });
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).kind, 'intafaced-local-test-merchant-owner');
+      assert.equal(new OwnerFactor({ file, totp: () => '0' }).account.userId, 'u-1');
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  }
+
+  // Operator pair: the signed-in subject must be the operator the pair names before any elevated token is used.
+  {
+    const src = readFileSync(new URL('./local-test-world.mjs', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('async function signInTestOperatorPair'), src.indexOf('function loadEnrolledFounders'));
+    assert.match(body, /claims\.sub !== expected/);
+    assert.match(body, /sess\.op\.userId !== expected/);
+    assert.ok(body.indexOf('claims.sub !== expected') < body.indexOf('out.push('), 'identity check runs before the session is used');
+  }
 
   console.log('local-test-world: all checks passed');
 } finally {

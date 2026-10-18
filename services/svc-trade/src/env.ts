@@ -160,6 +160,17 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
 
       /**
+       * Local TEST swap listing on GET /markets. Default OFF.
+       * Does not enable TRADE_FUTURES_ENABLED or TRADE_FUTURES_JOBS_ENABLED,
+       * and does not publish a leverage cap, a mark, or a liquidation policy.
+       * The listing itself comes only from the local seed script.
+       */
+      TRADE_FUTURES_TEST_SEED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
        * OPTIONS SETTLEMENT ASSET LAW stamp (trade.options / D26-P0-05).
        *
        * EMPTY BY DEFAULT — and empty is a refusal, not a crash. listMarket with
@@ -246,6 +257,38 @@ const schema = serviceEnvSchema
         .union([z.boolean(), z.string()])
         .default(false)
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
+       * Conditional-order trigger (stop, stop-limit, take-profit, trailing).
+       * Default OFF. Does not enable TRADE_FUTURES_ENABLED or TRADE_FUTURES_JOBS_ENABLED.
+       * A blank interval does not start the timer and does not invent a cadence.
+       */
+      TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
+       * Tick interval for the conditional-order job, in milliseconds.
+       * EMPTY = do not schedule. There is no product cadence. A set value must
+       * be an integer 1000–3600000, the same window as the liquidation scan.
+       */
+      TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS: z
+        .string()
+        .default('')
+        .transform((raw, ctx) => {
+          const s = raw.trim();
+          if (s === '') return null;
+          const n = Number(s);
+          if (!Number.isInteger(n) || n < 1_000 || n > 3_600_000) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS must be an integer 1000–3600000, or empty (no invented cadence)',
+            });
+            return z.NEVER;
+          }
+          return n;
+        }),
 
       /** Liquidation scan interval when jobs enabled. Default 15s. */
       TRADE_FUTURES_LIQ_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(15_000),
@@ -535,6 +578,16 @@ const schema = serviceEnvSchema
        * Published empty array = serve none (still fail closed).
        */
       TRADE_COPY_JURISDICTION_LAW: z.string().default(''),
+
+      /**
+       * Copy risk-disclosure law (trade.copy / TRD-0773). JSON or empty.
+       *
+       * Empty (default) = unpublished → accept and mirror refuse
+       * `trade.copy_disclosure_unpublished`. Never invent version or text.
+       * Published shape: {"published":true,"version":"…","text":"…"}
+       * The text is owner content. Follow itself is not gated.
+       */
+      TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
 
       /**
        * Spot maker/taker fee/rebate schedule (PTX-M21). JSON or empty.

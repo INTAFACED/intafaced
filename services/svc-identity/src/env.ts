@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
+import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -56,6 +58,26 @@ const schema = serviceEnvSchema
        * Default 10. 0 disables the grace window. Ceiling 120.
        */
       REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(120).default(10),
+      /**
+       * Owner-published seconds after rotation during which a lost refresh reply
+       * may be presented again, past the grace window. Blank, 0, or unset is off
+       * (today's reuse burn). Never a default — blank is not 120. Ceiling 600.
+       * Do not set this in compose or in a local env file; the lead publishes it.
+       */
+      REFRESH_RECOVERY_SECONDS: z
+        .unknown()
+        .optional()
+        .transform((raw, ctx): number | undefined => {
+          try {
+            return parseRefreshRecoverySeconds(raw);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'REFRESH_RECOVERY_SECONDS must be an integer',
+            });
+            return z.NEVER;
+          }
+        }),
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),
@@ -140,9 +162,10 @@ const schema = serviceEnvSchema
        */
       LEDGER_URL: z.string().url().optional(),
       /**
-       * svc-pay base for claiming merchant email invites at sign-in.
-       * Unset: sign-in still works; invites stay pending until a later sign-in
-       * with this set. No localhost default.
+       * svc-pay base URL. Used for the owner pay-scope grant at session issue,
+       * and for claiming a merchant email invite once this account's email is
+       * confirmed. Unset → sessions stay on ordinary scopes and invites stay
+       * pending. No localhost default.
        */
       PAY_URL: z.string().url().optional(),
       /**
@@ -177,11 +200,106 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Owner-published lifetime for an email or phone change proof, in seconds.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_CONTACT_CHANGE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a contact-change proof.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Mail transport. Blank / unset → unwired; confirmation and reset requests
+       * refuse. `local-outbox` is the only implemented transport and is refused
+       * at boot unless APP_ENV is exactly dev or test. Any other name refuses
+       * at boot. No provider is configured here.
+       */
+      IDENTITY_MAIL_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Owner-published lifetime for an email-confirmation proof, in seconds.
+       * Blank / unset → unpublished; the request refuses (`auth.email_confirm_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published confirmation requests per window. Blank / unset, or a
+       * window without a max, stays unpublished and the request refuses.
+       * The ceiling is technical. It is not a default budget.
+       */
+      IDENTITY_EMAIL_CONFIRM_RATE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1_000).optional()),
+      IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.
        * A blank string is not a pin.
        */
+      /**
+       * When true, a trading restriction on accountControls.change needs a consumed
+       * `trading.restrict` approval. Unset, blank, false, off, or 0 stays off: identity
+       * does not start requiring two people, and does not apply trading restrictions.
+       * Any other string refuses boot. This ships off. Turning it on is a lead decision.
+       */
+      /**
+       * Operator scopes added to a live founder's interactive MFA session.
+       * Comma-separated allowlist. Blank or unset grants nothing — which
+       * founder holds which scope is the lead's decision, not a default here.
+       * A name outside the allowlist, or any unknown scope, refuses boot
+       * (`identity.founder_scope_invalid`). Do not set this in compose.
+       */
+      IDENTITY_FOUNDER_SESSION_SCOPES: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return founderSessionScopesFromEnv(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'identity.founder_scope_invalid' });
+            return z.NEVER;
+          }
+        }),
+      IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v !== 'string') return v;
+        const text = v.trim().toLowerCase();
+        if (text === '') return undefined;
+        if (text === '0' || text === 'false' || text === 'off') return false;
+        if (text === '1' || text === 'true' || text === 'on') return true;
+        return v;
+      }, z.boolean().optional()),
       INTAFACED_FLAG_WAITLIST_ENABLED: z.string().optional(),
       INTAFACED_FLAG_REFERRAL_QUEUE: z.string().optional(),
     }),

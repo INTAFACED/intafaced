@@ -33,12 +33,15 @@ function zeroData(): Error {
 }
 
 describe('classifying a failed chain read', () => {
-  it('calls a refused connection unreachable, and names the endpoint', () => {
+  it('calls a refused connection unreachable, and names the endpoint only in the operator detail', () => {
     const err = classifyChainError(connectionRefused(), 'sessionOf', 'http://localhost:8545');
     expect(err).toBeInstanceOf(ChainUnavailableError);
     expect(err.code).toBe('protocol.chain_unreachable');
-    expect(err.message).toContain('http://localhost:8545');
-    expect(err.message).toContain('sessionOf');
+    expect(err.message).toBe('The chain connection is not available right now.');
+    expect(err.message).not.toContain('localhost');
+    expect(err.message).not.toContain('SOCKET');
+    expect(err.operatorDetail).toContain('http://localhost:8545');
+    expect(err.operatorDetail).toContain('sessionOf');
   });
 
   it.each(['ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'UND_ERR_CONNECT_TIMEOUT'])('treats %s on the cause chain as unreachable', (code) => {
@@ -77,9 +80,11 @@ describe('classifying a failed chain read', () => {
   });
 
   it('classifies an unrecognised error as unreachable rather than inventing success', () => {
-    const err = classifyChainError(new Error('something odd'), 'poolReserves', 'http://rpc');
+    const err = classifyChainError(new Error('something odd'), 'poolReserves', 'http://rpc.example');
     expect(err.code).toBe('protocol.chain_unreachable');
-    expect(err.message).toContain('something odd');
+    expect(err.message).not.toContain('something odd');
+    expect(err.operatorDetail).toContain('something odd');
+    expect(err.operatorDetail).toContain('http://rpc.example');
   });
 
   it('passes an already-typed refusal through unchanged', () => {
@@ -94,9 +99,18 @@ describe('classifying a failed chain read', () => {
     expect(classifyChainError(a, 'sessionOf', 'http://rpc').code).toBe('protocol.chain_unreachable');
   });
 
-  it('keeps the original error as the cause, so nothing is lost for the logs', () => {
+  it('keeps a redacted cause so a logged error cannot carry the endpoint secret', () => {
     const root = connectionRefused();
-    expect(classifyChainError(root, 'sessionOf', 'http://rpc').cause).toBe(root);
+    const SECRET = 'fk_test_secret_key';
+    const rpc = `http://user:${SECRET}@rpc.example/v1/${SECRET}?apikey=fk_test_query_key`;
+    const err = classifyChainError(root, 'sessionOf', rpc);
+    expect(err.cause).not.toBe(root);
+    expect((err.cause as Error).message).not.toContain('fk_test_secret_key');
+    expect((err.cause as Error).message).not.toContain('fk_test_query_key');
+    expect(err.operatorDetail).toContain('http://rpc.example');
+    expect(err.operatorDetail).not.toContain('fk_test_secret_key');
+    expect(err.operatorDetail).not.toContain('fk_test_query_key');
+    expect(err.message).not.toContain('SOCKET');
   });
 });
 
