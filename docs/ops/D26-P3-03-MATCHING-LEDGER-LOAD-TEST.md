@@ -1,5 +1,7 @@
 # D26-P3-03 — Matching + ledger load-test harness
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Board:** D26-P3-03 (Denon hard parallel P3 — run / ship / security).  
 **Done bar (this file):** fail-closed harness; numbers live here; **not** a live soak against prod.  
 **Class:** Eng. Host / staging fleet remains **Class X** residual.  

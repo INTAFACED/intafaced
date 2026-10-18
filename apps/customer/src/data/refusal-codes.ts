@@ -51,6 +51,7 @@ export type RefusalKind =
   | 'walletCancel'
   | 'walletReturn'
   | 'walletDeposit'
+  | 'algoSchedulerOff'
   | 'unknown';
 
 /** Exact codes first. */
@@ -112,6 +113,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',
+  'trade.algo_balance_unreadable': 'tryAgain',
+  'trade.fee_schedule_blank': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
@@ -139,6 +142,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'pay.payment_not_found': 'notFound',
   'pay.link_not_found': 'notFound',
   'pay.merchant_not_found': 'notFound',
+  'trade.algo_jobs_disabled': 'algoSchedulerOff',
+  'trade.algo_jobs_unknown': 'tryAgain',
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',

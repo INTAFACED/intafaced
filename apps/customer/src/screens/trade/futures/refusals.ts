@@ -163,6 +163,15 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.client_open_id_required': { title: 'Request id missing', body: 'Nothing was sent. Start the action again.' },
   'trade.idempotency_key_required': { title: 'Request id missing', body: 'Nothing was sent. Start the action again.' },
+  'trade.cancel_not_close': {
+    title: 'That does not close the position',
+    body: 'Deleting a position does not close it or release its margin. Use close. Nothing was changed.',
+    retryable: false,
+  },
+  'trade.system_overload': {
+    title: 'New orders are paused',
+    body: 'The order door is overloaded, so a new position is refused. An order that only reduces a position can still be sent. Nothing new was opened.',
+  },
   'trade.position_id_required': { title: 'Position missing', body: 'Nothing was sent. Pick the position and try again.' },
   'trade.funding_rate_unavailable': {
     title: 'No funding rate is published',

@@ -1,5 +1,7 @@
 # BUILD STOP — TRADE lane, 2026-08-08
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Companion to [`TRADE-LANE-HARVEST-2026-08-08.md`](./TRADE-LANE-HARVEST-2026-08-08.md), which holds the full seven-mountain survey. This is the state of the lane and what is owed.
 
 ---

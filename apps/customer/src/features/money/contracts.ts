@@ -52,6 +52,15 @@ export const loanSchema = z.object({
   marginCalledAt: z.string().nullable(),
 });
 export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
+export const shippingAddressSchema = z.object({
+  name: z.string(),
+  line1: z.string(),
+  line2: z.string().nullable(),
+  city: z.string(),
+  region: z.string().nullable(),
+  postalCode: z.string(),
+  country: z.string(),
+});
 export const cardSchema = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -62,6 +71,16 @@ export const cardSchema = z.object({
   status: z.enum(['active', 'frozen', 'closed']),
   cashbackBps: z.number().int(),
   perAuthorizationLimit: money,
+  /** A blank ceiling is `null`: the card has no cap of that kind. It is never shown as zero. */
+  dailyLimit: money.nullable(),
+  monthlyLimit: money.nullable(),
+  cashLimit: money.nullable(),
+  online: z.boolean(),
+  contactless: z.boolean(),
+  atm: z.boolean(),
+  abroad: z.boolean(),
+  cardType: z.enum(['virtual', 'physical']),
+  shippingAddress: shippingAddressSchema.nullable(),
 });
 export const rampProgrammeSchema = programmeSchema.extend({
   cryptoRail: z.string().nullable(),
@@ -106,6 +125,7 @@ export const businessSchema = z.object({
   status: z.enum(['active', 'closed']),
   createdAt: z.string(),
 });
+export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
 export const approvalSchema = z.object({
   id: z.string(),
   accountId: z.string(),
@@ -121,6 +141,21 @@ export const approvalSchema = z.object({
   ledgerTxId: z.string().nullable(),
   createdAt: z.string(),
 });
+/** A waiting payment as `business.pending` reads it: the people are named by handle where identity can name them. */
+export const pendingApprovalSchema = approvalSchema.extend({
+  makerHandle: z.string().nullable(),
+  makerHandleReason: z.enum(['handle_unresolved']).nullable(),
+  receiverOwnerHandle: z.string().nullable(),
+  receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
+  receiverOwnerName: z.string().nullable(),
+});
+export const teamSchema = z.object({
+  members: z.array(z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema, handle: z.string() })),
+});
+export const recipientSpaceSchema = z.discriminatedUnion('found', [
+  z.object({ found: z.literal(false) }),
+  z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().uuid().nullable() }),
+]);
 export const analyticsSchema = z.object({
   assetId: z.string(),
   from: z.string(),
@@ -184,14 +219,18 @@ export const bankReads = {
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
   'business.list': z.array(businessSchema),
-  'business.pending': z.array(approvalSchema),
+  'business.pending': z.array(pendingApprovalSchema),
+  'business.members': teamSchema,
+  'business.myRole': z.object({ role: memberRoleSchema }),
+  'business.resolveRecipientSpace': recipientSpaceSchema,
 } as const;
 export type BankRead = keyof typeof bankReads;
 export const bankWrites = {
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'spaces.archive': z.object({ archived: z.literal(true) }),
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
-  'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money }),
+  // A personal send echoes the note and reference it stored, so the review can be checked against them.
+  'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
   'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
@@ -213,6 +252,8 @@ export const bankWrites = {
   'loans.close': z.object({ released: money, ledgerTxId: z.string().nullable() }),
   'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
   'cards.issue': cardSchema,
+  'cards.setLimits': cardSchema,
+  'cards.setChannels': cardSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
@@ -222,12 +263,14 @@ export const bankWrites = {
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
-  'business.addMember': z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }),
+  'business.addMember': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
   'business.proposeTransfer': z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('posted'), transferId: z.string(), ledgerTxId: z.string() }),
     z.object({ kind: z.literal('pending'), approval: approvalSchema }),
   ]),
   'business.approve': z.object({ transferId: z.string(), ledgerTxId: z.string() }),
+  'business.setMemberRole': z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema }),
+  'business.removeMember': z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }),
   'business.reject': z.object({ ok: z.literal(true) }),
   'business.cancel': z.object({ ok: z.literal(true) }),
   'business.runPayroll': z.object({

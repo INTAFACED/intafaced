@@ -72,8 +72,8 @@ function PortalEntry({ path, authority }: { path: string; authority: PayBusiness
     (signal) => api.query('pay', 'merchant.starterFee', undefined, starterFeeRead, { signal }),
     `pay:starter-fee:${userId ?? 'anon'}`,
   );
-  const starterFeeBps = fee.resource.status === 'ready' ? (fee.resource.data.starterFee?.bps ?? null) : null;
-  return <MerchantPortal path={path} authority={authority} starterFeeBps={starterFeeBps} />;
+  const starterFee = fee.resource.status === 'ready' ? (fee.resource.data.starterFee ?? null) : null;
+  return <MerchantPortal path={path} authority={authority} starterFee={starterFee} />;
 }
 export type { PayBusinessAuthority } from './pay-api';
 
