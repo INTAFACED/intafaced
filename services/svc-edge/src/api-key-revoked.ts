@@ -16,6 +16,14 @@ export class ApiKeyRevokedError extends Error {
   }
 }
 
+/** Identity could not be asked (transport failure, timeout, 5xx). Still denies; callers that can tell it apart may retry. */
+export class ApiKeyOwnershipUnavailableError extends ApiKeyRevokedError {
+  constructor() {
+    super('API key not found', 'auth.api_key_denied');
+    this.name = 'ApiKeyOwnershipUnavailableError';
+  }
+}
+
 /** Identity ownership body only. Never invent a revoke. */
 export function optionalApiKeyRevoked(body: unknown): boolean | undefined {
   if (!body || typeof body !== 'object') return undefined;
@@ -78,19 +86,20 @@ export async function assertIdentityApiKeyLive(options: LoadApiKeyOwnershipOptio
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
-    throw new ApiKeyRevokedError('API key not found', 'auth.api_key_denied');
+    throw new ApiKeyOwnershipUnavailableError();
   }
   if (response.status === 404) {
     throw new ApiKeyRevokedError('API key not found', 'auth.api_key_denied');
   }
   if (!response.ok) {
+    if (response.status >= 500 || response.status === 408 || response.status === 429) throw new ApiKeyOwnershipUnavailableError();
     throw new ApiKeyRevokedError('API key not found', 'auth.api_key_denied');
   }
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    throw new ApiKeyRevokedError('API key not found', 'auth.api_key_denied');
+    throw new ApiKeyOwnershipUnavailableError();
   }
   const parsed = apiKeyOwnershipSchema.safeParse(body);
   if (!parsed.success) {
