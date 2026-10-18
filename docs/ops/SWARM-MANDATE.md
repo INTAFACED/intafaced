@@ -118,7 +118,7 @@ When the primary board finish is met but the session continues (AFK / “never s
 
 **There is no PR budget and no Actions budget.** The bill is zero; parallel work stays; a 403 or
 429 is a stop. Old spend thrift was **deleted 2026-08-07**
-(retirement: [`../GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](../GITHUB-CI-SPEND-CONTROL-2026-07-31.md)).
+(retirement: [`../GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](../archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md)).
 **Finished work is never held back for CI cost.** No PR caps, no CI-spend cooling window, no spend override flags. GitHub rate-limit cooldowns and access restrictions still apply; see [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §3.
 GitHub is the **merge seal**, not the chat log.
 
