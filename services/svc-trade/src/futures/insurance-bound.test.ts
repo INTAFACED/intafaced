@@ -34,17 +34,15 @@ describe('checkInsuranceBound', () => {
     const ledger = new MemoryLedger();
     if (amount === '0') return ledger;
     const seed = amt(amount);
-    const pos = 'seed-pos';
     await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: seed, rail: 'test', railRef: `d-${amount}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: pos, userId: USER, assetId: 'USDT', amount: seed }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: pos,
+      recipes.feeCharge({
+        chargeId: `fee-${amount}`,
         userId: USER,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: seed,
-        fromInsurance: 0n,
-        lossId: `seed-loss-${amount}`,
+        amount: seed,
       }),
     );
     await ledger.post(recipes.futuresInsuranceTopup({ topupId: `top-${amount}`, assetId: 'USDT', amount: seed }));
