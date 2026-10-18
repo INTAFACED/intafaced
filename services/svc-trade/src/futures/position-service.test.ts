@@ -152,23 +152,21 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   }
 
   /**
-   * Fund the profit pot the way it actually fills: somebody else's realised
-   * loss, drawn from margin they had really locked. Three real recipes, no
-   * fixture poking a balance into place — so the ceiling these tests assert
-   * against is a balance the ledger agrees exists.
+   * Fund the profit pot the way it fills after #5016: a posted trade fee into
+   * `houseFees('trade')`. A realised loss debits `futuresLossSink` and leaves
+   * that fee pot at 0, so it cannot capitalise a payout.
    */
   async function fundProfitSource(amount: string) {
-    const seedPosition = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: seedPosition, userId: BOB, assetId: 'USDT', amount: amt(amount) }));
+    const seedId = `pot-seed-${randomUUID()}`;
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seedPosition,
+      recipes.feeCharge({
+        chargeId: seedId,
         userId: BOB,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: amt(amount),
-        fromInsurance: 0n,
-        lossId: seedPosition,
+        amount: amt(amount),
       }),
     );
   }

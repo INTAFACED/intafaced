@@ -193,19 +193,18 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
     });
   }
 
-  /** Three real recipes, no fixture poking a balance in — the pot is a real balance. */
+  /** Posted trade fee into houseFees('trade'). A loss no longer fills that pot (#5016). */
   async function fundProfitSource(amount: string) {
     const seed = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: seed, userId: BOB, assetId: 'USDT', amount: amt(amount) }));
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seed}` }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seed,
+      recipes.feeCharge({
+        chargeId: seed,
         userId: BOB,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: amt(amount),
-        fromInsurance: 0n,
-        lossId: seed,
+        amount: amt(amount),
       }),
     );
   }
