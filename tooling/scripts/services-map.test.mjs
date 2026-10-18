@@ -3,7 +3,7 @@
  * No network. Run: node --test tooling/scripts/services-map.test.mjs
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fieldsOf, helpersOf, render } from './services-map.mjs';
 
@@ -84,13 +84,17 @@ const STILL_REQUIRED = {
   'svc-bank': ['LOAN_QUOTE_ASSET_ID', 'LOAN_SWEEP_BATCH_SIZE', 'TRANSFER_BATCH_SIZE'],
 };
 
+// The three tests below read the repo. They skip where it is absent: the empty-denominator gate runs this suite (via
+// gate-tools.test.mjs) in a tree holding only tooling/, and a skip is reported as skipped, never as passed.
+const NO_REPO = !existsSync(new URL('../../services', import.meta.url)) && 'services/ not present (empty-tree run)';
+
 function envCell(table, service) {
   const row = table.split('\n').find((l) => l.startsWith(`| \`${service}\` |`));
   assert.ok(row, `${service} has a row`);
   return row.split(' | ').pop();
 }
 
-test('SERVICES.md leaves out the fields that have a default or are optional', () => {
+test('SERVICES.md leaves out the fields that have a default or are optional', { skip: NO_REPO }, () => {
   const table = render();
   for (const [service, names] of Object.entries(NOT_REQUIRED)) {
     const cell = envCell(table, service);
@@ -98,7 +102,7 @@ test('SERVICES.md leaves out the fields that have a default or are optional', ()
   }
 });
 
-test('SERVICES.md still lists the fields that refuse boot when blank', () => {
+test('SERVICES.md still lists the fields that refuse boot when blank', { skip: NO_REPO }, () => {
   const table = render();
   for (const [service, names] of Object.entries(STILL_REQUIRED)) {
     const cell = envCell(table, service);
@@ -106,7 +110,7 @@ test('SERVICES.md still lists the fields that refuse boot when blank', () => {
   }
 });
 
-test('the committed docs/SERVICES.md is the rendered one', () => {
+test('the committed docs/SERVICES.md is the rendered one', { skip: NO_REPO }, () => {
   const committed = readFileSync(new URL('../../docs/SERVICES.md', import.meta.url), 'utf8');
   assert.equal(committed, render());
 });

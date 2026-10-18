@@ -120,7 +120,8 @@ export const GATES = [
     why:
       'the unit tests of the tools that decide what may merge: merge-gate.mjs (the ratchet, including the id-by-id log ' +
       'comparison inside already-red jobs), gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
-      '(a 403 or 429 stops, every call has a timeout) and, once it lands, main-auto-revert.mjs. Fixture JSON and log ' +
+      '(a 403 or 429 stops, every call has a timeout), once it lands main-auto-revert.mjs, and services-map.mjs (a field ' +
+      'built by a helper with a default is not listed as required env). Fixture JSON and log ' +
       'excerpts for gh, no network, about two seconds. Lives in tooling/scripts/, so the manifest check below does not ' +
       'cover it: this entry is the only thing running the tests, and deleting it has to be a visible act.',
   },

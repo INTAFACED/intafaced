@@ -1,6 +1,7 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check before any push.
+# Refuse direct push to main; require format:check, truth-check and the
+# doctrine gates (tooling/ci/gates.mjs) before any push.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
@@ -121,5 +122,13 @@ MESSAGE
     exit 1
   fi
 done
+
+# The doctrine gates CI runs (tooling/ci/gates.mjs, about a minute), run here so
+# drift is caught before the push instead of on GitHub. Fail-closed. Placed after
+# the main refusal so a push to main is refused at once.
+if ! (CDPATH= cd -- "$TOP" && node tooling/ci/gates.mjs) </dev/null; then
+  echo "✖ doctrine gates failed — push refused. Fix the gates named above (rerun: pnpm gates)." >&2
+  exit 1
+fi
 
 exit 0
