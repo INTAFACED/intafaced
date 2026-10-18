@@ -1,5 +1,7 @@
 # Build coverage audit — the law, the later decisions, and the tracker
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Question asked:** _"Are we building every feature from the definitive build, plus the changes we layered on top of it?"_
 
 **Type:** audit. **No code was changed.** Read-only against `main` @ `99a7673` (#429), `tooling/tracker/features.mjs` (127 rows), `INTAFACED_DEFINITIVE_BUILD.md` v2.2 (862 lines), 4 ADRs, 5 `SPEC-*` docs.

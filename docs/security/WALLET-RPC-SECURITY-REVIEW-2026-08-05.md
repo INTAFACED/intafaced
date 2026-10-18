@@ -1,5 +1,7 @@
 # Security review — `vendor/upstream-exchange/01_wallet_rpc`
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-05
 **Scope:** the vendored wallet RPC tree, 16 module directories, 228 tracked `.java` files, 13 `.properties`, 18 committed `.jar` binaries.
 **Method:** static reading only. Nothing in this review was compiled, executed, or tested.

@@ -56,5 +56,5 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 1. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): apps, services, packages, money flow, how to run.
 2. [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations procedures.
 3. [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape and money-path rules. [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md) is the original product spec. Where it disagrees with the code or this file, the code and this file win.
-4. `docs/archive/` is history, not instructions. Live docs are listed in [`docs/README.md`](docs/README.md).
+4. Current truth is this file and `docs/ARCHITECTURE.md`, plus `docs/adr/`, `docs/runbooks/`, `docs/refs/` (measured front-end references) and `docs/agents/`. Everything else under `docs/` is history: each file opens with a "Not current rules" banner, and `docs/archive/` is history too. [`docs/README.md`](docs/README.md) lists what is kept and why.
 5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.

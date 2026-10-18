@@ -1,5 +1,7 @@
 # Peace of mind — current floor (Nitro)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-07-31 (money-class mega on #226–#250)  
 **Main tip (literal):** see **TIP block** (authority is `git rev-parse origin/main` after this PR merges)  
 **Cook SINCE baseline:** `8a8c19bc626e6dada49a33be1f88d17873f42502` (#107)  

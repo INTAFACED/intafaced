@@ -1,5 +1,7 @@
 # Claim locks (`docs/ops/claims/<id>.md`)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Authority (spawn free / not free):** claim-lock files win over `residual-register.json` and over open-PR path collision for _closure_. Open-PR collision still **blocks dual-write** while a PR is open.
 
 ## residual-own

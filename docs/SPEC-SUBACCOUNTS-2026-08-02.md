@@ -1,5 +1,7 @@
 # Spec — sub-accounts and the identity money graph (M5)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 M5 asks for "sub-accounts with zero money cross-leak". **"Zero cross-leak" is the entire feature**, and it is easy to state and easy to get subtly wrong, so this defines it precisely rather than aspirationally.
 
 ---
