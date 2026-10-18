@@ -4335,7 +4335,8 @@ export class TradeService {
    *
    * | Case | Detection | Action |
    * | --- | --- | --- |
-   * | orphan pending | `pending` + hold 0 | delete row (never held) |
+   * | orphan pending | `pending` + hold 0 + older than the in-flight bound | delete row (never held) |
+   * | pending in flight | `pending` + hold 0 + inside the bound | no action (a hold may still commit) |
    * | open+hold, engine live | `open` + hold > 0 + list hit | cancel then release remainder once |
    * | open+hold, engine miss, proven empty fills | list miss + `trade.fills` empty + `filled_qty` 0 | cancel remainder (existing path, fills are the evidence) |
    * | open+hold, engine miss, unknown fills | list miss + fills do not prove no fill | **fail closed** — named break, hold stays |
@@ -4375,8 +4376,40 @@ export class TradeService {
       const holdBefore = formatAmount(holdBal);
 
       // ── orphan pending: intent row, never funded ───────────────────────────
+      // Same age floor as the scheduled reconcile. Inside it, a hold post can
+      // still commit after this balance read; deleting the row would strand it.
       if (order.status === 'pending' && holdBal === 0n) {
-        await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+        const removed = await this.sql<{ id: string }[]>`
+          DELETE FROM trade.orders
+           WHERE id = ${orderId}
+             AND status = 'pending'
+             AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
+          RETURNING id
+        `;
+        if (removed.length === 0) {
+          const current = await this.findOrder(orderId);
+          if (!current) {
+            return {
+              orderId,
+              case: 'not_found',
+              action: 'none',
+              holdBefore,
+              engineLive: null,
+              detail: 'pending row vanished before the age-bounded delete',
+            };
+          }
+          return {
+            orderId,
+            case: 'pending_in_flight',
+            action: 'none',
+            holdBefore,
+            engineLive: null,
+            detail:
+              current.status === 'pending'
+                ? 'pending row is inside the hold in-flight bound — left in place'
+                : `status=${current.status} changed before the pending delete — left in place`,
+          };
+        }
         return {
           orderId,
           case: 'orphan_pending',

@@ -32,6 +32,8 @@ export type Liquidity = 'maker' | 'taker';
  */
 export type ReconcileCase =
   | 'orphan_pending'
+  /** `pending` + zero hold, still inside the hold in-flight bound. Row stays. */
+  | 'pending_in_flight'
   | 'open_hold_no_engine'
   /** Funded engine-miss whose `trade.fills` do not prove no fill — hold stays. */
   | 'open_hold_no_engine_unknown'
