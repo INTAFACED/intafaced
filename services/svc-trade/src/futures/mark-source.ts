@@ -225,31 +225,28 @@ export function markSourceFromBook(input: {
      * were structurally unreachable on the venue path and a four-hour-old
      * external book cleared a sixty-second gate.
      *
-     * Omitted / null is a NARROW, ARGUED allowance, not a convenience: it means
-     * this reader has no observation time distinct from the read, because the
-     * read IS the observation. That is true of `markSourceFromDepth` — an
-     * `EngineDepth` read from our own matching engine answers as of the moment
-     * it answers and carries no timestamp to carry. It is NOT true of anything
-     * that snapshots, caches, streams or proxies a third party's book, and a
-     * reader in that class that leaves this out is lying about its age.
+     * Omitted / null refuses the quote. A caller clock or a read-time stamp is
+     * not an observation time, and storing one would let a stale book look new.
      */
     observedAt?: Date | null;
   } | null>;
   policy?: MarkPolicy;
   /**
-   * Observation clock. Consulted only when `readBook` returns no `observedAt` —
-   * the book's own stamp is the truth and beats any clock supplied here. With
-   * neither, the quote is stamped with the instant the CALLER asked for, which
-   * is honest exactly when the read is the observation (see above).
+   * Unused as a stamp. A caller clock is not an observation time. A book
+   * without `observedAt` yields no quote (MKT-0126).
    */
   now?: () => Date;
 }): QuotedMarkSource {
   const policy = input.policy ?? DEFAULT_FUTURES_MARK_POLICY;
+  void input.now;
 
   const quote = async (args: MarkRequest): Promise<FuturesQuotedMark | null> => {
     const book = await input.readBook(args.marketId, args.authorisesSize ?? null);
     if (!book) return null;
-    const observed = book.observedAt ?? (input.now ? input.now() : args.at);
+    // A missing observedAt is refused. Stamping `now()` or the caller clock
+    // would make a stale book look new.
+    const observed = book.observedAt ?? null;
+    if (observed == null) return null;
     const asOfMs = observed.getTime();
     // An `Invalid Date` makes every age comparison NaN, and `NaN > 300` is
     // false — so a broken stamp would pass both gates rather than fail them.

@@ -47,7 +47,14 @@ import {
   summarizeLadder,
   type FuturesLadderPolicy,
 } from './maintenance-ladder.js';
-import { DEFAULT_FUTURES_MARK_POLICY, acceptableForLiquidation, type FuturesQuotedMark, type MarkPolicy } from './mark-policy.js';
+import {
+  DEFAULT_FUTURES_MARK_POLICY,
+  acceptableForLiquidation,
+  judgeLiquidationMark,
+  type FuturesQuotedMark,
+  type MarkPolicy,
+  type PublishedLiquidationLimits,
+} from './mark-policy.js';
 import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
@@ -294,6 +301,14 @@ export interface LiquidationTickDeps {
   liquidationIdFor?: (row: LiquidationPositionRow, at: Date) => string;
   /** Gates a labelled mark must clear before it may close a position. */
   markPolicy?: MarkPolicy;
+  /**
+   * Owner-published liquidation age and deviation limits.
+   * `null` means none were published: the tick refuses and does not apply the
+   * compiled 300 / 60 / 2000 figures. Omitted keeps `markPolicy` for callers
+   * that already pass an explicit policy (unit tests). Production passes null
+   * until an owner publication exists.
+   */
+  publishedLiquidationLimits?: PublishedLiquidationLimits | null;
   /**
    * Where the deviation breaker gets its basis, and where an accepted mark goes.
    *
@@ -568,7 +583,10 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
        * literal `null` on every tick and the breaker never fired once.
        */
       const previous = await deps.acceptedMarks.previous(row.positionId);
-      const check = acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
+      const check =
+        deps.publishedLiquidationLimits !== undefined
+          ? judgeLiquidationMark(quoted, breakerBasis(previous), at, deps.publishedLiquidationLimits)
+          : acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
       if (!check.ok) {
         items.push({
           positionId: row.positionId,

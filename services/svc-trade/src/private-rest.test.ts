@@ -2456,7 +2456,7 @@ describe('private REST — mount boundary + order write path', () => {
       let moneyPath = false;
       const marks = markSourceFromBook({
         async readBook() {
-          return { bestBid: null, bestAsk: null, last: '50000' };
+          return { bestBid: null, bestAsk: null, last: '50000', observedAt: new Date() };
         },
       });
       const app = await build(
