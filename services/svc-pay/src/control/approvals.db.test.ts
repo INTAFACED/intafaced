@@ -188,6 +188,29 @@ describe('payout maker-checker', () => {
     expect(await auditKinds(req.approvalId)).toEqual(['payout.approval_requested', 'payout.approval_decided', 'payout.approval_consumed']);
   });
 
+  it('required: no approval admits nothing; a consumed approval admitted one payout and cannot admit another', async () => {
+    const s1 = await settled(merchantId, ['70'], 'w-once-1');
+    await expect(payout(s1.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect(await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${s1.id}`).toHaveLength(0);
+    expect(
+      await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payout.approval_consumed' AND after->>'settlementId' = ${s1.id}`,
+    ).toHaveLength(0);
+
+    const req = await approvals.request(maker(), { merchantId, settlementId: s1.id, railId: 'crypto-native' });
+    expect((await approvals.decide(finance(), decideInput(req))).status).toBe('approved');
+    expect((await payout(s1.id)).status).toBe('paid_out');
+    expect(await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${s1.id}`).toHaveLength(1);
+    expect(
+      await sql`SELECT 1 FROM pay.control_audit WHERE kind = 'payout.approval_consumed' AND scope_id = ${req.approvalId}`,
+    ).toHaveLength(1);
+
+    // The same amount to the same destination in a new window is a new settlement: the old approval does not cover it.
+    const s2 = await settled(merchantId, ['70'], 'w-once-2');
+    await expect(payout(s2.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect(await sql`SELECT 1 FROM pay.payout_admissions WHERE settlement_id = ${s2.id}`).toHaveLength(0);
+    expect((await sql`SELECT status FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`)[0]!.status).toBe('consumed');
+  });
+
   it('the maker cannot approve their own request (application and database both refuse)', async () => {
     const s = await settled(merchantId, ['60'], 'w-self');
     const owner = principal(OWNER_A);

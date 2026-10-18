@@ -13,11 +13,13 @@ const schema = serviceEnvSchema
 
       /**
        * Merchant control room enforcement (caps, pricing, payout maker-checker).
-       * `off` (default) leaves payments and payouts exactly as before; `required`
-       * refuses merchants whose tier, caps, pricing or thresholds are unconfigured.
-       * Anything else fails boot. See control/mode.ts.
+       * `required` is the production value: it refuses merchants whose tier, caps,
+       * pricing or thresholds are unconfigured and consumes a payout approval.
+       * There is no default. Unset, blank or `off` refuses boot unless APP_ENV is
+       * exactly `dev` or `test` (raw value). Resolved at boot by
+       * `resolveMerchantControlsMode` (control/mode.ts) in index.ts.
        */
-      PAY_MERCHANT_CONTROLS: z.enum(['off', 'required']).default('off'),
+      PAY_MERCHANT_CONTROLS: z.string().optional(),
 
       /**
        * Reconciler for payments stuck in `authorized` after the ledger capture

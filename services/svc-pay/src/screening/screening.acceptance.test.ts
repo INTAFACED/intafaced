@@ -248,7 +248,7 @@ describe('a custodial send with no screening result is refused', () => {
 
   it('the pay guard registry refuses a fresh payout when the slot has no result', async () => {
     const readableSql = (async () => []) as unknown as Sql;
-    const guards = buildPayGuards({ sql: readableSql });
+    const guards = buildPayGuards({ sql: readableSql, merchantControls: 'off' });
     await expect(guards.beforePayoutExecute(payoutCtx({ sql: readableSql }))).rejects.toMatchObject({
       code: 'pay.guard_screening_unavailable',
       kind: 'unavailable',

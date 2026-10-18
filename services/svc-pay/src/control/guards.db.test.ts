@@ -141,7 +141,7 @@ describe('W1 control guards', () => {
         'beforeSettlementRun',
         'beforeUserMoneyWithdrawal',
       ]);
-      const p = service(buildPayGuards({ sql }));
+      const p = service(buildPayGuards({ sql, merchantControls: 'off' }));
       const m = await merchant('99999999-9999-4999-8999-999999999999', p);
       const created = await pay(p, m.id, '1000000');
       expect(created.status).toBe('created');

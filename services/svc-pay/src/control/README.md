@@ -48,6 +48,13 @@ payout cap included) only to a user who owns a merchant that still has a legacy 
 withdrawn. Any other user's withdrawal meets no per-customer cap. A global payout halt still
 refuses every personal withdrawal, including a recovery that would call the rail.
 
+## Boot rule
+
+`PAY_MERCHANT_CONTROLS` has no default. Unset, blank or `off` refuses boot (`pay.merchant_controls_unset`,
+`pay.merchant_controls_off_refused`) unless `APP_ENV` is exactly `dev` or `test` (the raw value; an unset `APP_ENV`
+is a real deployment). `required` is the value for every real deployment and is a release gate. Any other value
+fails boot everywhere. The guard registry applies the same rule, so it cannot fall back to `off` either.
+
 ## Pre-enable checklist (before setting `PAY_MERCHANT_CONTROLS=required`)
 
 1. Counters and old keys: `SELECT count(*) FROM pay.control_cap_events WHERE event_key LIKE 'payment.create:%'` must be 0. Earlier builds counted intake at create; if any rows exist, reset the intake counters (`pay.control_cap_usage`
@@ -66,3 +73,8 @@ refuses every personal withdrawal, including a recovery that would call the rail
    return the full destination. `founderAdmin.approvals.destination` is the one founder-only read of the exact
    address, and each read appends `payout.destination_read` on `pay.control_audit`. The founder queue also returns
    `founderFirstUserId` once one founder has confirmed.
+8. Boot: with `required`, `APP_ENV` and the variable are both set on the host. Confirm svc-pay boots; an unset or
+   `off` value on a non-dev host is refused at start, not at the first payout.
+9. Prove it on the stack you are enabling: request a payout at or above the approval threshold with no approval and
+   expect `pay.approval_required` with no row in `pay.payout_admissions`; after a different team member approves,
+   expect one `payout.approval_consumed` audit row and the payout admitted once.
