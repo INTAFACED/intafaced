@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
 import { RotateApiKeyError } from './auth/rotate-api-key.js';
 import { rotateApiKeyAfterPasskey } from './auth/rotate-api-key-passkey.js';
@@ -28,17 +28,18 @@ export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter, gate: A
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'rotate', keyId: input.keyId });
-          return await rotateApiKeyAfterPasskey(
-            minter,
-            sql,
-            {
-              userId: ctx.principal.userId,
-              keyId: input.keyId,
-              grantorScopes: ctx.principal.scopes,
-              grantorKid: ctx.principal.kid,
-            },
-            encKey,
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'rotate', keyId: input.keyId }, (scope) =>
+            rotateApiKeyAfterPasskey(
+              scope,
+              scope.tx,
+              {
+                userId: ctx.principal.userId,
+                keyId: input.keyId,
+                grantorScopes: ctx.principal.scopes,
+                grantorKid: ctx.principal.kid,
+              },
+              encKey,
+            ),
           );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {

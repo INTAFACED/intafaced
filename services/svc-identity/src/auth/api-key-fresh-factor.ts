@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 import { TRPCError } from '@intafaced/contracts';
-import { AuthError, type PayStepUpFactorProof } from './auth-service.js';
+import { AuthError, type ApiKeyActionScope, type PayStepUpFactorProof } from './auth-service.js';
 import { userCopy } from '../user-copy.js';
 
 export const factorProofSchema = z.union([
@@ -37,14 +37,17 @@ export const factorProofSchema = z.union([
 export const optionalFactorProof = factorProofSchema.optional();
 
 export interface ApiKeyFactorGate {
-  authoriseApiKeyAction(input: {
-    userId: string;
-    sessionId: string;
-    proof?: PayStepUpFactorProof | undefined;
-    action: string;
-    keyId?: string | undefined;
-    scopes?: readonly string[] | undefined;
-  }): Promise<void>;
+  withApiKeyAction<T>(
+    input: {
+      userId: string;
+      sessionId: string;
+      proof?: PayStepUpFactorProof | undefined;
+      action: string;
+      keyId?: string | undefined;
+      scopes?: readonly string[] | undefined;
+    },
+    run: (scope: ApiKeyActionScope) => Promise<T>,
+  ): Promise<T>;
 }
 
 type Caller = {
@@ -75,19 +78,33 @@ function toGateError(err: unknown): TRPCError {
   throw err;
 }
 
-/** Refuses unless the caller is a person with a fresh second factor. Nothing changes on a refusal. */
-export async function requireFreshApiKeyFactor(
+/**
+ * Run `run` only for a person with a fresh second factor, in one transaction with its audit row.
+ * Nothing changes on a refusal. Errors thrown by `run` itself pass through untouched for the
+ * caller's own mapping; only the gate's own refusals become TRPCErrors here.
+ */
+export async function guardedApiKeyAction<T>(
   gate: ApiKeyFactorGate,
   caller: Caller,
   proof: PayStepUpFactorProof | undefined,
   action: { action: string; keyId?: string; scopes?: readonly string[] },
-): Promise<void> {
+  run: (scope: ApiKeyActionScope) => Promise<T>,
+): Promise<T> {
   if (caller.kid || caller.sub_account) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create or change keys' });
   }
+  let failure: { error: unknown } | undefined;
   try {
-    await gate.authoriseApiKeyAction({ userId: caller.userId, sessionId: caller.sid, proof, ...action });
+    return await gate.withApiKeyAction({ userId: caller.userId, sessionId: caller.sid, proof, ...action }, async (scope) => {
+      try {
+        return await run(scope);
+      } catch (error) {
+        failure = { error };
+        throw error;
+      }
+    });
   } catch (err) {
+    if (failure) throw failure.error;
     throw toGateError(err);
   }
 }

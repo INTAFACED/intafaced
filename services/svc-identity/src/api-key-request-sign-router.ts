@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
 
 /**
@@ -45,20 +45,26 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          const set = (db: Sql) =>
+            setApiKeyRequestSigning(
+              db,
+              ctx.principal.userId,
+              input.keyId,
+              {
+                requireSignature: input.requireSignature,
+                requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
+              },
+              encKey,
+            );
           // Turning signing on can reveal a secret: that needs a fresh factor. Turning it off or
           // leaving it off reveals nothing and stays one click.
-          if (input.requireSignature) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'signing_secret', keyId: input.keyId });
-          }
-          return await setApiKeyRequestSigning(
-            sql,
-            ctx.principal.userId,
-            input.keyId,
-            {
-              requireSignature: input.requireSignature,
-              requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
-            },
-            encKey,
+          if (!input.requireSignature) return await set(sql);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'signing_secret', keyId: input.keyId },
+            (scope) => set(scope.tx),
           );
         } catch (err) {
           mapSignError(err);
@@ -75,8 +81,13 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'signing_secret', keyId: input.keyId });
-          return await rotateSigningSecret(sql, ctx.principal.userId, input.keyId, encKey);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'signing_secret', keyId: input.keyId },
+            (scope) => rotateSigningSecret(scope.tx, ctx.principal.userId, input.keyId, encKey),
+          );
         } catch (err) {
           mapSignError(err);
         }

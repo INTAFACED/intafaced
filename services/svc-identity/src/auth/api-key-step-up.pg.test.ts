@@ -222,15 +222,22 @@ if (!available) {
     return appRouter.createCaller({ principal, service: null, region: 'DE', requestId: 'r' });
   }
 
-  async function freshProof(session: { userId: string; sessionId: string }, ageMs = 0) {
+  /** A proof row. `action` null is a pay-style proof (not bound to any key action). */
+  async function freshProof(
+    session: { userId: string; sessionId: string },
+    action: string | null = 'create',
+    opts: { ageMs?: number; keyId?: string | null; userId?: string } = {},
+  ) {
     const proofId = randomUUID();
-    const verifiedAt = new Date(Date.now() - ageMs);
+    const verifiedAt = new Date(Date.now() - (opts.ageMs ?? 0));
     await db.sql`
-      INSERT INTO pay_step_up_proofs (proof_id, user_id, session_id, method, verified_at, expires_at)
-      VALUES (${proofId}, ${session.userId}, ${session.sessionId}, 'totp', ${verifiedAt}, ${new Date(verifiedAt.getTime() + 5 * 60 * 1000)})
+      INSERT INTO pay_step_up_proofs (proof_id, user_id, session_id, method, verified_at, expires_at, bound_action, bound_key_id)
+      VALUES (${proofId}, ${opts.userId ?? session.userId}, ${session.sessionId}, 'totp', ${verifiedAt}, ${new Date(verifiedAt.getTime() + 5 * 60 * 1000)}, ${action}, ${opts.keyId ?? null})
     `;
     return { proofId };
   }
+  const auditCount = async (userId: string) =>
+    (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM api_key_action_audit WHERE user_id = ${userId}`)[0]!.n;
 
   const keyCount = async (userId: string) =>
     (await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM api_keys WHERE user_id = ${userId}`)[0]!.n;
@@ -264,7 +271,7 @@ if (!available) {
       const session = await register();
       await enrolTotp(session.userId);
       const c = await caller(session);
-      const stale = await freshProof(session, 6 * 60 * 1000);
+      const stale = await freshProof(session, 'create', { ageMs: 6 * 60 * 1000 });
       await expect(c.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: stale })).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
         message: expect.stringContaining('[auth.step_up_expired]'),
@@ -291,7 +298,7 @@ if (!available) {
       const widened = await c.bindApiKeyIpAllowlist({
         keyId: created.id,
         ips: ['203.0.113.1', '203.0.113.2'],
-        factorProof: await freshProof(session),
+        factorProof: await freshProof(session, 'ip_allowlist_widen', { keyId: created.id }),
       });
       expect(widened.ipAllowlist).toHaveLength(2);
       // dropping one of two stays a narrowing
@@ -315,6 +322,100 @@ if (!available) {
         c.setApiKeyRequestSigning({ keyId: created.id, requireSignature: true, requireNonEmptyIpAllowlist: false }),
       ).rejects.toMatchObject(refused);
       expect(await keyCount(session.userId)).toBe('1');
+    });
+
+    it('a proof is single-use: the second create with the same proof is refused and mints nothing', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const proof = await freshProof(session, 'create');
+      await c.apiKeys.create({ name: 'one', scopes: ['trade:read'], factorProof: proof });
+      await expect(c.apiKeys.create({ name: 'two', scopes: ['trade:read'], factorProof: proof })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message: expect.stringContaining('[auth.step_up_required]'),
+      });
+      expect(await keyCount(session.userId)).toBe('1');
+      expect(await auditCount(session.userId)).toBe('1');
+    });
+
+    it('a proof cannot be used by another user', async () => {
+      const owner = await register();
+      const other = await register();
+      await enrolTotp(owner.userId);
+      await enrolTotp(other.userId);
+      const proof = await freshProof(owner, 'create');
+      const c = await caller(other);
+      await expect(c.apiKeys.create({ name: 'x', scopes: ['trade:read'], factorProof: proof })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      });
+      // the same proof, under the wrong session of the right user
+      const wrongSession = await freshProof({ userId: other.userId, sessionId: owner.sessionId }, 'create', { userId: other.userId });
+      await expect(c.apiKeys.create({ name: 'x', scopes: ['trade:read'], factorProof: wrongSession })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      });
+      expect(await keyCount(other.userId)).toBe('0');
+    });
+
+    it('a proof for one action or key does not authorise another, and pay proofs are not accepted at all', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const first = await c.apiKeys.create({ name: 'a', scopes: ['trade:read'], factorProof: await freshProof(session, 'create') });
+      const second = await c.apiKeys.create({ name: 'b', scopes: ['trade:read'], factorProof: await freshProof(session, 'create') });
+      const refused = { code: 'PRECONDITION_FAILED' };
+      // a create proof cannot rotate or reveal
+      await expect(c.rotateApiKey({ keyId: first.id, factorProof: await freshProof(session, 'create') })).rejects.toMatchObject(refused);
+      await expect(c.rotateSigningSecret({ keyId: first.id, factorProof: await freshProof(session, 'create') })).rejects.toMatchObject(
+        refused,
+      );
+      // a proof bound to key A cannot widen key B
+      await c.bindApiKeyIpAllowlist({ keyId: second.id, ips: ['203.0.113.1'] });
+      const forFirst = await freshProof(session, 'ip_allowlist_widen', { keyId: first.id });
+      await expect(
+        c.bindApiKeyIpAllowlist({ keyId: second.id, ips: ['203.0.113.1', '203.0.113.2'], factorProof: forFirst }),
+      ).rejects.toMatchObject(refused);
+      // a pay-style proof (not bound to any action) opens none of these doors
+      const payProof = await freshProof(session, null);
+      await expect(c.apiKeys.create({ name: 'c', scopes: ['trade:read'], factorProof: payProof })).rejects.toMatchObject(refused);
+      expect(await keyCount(session.userId)).toBe('2');
+      // and an API-key-action proof is not a pay proof
+      const keyProof = await freshProof(session, 'create');
+      await expect(
+        auth.stepUpPay({
+          userId: session.userId,
+          sessionId: session.sessionId,
+          merchantId: MERCHANT,
+          scopes: ['pay:refund'],
+          factorProof: keyProof,
+        }),
+      ).rejects.toMatchObject({ code: 'auth.step_up_required' });
+    });
+
+    it('is atomic: a failed action leaves no audit row and does not spend the proof', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const proof = await freshProof(session, 'create');
+      // a scope the session does not hold is refused after the factor is checked
+      await expect(c.apiKeys.create({ name: 'bad', scopes: ['admin:compliance'], factorProof: proof })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect(await auditCount(session.userId)).toBe('0');
+      expect(await keyCount(session.userId)).toBe('0');
+      // the same proof still works for a valid create, and exactly one audit row results
+      await c.apiKeys.create({ name: 'good', scopes: ['trade:read'], factorProof: proof });
+      expect(await auditCount(session.userId)).toBe('1');
+      expect(await keyCount(session.userId)).toBe('1');
+    });
+
+    it('one authenticator code audits exactly one action and leaves no reusable proof behind', async () => {
+      const session = await register();
+      const { secret } = await enrolTotp(session.userId);
+      const c = await caller(session);
+      await c.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: { totpCode: totpNext(secret) } });
+      expect(await auditCount(session.userId)).toBe('1');
+      const left = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay_step_up_proofs WHERE user_id = ${session.userId}`;
+      expect(left[0]!.n).toBe('0');
     });
 
     it('never lets an API-key caller create a key, even with a valid proof', async () => {

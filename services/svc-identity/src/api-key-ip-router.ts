@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';
 import { unbindApiKeyIpAllowlist } from './auth/unbind-api-key-ip.js';
-import { narrowsAllowlist, optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { narrowsAllowlist, optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { normalizeIp } from './auth/api-key-ip.js';
 import { mintApiKeyWithIpAllowlist, type ApiKeyMinter } from './auth/mint-api-key-ip.js';
 
@@ -29,10 +29,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
           assertDelegateCannotGrant(ctx.principal.kid);
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const next = input.ips.map((ip) => normalizeIp(ip) ?? ip);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'ip_allowlist_widen', keyId: input.keyId });
-          }
-          return await bindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ips);
+          if (narrowsAllowlist(current, next)) return await bindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ips);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'ip_allowlist_widen', keyId: input.keyId },
+            (scope) => bindApiKeyIpAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.ips),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -55,10 +59,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const ip = normalizeIp(input.ip);
           const next = current.filter((entry) => normalizeIp(entry) !== ip);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'ip_allowlist_widen', keyId: input.keyId });
-          }
-          return await unbindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ip);
+          if (narrowsAllowlist(current, next)) return await unbindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ip);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'ip_allowlist_widen', keyId: input.keyId },
+            (scope) => unbindApiKeyIpAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.ip),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -95,17 +103,18 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
-          return await mintApiKeyWithIpAllowlist(minter, sql, {
-            userId: ctx.principal.userId,
-            name: input.name,
-            scopes: input.scopes,
-            grantorScopes: ctx.principal.scopes,
-            grantorKid: ctx.principal.kid,
-            ips: input.ips,
-            domainWhitelist: input.domainWhitelist,
-            mode: input.mode,
-          });
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes }, (scope) =>
+            mintApiKeyWithIpAllowlist(scope, scope.tx, {
+              userId: ctx.principal.userId,
+              name: input.name,
+              scopes: input.scopes,
+              grantorScopes: ctx.principal.scopes,
+              grantorKid: ctx.principal.kid,
+              ips: input.ips,
+              domainWhitelist: input.domainWhitelist,
+              mode: input.mode,
+            }),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });

@@ -3,7 +3,7 @@ import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/
 import type { Sql } from 'postgres';
 import { ApiKeyProductError, normalizeProduct } from './auth/api-key-product.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { narrowsAllowlist, optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { narrowsAllowlist, optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { bindApiKeyProductScope, requestProductAls } from './auth/auth-service-product.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyWithProductScope } from './auth/mint-api-key-product.js';
@@ -79,10 +79,15 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
           assertDelegateCannotGrant(ctx.principal.kid);
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const next = input.products.map((p) => normalizeProduct(p) ?? p);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'product_scope_widen', keyId: input.keyId });
-          }
-          return await bindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.products, ctx.principal.scopes);
+          if (narrowsAllowlist(current, next))
+            return await bindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.products, ctx.principal.scopes);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'product_scope_widen', keyId: input.keyId },
+            (scope) => bindApiKeyProductScope(scope.tx, ctx.principal.userId, input.keyId, input.products, ctx.principal.scopes),
+          );
         } catch (err) {
           toProductTrpc(err);
         }
@@ -96,10 +101,14 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const product = normalizeProduct(input.product);
           const next = current.filter((entry) => normalizeProduct(entry) !== product);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'product_scope_widen', keyId: input.keyId });
-          }
-          return await unbindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.product);
+          if (narrowsAllowlist(current, next)) return await unbindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.product);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'product_scope_widen', keyId: input.keyId },
+            (scope) => unbindApiKeyProductScope(scope.tx, ctx.principal.userId, input.keyId, input.product),
+          );
         } catch (err) {
           toProductTrpc(err);
         }
@@ -127,17 +136,18 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
-          return await mintApiKeyWithProductScope(minter, sql, {
-            userId: ctx.principal.userId,
-            name: input.name,
-            scopes: input.scopes,
-            grantorScopes: ctx.principal.scopes,
-            grantorKid: ctx.principal.kid,
-            products: input.products,
-            domainWhitelist: input.domainWhitelist,
-            mode: input.mode,
-          });
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes }, (scope) =>
+            mintApiKeyWithProductScope(scope, scope.tx, {
+              userId: ctx.principal.userId,
+              name: input.name,
+              scopes: input.scopes,
+              grantorScopes: ctx.principal.scopes,
+              grantorKid: ctx.principal.kid,
+              products: input.products,
+              domainWhitelist: input.domainWhitelist,
+              mode: input.mode,
+            }),
+          );
         } catch (err) {
           toProductTrpc(err);
         }

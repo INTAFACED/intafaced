@@ -3,7 +3,7 @@ import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/
 import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
@@ -100,17 +100,18 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
-          return await mintApiKeyBoundToAccount(minter, sql, {
-            userId: ctx.principal.userId,
-            name: input.name,
-            scopes: input.scopes,
-            grantorScopes: ctx.principal.scopes,
-            grantorKid: ctx.principal.kid,
-            accountId: input.accountId,
-            domainWhitelist: input.domainWhitelist,
-            mode: input.mode,
-          });
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes }, (scope) =>
+            mintApiKeyBoundToAccount(scope, scope.tx, {
+              userId: ctx.principal.userId,
+              name: input.name,
+              scopes: input.scopes,
+              grantorScopes: ctx.principal.scopes,
+              grantorKid: ctx.principal.kid,
+              accountId: input.accountId,
+              domainWhitelist: input.domainWhitelist,
+              mode: input.mode,
+            }),
+          );
         } catch (err) {
           toAccountTrpc(err);
         }

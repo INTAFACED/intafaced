@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { narrowsAllowlist, optionalFactorProof, requireFreshApiKeyFactor, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { narrowsAllowlist, optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyOriginError, bindApiKeyOriginAllowlist, normalizeOrigin } from './auth/auth-service-origin.js';
 import { unbindApiKeyOriginAllowlist } from './auth/unbind-api-key-origin.js';
 import { mintApiKeyWithOriginAllowlist } from './auth/mint-api-key-origin.js';
@@ -29,13 +29,18 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
           assertDelegateCannotGrant(ctx.principal.kid);
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const next = input.origins.map((o) => normalizeOrigin(o) ?? o);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, {
+          if (narrowsAllowlist(current, next))
+            return await bindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origins);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            {
               action: 'origin_allowlist_widen',
               keyId: input.keyId,
-            });
-          }
-          return await bindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origins);
+            },
+            (scope) => bindApiKeyOriginAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.origins),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -58,13 +63,18 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
           const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const origin = normalizeOrigin(input.origin);
           const next = current.filter((entry) => normalizeOrigin(entry) !== origin);
-          if (!narrowsAllowlist(current, next)) {
-            await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, {
+          if (narrowsAllowlist(current, next))
+            return await unbindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origin);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            {
               action: 'origin_allowlist_widen',
               keyId: input.keyId,
-            });
-          }
-          return await unbindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origin);
+            },
+            (scope) => unbindApiKeyOriginAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.origin),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -100,16 +110,17 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          await requireFreshApiKeyFactor(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes });
-          return await mintApiKeyWithOriginAllowlist(minter, sql, {
-            userId: ctx.principal.userId,
-            name: input.name,
-            scopes: input.scopes,
-            grantorScopes: ctx.principal.scopes,
-            grantorKid: ctx.principal.kid,
-            origins: input.origins,
-            mode: input.mode,
-          });
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes }, (scope) =>
+            mintApiKeyWithOriginAllowlist(scope, scope.tx, {
+              userId: ctx.principal.userId,
+              name: input.name,
+              scopes: input.scopes,
+              grantorScopes: ctx.principal.scopes,
+              grantorKid: ctx.principal.kid,
+              origins: input.origins,
+              mode: input.mode,
+            }),
+          );
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });

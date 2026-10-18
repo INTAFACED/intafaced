@@ -57,8 +57,9 @@ function signedHeaders(scopes?: string[]): Record<string, string> {
 
 function mockAuth(): AuthService {
   const auth = {
-    async authoriseApiKeyAction(input: { proof?: unknown }) {
+    async withApiKeyAction(input: { proof?: unknown }, run: (scope: unknown) => Promise<unknown>) {
       if (!input.proof) throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+      return run({ tx: {}, createApiKey: () => auth.createApiKey(), revokeApiKey: async () => true });
     },
     async createApiKey() {
       return { id: KEY_ID, key: 'ifc_live_attribution_key', prefix: 'ifc_live', mode: 'live' as const };

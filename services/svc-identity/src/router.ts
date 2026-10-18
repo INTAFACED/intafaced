@@ -71,7 +71,7 @@ import { FlagDisabledError } from '@intafaced/config';
 import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
-import { optionalFactorProof, requireFreshApiKeyFactor } from './auth/api-key-fresh-factor.js';
+import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -1762,14 +1762,20 @@ export function createIdentityRouter(
               });
             }
             const { factorProof, ...keyInput } = input;
-            await requireFreshApiKeyFactor(auth, ctx.principal, factorProof, { action: 'create', scopes: input.scopes });
-            const created = await auth.createApiKey({
-              userId: ctx.principal.userId,
-              ...keyInput,
-              grantorScopes: ctx.principal.scopes,
-              grantorKid: ctx.principal.kid,
-              payStepUp,
-            });
+            const created = await guardedApiKeyAction(
+              auth,
+              ctx.principal,
+              factorProof,
+              { action: 'create', scopes: input.scopes },
+              (scope) =>
+                scope.createApiKey({
+                  userId: ctx.principal.userId,
+                  ...keyInput,
+                  grantorScopes: ctx.principal.scopes,
+                  grantorKid: ctx.principal.kid,
+                  payStepUp,
+                }),
+            );
             return { ...created, scopes: created.scopes ?? input.scopes };
           } catch (err) {
             if (err instanceof TRPCError) throw err;

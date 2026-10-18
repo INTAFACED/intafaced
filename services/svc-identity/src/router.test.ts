@@ -145,10 +145,14 @@ function stubServices(): Stub {
       allowCredentials: [{ type: 'public-key' as const, id: 'cred-1' }],
       userVerification: 'preferred' as const,
     })),
-    authoriseApiKeyAction: record('authoriseApiKeyAction', (input: { proof?: unknown }) => {
-      if (!input.proof) throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
-      return undefined;
-    }),
+    withApiKeyAction: (input: { proof?: unknown }, run: (scope: unknown) => Promise<unknown>) => {
+      if (!input.proof) return Promise.reject(new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required'));
+      return run({
+        tx: {},
+        createApiKey: (i: unknown) => (auth.createApiKey as (x: unknown) => unknown)(i),
+        revokeApiKey: async () => true,
+      });
+    },
     createApiKey: record('createApiKey', () => ({ id: 'key-1', key: 'ifc_secret', prefix: 'ifc_abc', mode: 'live' as const })),
     exchangeApiKey: record('exchangeApiKey', () => ({
       accessToken: 'api.key.jwt',
