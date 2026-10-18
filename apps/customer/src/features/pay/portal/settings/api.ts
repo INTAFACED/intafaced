@@ -22,7 +22,8 @@ const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
   teamHistory: (cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantOps.team.history', p.teamEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
   myInvitations: (signal?: AbortSignal) => query('merchantOps.team.myInvitations', {}, p.invitationSchema, signal),
-  invite: (input: { userId: string; role: p.TeamRole; label?: string }) => mutate('merchantOps.team.invite', input, p.memberSchema),
+  invite: (input: { userId?: string; email?: string; role: p.TeamRole; label?: string }) =>
+    mutate('merchantOps.team.invite', input, p.memberSchema),
   changeRole: (memberId: string, role: p.TeamRole) => mutate('merchantOps.team.changeRole', { memberId, role }, p.memberSchema),
   removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
   acceptInvite: (memberId: string) => mutate('merchantOps.team.acceptInvite', { memberId }, p.memberSchema),

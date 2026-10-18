@@ -55,6 +55,18 @@ export function createSettingsMock(ctx) {
         removedAt: null,
         cursor: 'c3',
       },
+      {
+        memberId: 'a4444444-4444-4444-8444-444444444444',
+        userId: 'email:pending.person@test.invalid',
+        role: 'viewer',
+        status: 'invited',
+        label: null,
+        invitedBy: USER_ID,
+        createdAt: iso(now - 2 * 3600_000),
+        activatedAt: null,
+        removedAt: null,
+        cursor: 'c4',
+      },
     ],
     teamHistory: [
       {
@@ -174,9 +186,27 @@ export function createSettingsMock(ctx) {
         case 'merchantOps.team.myInvitations':
           return ok(route, state.invitations);
         case 'merchantOps.team.invite': {
+          // Exactly one target, as the service requires. An email is never looked up, so the reply is the same for every address.
+          const accountId = (input.userId ?? '').trim();
+          const rawEmail = (input.email ?? '').trim();
+          if ((accountId === '') === (rawEmail === '')) return refuse(route, 400, 'pay.team_invite_target_invalid');
+          let target = accountId;
+          if (rawEmail) {
+            const email = rawEmail.toLowerCase();
+            if (
+              !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(email)
+            ) {
+              return refuse(route, 400, 'pay.team_email_invalid');
+            }
+            if (ctx.emailInvites === 'off') return refuse(route, 412, 'pay.team_email_invite_unconfigured');
+            if (ctx.emailInvites === 'limited') return refuse(route, 412, 'pay.team_email_invite_rate_limited');
+            target = `email:${email}`;
+          } else if (accountId.toLowerCase().startsWith('email:')) {
+            return refuse(route, 400, 'pay.team_user_id_reserved');
+          }
           const row = {
             memberId: `c${mine.length}000000-0000-4000-8000-000000000000`,
-            userId: input.userId,
+            userId: target,
             role: input.role,
             status: 'invited',
             label: input.label ?? null,
@@ -189,7 +219,7 @@ export function createSettingsMock(ctx) {
           mine.push(row);
           state.teamHistory.unshift({
             seq: String(state.teamHistory.length + 1),
-            memberUserId: input.userId,
+            memberUserId: target,
             action: 'invited',
             fromRole: null,
             toRole: input.role,

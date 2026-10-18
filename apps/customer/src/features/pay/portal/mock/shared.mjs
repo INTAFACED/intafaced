@@ -26,6 +26,8 @@ export function mockContext(scenario, now, options = {}) {
     /** 'off' leaves merchant.myAccess unmounted. Otherwise it answers for that person; owner is the default. */
     myAccess: options.myAccess ?? 'owner',
     role: options.role ?? 'owner',
+    /** 'off' answers an email invite as switched off on this system; 'limited' as too many sent recently. */
+    emailInvites: options.emailInvites ?? 'on',
     state: {},
     activity: scenario === 'active' || scenario === 'halted',
     halted: scenario === 'halted',

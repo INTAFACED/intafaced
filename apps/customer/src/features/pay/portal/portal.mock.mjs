@@ -37,11 +37,14 @@ export function accessTokenFor(scopes = OWNER_SCOPES) {
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
  * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */
-export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'owner', role = 'owner', stepUp = 'ok' } = {}) {
+export function createPortalMock(
+  scenario = 'active',
+  { now = Date.now(), myAccess = 'owner', role = 'owner', stepUp = 'ok', emailInvites = 'on' } = {},
+) {
   const calls = [];
   /** Procedures nothing answered, so the review board can list what a not-live card is waiting for. */
   const unmounted = [];
-  const ctx = mockContext(scenario, now, { myAccess, role });
+  const ctx = mockContext(scenario, now, { myAccess, role, emailInvites });
   const stepUpMock = createStepUpMock(ctx, { mode: stepUp });
   const parts = [
     stepUpMock,

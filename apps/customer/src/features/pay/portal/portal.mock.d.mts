@@ -5,7 +5,7 @@ export const OWNER_SCOPES_WITH_MONEY: string[];
 export function accessTokenFor(scopes?: string[]): string;
 export function createPortalMock(
   scenario?: string,
-  options?: { now?: number; myAccess?: string; role?: string; stepUp?: 'ok' | 'role' | 'keys' },
+  options?: { now?: number; myAccess?: string; role?: string; stepUp?: 'ok' | 'role' | 'keys'; emailInvites?: 'on' | 'off' | 'limited' },
 ): {
   calls: { procedure: string; method: string; input: any; bearer?: string | null }[];
   unmounted: string[];

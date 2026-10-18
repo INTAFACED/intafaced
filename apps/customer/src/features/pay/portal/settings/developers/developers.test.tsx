@@ -151,6 +151,24 @@ describe('API keys', () => {
     expect((out.match(/Revoke key/g) ?? []).length).toBe(1); // only the active key can be revoked
     expect(out).toContain('Showing 2 of 2 keys');
   });
+  it("shows each key's saved signing state and allowed addresses on its row, and never a secret", () => {
+    const out = keysView([
+      key({ requireSignature: true, requireNonEmptyIpAllowlist: true, ipAllowlist: ['203.0.113.10', '203.0.113.11'] }),
+      key({ id: 'TEST-key-2', name: 'TEST Plain', prefix: 'test_pl22' }),
+      key({ id: 'TEST-key-3', name: 'TEST One', prefix: 'test_on33', ipAllowlist: ['203.0.113.12'] }),
+      key({ id: 'TEST-key-4', name: 'TEST Gone', prefix: 'test_go44', revoked: true, requireSignature: true }),
+    ]);
+    expect(out).toContain('Protection');
+    expect(out).toContain('Signed requests');
+    expect(out).toContain('2 allowed addresses');
+    expect(out).toContain('address required');
+    expect(out).toContain('Signing off');
+    expect(out).toContain('Any address');
+    expect(out).toContain('1 allowed address');
+    // A revoked key reads as revoked, not as protected.
+    expect((out.match(/Signed requests/g) ?? []).length).toBeGreaterThan(0);
+    expect(out).not.toMatch(/ifs_|203\.0\.113\.10/);
+  });
   it('says when there are no keys', () => {
     const out = keysView([]);
     expect(out).toContain('No API keys yet');

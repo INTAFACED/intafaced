@@ -206,12 +206,68 @@ test('team: change a role, invite, and a refused change reads in plain words', a
       body: JSON.stringify({ error: { message: 'pay.team_interactive_only', data: { cause: { code: 'pay.team_interactive_only' } } } }),
     }),
   );
-  await page.getByLabel('Account ID *').fill('TEST-user-new');
+  await page.getByLabel('Email address *').fill('new.person@test.invalid');
   await page.getByRole('button', { name: 'Send invitation' }).click();
   await page.getByRole('dialog').locator('.form-stack > button').last().click();
   await expect(page.getByText(/Team changes need a session verified with two-step sign-in/).first()).toBeVisible();
   await expect(page.getByText('pay.team_interactive_only')).toHaveCount(0);
   await axe(page);
+});
+
+test('team: invite by email shows the address as it will be sent, says they join after confirming, and lists it masked', async ({
+  page,
+}) => {
+  const { mock } = await setup(page);
+  await signIn(page, '/pay/team');
+  const members = page.getByRole('region', { name: 'Members' });
+  // An email invite already waiting is listed masked, never in full.
+  await expect(members.getByText('Invited · p***@test.invalid')).toBeVisible();
+  await expect(page.locator('.pp')).not.toContainText('pending.person@test.invalid');
+  await page.getByLabel('Email address *').fill('  Priya.N@Test.INVALID ');
+  await expect(page.getByText('The invitation goes to priya.n@test.invalid.')).toBeVisible();
+  await page.getByLabel('Role *').selectOption('finance');
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review: Send invitation' });
+  await expect(
+    dialog.getByText('Invite priya.n@test.invalid as Finance. They join after confirming that email and accepting.'),
+  ).toBeVisible();
+  await snap(page, '10b-team-invite-email-review');
+  await dialog.locator('.form-stack > button').last().click();
+  await expect(
+    page.getByText('Invitation sent to priya.n@test.invalid. They join after confirming that email and accepting.'),
+  ).toBeVisible();
+  const sent = mock.calls.find((c) => c.procedure === 'merchantOps.team.invite');
+  expect(sent.input).toEqual({ email: 'priya.n@test.invalid', role: 'finance' });
+  // The new invite joins the list masked, and the form is empty again.
+  await expect(members.getByText('Invited · p***@test.invalid').first()).toBeVisible();
+  await expect(page.getByLabel('Email address *')).toHaveValue('');
+  await snap(page, '10c-team-invite-email-sent');
+  await axe(page);
+});
+
+test('team: an invalid address is caught before sending; the account-id way stays available', async ({ page }) => {
+  const { mock } = await setup(page);
+  await signIn(page, '/pay/team');
+  await page.getByLabel('Email address *').fill('not an email');
+  await expect(page.getByText('Enter one email address, with no spaces.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send invitation' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Invite by account ID instead' }).click();
+  await page.getByLabel('Account ID *').fill('TEST-user-new');
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect.poll(() => mock.calls.filter((c) => c.procedure === 'merchantOps.team.invite').length).toBe(1);
+  expect(mock.calls.find((c) => c.procedure === 'merchantOps.team.invite').input).toEqual({ userId: 'TEST-user-new', role: 'viewer' });
+});
+
+test('team: when email invitations are switched off the refusal says so in plain words', async ({ page }) => {
+  await setup(page, 'active', { emailInvites: 'off' });
+  await signIn(page, '/pay/team');
+  await page.getByLabel('Email address *').fill('priya.n@test.invalid');
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+  await page.getByRole('dialog').locator('.form-stack > button').last().click();
+  await expect(page.getByText('Email invitations are switched off on this system.').first()).toBeVisible();
+  await expect(page.getByText('pay.team_email_invite_unconfigured')).toHaveCount(0);
+  await snap(page, '10d-team-invite-email-off');
 });
 
 test('team: pending invitations can be accepted or declined', async ({ page }) => {

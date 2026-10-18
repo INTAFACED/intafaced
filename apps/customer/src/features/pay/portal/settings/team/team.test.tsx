@@ -9,6 +9,7 @@ import type { Invitation, Member, MemberRole, TeamEvent } from '../../schemas';
 import { pinOwner } from '../account/model';
 import { failed, list, noop, plain, ready, refusal } from '../account/testing';
 import { TeamView, InviteReview } from './Team';
+import { inviteEmailOf, maskEmail, normaliseInviteEmail } from './email';
 
 const member = (patch: Partial<Member>): Member => ({
   memberId: 'a1',
@@ -131,6 +132,78 @@ describe('team', () => {
   });
   it('says how many rows are shown and whether more exist', () => {
     expect(html('owner', { members: list([owner, member({})], true) })).toMatch(/2 shown so far\. More are available\./);
+  });
+});
+
+const pendingEmail = member({
+  memberId: 'a9',
+  userId: 'email:priya.n@example.com',
+  role: 'viewer',
+  status: 'invited',
+  label: null,
+  activatedAt: null,
+});
+
+describe('email invites', () => {
+  it('normalises an address the way the service does, and refuses what is not one mailbox', () => {
+    expect(normaliseInviteEmail('  Priya.N@Example.COM ')).toBe('priya.n@example.com');
+    for (const bad of ['', 'priya', 'a@b', 'a b@example.com', 'a@@example.com', `${'x'.repeat(250)}@example.com`])
+      expect(normaliseInviteEmail(bad), bad).toBeNull();
+  });
+  it('reads the address from a pending email member and masks it', () => {
+    expect(inviteEmailOf('email:priya.n@example.com')).toBe('priya.n@example.com');
+    expect(inviteEmailOf('user-viewer')).toBeNull();
+    expect(maskEmail('priya.n@example.com')).toBe('p***@example.com');
+  });
+  it('lists a pending email invite as "Invited · masked address" and never shows the full address or the token', () => {
+    const out = html('owner', { members: list([owner, pendingEmail]) });
+    expect(out).toContain('Invited · p***@example.com');
+    expect(out).not.toContain('priya.n@example.com');
+    expect(out).not.toContain('email:');
+  });
+  it('opens a pending email invite with the masked address and what it waits for', () => {
+    const out = html('owner', { members: list([owner, pendingEmail]), selected: 'a9' });
+    expect(out).toContain('Invited email');
+    expect(out).toContain('Waiting for this person to confirm that email address and accept.');
+    expect(out).not.toContain('priya.n@example.com');
+  });
+  it('names a pending email member in the history by the masked address', () => {
+    const out = html('owner', {
+      history: list<TeamEvent>([
+        {
+          seq: '4',
+          memberUserId: 'email:priya.n@example.com',
+          action: 'invited',
+          fromRole: null,
+          toRole: 'viewer',
+          actorId: 'owner-1',
+          createdAt: '2026-10-03T00:00:00.000Z',
+        },
+      ]),
+    });
+    expect(out).toContain('Invited · p***@example.com was invited as Viewer');
+    expect(out).not.toContain('priya.n@example.com');
+  });
+  it('asks for an email address first, with the account ID as the secondary way', () => {
+    const out = html('owner');
+    expect(out).toContain('Email address *');
+    expect(out).toContain('Invite someone by email. They join after confirming that email and accepting.');
+    expect(out).toContain('Invite by account ID instead');
+    expect(out).not.toContain('Account ID *');
+    expect(out).not.toContain('not supported');
+  });
+  it('lets only the owner grant admin, as the service does', () => {
+    const owners = html('owner');
+    const admins = html('admin');
+    expect(owners.slice(owners.indexOf('id="invite"'))).toContain('<option value="admin">');
+    expect(admins.slice(admins.indexOf('id="invite"'))).not.toContain('<option value="admin">');
+  });
+  it('shows the normalised address and the role in the review, with the wait stated', () => {
+    const out = renderToString(<InviteReview email="  Priya.N@Example.com " label="" role="finance" />);
+    expect(out).toContain('Invite priya.n@example.com as Finance. They join after confirming that email and accepting.');
+    expect(out).toContain('<code class="pp-wrap">priya.n@example.com</code>');
+    expect(out).not.toContain('Account ID');
+    expect(out).not.toMatch(/has an account|no account|already/i);
   });
 });
 
