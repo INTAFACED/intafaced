@@ -13,7 +13,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type { Principal } from '@intafaced/auth';
 import { div, formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
+import { requireCopyFollowId } from './copy-lifecycle.js';
 import { CopyError } from './errors.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import type { CopyFollowStore } from './follow-store.js';
@@ -125,8 +127,24 @@ function leaderFillKey(fillId: string): string | null {
   }
 }
 
+/**
+ * Trail rows are evidence on the follower's own follow. A missing follow, or
+ * one owned by someone else, records nothing — including `trade.copy_not_following`.
+ * The call still throws whatever `run` throws.
+ */
+async function callerOwnsFollow(store: CopyFollowStore, principal: Principal, followId: string): Promise<boolean> {
+  let id: string;
+  try {
+    id = requireCopyFollowId(followId);
+  } catch {
+    return false;
+  }
+  const follow = await store.getFollow(id);
+  return follow !== null && follow.followerId === principal.userId;
+}
+
 async function appendRefusal(events: MirrorEventLog, followId: string, fillId: string, err: unknown, at: Date): Promise<void> {
-  if (!(err instanceof CopyError)) return;
+  if (!(err instanceof CopyError) || err.code === 'trade.copy_not_following') return;
   const leaderFillId = leaderFillKey(fillId);
   if (!leaderFillId || !followId.trim()) return;
   await events.append({
@@ -140,29 +158,34 @@ async function appendRefusal(events: MirrorEventLog, followId: string, fillId: s
 
 export async function recordPlanMirrorEvents<T extends { qty: string; notional: string; fillId: string }>(
   events: MirrorEventLog,
+  store: CopyFollowStore,
+  principal: Principal,
   input: { followId: string; fillId: string },
   at: Date,
   run: () => Promise<T>,
 ): Promise<T> {
+  const owned = await callerOwnsFollow(store, principal, input.followId);
   const leaderFillId = leaderFillKey(input.fillId);
-  if (leaderFillId) {
+  if (owned && leaderFillId) {
     await events.append({ followId: input.followId, leaderFillId, kind: 'intent', at });
   }
   try {
     const planned = await run();
-    const qty = parseAmount(planned.qty);
-    const notional = parseAmount(planned.notional);
-    await events.append({
-      followId: input.followId,
-      leaderFillId: planned.fillId,
-      kind: 'planned',
-      quantity: qty,
-      price: div(notional, qty, 'half-up'),
-      at,
-    });
+    if (owned) {
+      const qty = parseAmount(planned.qty);
+      const notional = parseAmount(planned.notional);
+      await events.append({
+        followId: input.followId,
+        leaderFillId: planned.fillId,
+        kind: 'planned',
+        quantity: qty,
+        price: div(notional, qty, 'half-up'),
+        at,
+      });
+    }
     return planned;
   } catch (err) {
-    await appendRefusal(events, input.followId, input.fillId, err, at);
+    if (owned) await appendRefusal(events, input.followId, input.fillId, err, at);
     throw err;
   }
 }
@@ -170,12 +193,15 @@ export async function recordPlanMirrorEvents<T extends { qty: string; notional: 
 export async function recordPlaceMirrorEvents<T extends { fillId: string; orderId: string; qty: string; price: string }>(
   events: MirrorEventLog,
   store: CopyFollowStore,
+  principal: Principal,
   input: { followId: string; fillId: string },
   at: Date,
   run: () => Promise<T>,
 ): Promise<T> {
+  const owned = await callerOwnsFollow(store, principal, input.followId);
   try {
     const placed = await run();
+    if (!owned) return placed;
     const followerPrice = parseAmount(placed.price);
     const qty = parseAmount(placed.qty);
     await events.append({
@@ -204,7 +230,7 @@ export async function recordPlaceMirrorEvents<T extends { fillId: string; orderI
     }
     return placed;
   } catch (err) {
-    await appendRefusal(events, input.followId, input.fillId, err, at);
+    if (owned) await appendRefusal(events, input.followId, input.fillId, err, at);
     throw err;
   }
 }

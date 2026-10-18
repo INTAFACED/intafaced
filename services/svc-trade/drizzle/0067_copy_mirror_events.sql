@@ -6,8 +6,7 @@
 -- trail a follow can show: leader intent, plan, place, partial, fill, refusal,
 -- skip, and the signed price difference. Rows are immutable the way
 -- ledger.ledger_entries is: UPDATE and DELETE are refused by the database.
--- TRUNCATE stays allowed so the test harness can empty the schema; the
--- acceptance bar is UPDATE and DELETE.
+-- Emptying the whole table (test harness reset) stays allowed; the acceptance bar is UPDATE and DELETE.
 --
 -- Replay of the same leader fill inserts nothing new. intent/planned/placed/
 -- rejected/skipped/divergence are unique per follow and leader fill. partial

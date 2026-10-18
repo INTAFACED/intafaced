@@ -312,7 +312,7 @@ export class CopyService {
    */
   async placeMirrorForFollow(principal: Principal, input: { followId: string; fillId: string; leaderPaper: boolean }) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      recordPlaceMirrorEvents(this.mirrorEvents, store, input, this.now(), async () => {
+      recordPlaceMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), async () => {
         if (!this.placeMirrorEnabled) {
           throw new CopyError(
             'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
@@ -691,7 +691,9 @@ export class CopyService {
    */
   async planMirrorForFollow(principal: Principal, input: PlanMirrorInput) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      recordPlanMirrorEvents(this.mirrorEvents, input, this.now(), () => this.planMirrorForFollowExclusive(store, principal, input)),
+      recordPlanMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), () =>
+        this.planMirrorForFollowExclusive(store, principal, input),
+      ),
     );
   }
 

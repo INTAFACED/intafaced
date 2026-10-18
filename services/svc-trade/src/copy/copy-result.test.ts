@@ -4,6 +4,7 @@
  * average (100+110)/2 = 105, realised (120−105)×1 − 0.3 = 14.7,
  * unrealised (55−50)×2 = 10.
  */
+import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -545,5 +546,65 @@ describe('copy follow result, trail and export', () => {
 
     const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed(OTHER));
     await expect(caller.copy.result({ followId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('writes no trail row when the caller does not own the follow', async () => {
+    const events = new SqlMirrorEventLog(db!.sql);
+    const copy = new CopyService(new MemoryLedger(), {
+      feeShareLaw: { published: true, leaderShareBps: 5_000, earningsCapPerFollower: '100', decayRoundTrips: 100, decayShareBps: 1_000 },
+      jurisdictionLaw: { published: true, allowedRegions: ['SG'] },
+      placeMirrorEnabled: true,
+      store: new SqlCopyFollowStore(db!.sql),
+      sql: db!.sql,
+      mirrorEvents: events,
+      now: () => NOW,
+    });
+    const followed = await copy.follow(principal(), {
+      leaderId: LEADER,
+      region: 'SG',
+      permittedMarkets: ['BTC-USDT'],
+      maxNotionalPerOrder: '1000',
+      maxAggregateExposure: '10000',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+    });
+    const followId = followed.followId;
+    const foreignPlan = {
+      followId,
+      fillId: 'lf-foreign',
+      marketId: 'ignored',
+      side: 'buy' as const,
+      qty: '1',
+      notional: '1',
+    };
+    await expect(copy.planMirrorForFollow(principal(OTHER), foreignPlan)).rejects.toMatchObject({
+      code: 'trade.copy_not_following',
+    });
+    await expect(copy.placeMirrorForFollow(principal(OTHER), { followId, fillId: 'lf-foreign', leaderPaper: false })).rejects.toMatchObject(
+      { code: 'trade.copy_not_following' },
+    );
+    const ownedRows = await db!.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM copy_mirror_events WHERE follow_id = ${followId}
+    `;
+    expect(Number(ownedRows[0]!.n)).toBe(0);
+    expect((await copy.result(principal(), followId)).rejects).toBe(0);
+
+    const invented = randomUUID();
+    await expect(
+      copy.planMirrorForFollow(principal(), {
+        followId: invented,
+        fillId: 'lf-invented',
+        marketId: 'ignored',
+        side: 'buy',
+        qty: '1',
+        notional: '1',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.copy_not_following' });
+    await expect(
+      copy.placeMirrorForFollow(principal(), { followId: invented, fillId: 'lf-invented', leaderPaper: false }),
+    ).rejects.toMatchObject({ code: 'trade.copy_not_following' });
+    const inventedRows = await db!.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM copy_mirror_events WHERE follow_id = ${invented}
+    `;
+    expect(Number(inventedRows[0]!.n)).toBe(0);
   });
 });
