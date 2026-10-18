@@ -168,6 +168,7 @@ export function AuthForm({ register }: { register: boolean }) {
         identifierForRequest = input.value.trim();
         setIdentifier(input.value);
       } else {
+        setResult(null);
         setMissingPasskeyIdentifier(true);
         if (input instanceof HTMLInputElement) input.focus();
         return;
