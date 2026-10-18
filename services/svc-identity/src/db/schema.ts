@@ -509,8 +509,26 @@ export const organizationMembers = identity.table(
   (t) => [uniqueIndex('organization_members_pk').on(t.orgId, t.userId), index('organization_members_user_idx').on(t.userId)],
 );
 
+/**
+ * A closure request. The SQL migration owns the one-open partial unique index.
+ * Closing does not remove this row, the user, or any ledger history.
+ */
+export const accountClosures = identity.table('account_closures', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  status: text('status').notNull(),
+  requestedAt: tstz('requested_at').notNull(),
+  effectiveAt: tstz('effective_at').notNull(),
+  finalizedAt: tstz('finalized_at'),
+  blockers: jsonb('blockers').notNull(),
+  clientRequestId: text('client_request_id').notNull(),
+});
+
 export const schema = {
   users,
+  accountClosures,
   profiles,
   kycRecords,
   rankState,
