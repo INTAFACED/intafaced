@@ -181,7 +181,7 @@ describe('GET protocol desk and the token section', () => {
     expect(urls.some((u) => u.includes('/api/token/trpc/burnedSupply'))).toBe(true);
     expect(json.reads['token.epoch'].part).toMatchObject({ kind: 'ok', data: { shape: 'record' } });
     expect(json.reads['token.proposals'].part).toMatchObject({ kind: 'failed', forbidden: true });
-    expect(json.reads['token.proposals'].part.message).toMatch(/^Your console session does not have token read permission yet/);
+    expect(json.reads['token.proposals'].part.message).toMatch(/^Your console session does not have token read permission/);
   });
 });
 
@@ -337,7 +337,7 @@ describe('POST on desks with actions', () => {
     expect(res.status).toBe(409);
     expect(json).toMatchObject({
       ok: false,
-      refusal: { title: 'Your console session does not have Academy operator permission yet', changed: 'no' },
+      refusal: { title: 'Your console session does not have Academy operator permission', changed: 'no' },
     });
   });
   it('academy: runs the freeze at svc-academy with the approval ids', async () => {

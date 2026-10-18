@@ -12,7 +12,7 @@ import { DELIVERIES_PAGE, readDeliveries, readHealth, type NotifyView } from './
 const LABELS: PartLabels = {
   service: 'svc-notify',
   forbiddenMessage:
-    'svc-notify did not accept your founder session. Delivery outcomes need the operator read permission (admin:read), and founder sign-in does not carry it yet.',
+    'svc-notify did not accept your founder session. Delivery outcomes need the operator read permission (admin:read), and founder sign-in does not carry it.',
 };
 
 export async function loadNotify(ctx: FounderCallContext, now: Date = new Date()): Promise<NotifyView> {

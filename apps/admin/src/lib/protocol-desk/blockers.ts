@@ -193,7 +193,7 @@ export interface Blocker {
 /** The customer rooms' sentences (`blk_*` in their copy.ts), in the same words. `source_down` is reworded for a founder: it names the read and its time. */
 const SENTENCES: Readonly<Record<BlockerCode, string>> = {
   p1_go: 'Not activated: the INTACHAIN network launch has not been approved yet. Nothing here runs on it.',
-  no_chain_service: 'There is no INTACHAIN chain service or validator set running yet, so this would be refused rather than shown as done.',
+  no_chain_service: 'No INTACHAIN chain service or validator set runs on this stack, so this would be refused rather than shown as done.',
   no_bridge_service: 'No bridge service exists, so a bridge request would be refused rather than shown as locked or minted.',
   source_down: 'Cannot confirm: could not load {source} ({reason}).',
   chain_unreachable: 'The chain is unreachable: {reason}.',
