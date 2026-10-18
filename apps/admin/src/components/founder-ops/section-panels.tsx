@@ -15,6 +15,8 @@ import {
   PAGE_LIMIT,
   searchKey,
   SECTION_SPECS,
+  SETTLEMENT_ROW_SECTIONS,
+  settlementStatusChip,
   statusChip,
   statusKey,
   type Query,
@@ -89,6 +91,7 @@ export function NoFee({ status }: { status: string }) {
 }
 
 const chipOf = (value: string): ReactNode => <StatusChip spec={statusChip(value)} />;
+const settlementChipOf = (value: string): ReactNode => <StatusChip spec={settlementStatusChip(value)} />;
 const idCell = (value: string): ReactNode => (
   <span className="mp-idcell">
     <code title={value}>{shortId(value)}</code> <CopyButton value={value} label="Copy" />
@@ -230,7 +233,7 @@ const COLUMNS: { [S in keyof ItemMap]: readonly Col<Item<S>>[] } = {
       text: (r) => (r.failureCode ? `${r.status} (${r.failureCode})` : r.status),
       cell: (r) => (
         <>
-          {chipOf(r.status)}
+          {settlementChipOf(r.status)}
           {r.failureCode ? <code className="mp-sub"> {r.failureCode}</code> : null}
         </>
       ),
@@ -259,12 +262,12 @@ const COLUMNS: { [S in keyof ItemMap]: readonly Col<Item<S>>[] } = {
     { label: 'Settled', text: (r) => whenText(r.settledAt), cell: (r) => when(r.settledAt) },
   ],
   payouts: [
-    { label: 'Payout', text: (r) => r.id, cell: (r) => idCell(r.id) },
+    { label: 'Settlement', text: (r) => r.id, cell: (r) => idCell(r.id) },
     { label: 'Window', text: (r) => r.window },
     { label: 'Gross', right: true, text: (r) => moneyText(r.gross, r.assetId), cell: (r) => moneyCell(r.gross, r.assetId) },
     { label: 'Fees', right: true, text: (r) => moneyText(r.fees, r.assetId), cell: (r) => moneyCell(r.fees, r.assetId) },
     { label: 'Net', right: true, text: (r) => moneyText(r.net, r.assetId), cell: (r) => moneyCell(r.net, r.assetId) },
-    { label: 'Status', text: (r) => r.status, cell: (r) => chipOf(r.status) },
+    { label: 'Status', text: (r) => r.status, cell: (r) => settlementChipOf(r.status) },
     { label: 'Method', text: (r) => r.payoutMethod ?? '', cell: (r) => orDash(r.payoutMethod) },
     { label: 'Reference', text: (r) => r.payoutReference ?? '', cell: (r) => orDash(r.payoutReference) },
     { label: 'Created', text: (r) => r.createdAt, cell: (r) => when(r.createdAt) },
@@ -569,6 +572,7 @@ export function ListFilters({
   searchParam,
   extraDropKeys,
   label,
+  statusLabel,
 }: {
   path: string;
   query: Query | undefined;
@@ -577,6 +581,7 @@ export function ListFilters({
   searchParam?: string | undefined;
   extraDropKeys: readonly string[];
   label: string;
+  statusLabel?: ((status: string) => string) | undefined;
 }) {
   const own = new Set([statusParam, searchParam, ...extraDropKeys].filter((k): k is string => k !== undefined));
   const kept = Object.entries(query ?? {}).flatMap(([key, raw]) => {
@@ -599,7 +604,7 @@ export function ListFilters({
             <option value="">All statuses</option>
             {statuses.map((s) => (
               <option key={s} value={s}>
-                {statusChip(s).label}
+                {(statusLabel ?? ((v: string) => statusChip(v).label))(s)}
               </option>
             ))}
           </select>
@@ -735,6 +740,7 @@ export function SectionPanel({ section, result, path, query, readAt, testData }:
       searchParam={spec.searchable ? searchKey(section) : undefined}
       extraDropKeys={[cursorKey(section)]}
       label={spec.title}
+      statusLabel={SETTLEMENT_ROW_SECTIONS.includes(section) ? (v) => settlementStatusChip(v).label : undefined}
     />
   );
   const filtered = one(query, statusKey(section)) !== undefined || one(query, searchKey(section)) !== undefined;
@@ -803,7 +809,7 @@ export function SectionKpis({
         return (
           <KpiTile
             key={section}
-            label={SECTION_SPECS[section].title}
+            label={SECTION_SPECS[section].kpiLabel ?? SECTION_SPECS[section].title}
             value={
               catalog ? (
                 <span className="mp-muted">Not in pay service</span>
