@@ -990,10 +990,13 @@ export const MERCHANT_PAYMENTS = [
   { n: 6, amount: '5.50', customer: 'cia', want: 'created' },
   { n: 7, amount: '18.00', customer: 'ada', want: 'captured' },
   { n: 8, amount: '2.50', customer: 'ben', want: 'created' },
-  // The payout payment. Its own settlement window (the day it is captured), so the payout is not entangled with the
-  // dispute and the partial refund on the older window: those draw the merchant proceeds down, and a payout is held from them.
+  // The payout payment. On a stack seeded on an earlier day than today, it sits alone in today's settlement window, so the payout
+  // is not entangled with the dispute on the older window (a dispute draws the merchant proceeds down, and a payout is held from
+  // them). Seeded in one pass on a fresh stack, payments 1-10 share one UTC day and one window; the payout then has to cover
+  // all of them and svc-pay may refuse it.
   { n: 9, amount: '20.00', customer: 'ada', want: 'captured' },
-  // The refund payment (see MERCHANT_REFUND). Captured on the day it is seeded, after the settlement above is posted.
+  // The refund payment (see MERCHANT_REFUND): a fresh payment, so card-sandbox still holds its charge. On the author's stack it was
+  // captured after payment 9's window had posted, so it is outside that settlement; on a fresh stack it shares the window.
   { n: 10, amount: '18.00', customer: 'ben', want: 'captured' },
 ];
 /** The spec payment whose settlement window is the one that gets paid out. */
@@ -1255,8 +1258,10 @@ export function planPayoutDestination({ destinations, spec = MERCHANT_PAYOUT_DES
 
 /**
  * Where the payout of the payout window's settlement (`window`, see MERCHANT_PAYOUT_PAYMENT_N) stands.
- *   sent      the oldest payable settlement is paid_out
- *   send      its approval is approved: the owner sends
+ *   sent      the settlement is paid_out
+ *   failed    the settlement's payout failed; populate does not retry a failed payout
+ *   send      its approval is approved, or consumed (the payout was admitted and a later guard refused it): the owner sends again
+ *             and svc-pay resumes the admission. A consumed approval never means a new request.
  *   founders  the checker approved and two founders are still needed (populate does not act as a founder)
  *   decide    the request is pending: the second person decides
  *   request   nothing filed yet
@@ -1264,11 +1269,14 @@ export function planPayoutDestination({ destinations, spec = MERCHANT_PAYOUT_DES
  */
 export function planMerchantPayoutStage({ settlements, approvals, window }) {
   const target =
-    (settlements ?? []).find((s) => s.window === window && (s.status === 'posted' || s.status === 'paid_out') && Number(s.net) > 0) ?? null;
+    (settlements ?? []).find(
+      (s) => s.window === window && (s.status === 'posted' || s.status === 'paid_out' || s.status === 'failed') && Number(s.net) > 0,
+    ) ?? null;
   if (!target) return { stage: 'none', target: null, approval: null };
   if (target.status === 'paid_out') return { stage: 'sent', target, approval: null };
+  if (target.status === 'failed') return { stage: 'failed', target, approval: null };
   const mine = (approvals ?? []).filter((a) => a.settlementId === target.id && PAYOUT_REQUEST_LIVE_STATUSES.has(a.status));
-  const approved = mine.find((a) => a.status === 'approved') ?? null;
+  const approved = mine.find((a) => a.status === 'approved') ?? mine.find((a) => a.status === 'consumed') ?? null;
   if (approved) return { stage: 'send', target, approval: approved };
   const pending = mine.find((a) => a.status === 'pending') ?? null;
   if (pending) return { stage: pending.checkerUserId ? 'founders' : 'decide', target, approval: pending };
@@ -1324,7 +1332,7 @@ export function describeMoneyRefusal(refusal) {
 //
 // Payouts need a risk tier on the merchant: approval and founder thresholds, a daily payout cap and a beneficiary cap
 // (svc-pay control/guards.ts). The values below were agreed with the merchant lane (sovereign-35) for the LOCAL TEST
-// stack only and are recorded in LOCALCONFIG.md. They are not a proposal for real tiers; the real ladder stays unpublished.
+// stack only and are recorded in the local notes. They are not a proposal for real tiers; the real ladder stays unpublished.
 // Defining a tier and assigning it are founder changes: one founder submits, a DIFFERENT founder confirms with the hash
 // of the change they were shown (`founderChangeHash`). On this stack the two founders are the two TEST operators.
 
@@ -2969,7 +2977,9 @@ const OPERATORS_MISSING =
  * before any factor is read, and it is reported as such, never worked around.
  */
 async function ensurePayStepUp(ctx, merchantId) {
-  if (ctx.payStepUp) return ctx.payStepUp;
+  // A held token is reused only while it has at least 30 s left; a failed answer is kept for the run.
+  const held = ctx.payStepUp;
+  if (held && (!held.ok || Date.parse(held.expiresAt) - Date.now() >= 30_000)) return held;
   const { user } = ctx;
   const fail = (refusal, extra = {}) => (ctx.payStepUp = { ok: false, refusal, ...extra });
   const probe = await user.mutate('identity', 'auth.stepUpPay', {});
@@ -3048,12 +3058,10 @@ async function operatorFreshTotp(gctx, letter) {
 async function founderChange(pair, { submitProc, confirmProc, input, target, expectedVersion, reason }) {
   const { gctx, gates, a, b } = pair;
   const hash = tierChangeHash(target, expectedVersion);
-  const submitted = trpcData(await gctx.edge.mutate('pay', submitProc, input, a.loginToken));
+  const response = await gctx.edge.mutate('pay', submitProc, input, a.loginToken);
+  const submitted = trpcData(response);
   let outcome = submitted?.outcome;
-  if (!outcome) {
-    const again = await gctx.edge.mutate('pay', submitProc, input, a.loginToken);
-    return { ok: false, refusal: describeMoneyRefusal(gates.refusalText(again)) };
-  }
+  if (!outcome) return { ok: false, refusal: describeMoneyRefusal(gates.refusalText(response)) };
   if (outcome === 'pending_second_approval') {
     const confirmed = await gctx.edge.mutate(
       'pay',
@@ -3126,7 +3134,7 @@ async function populateMerchantTiers(ctx, merchantId) {
       record(
         'merchant',
         `risk tier ${item(tier)}`,
-        out.ok ? 'created' : 'refused',
+        out.ok ? (out.outcome === 'noop' ? 'exists' : 'created') : 'refused',
         out.ok
           ? `${out.outcome}: approval from ${tier.approvalThresholds[0].amount}, two founders from ${tier.founderThresholds[0].amount}, payout cap ${tier.caps[0].limit}/day, beneficiaries ${tier.caps[1].limit}, ttl 24h (operator A proposed, operator B confirmed)`
           : out.refusal,
@@ -3174,7 +3182,7 @@ async function populateMerchantTiers(ctx, merchantId) {
       record(
         'merchant',
         'risk tier assignment',
-        out.ok ? 'created' : 'refused',
+        out.ok ? (out.outcome === 'noop' ? 'exists' : 'created') : 'refused',
         out.ok ? `${merchantId} on ${tier.id}: ${out.outcome} (operator A proposed, operator B confirmed)` : out.refusal,
       );
     }
@@ -3358,6 +3366,14 @@ async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows,
   if (stage === 'sent') {
     return record('merchant', 'payout', 'exists', `settlement ${target.id} paid_out, net ${target.net} ${target.assetId}`);
   }
+  if (stage === 'failed') {
+    return record(
+      'merchant',
+      'payout',
+      'skipped',
+      `settlement ${target.id} has a failed payout; populate does not retry or re-request a failed payout`,
+    );
+  }
   if (!destinationReady) {
     return record('merchant', 'payout', 'skipped', 'no active saved payout destination yet (see "payout destination" above)');
   }
@@ -3404,6 +3420,20 @@ async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows,
         'refused',
         'the open request was filed by the owner, and the owner cannot approve their own request; cancel it so the teammate can file a new one',
       );
+    }
+    // Approve only what this seed asked for: filed by the TEST teammate, for this settlement's rail, asset and net.
+    const pair = await operatorPair(ctx);
+    const mismatch = !pair.ok
+      ? pair.refusal
+      : approval.makerUserId !== pair.b.userId
+        ? 'it was not filed by the TEST teammate'
+        : approval.railId !== spec.railId
+          ? `it names rail ${approval.railId}, not ${spec.railId}`
+          : approval.assetCode !== target.assetId || Number(approval.amount) !== Number(target.net)
+            ? `it names ${approval.amount} ${approval.assetCode}, not the settlement's ${target.net} ${target.assetId}`
+            : null;
+    if (mismatch) {
+      return record('merchant', 'payout approval', 'skipped', `an open request is not approved by populate: ${mismatch}`);
     }
     const decided = await call(user, 'm', 'pay', 'merchantControl.approvals.decide', {
       approvalId: approval.approvalId,

@@ -579,6 +579,16 @@ try {
   assert.equal(stage([stPending]), 'decide');
   assert.equal(stage([{ ...stPending, checkerUserId: 'u2' }]), 'founders');
   assert.equal(stage([{ ...stPending, status: 'approved' }]), 'send');
+  // An approval the payout already consumed (admitted, then refused by a later guard) resumes the send; it never files a new request.
+  assert.equal(stage([{ ...stPending, status: 'consumed' }]), 'send');
+  assert.equal(
+    stage([
+      { ...stPending, status: 'consumed' },
+      { ...stPending, approvalId: 'a2', status: 'pending' },
+    ]),
+    'send',
+  );
+  assert.equal(planMerchantPayoutStage({ settlements: [{ ...dsPosted, status: 'failed' }], approvals: [], ...stWin }).stage, 'failed');
   assert.equal(stage([{ ...stPending, status: 'expired' }]), 'request');
   assert.equal(stage([{ ...stPending, settlementId: 'other' }]), 'request');
 
@@ -1061,6 +1071,10 @@ try {
     moneyFn.indexOf('populateMerchantStepUpMoney(ctx') < moneyFn.indexOf('openDisputeByApprovalPair('),
     'dispute comes after settlement and payout',
   );
+  // The checker approves only what populate asked for, and the step-up token is re-minted when it is about to expire.
+  assert.match(payFlowFn, /approval\.makerUserId !== pair\.b\.userId/);
+  assert.match(payFlowFn, /Date\.parse\(held\.expiresAt\) - Date\.now\(\) >= 30_000/);
+  assert.ok(payFlowFn.indexOf('approval.makerUserId !== pair.b.userId') < payFlowFn.indexOf("'merchantControl.approvals.decide'"));
   // The teammate is a real MFA session: only the invite accept borrows a pay:write token, and the owner approves unaided.
   const mateFn = payFlowFn.slice(
     payFlowFn.indexOf('async function ensurePayoutTeammate'),
