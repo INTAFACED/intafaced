@@ -304,7 +304,7 @@ const schema = serviceEnvSchema
           if (text === '1' || text === 'true' || text === 'on' || text === 'yes') return true;
         }
         return v;
-      }, z.boolean()),
+      }, z.boolean().default(false)),
       /**
        * Owner-published cooling-off, in days, from 1 to 90.
        * Blank or unset refuses `identity.close_cooling_off_unset`. Never a default.
