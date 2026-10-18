@@ -71,21 +71,21 @@ import type { TradeOpsAdmin } from './admin/service.js';
 
 /** Unsigned decimal string. Reuses the exchange contract's rule rather than inventing a second one. */
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
-const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
+const copySignedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
 
 const copyResultAssetOutput = z
   .object({
     quoteAsset: z.string(),
-    tradingFee: signedDecimal.nullable(),
+    tradingFee: copySignedDecimal.nullable(),
     tradingFeeReason: z.string().nullable(),
-    leaderShare: signedDecimal.nullable(),
+    leaderShare: copySignedDecimal.nullable(),
     leaderShareReason: z.string().nullable(),
     leaderShareSkippedReasons: z.array(z.string()),
     mirroredOrders: z.number().int(),
     fills: z.number().int(),
-    realisedPnl: signedDecimal.nullable(),
+    realisedPnl: copySignedDecimal.nullable(),
     realisedPnlReason: z.string().nullable(),
-    unrealisedPnl: signedDecimal.nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
     unrealisedPnlReason: z.string().nullable(),
   })
   .strict();
@@ -96,13 +96,13 @@ const copyResultOutput = z
     mirroredOrders: z.number().int(),
     fills: z.number().int(),
     rejects: z.number().int(),
-    tradingFee: signedDecimal.nullable(),
+    tradingFee: copySignedDecimal.nullable(),
     tradingFeeReason: z.string().nullable(),
-    leaderShare: signedDecimal.nullable(),
+    leaderShare: copySignedDecimal.nullable(),
     leaderShareReason: z.string().nullable(),
-    realisedPnl: signedDecimal.nullable(),
+    realisedPnl: copySignedDecimal.nullable(),
     realisedPnlReason: z.string().nullable(),
-    unrealisedPnl: signedDecimal.nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
     unrealisedPnlReason: z.string().nullable(),
     assets: z.array(copyResultAssetOutput),
   })
@@ -116,8 +116,8 @@ const copyTrailRowOutput = z
     kind: z.string(),
     followerOrderId: z.string().nullable(),
     followerFillId: z.string().nullable(),
-    quantity: signedDecimal.nullable(),
-    price: signedDecimal.nullable(),
+    quantity: copySignedDecimal.nullable(),
+    price: copySignedDecimal.nullable(),
     basisPoints: z.string().nullable(),
     code: z.string().nullable(),
     occurredAt: z.string(),
