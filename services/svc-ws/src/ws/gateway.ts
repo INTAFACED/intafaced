@@ -135,6 +135,11 @@ export interface WebSocketGatewayOptions {
    * upgrades to a multiplexed session; every `?market=` request is untouched.
    */
   readonly mux?: MuxGateway;
+  /**
+   * Owner-published new-connection window. Omitted or a true result admits.
+   * False refuses this upgrade and leaves sockets already open alone.
+   */
+  readonly admitNewConnection?: () => boolean;
 }
 
 export interface WebSocketGateway {
@@ -202,7 +207,7 @@ function parseChannel(raw: string | null): StreamChannel | null {
 }
 
 export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSocketGateway {
-  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs, mux } = options;
+  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs, mux, admitNewConnection } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -279,13 +284,18 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
     // No `market` parameter at all: the multiplexed door, when one is mounted.
     // `?market=` with any value (even empty) is the single-market socket and is
     // validated exactly as before.
-    if (mux && !url.searchParams.has('market')) return mux.upgrade(request, socket, head, url);
+    if (mux && !url.searchParams.has('market')) {
+      if (admitNewConnection && !admitNewConnection()) return reject(socket, 429, 'Too Many Requests');
+      return mux.upgrade(request, socket, head, url);
+    }
 
     const marketId = url.searchParams.get('market');
     if (!marketId || !MARKET_ID.test(marketId)) return reject(socket, 400, 'Bad Request');
 
     const feedRefuse = marketDataFeedRefuse(url.searchParams, { allowPublicSbeL2: true, allowNativeL3: true });
     if (feedRefuse) return writeMarketDataFeedRefuse(socket, feedRefuse);
+
+    if (admitNewConnection && !admitNewConnection()) return reject(socket, 429, 'Too Many Requests');
 
     if (isNativeL3Ask(url.searchParams)) {
       if (!l3Hub) return writeMarketDataFeedRefuse(socket, DEPTH_L3_UNAVAILABLE);

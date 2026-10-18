@@ -10,6 +10,11 @@ import { defineConfig } from 'vitest/config';
 // apply when the variable is not already exported by the caller.
 export default defineConfig({
   test: {
+    // Same budget as svc-bank, svc-matching, and the other services. The
+    // defaults (5s test, 10s hook) are shorter than a full-suite schema reset
+    // and the 20-position liquidation race on the shared test database.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     setupFiles: ['./vitest.futures-open-fixture.ts'],
     env: {
       // TRD-0522: production create refuses while TRADE_ALGO_JOBS_ENABLED is off.

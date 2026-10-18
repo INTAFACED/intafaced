@@ -8,8 +8,10 @@
  * Here the client talks to a fetch stub that answers like svc-ledger's S2S door,
  * backed by the in-memory reference ledger.
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, parseAmount, recipes, userAvailable, formatAmount, type PostRequest } from '@intafaced/ledger-client';
+import { classifyHoldPostError } from './spot/hold-outcome.js';
 import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './convert/quote.js';
 import { planConvertSettle, postConvertSettle } from './convert/settle.js';
 import { convertSettleIdsFor } from './convert/ids.js';
@@ -111,6 +113,38 @@ describe('createLedgerClient.getTxByKey', () => {
     );
     const client = createLedgerClient('http://ledger.test', SECRET);
     await expect(client.getTxByKey('order.hold:missing-shape')).rejects.toThrow(/unreadable body/);
+  });
+});
+
+describe('createLedgerClient timeout', () => {
+  it('aborts every ledger call and a timeout is unknown, never a refusal', async () => {
+    const src = readFileSync(new URL('./ledger-client.ts', import.meta.url), 'utf8');
+    expect(src).toContain('signal: AbortSignal.timeout(25_000)');
+
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        if (!(init?.signal instanceof AbortSignal)) throw new Error('ledger call has no timeout signal');
+        signals.push(init.signal);
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }),
+    );
+    const client = createLedgerClient('http://ledger.test', SECRET);
+    const postErr = await client
+      .post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: 'timeout' }))
+      .then(() => {
+        throw new Error('post resolved');
+      })
+      .catch((err: unknown) => err);
+    expect(postErr).toBeInstanceOf(DOMException);
+    expect((postErr as DOMException).name).toBe('TimeoutError');
+    expect(classifyHoldPostError(postErr)).toBe('unknown');
+
+    await expect(client.balance(userAvailable(USER, 'USDT'))).rejects.toMatchObject({ name: 'TimeoutError' });
+    await expect(client.getTxByKey('order.hold:timeout')).rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(signals).toHaveLength(3);
+    expect(signals.every((signal) => signal.aborted === false)).toBe(true);
   });
 });
 

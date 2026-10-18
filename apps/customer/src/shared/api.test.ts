@@ -169,6 +169,17 @@ describe('a call with its own bearer', () => {
     await api.mutate('pay', 'settlement.payout', {}, z.unknown());
     expect(ended).toEqual(['session-token']);
   });
+  it('keeps the session when the edge cannot reach identity (503 is retryable, only 401 signs out)', async () => {
+    const ended: Array<string | undefined> = [];
+    const api = createApiClient({
+      token: () => 'session-token',
+      onUnauthorized: (t) => ended.push(t),
+      fetch: async () =>
+        new Response(JSON.stringify({ code: 'edge.authority_unavailable' }), { status: 503, headers: { 'retry-after': '1' } }),
+    });
+    expect(await api.query('identity', 'identity.me', {}, z.unknown())).toMatchObject({ ok: false, code: 'edge.authority_unavailable' });
+    expect(ended).toEqual([]);
+  });
   it('keeps the session only for the codes a call names as its own answer (a wrong code); any other 401 ends it', async () => {
     const ended: Array<string | undefined> = [];
     const withCode = (code?: string) =>

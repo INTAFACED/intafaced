@@ -54,7 +54,7 @@ export interface ExchangeResult {
   /** Null for an anonymous request — which is a valid outcome, not an error. */
   principal: Principal | null;
   /** Why a token was refused. Null when accepted or when none was offered. */
-  rejected: 'malformed' | 'expired' | 'invalid' | null;
+  rejected: 'malformed' | 'expired' | 'invalid' | 'unavailable' | null;
 }
 
 export interface ExchangeOptions {
@@ -83,6 +83,10 @@ export interface ExchangeOptions {
   fetch?: typeof globalThis.fetch;
   /** Actual route module resolved by the server, rather than a caller-selected product. */
   resolvedProduct?: string;
+  /** Cap on the per-request identity authority read (see `EDGE_AUTHORITY_*_TIMEOUT_MS`). Default strict 3000 ms. */
+  authorityTimeoutMs?: number;
+  /** Reuse of a positive authority answer for the same session, at most 1000 ms. Default 0 (coalesce only). */
+  authorityPositiveCacheMs?: number;
   /**
    * Dedicated read key matching identity's IDENTITY_EDGE_AUTHORITY_SECRET.
    * Missing configuration refuses authenticated forwarding.
@@ -386,15 +390,21 @@ export async function exchangePrincipal(
     return { headers: forward, principal: null, rejected: 'expired' };
   }
 
-  const authority = await readEdgeAuthority(principal, {
+  const read = await readEdgeAuthority(principal, {
     ...options,
+    timeoutMs: options.authorityTimeoutMs,
+    positiveCacheMs: options.authorityPositiveCacheMs,
     clientIp,
     origin,
     accountId: requestAccountId(headers),
     product: options.resolvedProduct ?? requestProduct(headers),
     apiKeyBearerSatisfied: presentedApiKey,
   });
-  if (!authority) return { headers: forward, principal: null, rejected: 'invalid' };
+  // Identity answered "no" -> refuse as before. Identity could not be asked -> say so; the caller
+  // answers 503 and keeps the session instead of forwarding anonymous.
+  if (read.status === 'unavailable') return { headers: forward, principal: null, rejected: 'unavailable' };
+  if (read.status !== 'eligible') return { headers: forward, principal: null, rejected: 'invalid' };
+  const authority = read.proof;
   // Identity's current tier may have changed since this JWT was minted.
   principal = { ...principal, tier: authority.account.kycTier };
 
