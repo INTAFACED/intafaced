@@ -12,21 +12,35 @@ import { dirname, join } from 'node:path';
 const ENTRY = ['AGENTS.md', 'CLAUDE.md', 'CONTRIBUTING.md', 'README.md', 'tooling/agent-protocol/AGENT_PROTOCOL.md'];
 const EXACT_STALE = ['Merge when done', 'may merge their own'];
 const INSTRUCTED = ['worktree remove --force', 'pnpm wt:rm', 'wt:gc:apply'];
-/** Paraphrases of "agents merge their own work". Excused only by a negation before them on the line, like INSTRUCTED. */
+/** Paraphrases of "agents merge their own work". Excused only by a negation just before them in the same sentence, like INSTRUCTED. */
 const SELF_MERGE = [
   [/\bmerge (?:your|their|my|his|her|its|our) own\b/i, 'merge your own PR'],
   [/\bmay merge\b/i, 'may merge'],
+  [/\bmerge it yourself\b/i, 'merge it yourself'],
+  [/\bmerge on green\b/i, 'merge on green'],
+  [/\bself-merge\b/i, 'self-merge'],
 ];
 const CORE = ['packages/ledger-client', '403 or 429', 'Never bypass', 'git worktree remove'];
 const NEGATION = /\b(never|don't|do not|not|forbidden|no)\b/i;
 const VUE_HISTORY = /histor(y|ical)|retired|legacy|archived|\bnot\b|\bnever\b|\bno\b/i;
+/** The words that can excuse a phrase: the same sentence, after any colon that is not a Never/Forbidden lead-in, at most 6 words back. */
+function excusingWords(line, found) {
+  let clause = line
+    .slice(0, found)
+    .split(/[.;?!]\s/)
+    .pop();
+  const colon = clause.search(/:\s(?!.*:\s)/);
+  if (colon !== -1 && !/\b(never|forbidden)\b\W*$/i.test(clause.slice(0, colon))) clause = clause.slice(colon + 1);
+  return clause.split(/\s+/).filter(Boolean).slice(-6).join(' ');
+}
+
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
 /** Files whose markdown links must resolve. */
 const LINK_FILES = ['AGENTS.md', 'docs/ARCHITECTURE.md'];
 /** Under docs/, current truth: ARCHITECTURE.md and these folders. Everything else is history and must carry a banner. */
 const DOCS_CURRENT_DIRS = ['docs/archive/', 'docs/adr/', 'docs/runbooks/', 'docs/refs/'];
-/** A banner is a blockquote line in the first 15 lines that says the file is not current. */
-const BANNER = /^>.*(not current|superseded|historical|stale snapshot|history|retired)/i;
+/** A banner is a blockquote line in the first 15 lines whose first words say the file is not current. */
+const BANNER = /^>\s*(\*\*)?\s*(not current|superseded|historical|stale snapshot|retired)/i;
 
 function read(root, rel) {
   const path = join(root, rel);
@@ -53,11 +67,11 @@ function staleHits(text) {
     const lowerLine = line.toLowerCase();
     for (const phrase of INSTRUCTED) {
       const found = lowerLine.indexOf(phrase.toLowerCase());
-      if (found !== -1 && !forbiddenContext && !NEGATION.test(line.slice(0, found))) hits.push([phrase, at]);
+      if (found !== -1 && !forbiddenContext && !NEGATION.test(excusingWords(line, found))) hits.push([phrase, at]);
     }
     for (const [pattern, label] of SELF_MERGE) {
       const found = line.search(pattern);
-      if (found !== -1 && !forbiddenContext && !NEGATION.test(line.slice(0, found))) hits.push([label, at]);
+      if (found !== -1 && !forbiddenContext && !NEGATION.test(excusingWords(line, found))) hits.push([label, at]);
     }
     if (/\bvue\b/i.test(line) && !VUE_HISTORY.test(line)) hits.push(['Vue as the current front end', at]);
     const leadIn = /^\s*#/.test(line) || line.trimEnd().endsWith(':');

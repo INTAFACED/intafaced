@@ -337,3 +337,76 @@ test('a newly listed live doc that calls Vue the front end fails; a bannered or 
   });
   withRoot(topic('Vue was retired; the front end is React.'), (result) => assert.equal(result.status, 0, result.stderr));
 });
+
+test('a negation elsewhere on the line does not excuse an instruction; only the words just before it do', () => {
+  const loopholes = [
+    'No review needed: you may merge your own PR once CI is green.',
+    'Not sure who merges? Merge your own PR.',
+    'Do not wait for review; merge your own PR.',
+    'If no one objects within an hour, run pnpm wt:gc:apply.',
+  ];
+  for (const line of loopholes) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /stale agent rule in AGENTS.md: (merge your own PR|wt:gc:apply)/, line);
+    });
+  }
+  const legitimate = [
+    'Forbidden: `pnpm wt:rm`, `wt:gc:apply`',
+    'Never: pnpm wt:rm',
+    'Do not run pnpm wt:rm or git worktree remove --force',
+    'Never run pnpm wt:rm, pnpm wt:gc:apply or orca worktree rm.',
+    'Nobody does this: do not merge their own work.',
+  ];
+  for (const line of legitimate) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('"merge on green", "self-merge" and "merge it yourself" fail unless negated just before', () => {
+  const plants = [
+    ['Agents can merge on green.', 'merge on green'],
+    ['Self-merge is fine.', 'self-merge'],
+    ['Merge it yourself.', 'merge it yourself'],
+  ];
+  for (const [line, label] of plants) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, new RegExp(`stale agent rule in AGENTS.md: ${label}`), line);
+    });
+  }
+  for (const line of ['Never merge on green alone.', 'Do not self-merge.', 'Never merge it yourself.']) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('a banner must open the quote: a blockquote that only mentions history does not count', () => {
+  const body = 'The front end is Vue.\n';
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/OLD.md'), `# Old\n\n> **Status: BINDING.** This replaces the history file.\n\n${body}`),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD.md: Vue as the current front end/);
+    },
+  );
+  withRoot(
+    (root) =>
+      writeFileSync(
+        join(root, 'docs/OLD.md'),
+        `# Old\n\n> **Supersession (2026-08-09):** thrift is void. Historical text below may mention it.\n\n${body}`,
+      ),
+    (result) => assert.equal(result.status, 1, result.stderr),
+  );
+  for (const opener of [
+    '> **Not current rules (2026-10-18).** Kept as history.',
+    '> **SUPERSEDED 2026-08-07.**',
+    '> Historical record only.',
+    '> **Stale snapshot.**',
+    '> Retired.',
+  ]) {
+    withRoot(
+      (root) => writeFileSync(join(root, 'docs/OLD.md'), `${opener}\n\n# Old\n\n${body}`),
+      (result) => assert.equal(result.status, 0, `${opener}: ${result.stderr}`),
+    );
+  }
+});

@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and the independent review passed that same head; the rules, including which failing checks may be accepted, are in AGENTS.md ("Check, then merge"). The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
+Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and passed, or failed only on checks that AGENTS.md ("Check, then merge", items 2 and 3) accepts, and the independent review passed that same head. The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
 
 ---
 
