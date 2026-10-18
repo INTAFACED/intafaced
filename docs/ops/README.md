@@ -29,8 +29,8 @@
 
 ## Denon hard board
 
-**Live** invent-risk / product-complete mountains (agents babysit only): [`../LAST-MVP-BOARDS-2026-08-23.md`](../LAST-MVP-BOARDS-2026-08-23.md). Historical 120-ID: [`../DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md).  
+**Live** invent-risk / product-complete mountains (agents babysit only): [`../LAST-MVP-BOARDS-2026-08-23.md`](../archive/LAST-MVP-BOARDS-2026-08-23.md). Historical 120-ID: [`../DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md).  
 **D26-P4-04 issue board:** [`ISSUE-BOARD-RECONCILE-D26-P4-04.md`](./ISSUE-BOARD-RECONCILE-D26-P4-04.md) (open GitHub issues vs tracker/ADR; close only with merged proof).  
-D-S factory done: [`../SPEC-FACTORY-INDEX-2026-08-04.md`](../SPEC-FACTORY-INDEX-2026-08-04.md).  
+D-S factory done: [`../SPEC-FACTORY-INDEX-2026-08-04.md`](../archive/SPEC-FACTORY-INDEX-2026-08-04.md).  
 Historical shape: [`../DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](../DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md).  
 **D26-P4-06** depth/tape honesty SLO (empty book stays empty; no fake latency number): [`DEPTH-TAPE-PRODUCT-SLO.md`](./DEPTH-TAPE-PRODUCT-SLO.md).

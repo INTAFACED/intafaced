@@ -7,6 +7,19 @@ import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
 import { isPublishedTradeRecentLimit } from '../trade-recent-limit.js';
 
 /**
+ * Stated once. Public `side` on this tape is the taker side, the same meaning
+ * the REST print uses. A fill that does not carry `takerSide` is sent without
+ * `side` — the field is not invented from a maker side or from the book.
+ */
+export const PUBLIC_TAPE_SIDE_MEANING = 'taker' as const;
+
+export function takerSideOf(fill: { readonly takerSide?: unknown }): 'buy' | 'sell' | undefined {
+  return fill.takerSide === 'buy' || fill.takerSide === 'sell' ? fill.takerSide : undefined;
+}
+
+type StoredPrint = TradePrint & { readonly side?: 'buy' | 'sell' };
+
+/**
  * TRADE TAPE FAN-OUT (§5.2 ws.gateway).
  *
  * Subscribers get public `TradePrint` frames only. Source is `orderFilled` on
@@ -104,7 +117,7 @@ export class TradeHub {
 
   readonly #subscriptions = new Set<Subscription>();
   /** Per-market ring of the most recent public prints. */
-  readonly #recent = new Map<string, TradePrint[]>();
+  readonly #recent = new Map<string, StoredPrint[]>();
   /** Sequences already accepted, so a JetStream redelivery is a no-op. */
   readonly #seen = new Map<string, Set<number>>();
   /** In-flight cold-start fetches — N connections cost one seed. */
@@ -159,7 +172,7 @@ export class TradeHub {
   }
 
   /** Recent public prints for a market, oldest first. */
-  recentFor(marketId: string): readonly TradePrint[] {
+  recentFor(marketId: string): readonly StoredPrint[] {
     return this.#recent.get(marketId) ?? [];
   }
 
@@ -294,7 +307,7 @@ export class TradeHub {
    * the public print that was stored, or `null` when it was a duplicate,
    * rejected by the shape check, or dropped because nobody is watching the market.
    */
-  ingest(fill: FillLike): TradePrint | null {
+  ingest(fill: FillLike & { readonly takerSide?: unknown }): TradePrint | null {
     let print: TradePrint;
     try {
       print = tradePrintFromFill(fill);
@@ -306,10 +319,12 @@ export class TradeHub {
       return null;
     }
 
-    return this.#acceptPrint(print);
+    const side = takerSideOf(fill);
+    const stored: StoredPrint = side === undefined ? print : { ...print, side };
+    return this.#acceptPrint(stored);
   }
 
-  #acceptPrint(print: TradePrint): TradePrint | null {
+  #acceptPrint(print: StoredPrint): StoredPrint | null {
     const limit = this.#options.recentLimit;
     if (!isPublishedTradeRecentLimit(limit)) return null;
 
@@ -358,7 +373,7 @@ export class TradeHub {
     return false;
   }
 
-  #fanOut(print: TradePrint): void {
+  #fanOut(print: StoredPrint): void {
     const frame = JSON.stringify(print);
 
     for (const sub of [...this.#subscriptions]) {
