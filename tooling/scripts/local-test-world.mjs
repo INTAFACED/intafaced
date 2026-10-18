@@ -451,11 +451,12 @@ class EdgeClient {
     this.token = null;
     this.tokenAt = 0;
   }
-  async http(method, route, body, auth = true) {
+  /** `bearer` replaces the session token for this one request (the step-up token, or a checker's). The session is not touched. */
+  async http(method, route, body, auth = true, bearer = null) {
     if (method !== 'GET') assertActiveLocalStack({ services: ['edge', 'identity', 'ledger', 'bank'] });
-    if (auth && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
+    if (auth && !bearer && (!this.token || Date.now() - this.tokenAt > 8 * 60_000)) await this.login();
     const headers = { origin: CUSTOMER_ORIGIN, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) };
-    if (auth) headers.authorization = `Bearer ${this.token}`;
+    if (auth) headers.authorization = `Bearer ${bearer ?? this.token}`;
     const res = await fetch(`${EDGE}${route}`, {
       redirect: 'error',
       method,
@@ -517,11 +518,17 @@ class EdgeClient {
     this.adopt(data);
     return 'created';
   }
-  async query(mod, proc, input) {
-    return this.http('GET', `/api/${mod}/trpc/${proc}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`);
+  async query(mod, proc, input, bearer = null) {
+    return this.http(
+      'GET',
+      `/api/${mod}/trpc/${proc}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`,
+      undefined,
+      true,
+      bearer,
+    );
   }
-  async mutate(mod, proc, input) {
-    return this.http('POST', `/api/${mod}/trpc/${proc}`, input ?? {});
+  async mutate(mod, proc, input, bearer = null) {
+    return this.http('POST', `/api/${mod}/trpc/${proc}`, input ?? {}, true, bearer);
   }
 }
 
@@ -983,7 +990,17 @@ export const MERCHANT_PAYMENTS = [
   { n: 6, amount: '5.50', customer: 'cia', want: 'created' },
   { n: 7, amount: '18.00', customer: 'ada', want: 'captured' },
   { n: 8, amount: '2.50', customer: 'ben', want: 'created' },
+  // The payout payment. On a stack seeded on an earlier day than today, it sits alone in today's settlement window, so the payout
+  // is not entangled with the dispute on the older window (a dispute draws the merchant proceeds down, and a payout is held from
+  // them). Seeded in one pass on a fresh stack, payments 1-10 share one UTC day and one window; the payout then has to cover
+  // all of them and svc-pay may refuse it.
+  { n: 9, amount: '20.00', customer: 'ada', want: 'captured' },
+  // The refund payment (see MERCHANT_REFUND): a fresh payment, so card-sandbox still holds its charge. On the author's stack it was
+  // captured after payment 9's window had posted, so it is outside that settlement; on a fresh stack it shares the window.
+  { n: 10, amount: '18.00', customer: 'ben', want: 'captured' },
 ];
+/** The spec payment whose settlement window is the one that gets paid out. */
+export const MERCHANT_PAYOUT_PAYMENT_N = 9;
 export const MERCHANT_LINKS = [
   { key: 'counter', label: 'TEST DATA — counter', amount: '4.50' },
   { key: 'online', label: 'TEST DATA — online', amount: '12.00' },
@@ -1128,11 +1145,11 @@ export function planMerchantPopulate({
 
 // ── Merchant settlement, payout request and dispute (pure planners) ──────────
 //
-// Nothing here sends a payout and nothing here creates a refund. A payout REQUEST
-// (merchantControl.approvals.request) only files an approval row; the send
-// (settlement.payout) needs pay:payout through a step-up and populate never calls it.
-// Every planner reads first: a settled window, an open approval and an existing dispute are
-// EXISTS, never created twice.
+// Refund, payout request and payout send need the merchant owner's "Confirm it's you" token
+// (auth.stepUpPay, #5011): one fresh TOTP step, a token of at most ten minutes that is used only
+// as the bearer of payment.refund, merchantControl.approvals.request and settlement.payout.
+// Every planner reads first: a settled window, a refund, a saved destination, an open approval, a
+// sent payout and an existing dispute are EXISTS, never created twice.
 
 export const MERCHANT_SETTLEMENT_ASSET = 'USDT';
 /** Statuses a spec payment that reached `captured` can later show (settled and disputed come after). */
@@ -1191,6 +1208,228 @@ export function planMerchantPayoutRequest({ settlements, approvals }) {
   if (!target) return { target: null, existing: null };
   const existing = (approvals ?? []).find((a) => a.settlementId === target.id && PAYOUT_REQUEST_LIVE_STATUSES.has(a.status)) ?? null;
   return { target, existing };
+}
+
+/**
+ * The one partial refund the TEST merchant shows: 3.00 of the 18.00 payment 10. It is its own fresh payment because card-sandbox
+ * keeps its charges in memory: after svc-pay restarts, refunding an older payment fails with "No charge with reference", so a
+ * refund seeded on an old payment cannot be made.
+ */
+export const MERCHANT_REFUND = { n: 10, amount: '3.00' };
+/** Refund attempts per run. A refund that failed at the rail is reversed and its id is spent, so the next attempt needs a new id. */
+export const MERCHANT_REFUND_ATTEMPTS = 3;
+export const merchantRefundAttemptId = (userId, n, attempt) =>
+  attempt <= 1 ? merchantRefundId(userId, n) : `${merchantRefundId(userId, n)}-r${attempt}`;
+
+/**
+ * The saved payout destination the TEST merchant is paid to. The address is hash-derived from a fixed label, so no key for it
+ * exists anywhere: it names no wallet, only gives the rail a well-formed 0x + 40 hex ref. LOCAL TEST only.
+ */
+export const MERCHANT_PAYOUT_DESTINATION = {
+  railId: MERCHANT_PAYOUT_FALLBACK_RAIL,
+  kind: 'crypto',
+  ref: `0x${crypto.createHash('sha256').update('LOCAL-TEST merchant payout destination, no key exists').digest('hex').slice(0, 40)}`,
+};
+/** Team role the second payout person (the checker) holds on the TEST merchant. `finance` holds payout.approve and nothing else risky. */
+export const MERCHANT_CHECKER_ROLE = 'finance';
+const CHECKER_ROLES_THAT_APPROVE = new Set(['finance', 'admin']);
+const CHECKER_REASON = 'LOCAL TEST checker approval of the TEST DATA payout';
+
+/** Refund exists, can be made, or must be skipped. `payments` are the observed rows ({ id, status, refundedAmount }). */
+export function planMerchantRefund({ userId, payments, attempt = 1 }) {
+  const paymentId = merchantPaymentId(userId, MERCHANT_REFUND.n);
+  const refundId = merchantRefundAttemptId(userId, MERCHANT_REFUND.n, attempt);
+  const payment = (payments ?? []).find((p) => p.id === paymentId);
+  if (!payment) return { kind: 'skip', paymentId, refundId, reason: 'the payment to refund does not exist yet' };
+  if (Number(payment.refundedAmount) >= Number(MERCHANT_REFUND.amount)) {
+    return { kind: 'exists', paymentId, refundId, refunded: payment.refundedAmount };
+  }
+  if (payment.status !== 'captured' && payment.status !== 'settled') {
+    return { kind: 'skip', paymentId, refundId, reason: `the payment is ${payment.status}, only a captured payment is refunded` };
+  }
+  return { kind: 'refund', paymentId, refundId, amount: MERCHANT_REFUND.amount };
+}
+
+/** A destination on the spec's rail is the saved one, whatever its masked ref shows. Populate never replaces it. */
+export function planPayoutDestination({ destinations, spec = MERCHANT_PAYOUT_DESTINATION }) {
+  const have = (destinations ?? []).find((d) => d.railId === spec.railId) ?? null;
+  return have ? { kind: 'exists', destination: have } : { kind: 'set', spec };
+}
+
+/**
+ * Where the payout of the payout window's settlement (`window`, see MERCHANT_PAYOUT_PAYMENT_N) stands.
+ *   sent      the settlement is paid_out
+ *   failed    the settlement's payout failed; populate does not retry a failed payout
+ *   send      its approval is approved, or consumed (the payout was admitted and a later guard refused it): the owner sends again
+ *             and svc-pay resumes the admission. A consumed approval never means a new request.
+ *   founders  the checker approved and two founders are still needed (populate does not act as a founder)
+ *   decide    the request is pending: the second person decides
+ *   request   nothing filed yet
+ *   none      no posted settlement with a net above zero
+ */
+export function planMerchantPayoutStage({ settlements, approvals, window }) {
+  const target =
+    (settlements ?? []).find(
+      (s) => s.window === window && (s.status === 'posted' || s.status === 'paid_out' || s.status === 'failed') && Number(s.net) > 0,
+    ) ?? null;
+  if (!target) return { stage: 'none', target: null, approval: null };
+  if (target.status === 'paid_out') return { stage: 'sent', target, approval: null };
+  if (target.status === 'failed') return { stage: 'failed', target, approval: null };
+  const mine = (approvals ?? []).filter((a) => a.settlementId === target.id && PAYOUT_REQUEST_LIVE_STATUSES.has(a.status));
+  const approved = mine.find((a) => a.status === 'approved') ?? mine.find((a) => a.status === 'consumed') ?? null;
+  if (approved) return { stage: 'send', target, approval: approved };
+  const pending = mine.find((a) => a.status === 'pending') ?? null;
+  if (pending) return { stage: pending.checkerUserId ? 'founders' : 'decide', target, approval: pending };
+  return { stage: 'request', target, approval: null };
+}
+
+/**
+ * The team row the checker needs: `invite` (nobody yet), `accept` (invited), `ready` (active with a role that approves),
+ * `wrong-role` (active without payout.approve; populate never changes a role), or `unavailable` (removed).
+ */
+export function planPayoutChecker({ members, checkerUserId }) {
+  const row = (members ?? []).find((m) => m.userId === checkerUserId) ?? null;
+  if (!row) return { kind: 'invite' };
+  if (row.status === 'invited') return { kind: 'accept', memberId: row.memberId };
+  if (row.status === 'active') {
+    return CHECKER_ROLES_THAT_APPROVE.has(row.role) ? { kind: 'ready', role: row.role } : { kind: 'wrong-role', role: row.role };
+  }
+  return { kind: 'unavailable', status: row.status };
+}
+
+/**
+ * A refusal from the step-up or money doors as one plain line that names the cause, with the service's own words after it.
+ * Nothing is swallowed: an unknown refusal comes back as it was received.
+ */
+export function describeMoneyRefusal(refusal) {
+  const raw = String(refusal ?? '');
+  const known = [
+    [/No procedure found on path "auth\.stepUpPay"/i, 'auth.stepUpPay is not on the running identity service (it predates #5011)'],
+    [/auth\.step_up_expired|timed out\. Confirm again/i, 'auth.step_up_expired: the confirmation timed out'],
+    [/auth\.step_up_required|fresh confirmation is required/i, 'auth.step_up_required: a fresh confirmation is needed'],
+    [
+      /pay\.role_not_allowed|role on this merchant does not allow/i,
+      "pay.role_not_allowed: this person's role cannot do that on the merchant",
+    ],
+    [/pay\.tier_unassigned/i, 'pay.tier_unassigned: no risk tier is assigned to the merchant (founders configure it)'],
+    [/pay\.approval_threshold_unconfigured/i, 'pay.approval_threshold_unconfigured: the tier has no approval threshold for this asset'],
+    [/pay\.caps_unconfigured/i, 'pay.caps_unconfigured: the tier has no payout caps'],
+    [
+      /pay\.guard_screening_unavailable/i,
+      'pay.guard_screening_unavailable: payout screening has no supplier connected, so every custodial send refuses until one is published',
+    ],
+    [
+      /No charge with reference/i,
+      "pay.rail_failed: the card sandbox no longer holds this payment's charge (it keeps charges in memory and svc-pay restarted since)",
+    ],
+    [/pay\.approval_not_required/i, 'pay.approval_not_required: the amount is under the approval threshold'],
+  ];
+  for (const [re, line] of known) if (re.test(raw)) return `${line}. Service said: ${oneLine(raw, 200)}`;
+  return oneLine(raw, 300);
+}
+
+// ── LOCAL TEST risk tiers (founder dual control) ──────────────────────────────
+//
+// Payouts need a risk tier on the merchant: approval and founder thresholds, a daily payout cap and a beneficiary cap
+// (svc-pay control/guards.ts). The values below were agreed with the merchant lane (sovereign-35) for the LOCAL TEST
+// stack only and are recorded in the local notes. They are not a proposal for real tiers; the real ladder stays unpublished.
+// Defining a tier and assigning it are founder changes: one founder submits, a DIFFERENT founder confirms with the hash
+// of the change they were shown (`founderChangeHash`). On this stack the two founders are the two TEST operators.
+
+export const MERCHANT_TIER_ARCHETYPE = 'standard';
+const localTestTier = ({ id, name, approve, founder, payout, beneficiaries }) => ({
+  id,
+  name,
+  archetype: MERCHANT_TIER_ARCHETYPE,
+  caps: [
+    { kind: 'daily_payout', assetCode: MERCHANT_SETTLEMENT_ASSET, limit: payout },
+    { kind: 'beneficiaries_per_day', limit: beneficiaries },
+  ],
+  reserve: null,
+  approvalThresholds: [{ assetCode: MERCHANT_SETTLEMENT_ASSET, amount: approve }],
+  founderThresholds: [{ assetCode: MERCHANT_SETTLEMENT_ASSET, amount: founder }],
+  approvalTtlSeconds: 86_400,
+  merchantVisible: true,
+});
+/** `assign` tiers go on the TEST merchant; the others are defined only, so the portal's limits page shows a ladder. */
+export const MERCHANT_TIERS = [
+  {
+    assign: true,
+    tier: localTestTier({
+      id: 'local-test-tier',
+      name: 'LOCAL TEST tier',
+      approve: '10',
+      founder: '1000',
+      payout: '500',
+      beneficiaries: 500,
+    }),
+  },
+  {
+    assign: false,
+    tier: localTestTier({
+      id: 'local-test-tier-2',
+      name: 'LOCAL TEST tier 2',
+      approve: '100',
+      founder: '5000',
+      payout: '5000',
+      beneficiaries: 5000,
+    }),
+  },
+];
+
+const canonicalJson = (value) =>
+  JSON.stringify(value, (_k, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b, 'en')))
+      : v,
+  );
+/** `@intafaced/contracts/founder-change-hash` `founderChangeHash`: sha256 over the canonical { target, expectedVersion }. A drift test in svc-pay pins it. */
+export function tierChangeHash(target, expectedVersion) {
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson({ target, expectedVersion })).digest('hex')}`;
+}
+/** The change target svc-pay stores for `founderAdmin.control.configure.submit` with an upsert_tier change. */
+export const defineTierTarget = (tier) => ({ scope: 'tier', change: { kind: 'upsert_tier', tier } });
+/** The change target svc-pay stores for `founderAdmin.changes.submit` with a set_tier change. */
+export const assignTierTarget = (merchantId, tierId, archetypeId = MERCHANT_TIER_ARCHETYPE) => ({
+  scope: 'merchant',
+  merchantId,
+  change: { kind: 'set_tier', tierId, archetypeId },
+});
+export const tierDefineRequestId = (tierId, expectedVersion) => populateUuid(`merchant-tier-define-${tierId}-v${expectedVersion}`);
+export const tierAssignRequestId = (merchantId, tierId, expectedVersion) =>
+  populateUuid(`merchant-tier-assign-${merchantId}-${tierId}-v${expectedVersion}`);
+
+const sameCaps = (a, b) => {
+  const key = (c) => (c.kind === 'beneficiaries_per_day' ? c.kind : `${c.kind}:${c.assetCode}`);
+  const val = (c) => Number(c.kind === 'beneficiaries_per_day' ? c.limit : c.limit);
+  const ma = new Map((a ?? []).map((c) => [key(c), val(c)]));
+  const mb = new Map((b ?? []).map((c) => [key(c), val(c)]));
+  return ma.size === mb.size && [...ma].every(([k, v]) => mb.get(k) === v);
+};
+
+/**
+ * Whether a tier is defined. `listed` is what the merchant may read (merchantControl.tiers.list: name, archetype, caps,
+ * reserve; thresholds and TTL are founder-only). A tier is looked up by id and by name. Same id and same visible terms is
+ * EXISTS; same id or name with other terms is DIFFERS and is never rewritten by populate.
+ */
+export function planTierDefinition({ listed, tier }) {
+  const have = (listed ?? []).find((t) => t.id === tier.id || t.name === tier.name) ?? null;
+  if (!have) return { kind: 'define', expectedVersion: '0' };
+  const same =
+    have.id === tier.id &&
+    have.name === tier.name &&
+    have.archetype === tier.archetype &&
+    sameCaps(have.caps, tier.caps) &&
+    (have.reserve ?? null) === null;
+  return same ? { kind: 'exists', tier: have } : { kind: 'differs', tier: have };
+}
+
+/** `profile` is merchantControl.get: { tierId, version }. A merchant already on a tier is never moved by populate. */
+export function planTierAssignment({ profile, tierId, tierDefined }) {
+  if (profile?.tierId === tierId) return { kind: 'exists' };
+  if (profile?.tierId) return { kind: 'other', tierId: profile.tierId };
+  if (!tierDefined) return { kind: 'skip', reason: 'the tier is not defined yet' };
+  return { kind: 'assign', expectedVersion: String(profile?.version ?? '0') };
 }
 
 /**
@@ -1505,8 +1744,8 @@ export const POPULATE_STEPS = [
 ];
 
 /** One tRPC call: { ok, data } or { ok:false, refusal, status }. Never throws on a service refusal. */
-async function call(client, kind, mod, proc, input) {
-  const res = kind === 'q' ? await client.query(mod, proc, input) : await client.mutate(mod, proc, input);
+async function call(client, kind, mod, proc, input, bearer = null) {
+  const res = kind === 'q' ? await client.query(mod, proc, input, bearer) : await client.mutate(mod, proc, input, bearer);
   if (res.status >= 200 && res.status < 300 && res.json && 'result' in res.json)
     return { ok: true, data: res.json.result.data, status: res.status };
   return { ok: false, refusal: refusalText(res), status: res.status };
@@ -2642,9 +2881,9 @@ async function openDisputeByApprovalPair(log, fields, reasonCode) {
 }
 
 /**
- * Settlement, payout request and dispute for the TEST merchant, after the catalogue exists.
- * Each item reads first (EXISTS) and records the service's own refusal when the door is shut.
- * It never calls settlement.payout and never creates a refund.
+ * Settlement, refund, payout destination, payout (request, second-person approval, send) and dispute for the TEST
+ * merchant, after the catalogue exists. Each item reads first (EXISTS) and records the service's own refusal when the
+ * door is shut. Refund and payout go through the owner's "Confirm it's you" token (auth.stepUpPay), see populateMerchantStepUpMoney.
  */
 async function populateMerchantMoneyBlock(ctx, merchantId) {
   const { user, record, log } = ctx;
@@ -2654,7 +2893,13 @@ async function populateMerchantMoneyBlock(ctx, merchantId) {
     if (spec.want !== 'captured') continue;
     const got = await call(user, 'q', 'pay', 'payment.get', { paymentId: merchantPaymentId(userId, spec.n) });
     if (got.ok)
-      payments.push({ id: got.data.id, status: got.data.status, createdAt: got.data.createdAt, capturedAmount: got.data.capturedAmount });
+      payments.push({
+        id: got.data.id,
+        status: got.data.status,
+        createdAt: got.data.createdAt,
+        capturedAmount: got.data.capturedAmount,
+        refundedAmount: got.data.refundedAmount,
+      });
     else if (!/NOT_FOUND|not found/i.test(got.refusal)) return record('merchant', 'settlement', 'refused', got.refusal);
   }
   const listSettlements = () => call(user, 'q', 'pay', 'settlement.list', { merchantId, assetId: MERCHANT_SETTLEMENT_ASSET, limit: 200 });
@@ -2696,34 +2941,9 @@ async function populateMerchantMoneyBlock(ctx, merchantId) {
     }
   }
 
-  // 2. Payout request: file the approval request only. No payout is sent.
-  const approvals = await call(user, 'q', 'pay', 'merchantControl.approvals.list', { merchantId, limit: 200 });
-  const pr = planMerchantPayoutRequest({
-    settlements: settlements.filter((s) => windows.includes(s.window)),
-    approvals: approvals.ok ? (approvals.data.items ?? []) : [],
-  });
-  if (!approvals.ok) record('merchant', 'payout request', 'refused', approvals.refusal);
-  else if (!pr.target) {
-    record('merchant', 'payout request', 'skipped', 'no posted settlement with a net above zero to request a payout for');
-  } else if (pr.existing) {
-    record('merchant', 'payout request', 'exists', `${pr.existing.approvalId} ${pr.existing.status} for settlement ${pr.target.id}`);
-  } else {
-    const dests = await call(user, 'q', 'pay', 'merchant.payoutDestinations.list', { merchantId, limit: 50 });
-    const railId = (dests.ok ? (dests.data.items ?? [])[0]?.railId : null) ?? MERCHANT_PAYOUT_FALLBACK_RAIL;
-    const out = await call(user, 'm', 'pay', 'merchantControl.approvals.request', {
-      merchantId,
-      settlementId: pr.target.id,
-      railId,
-    });
-    record(
-      'merchant',
-      'payout request',
-      out.ok ? 'created' : 'refused',
-      out.ok
-        ? `${out.data.approvalId} ${out.data.status} ${out.data.amount} ${out.data.assetCode} on ${out.data.railId}, request only, nothing sent`
-        : `${out.refusal} (rail ${railId})`,
-    );
-  }
+  // 2. Destination, refund and payout (request, second-person approval, send), through the owner's step-up.
+  await populateMerchantTiers(ctx, merchantId);
+  await populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements });
 
   // 3. Dispute on one captured payment.
   const disputeId = merchantDisputeId(userId);
@@ -2745,6 +2965,515 @@ async function populateMerchantMoneyBlock(ctx, merchantId) {
       out.ok ? `${dplan.disputeId} ${out.status} ledger ${out.ledgerWire ?? 'n/a'}, approval ${out.approvalId}` : out.refusal,
     );
   }
+}
+
+const OPERATORS_MISSING =
+  'two TEST operators are not enrolled (operators.json); pnpm local:stack seeds them. They are the founder pair and the payout teammate on this stack';
+
+/**
+ * The owner's "Confirm it's you" token for refund and payout, minted at most once per run and only when a step needs it.
+ * One fresh TOTP step (the owner's file keeps lastStep). The token is kept in memory on `ctx` and never printed or written.
+ * A service that predates #5011 has no auth.stepUpPay: that is detected with an empty-input call, which the service rejects
+ * before any factor is read, and it is reported as such, never worked around.
+ */
+async function ensurePayStepUp(ctx, merchantId) {
+  // A held token is reused only while it has at least 30 s left; a failed answer is kept for the run.
+  const held = ctx.payStepUp;
+  if (held && (!held.ok || Date.parse(held.expiresAt) - Date.now() >= 30_000)) return held;
+  const { user } = ctx;
+  const fail = (refusal, extra = {}) => (ctx.payStepUp = { ok: false, refusal, ...extra });
+  const probe = await user.mutate('identity', 'auth.stepUpPay', {});
+  if (probe.status === 404 || /No procedure found/i.test(refusalText(probe))) {
+    return fail(describeMoneyRefusal('No procedure found on path "auth.stepUpPay"'), { missing: true });
+  }
+  if (!user.factor?.secret) return fail('auth.step_up_required: the owner holds no second factor, so it cannot confirm');
+  const totpCode = await user.factor.nextCode();
+  const minted = await call(user, 'm', 'identity', 'auth.stepUpPay', {
+    merchantId,
+    scopes: ['pay:refund', 'pay:payout'],
+    factorProof: { totpCode },
+  });
+  if (!minted.ok) return fail(describeMoneyRefusal(minted.refusal));
+  if (typeof minted.data?.accessToken !== 'string' || minted.data.refreshable !== false) {
+    return fail('auth.stepUpPay answered without a non-refreshable access token');
+  }
+  return (ctx.payStepUp = { ok: true, token: minted.data.accessToken, expiresAt: minted.data.expiresAt });
+}
+
+/** stepUp.begin + stepUp.complete (one TOTP step) for pay.step_up.payoutDestination.set, then merchant.setPayoutDestination. */
+async function savePayoutDestination(ctx, merchantId, spec) {
+  const { user } = ctx;
+  if (!user.factor?.secret) return { ok: false, refusal: 'auth.step_up_required: the owner holds no second factor, so it cannot confirm' };
+  const began = await call(user, 'm', 'identity', 'stepUp.begin', {
+    scope: 'pay.step_up.payoutDestination.set',
+    purpose: 'payoutDestination.set',
+    target: spec.ref,
+    fields: { merchantId, railId: spec.railId, kind: spec.kind, ref: spec.ref },
+  });
+  if (!began.ok) return { ok: false, refusal: describeMoneyRefusal(began.refusal) };
+  if (began.data?.totp !== true)
+    return { ok: false, refusal: 'auth.step_up_required: the owner cannot confirm with an authenticator code' };
+  const totpCode = await user.factor.nextCode();
+  const done = await call(user, 'm', 'identity', 'stepUp.complete', { challengeId: began.data.challengeId, totpCode });
+  if (!done.ok) return { ok: false, refusal: describeMoneyRefusal(done.refusal) };
+  const set = await call(user, 'm', 'pay', 'merchant.setPayoutDestination', {
+    merchantId,
+    railId: spec.railId,
+    kind: spec.kind,
+    ref: spec.ref,
+    stepUpApprovalId: done.data.stepUpApprovalId,
+  });
+  return set.ok ? set : { ok: false, refusal: describeMoneyRefusal(set.refusal) };
+}
+
+/** The two TEST operators signed in once per run, with their MFA sessions. Cached on ctx; the sign-in spends their TOTP steps. */
+async function operatorPair(ctx) {
+  if (ctx.opPair) return ctx.opPair;
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => ctx.log(`merchant operators: ${m}`) });
+  const signedIn = await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) return (ctx.opPair = { ok: false, refusal: OPERATORS_MISSING });
+  if (!signedIn.ok) return (ctx.opPair = signedIn);
+  return (ctx.opPair = { ok: true, gates, gctx, a: signedIn.sessions[0], b: signedIn.sessions[1] });
+}
+
+/** A TOTP code for a step after the operator's last used one; lastStep goes back into operators.json atomically (mode 600). */
+async function operatorFreshTotp(gctx, letter) {
+  const file = gctx.paths.operators;
+  const data = readJson(file, null);
+  const op = data?.operators?.[letter];
+  if (!op?.totpSecret) throw new Error(`operator ${letter} holds no second factor`);
+  const step = () => Math.floor(Date.now() / 30_000);
+  while (step() <= Number(op.lastStep ?? 0)) await sleep(1000);
+  const code = gctx.totp.totp(op.totpSecret);
+  op.lastStep = step();
+  writePrivateAtomic(file, data);
+  return code;
+}
+
+/**
+ * Define or assign one tier through the two founders: operator A submits, operator B confirms with the hash of the change.
+ * `procedure` is the submit door; the confirm door is its sibling. Returns { ok, outcome } or { ok:false, refusal }.
+ */
+async function founderChange(pair, { submitProc, confirmProc, input, target, expectedVersion, reason }) {
+  const { gctx, gates, a, b } = pair;
+  const hash = tierChangeHash(target, expectedVersion);
+  const response = await gctx.edge.mutate('pay', submitProc, input, a.loginToken);
+  const submitted = trpcData(response);
+  let outcome = submitted?.outcome;
+  if (!outcome) return { ok: false, refusal: describeMoneyRefusal(gates.refusalText(response)) };
+  if (outcome === 'pending_second_approval') {
+    const confirmed = await gctx.edge.mutate(
+      'pay',
+      confirmProc,
+      { requestId: input.requestId, decision: 'confirm', reason, expectedChangeHash: hash },
+      b.loginToken,
+    );
+    const done = trpcData(confirmed);
+    if (!done?.outcome) return { ok: false, refusal: describeMoneyRefusal(gates.refusalText(confirmed)) };
+    outcome = done.outcome;
+  }
+  return {
+    ok: outcome === 'changed' || outcome === 'noop',
+    outcome,
+    refusal: outcome === 'changed' || outcome === 'noop' ? null : `the change ended ${outcome}`,
+  };
+}
+
+/**
+ * LOCAL TEST risk tiers: define both, assign the first to the TEST merchant. Reads what the merchant may see first, and only
+ * signs the two operators in when something is missing. Never edits a tier that exists with other terms and never moves a
+ * merchant off its tier.
+ */
+async function populateMerchantTiers(ctx, merchantId) {
+  const { user, record } = ctx;
+  const item = (t) => `${t.name} (${t.id})`;
+  const readProfile = () => call(user, 'q', 'pay', 'merchantControl.get', { merchantId });
+  const readLadder = () => call(user, 'q', 'pay', 'merchantControl.tiers.list', { merchantId });
+  let profile = await readProfile();
+  let ladder = await readLadder();
+  if (!profile.ok) return record('merchant', 'risk tiers', 'refused', describeMoneyRefusal(profile.refusal));
+  if (!ladder.ok) return record('merchant', 'risk tiers', 'refused', describeMoneyRefusal(ladder.refusal));
+  const listedOf = (l) => (l.data.status === 'configured' ? l.data.tiers : []);
+  for (const { tier, assign } of MERCHANT_TIERS) {
+    const plan = planTierDefinition({ listed: listedOf(ladder), tier });
+    if (plan.kind === 'exists') {
+      record(
+        'merchant',
+        `risk tier ${item(tier)}`,
+        'exists',
+        `version ${plan.tier.version}, caps ${tier.caps.map((c) => `${c.kind} ${c.limit}`).join(', ')}`,
+      );
+    } else if (plan.kind === 'differs') {
+      record(
+        'merchant',
+        `risk tier ${item(tier)}`,
+        'refused',
+        `a tier with this id or name exists with other terms (${plan.tier.id} "${plan.tier.name}" v${plan.tier.version}); populate does not rewrite tiers`,
+      );
+    } else {
+      const pair = await operatorPair(ctx);
+      if (!pair.ok) {
+        record('merchant', `risk tier ${item(tier)}`, 'refused', pair.refusal);
+        continue;
+      }
+      const reason = `LOCAL TEST: define ${tier.name} for the TEST DATA merchant ladder`;
+      const out = await founderChange(pair, {
+        submitProc: 'founderAdmin.control.configure.submit',
+        confirmProc: 'founderAdmin.control.configure.confirm',
+        input: {
+          requestId: tierDefineRequestId(tier.id, plan.expectedVersion),
+          change: { kind: 'upsert_tier', tier },
+          reason,
+          expectedVersion: plan.expectedVersion,
+        },
+        target: defineTierTarget(tier),
+        expectedVersion: plan.expectedVersion,
+        reason,
+      });
+      record(
+        'merchant',
+        `risk tier ${item(tier)}`,
+        out.ok ? (out.outcome === 'noop' ? 'exists' : 'created') : 'refused',
+        out.ok
+          ? `${out.outcome}: approval from ${tier.approvalThresholds[0].amount}, two founders from ${tier.founderThresholds[0].amount}, payout cap ${tier.caps[0].limit}/day, beneficiaries ${tier.caps[1].limit}, ttl 24h (operator A proposed, operator B confirmed)`
+          : out.refusal,
+      );
+      ladder = await readLadder();
+      if (!ladder.ok) return record('merchant', 'risk tiers', 'refused', describeMoneyRefusal(ladder.refusal));
+    }
+    if (!assign) continue;
+    profile = await readProfile();
+    if (!profile.ok) return record('merchant', 'risk tier assignment', 'refused', describeMoneyRefusal(profile.refusal));
+    const defined = planTierDefinition({ listed: listedOf(ladder), tier }).kind === 'exists';
+    const aplan = planTierAssignment({ profile: profile.data, tierId: tier.id, tierDefined: defined });
+    if (aplan.kind === 'exists') {
+      record('merchant', 'risk tier assignment', 'exists', `${merchantId} is on ${tier.id}`);
+    } else if (aplan.kind === 'other') {
+      record(
+        'merchant',
+        'risk tier assignment',
+        'exists',
+        `${merchantId} is on tier ${aplan.tierId}; populate does not move a merchant off its tier`,
+      );
+    } else if (aplan.kind === 'skip') {
+      record('merchant', 'risk tier assignment', 'skipped', aplan.reason);
+    } else {
+      const pair = await operatorPair(ctx);
+      if (!pair.ok) {
+        record('merchant', 'risk tier assignment', 'refused', pair.refusal);
+        continue;
+      }
+      const reason = `LOCAL TEST: put the TEST DATA merchant on ${tier.name}`;
+      const out = await founderChange(pair, {
+        submitProc: 'founderAdmin.changes.submit',
+        confirmProc: 'founderAdmin.changes.confirm',
+        input: {
+          requestId: tierAssignRequestId(merchantId, tier.id, aplan.expectedVersion),
+          merchantId,
+          change: { kind: 'set_tier', tierId: tier.id, archetypeId: MERCHANT_TIER_ARCHETYPE },
+          reason,
+          expectedVersion: aplan.expectedVersion,
+        },
+        target: assignTierTarget(merchantId, tier.id),
+        expectedVersion: aplan.expectedVersion,
+        reason,
+      });
+      record(
+        'merchant',
+        'risk tier assignment',
+        out.ok ? (out.outcome === 'noop' ? 'exists' : 'created') : 'refused',
+        out.ok ? `${merchantId} on ${tier.id}: ${out.outcome} (operator A proposed, operator B confirmed)` : out.refusal,
+      );
+    }
+  }
+}
+
+/**
+ * The payout teammate: TEST operator B, a `finance` member of the TEST merchant. The owner invites; the operator accepts. A
+ * teammate session holds no pay scope, and `merchantOps.team.acceptInvite` needs pay:write, so the accept alone uses a
+ * five-minute pay:write token minted for the operator's own session (the dispute path's stand-in). Everything after that,
+ * the step-up, the request and the owner's approval, runs on real sessions. Returns { ok } or { ok:false, refusal }.
+ */
+async function ensurePayoutTeammate(ctx, pair) {
+  const { user } = ctx;
+  const mate = pair.b;
+  const members = async () => {
+    const team = await call(user, 'q', 'pay', 'merchantOps.team.list', { limit: 50 });
+    return team.ok ? { ok: true, items: team.data.items ?? [] } : { ok: false, refusal: describeMoneyRefusal(team.refusal) };
+  };
+  let listed = await members();
+  if (!listed.ok) return listed;
+  let plan = planPayoutChecker({ members: listed.items, checkerUserId: mate.userId });
+  if (plan.kind === 'invite') {
+    const invited = await call(user, 'm', 'pay', 'merchantOps.team.invite', {
+      userId: mate.userId,
+      role: MERCHANT_CHECKER_ROLE,
+      label: MERCHANT_DISPLAY_NAME,
+    });
+    if (!invited.ok) return { ok: false, refusal: `teammate invite: ${describeMoneyRefusal(invited.refusal)}` };
+    listed = await members();
+    if (!listed.ok) return listed;
+    plan = planPayoutChecker({ members: listed.items, checkerUserId: mate.userId });
+  }
+  if (plan.kind === 'accept') {
+    let token;
+    try {
+      token = await approverScopedToken(pair.gctx, mate, 'pay:write');
+    } catch (err) {
+      return { ok: false, refusal: `teammate accept: the operator session could not be used (${oneLine(err.message)})` };
+    }
+    const accepted = await call(user, 'm', 'pay', 'merchantOps.team.acceptInvite', { memberId: plan.memberId }, token);
+    if (!accepted.ok) return { ok: false, refusal: `teammate accept: ${describeMoneyRefusal(accepted.refusal)}` };
+    listed = await members();
+    if (!listed.ok) return listed;
+    plan = planPayoutChecker({ members: listed.items, checkerUserId: mate.userId });
+  }
+  if (plan.kind === 'ready') return { ok: true };
+  return {
+    ok: false,
+    refusal:
+      plan.kind === 'wrong-role'
+        ? `the TEST teammate is a ${plan.role} on the merchant; only finance or admin can request and approve a payout (populate does not change roles)`
+        : `the TEST teammate cannot act on the merchant (${plan.kind})`,
+  };
+}
+
+/** The teammate's own "Confirm it's you" token for pay:payout (auth.stepUpPay, role finance), on the operator's real MFA session. */
+async function teammateStepUp(pair, merchantId) {
+  const mate = pair.b;
+  const probe = await pair.gctx.edge.mutate('identity', 'auth.stepUpPay', {}, mate.loginToken);
+  if (probe.status === 404 || /No procedure found/i.test(pair.gates.refusalText(probe))) {
+    return { ok: false, refusal: describeMoneyRefusal('No procedure found on path "auth.stepUpPay"') };
+  }
+  let totpCode;
+  try {
+    totpCode = await operatorFreshTotp(pair.gctx, mate.letter);
+  } catch (err) {
+    return { ok: false, refusal: `auth.step_up_required: ${oneLine(err.message)}` };
+  }
+  const minted = await pair.gctx.edge.mutate(
+    'identity',
+    'auth.stepUpPay',
+    { merchantId, scopes: ['pay:payout'], factorProof: { totpCode } },
+    mate.loginToken,
+  );
+  const data = trpcData(minted);
+  if (typeof data?.accessToken !== 'string' || data.refreshable !== false) {
+    return { ok: false, refusal: describeMoneyRefusal(pair.gates.refusalText(minted)) };
+  }
+  return { ok: true, token: data.accessToken };
+}
+
+const shortRef = (ref) => `${String(ref).slice(0, 6)}...${String(ref).slice(-4)}`;
+
+/**
+ * Payout destination, one partial refund and one payout (request, approval by the second person, send) for the TEST merchant.
+ * Order matters: the destination (own TOTP step) comes first, then one step-up token serves refund, request and send.
+ * Every refusal is recorded in the service's words, mapped to a plain cause when it is one of the step-up codes.
+ */
+async function populateMerchantStepUpMoney(ctx, merchantId, { payments, windows, settlements }) {
+  const { user, record } = ctx;
+  const userId = user.account.userId;
+  const spec = MERCHANT_PAYOUT_DESTINATION;
+
+  // a. Saved destination.
+  let destinationReady = false;
+  const dests = await call(user, 'q', 'pay', 'merchant.payoutDestinations.list', { merchantId, limit: 50 });
+  if (!dests.ok) record('merchant', 'payout destination', 'refused', describeMoneyRefusal(dests.refusal));
+  else {
+    const dplan = planPayoutDestination({ destinations: dests.data.items ?? [] });
+    if (dplan.kind === 'exists') {
+      destinationReady = true;
+      record(
+        'merchant',
+        'payout destination',
+        'exists',
+        `${dplan.destination.railId} ${dplan.destination.kind} ${dplan.destination.destinationMasked}`,
+      );
+    } else {
+      const out = await savePayoutDestination(ctx, merchantId, dplan.spec);
+      if (!out.ok) record('merchant', 'payout destination', 'refused', out.refusal);
+      else {
+        destinationReady = out.data.status === 'active';
+        record(
+          'merchant',
+          'payout destination',
+          'created',
+          out.data.status === 'active'
+            ? `${out.data.railId} ${out.data.kind} ${shortRef(out.data.ref)} active after step-up`
+            : `${out.data.railId} ${out.data.kind} ${shortRef(out.data.ref)} pending until ${out.data.activatesAt} (destination change hold); payout waits`,
+        );
+      }
+    }
+  }
+
+  // b. One partial refund.
+  const rplan = planMerchantRefund({ userId, payments });
+  if (rplan.kind === 'exists') {
+    record('merchant', 'refund', 'exists', `${rplan.refundId} ${rplan.refunded} refunded on payment ${rplan.paymentId}`);
+  } else if (rplan.kind === 'skip') {
+    record('merchant', 'refund', 'skipped', rplan.reason);
+  } else {
+    const tok = await ensurePayStepUp(ctx, merchantId);
+    if (!tok.ok) record('merchant', 'refund', 'refused', tok.refusal);
+    else {
+      let out = null;
+      let used = rplan;
+      for (let attempt = 1; attempt <= MERCHANT_REFUND_ATTEMPTS; attempt += 1) {
+        used = planMerchantRefund({ userId, payments, attempt });
+        out = await call(
+          user,
+          'm',
+          'pay',
+          'payment.refund',
+          { paymentId: used.paymentId, amount: used.amount, refundId: used.refundId },
+          tok.token,
+        );
+        // A refund the rail refused was reversed and its id is spent: only that case moves on to a new id.
+        if (out.ok || !/pay\.refund_id_spent/i.test(out.refusal)) break;
+      }
+      record(
+        'merchant',
+        'refund',
+        out.ok ? 'created' : 'refused',
+        out.ok
+          ? `${used.refundId} ${used.amount} ${MERCHANT_SETTLEMENT_ASSET} of ${out.data.amount} on payment ${out.data.id}: status ${out.data.status}, refunded ${out.data.refundedAmount}`
+          : describeMoneyRefusal(out.refusal),
+      );
+    }
+  }
+
+  // c. Payout: request, approval by the second person, send.
+  const approvals = await call(user, 'q', 'pay', 'merchantControl.approvals.list', { merchantId, limit: 200 });
+  if (!approvals.ok) return record('merchant', 'payout', 'refused', describeMoneyRefusal(approvals.refusal));
+  const payoutPayment = payments.find((p) => p.id === merchantPaymentId(userId, MERCHANT_PAYOUT_PAYMENT_N));
+  const staged = planMerchantPayoutStage({
+    settlements,
+    approvals: approvals.data.items ?? [],
+    window: payoutPayment ? utcDayLabel(payoutPayment.createdAt) : null,
+  });
+  const { target } = staged;
+  let { stage, approval } = staged;
+  if (stage === 'none') {
+    return record(
+      'merchant',
+      'payout',
+      'skipped',
+      'no settlement with a net above zero for the payout payment yet (it must be captured and settled first)',
+    );
+  }
+  if (stage === 'sent') {
+    return record('merchant', 'payout', 'exists', `settlement ${target.id} paid_out, net ${target.net} ${target.assetId}`);
+  }
+  if (stage === 'failed') {
+    return record(
+      'merchant',
+      'payout',
+      'skipped',
+      `settlement ${target.id} has a failed payout; populate does not retry or re-request a failed payout`,
+    );
+  }
+  if (!destinationReady) {
+    return record('merchant', 'payout', 'skipped', 'no active saved payout destination yet (see "payout destination" above)');
+  }
+  if (stage === 'request') {
+    // The request is filed by the finance teammate (their own step-up); the owner then approves. Maker and checker are two people.
+    const pair = await operatorPair(ctx);
+    if (!pair.ok) return record('merchant', 'payout request', 'refused', pair.refusal);
+    const mate = await ensurePayoutTeammate(ctx, pair);
+    if (!mate.ok) return record('merchant', 'payout request', 'refused', mate.refusal);
+    const tok = await teammateStepUp(pair, merchantId);
+    if (!tok.ok) return record('merchant', 'payout request', 'refused', tok.refusal);
+    const out = await call(
+      user,
+      'm',
+      'pay',
+      'merchantControl.approvals.request',
+      { merchantId, settlementId: target.id, railId: spec.railId },
+      tok.token,
+    );
+    if (out.ok) {
+      approval = out.data;
+      stage = approval.status === 'approved' ? 'send' : 'decide';
+      record(
+        'merchant',
+        'payout request',
+        'created',
+        `${approval.approvalId} ${approval.status} ${approval.amount} ${approval.assetCode} on ${approval.railId}, filed by the finance teammate (TEST operator B)`,
+      );
+    } else if (/pay\.approval_not_required/i.test(out.refusal)) {
+      stage = 'send';
+      record('merchant', 'payout request', 'exists', 'no approval needed: the amount is under the tier approval threshold');
+    } else {
+      return record('merchant', 'payout request', 'refused', `${describeMoneyRefusal(out.refusal)} (rail ${spec.railId})`);
+    }
+  } else {
+    record('merchant', 'payout request', 'exists', `${approval.approvalId} ${approval.status} for settlement ${target.id}`);
+  }
+  if (stage === 'decide') {
+    // The owner decides on their own MFA session with pay:write; no scope is minted for it.
+    if (approval.makerUserId === userId) {
+      return record(
+        'merchant',
+        'payout approval',
+        'refused',
+        'the open request was filed by the owner, and the owner cannot approve their own request; cancel it so the teammate can file a new one',
+      );
+    }
+    // Approve only what this seed asked for: filed by the TEST teammate, for this settlement's rail, asset and net.
+    const pair = await operatorPair(ctx);
+    const mismatch = !pair.ok
+      ? pair.refusal
+      : approval.makerUserId !== pair.b.userId
+        ? 'it was not filed by the TEST teammate'
+        : approval.railId !== spec.railId
+          ? `it names rail ${approval.railId}, not ${spec.railId}`
+          : approval.assetCode !== target.assetId || Number(approval.amount) !== Number(target.net)
+            ? `it names ${approval.amount} ${approval.assetCode}, not the settlement's ${target.net} ${target.assetId}`
+            : null;
+    if (mismatch) {
+      return record('merchant', 'payout approval', 'skipped', `an open request is not approved by populate: ${mismatch}`);
+    }
+    const decided = await call(user, 'm', 'pay', 'merchantControl.approvals.decide', {
+      approvalId: approval.approvalId,
+      decision: 'approve',
+      expectedPayloadHash: approval.payloadHash,
+      reason: CHECKER_REASON,
+    });
+    if (!decided.ok) return record('merchant', 'payout approval', 'refused', describeMoneyRefusal(decided.refusal));
+    approval = decided.data;
+    const done = approval.status === 'approved' || approval.status === 'pending';
+    record(
+      'merchant',
+      'payout approval',
+      done ? 'created' : 'refused',
+      done
+        ? `${approval.approvalId} ${approval.status}, approved by the owner (a different person from the requester)`
+        : `the request is ${approval.status}, not approved (voided or expired requests need a new one on the next run)`,
+    );
+    if (!done) return;
+    stage = approval.status === 'approved' ? 'send' : 'founders';
+  }
+  if (stage === 'founders') {
+    return record(
+      'merchant',
+      'payout send',
+      'skipped',
+      'the amount needs two founders on top of the checker; populate does not act as a founder, so the payout is not sent',
+    );
+  }
+  const tok = await ensurePayStepUp(ctx, merchantId);
+  if (!tok.ok) return record('merchant', 'payout send', 'refused', tok.refusal);
+  const sent = await call(user, 'm', 'pay', 'settlement.payout', { settlementId: target.id, railId: spec.railId }, tok.token);
+  record(
+    'merchant',
+    'payout send',
+    sent.ok ? 'created' : 'refused',
+    sent.ok
+      ? `settlement ${sent.data.id} ${sent.data.status}, net ${sent.data.net} ${sent.data.assetId} via ${sent.data.payoutMethod ?? spec.railId}`
+      : describeMoneyRefusal(sent.refusal),
+  );
 }
 
 function trpcData(res) {
@@ -2798,7 +3527,8 @@ async function signInTestOperatorPair(gctx, gates) {
     if (!expected || claims.sub !== expected || sess.op.userId !== expected) {
       return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (operator ${letter.toUpperCase()} signed in as a different account)` };
     }
-    out.push({ token, userId: sess.op.userId, sessionId: sess.op.sessionId, tier: claims.tier ?? 'none' });
+    // `token` is the admin-scoped approval token; `loginToken` is the plain MFA session, what a founder desk or a teammate really holds.
+    out.push({ token, loginToken: sess.token, letter, userId: sess.op.userId, sessionId: sess.op.sessionId, tier: claims.tier ?? 'none' });
   }
   return { ok: true, sessions: out };
 }
