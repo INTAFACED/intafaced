@@ -35,7 +35,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0089      | payout dispatched outcome before the rail call        | used                                            |
 | 0090      | D-142 payout destination verified flag and pending change | used                                         |
 | 0091      | FRAUDQUEUE fraud review cases                         | used                                            |
-| 0092      | S38WALLETPAY wallet inbounds and withdrawals          | used                                            |
+| 0092      | S38WALLETPAY wallet inbounds and withdrawals          | void (S38 withdrew, number not reused)          |
 | 0093+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe

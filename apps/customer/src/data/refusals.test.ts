@@ -175,7 +175,6 @@ describe('wallet withdrawal refusals', () => {
       body: 'Add the missing recipient details and submit the withdrawal again. Nothing was sent.',
     });
     expect(classifyRefusal('pay.wallet_withdraw_unavailable')).toBe('walletPaused');
-    expect(classifyRefusal('pay.wallet_minimum_unset')).toBe('walletDeposit');
     expect(classifyRefusal('pay.wallet_forbidden')).toBe('noPermission');
   });
 });

@@ -2185,47 +2185,6 @@ export function createPayRouter(
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
         .query(({ input }) => wrap(async () => userMoney.estimateWithdrawalFee(input))),
-
-      cancel: scopedProcedure('trade:withdraw', { module: 'ledger' })
-        .input(z.object({ withdrawalId: z.string().uuid() }))
-        .output(z.object({ withdrawalId: z.string(), status: z.string() }))
-        .mutation(({ ctx, input }) =>
-          wrap(async () => {
-            const row = await userMoney.cancelWithdrawal({ withdrawalId: input.withdrawalId, userId: ctx.principal.userId });
-            return { withdrawalId: row.id, status: row.status };
-          }),
-        ),
-
-      needsInfo: scopedProcedure('support:ops')
-        .input(z.object({ withdrawalId: z.string().uuid(), fields: z.record(z.string()) }))
-        .output(z.object({ withdrawalId: z.string(), status: z.string(), hold: amountSchema }))
-        .mutation(({ input }) =>
-          wrap(async () => {
-            const row = await userMoney.markWithdrawalNeedsInfo({ withdrawalId: input.withdrawalId, fields: input.fields });
-            return { withdrawalId: row.id, status: row.status, hold: formatAmount(row.holdAmount) };
-          }),
-        ),
-
-      /** Admin credit of a sent withdrawal. Refused unless a reason and a chain-return proof are both present. */
-      adminCredit: scopedProcedure('admin:treasury')
-        .input(
-          z.object({
-            withdrawalId: z.string().uuid(),
-            reason: z.string().max(500).nullish(),
-            chainReturnProof: z.string().max(200).nullish(),
-          }),
-        )
-        .output(z.object({ withdrawalId: z.string(), status: z.string() }))
-        .mutation(({ input }) =>
-          wrap(async () => {
-            const row = await userMoney.adminCreditWithdrawal({
-              withdrawalId: input.withdrawalId,
-              reason: input.reason ?? null,
-              chainReturnProof: input.chainReturnProof ?? null,
-            });
-            return { withdrawalId: row.id, status: row.status };
-          }),
-        ),
     }),
   });
 }
