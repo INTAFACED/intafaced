@@ -324,6 +324,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       </p>
                     )}
                     <PortalReview<PayoutOutcome>
+                      stepUp="payout"
                       title={sending ? t('pnSend') : t('pnSubmit')}
                       variant="primary"
                       description={sending ? t('pnSendReviewBody') : t('pnReviewBody')}

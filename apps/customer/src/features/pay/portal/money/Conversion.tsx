@@ -297,6 +297,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                 ]}
               />
               <PortalReview<ConversionOrder>
+                stepUp="payout"
                 title={t('cvConvert')}
                 variant="primary"
                 description={t('cvReviewBody')}

@@ -382,6 +382,7 @@ export function CancelRequest({
         <small>{t('hDecisionReason')}</small>
       </label>
       <PortalReview
+        stepUp="payout"
         title={t('cancelRequest')}
         description={t('cancelRequestBody')}
         review={

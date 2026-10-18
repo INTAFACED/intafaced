@@ -48,20 +48,35 @@ describe('header actions follow the same scope check as the page buttons', () =>
     for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations', 'links', 'payments', 'dashboard'] as const)
       expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
   });
-  it('switches off every refund and payout action without the scope, with the present-tense reason', () => {
-    // An owner session as identity mints it today: read and write, no refund and no payout.
+  it('lets an owner open every refund and payout action: the confirmation is asked when it is opened', () => {
+    // An owner session as identity mints it today: read and write, no refund and no payout. The money scopes come from
+    // confirming it's them, so the owner's controls are on.
+    const pay = payFor({ ...authority(['pay:read', 'pay:write']), confirmable: ['pay:refund', 'pay:payout'] });
+    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations', 'links', 'payments', 'dashboard'] as const)
+      expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
+  });
+  it('says who can when the person cannot confirm a payment, in the present tense', () => {
     const pay = payFor(authority(['pay:read', 'pay:write']));
-    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations'] as const) {
-      const reason = headerActionReason(room, value(ready('owner')), pay);
-      expect(reason, room).toBe(
-        room === 'refunds'
-          ? 'Refunding needs a confirmed sign-in step that this deployment does not offer.'
-          : 'Paying out needs a confirmed sign-in step that this deployment does not offer.',
+    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations'] as const)
+      expect(headerActionReason(room, value(ready('admin')), pay), room).toBe(
+        room === 'refunds' ? 'Only the account owner can refund payments.' : 'Only the account owner can send payouts.',
       );
-    }
     // Making a link and the other ordinary writes stay on.
     for (const room of ['links', 'payments', 'dashboard'] as const)
       expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();
+  });
+  it('says why an owner cannot, when the account is not active or the session is an API key', () => {
+    const pay = payFor(authority(['pay:read']));
+    expect(
+      headerActionReason(
+        'refunds',
+        value({ ...(ready('owner') as Extract<Access, { status: 'ready' }>), accountStatus: 'suspended' }),
+        pay,
+      ),
+    ).toBe('Refunds and payouts open once your business account is active.');
+    expect(
+      headerActionReason('payouts', value({ ...(ready('owner') as Extract<Access, { status: 'ready' }>), sessionInteractive: false }), pay),
+    ).toBe('API keys and sub-accounts cannot confirm a payment.');
   });
   it('switches the action off when there is no authority at all (a team member) or no pay api', () => {
     expect(headerActionReason('refunds', value(ready('viewer')), payFor(null))).toBeTruthy();

@@ -2,7 +2,7 @@ import type { BusinessPayApi } from '../../pay-api';
 import { chromeCopy } from '../chrome/copy';
 import type { PortalRoom } from '../routes';
 import type { Need } from './capabilities';
-import { isMoneyScope, moneyKindOf, moneyReason } from './money-step';
+import { isMoneyScope, moneyKindOf, moneyReasonFor, ownerOnlyReason } from './money-step';
 import type { MerchantAccessValue } from './MerchantAccess';
 
 /**
@@ -41,7 +41,10 @@ export function headerActionReason(
   if ('need' in gate) return access.can(gate.need) ? null : chromeCopy.t('headerActionNoRole');
   const refusal = pay?.access(gate.scope) ?? null;
   if (pay && !refusal) return null;
-  // Refund and payout say the same thing everywhere: the session has no confirmed sign-in step (`money-step.ts`).
-  if (isMoneyScope(gate.scope)) return moneyReason(moneyKindOf(gate.scope), pay?.authority?.scopes);
+  // Refund and payout say the same thing everywhere: who can (`money-step.ts`).
+  if (isMoneyScope(gate.scope)) {
+    const kind = moneyKindOf(gate.scope);
+    return moneyReasonFor(kind, access.access) ?? ownerOnlyReason(kind);
+  }
   return refusal ? refusal.message : chromeCopy.t('headerActionNoRole');
 }

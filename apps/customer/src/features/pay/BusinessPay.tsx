@@ -565,6 +565,7 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                       </p>
                     )}
                     <ReviewedAction
+                      stepUp="payout"
                       title={payCopy.t('payOutSettlement')}
                       variant="primary"
                       description={payCopy.t('sendThePostedNetAmountThroughThe')}
