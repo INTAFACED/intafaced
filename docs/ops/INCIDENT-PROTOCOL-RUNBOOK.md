@@ -1,5 +1,7 @@
 # Incident runbook — Protocol Plane (chain / relay / self-custody)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Board:** S-J3 · Shehzad (`@shehzad002`)  
 **Class:** N (ops procedure). Does **not** close Class X go-live or `socket.contract-audit`.  
 **Law:** Doctrine §14.6 (operator kill, never trap funds) · S-A1 never-a-guardian · [`../SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md`](../SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md)  

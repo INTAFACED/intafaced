@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 import {
   MemoryLedger,
   formatAmount,
+  futuresLossSink,
+  houseFees,
   parseAmount as amt,
   positionCollateralAccount,
   recipes,
@@ -56,19 +58,23 @@ function longPosition() {
   };
 }
 
+/**
+ * Alice locks 20 of a 1000 deposit. Bob's 50 is a posted trade fee into
+ * `houseFees('trade')`, the account `futuresRealizeProfit` draws. A realised
+ * loss would debit `futuresLossSink` and leave that fee pot at 0 (#5016).
+ */
 async function seedMarginAndProfitPot(ledger: MemoryLedger) {
   await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: 'alice-usdt' }));
   await ledger.post(recipes.futuresMarginLock({ positionId: POS, userId: ALICE, assetId: 'USDT', amount: amt('20') }));
-  await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'bob-profit-seed' }));
-  await ledger.post(recipes.futuresMarginLock({ positionId: 'pot-seed', userId: BOB, assetId: 'USDT', amount: amt('50') }));
+  await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'bob-fee-seed' }));
   await ledger.post(
-    recipes.futuresRealizeLoss({
-      positionId: 'pot-seed',
+    recipes.feeCharge({
+      chargeId: 'pot-seed',
       userId: BOB,
+      module: 'trade',
+      mode: 'asset',
       assetId: 'USDT',
-      fromMargin: amt('50'),
-      fromInsurance: 0n,
-      lossId: 'pot-seed',
+      amount: amt('50'),
     }),
   );
 }
@@ -154,7 +160,10 @@ describe('H6 JobHost invokes settlement mill', () => {
         .map((p) => p.reason),
     ).toEqual(['futures.profit.realized', 'futures.margin.release']);
     expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', POS))).amount)).toBe('0');
+    // 1000 - 20 lock + 10 profit + 20 release = 1010. Fees 50 - 10 = 40. Loss sink stays 0.
     expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('1010');
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('40');
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('0');
     expect(ledger.reconcile()).toEqual({ ok: true });
     expect(closed).toEqual([POS]);
     expect(datedSettlementIdFor(POS)).toBe(`dated-settle:${POS}`);

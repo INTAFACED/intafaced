@@ -1,5 +1,7 @@
 # Fleet tip images (D26-P2-04)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** law for the local and staging run path.  
 **Board:** D26-P2-04 — running fleet = tip images.  
 **Leverage:** existing `Dockerfile` + `docker-compose.apps.yml` (staging ADR: consume the unit; do not invent a second image strategy).  

@@ -1,5 +1,7 @@
 # Internet leverage — Phase A current audit (in-repo)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Superseded for exchange OSS (2026-08-31):** named take/keep/never is [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md) + north-star §0.3. This file remains the Phase A **in-repo asset register**. Do **not** treat “FIX not found” or “binary feeds not found” as a ban on QuickFIX/J or Real Logic SBE **adapters**.
 
 **Status:** PHASE A PROPER · **finished for NOW residual craft** · enforced via [`INTERNET-LEVERAGE-LAW.md`](INTERNET-LEVERAGE-LAW.md) (agents · CI auto-load)  
