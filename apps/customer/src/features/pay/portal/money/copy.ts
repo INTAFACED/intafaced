@@ -535,6 +535,7 @@ const en = {
   // ---- refunds
   rfTiles: 'Refunds at a glance',
   rfCount: 'Refunds',
+  rfCountReversedNote: '{n} reversed, not counted',
   rfRefunded: 'Refunds on payments taken',
   rfIssuedTile: 'Refunds issued',
   rfIssuedTileNote: 'Refunds you made in the last 30 days, whichever day the payment was taken.',
@@ -735,6 +736,10 @@ const en = {
   rCapsUnset: 'Payout limits aren’t set up for your account.',
   rHalted: 'Payouts are paused right now. Nothing was sent.',
   rTestRefused: 'This account is on test money, so real money can’t be sent.',
+  rScreeningUnavailable:
+    'Nothing was sent: sanctions screening is not available on this system, and money only leaves after every recipient is screened.',
+  rScreeningReview: 'Nothing was sent: the recipient needs a compliance review before money can go to them. Contact support.',
+  rScreeningRefuse: 'Nothing was sent: this recipient cannot receive money from INTAFACED.',
   rRailRefused: 'The payment network didn’t accept this. Nothing was sent.',
   rRailNotLive: 'That payout network isn’t live.',
   rRailUnknown: 'We couldn’t confirm whether the payment network received it. Check the payout before trying again.',

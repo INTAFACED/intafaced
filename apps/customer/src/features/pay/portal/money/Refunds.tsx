@@ -102,6 +102,9 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
   const captured = snap?.captured.find((a) => a.assetCode === asset)?.amount ?? null;
   const rate = refunded !== null && captured !== null ? refundRate(refunded, captured) : null;
   const n = newest.resource.status === 'ready' ? newest.resource.data : null;
+  // Reversed refunds never reached the customer, so the count leaves them out and says how many there were.
+  const done = n ? n.items.filter((r) => r.status !== 'reversed') : [];
+  const reversed = n ? n.items.length - done.length : 0;
   return (
     <div className="stack">
       <TestBanner />
@@ -113,7 +116,8 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             label: t('rfCount'),
             period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
-            value: n ? (n.nextCursor ? t('mnCountNewest', { n: n.items.length }) : String(n.items.length)) : '—',
+            value: n ? (n.nextCursor ? t('mnCountNewest', { n: done.length }) : String(done.length)) : '—',
+            note: reversed > 0 ? t('rfCountReversedNote', { n: reversed }) : undefined,
           },
           {
             label: t('rfRefunded'),
