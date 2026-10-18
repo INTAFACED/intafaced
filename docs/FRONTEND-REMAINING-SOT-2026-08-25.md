@@ -12,7 +12,7 @@
 **Tip at this map:** worktree base `origin/main` (re-derive: `git log -1 --oneline origin/main`). Do not inventory the Grok door checkout.<br>
 **Product UI:** Bazaar `vendor/upstream-exchange/05_Web_Front` `:8090` only. No second SPA. N4 paint. Ledger-client only for value.
 
-This file names **every frontend surface and every remaining closure gate**. It is the sole living frontend _execution_ map. Product terminal law stays in [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **M07/M25** and [`SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md`](SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md) (PX-S05). This file maps those R-items onto Bazaar; it does not recook them. Sections 0–8 are 2026-08-26 baseline; §§9–18 win on shell safety; §§19–21 win on “what the exchange UI still owes.” Do not create another frontend tracker or paste this whole file as one PR.
+This file names **every frontend surface and every remaining closure gate**. It is the sole living frontend _execution_ map. Product terminal law stays in [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **M07/M25** and [`SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md`](archive/SPEC-PRO-EXCHANGE-TERMINAL-OMS-AND-TCA-2026-08-24.md) (PX-S05). This file maps those R-items onto Bazaar; it does not recook them. Sections 0–8 are 2026-08-26 baseline; §§9–18 win on shell safety; §§19–21 win on “what the exchange UI still owes.” Do not create another frontend tracker or paste this whole file as one PR.
 
 ---
 
