@@ -25,6 +25,7 @@ import { type OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import { TradeService } from '../spot/trade-service.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { TradeError } from '../spot/types.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { ALGO_IMMATURE_KINDS, ALGO_VOLUME_IMMATURE_CODE, describeAlgoPolicy } from './algo-policy.js';
 import { withinPriceBand } from './mark-gate.js';
 
@@ -91,7 +92,8 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db.truncateAll();
+    // order_events refuses TRUNCATE. Same reset as the copy SQL suites.
+    await truncateTradeExceptOrderEvents(db.sql);
     ledger = new FlakyLedger();
     matching = new StubMatching();
     perks = new StubPerks();
