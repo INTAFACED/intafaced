@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
 
 /**
@@ -25,7 +26,7 @@ function mapSignError(err: unknown): never {
   throw err;
 }
 
-export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = null) {
+export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, encKey: Buffer | null = null) {
   return router({
     setApiKeyRequestSigning: scopedProcedure('identity:write')
       .input(
@@ -34,6 +35,7 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
             keyId: z.string().uuid(),
             requireSignature: z.boolean().optional(),
             requireNonEmptyIpAllowlist: z.boolean().optional(),
+            factorProof: optionalFactorProof,
           })
           .refine((value) => value.requireSignature !== undefined || value.requireNonEmptyIpAllowlist !== undefined),
       )
@@ -48,15 +50,27 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          return await setApiKeyRequestSigning(
-            sql,
-            ctx.principal.userId,
-            input.keyId,
-            {
-              requireSignature: input.requireSignature,
-              requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
-            },
-            encKey,
+          const set = (db: Sql) =>
+            setApiKeyRequestSigning(
+              db,
+              ctx.principal.userId,
+              input.keyId,
+              {
+                requireSignature: input.requireSignature,
+                requireNonEmptyIpAllowlist: input.requireNonEmptyIpAllowlist,
+              },
+              encKey,
+            );
+          // Turning signing on can reveal a secret: that needs a fresh factor. Turning it off, or leaving the
+          // flag out, reveals nothing and stays one click: an omitted flag keeps the stored flag and secret
+          // (see setApiKeyRequestSigning), so it can never issue a secret or enable signing.
+          if (input.requireSignature !== true) return await set(sql);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'signing_secret', keyId: input.keyId },
+            (scope) => set(scope.tx),
           );
         } catch (err) {
           mapSignError(err);
@@ -68,12 +82,18 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
      * The new secret is returned once. identity:write, and the caller must own the key.
      */
     rotateSigningSecret: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid() }))
+      .input(z.object({ keyId: z.string().uuid(), factorProof: optionalFactorProof }))
       .output(z.object({ id: z.string().uuid(), signingSecret: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          return await rotateSigningSecret(sql, ctx.principal.userId, input.keyId, encKey);
+          return await guardedApiKeyAction(
+            gate,
+            ctx.principal,
+            input.factorProof,
+            { action: 'signing_secret', keyId: input.keyId },
+            (scope) => rotateSigningSecret(scope.tx, ctx.principal.userId, input.keyId, encKey),
+          );
         } catch (err) {
           mapSignError(err);
         }

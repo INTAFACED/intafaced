@@ -59,6 +59,12 @@ export interface TwapEnginePorts {
   /** Mark feed. Null = halt (refuse invent). */
   markFor(marketId: string): Promise<AlgoQuotedMark | null>;
   /**
+   * First accepted mark. The store writes it once. Called only after the
+   * mark gate accepts. Optional so a test engine that does not record an
+   * arrival still ticks.
+   */
+  recordArrivalMark?(parentId: string, mark: AlgoQuotedMark): Promise<unknown>;
+  /**
    * Non-seeded taker volume in [from, to). POV only.
    * Omit or 0 → miss (never invent participation against an empty tape).
    */
@@ -378,6 +384,7 @@ export class TwapEngine {
       const code: AlgoMissCode = markOk.code === 'trade.algo_mark_missing' ? 'trade.algo_mark_missing' : 'trade.algo_mark_unusable';
       return this.halt(working, markOk.reason!, code);
     }
+    await this.ports.recordArrivalMark?.(working.id, mark);
 
     // Liquidity probe — empty book = miss, not invent fill.
     const opposing = await this.ports.bestOpposingPrice(working.marketId, working.side);

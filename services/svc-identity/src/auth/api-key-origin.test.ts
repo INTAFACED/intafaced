@@ -37,7 +37,7 @@ describe('apiKeyOriginAllowed', () => {
 
 describe('origin allowlist mint/bind is mounted (not helper-only)', () => {
   it('mergeRouters includes createApiKeyOriginRouter so bind/mint are live doors', () => {
-    expect(indexSrc).toMatch(/createApiKeyOriginRouter\(sql, auth\)/);
+    expect(indexSrc).toMatch(/createApiKeyOriginRouter\(sql, auth, auth\)/);
     expect(indexSrc).toMatch(/from ['"]\.\/api-key-origin-router\.js['"]/);
   });
 });
