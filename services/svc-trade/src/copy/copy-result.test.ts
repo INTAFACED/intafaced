@@ -18,6 +18,7 @@ import type { Principal } from '@intafaced/auth';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import { copyMirrorClientOrderId } from './auto-mirror-place.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { attachCopyExportRoute } from './copy-export-rest.js';
 import { CopyService } from '../controls/test-admission.js';
 import { SqlCopyFollowStore } from './follow-store.js';
@@ -116,7 +117,8 @@ describe('copy follow result, trail and export', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db!.truncateAll();
+    // order_events refuses TRUNCATE. The harness reset skips that table.
+    await truncateTradeExceptOrderEvents(db!.sql);
   });
 
   async function seedMarkets(): Promise<void> {

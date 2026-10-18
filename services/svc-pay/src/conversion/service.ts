@@ -23,8 +23,9 @@ import { computePricing, resolvePricingRule } from '../control/pricing.js';
 import { findBlockingHalt } from '../halts/store.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import { liveAccountsIn } from '../sandbox-ledger-guard.js';
+import { ControlError } from '../control/errors.js';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
-import { requireMerchantPermission } from '../merchant-ops/roles.js';
+import { isInteractivePrincipal, requireMerchantPermission } from '../merchant-ops/roles.js';
 import type { RegistryReader } from '../registries/read-api.js';
 import { FRESH, PayGuardRefusal, type PayGuards } from '../seams/guards.js';
 import { GUARD_HALTED, GUARD_HALT_STORE_UNAVAILABLE } from '../halts/guards.js';
@@ -437,6 +438,10 @@ export class ConversionService {
   }
 
   async execute(principal: Principal | null, input: { requestId: string; quoteId: string }): Promise<ConversionOrder> {
+    // D-145 lets a key pay out to a verified destination. It does not let a key, or a sub-account, convert.
+    if (principal && (principal.kid !== undefined || principal.sub_account !== undefined) && !isInteractivePrincipal(principal)) {
+      throw new ControlError('pay.interactive_required');
+    }
     if (principal?.key_env === 'sandbox') {
       // A sandbox key must not hold, book, release, or reverse conversion value. Those recipes name live pots.
       const probe = recipes.fxConversionHold({

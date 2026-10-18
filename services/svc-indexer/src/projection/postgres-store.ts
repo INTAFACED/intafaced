@@ -112,7 +112,11 @@ export class PostgresProjectionStore implements ProjectionStore {
         );
       }
 
-      const blockTime = new Date(block.timestamp * 1000);
+      // Drizzle's postgres-js driver replaces the timestamptz serializer with a
+      // pass-through, so binding a Date dies in Buffer.byteLength and ingest
+      // never records a height. postgres.js itself writes toISOString(); that
+      // is the text a timestamptz column already stores.
+      const blockTime = blockTimeForWrite(block.timestamp);
 
       // Parent link is the store's last line of defence (parity with memory-store).
       // The indexer checks the forward link; a second writer (or a corrupted apply)
@@ -458,7 +462,7 @@ interface BlockRow {
   parent_hash: string;
   height: string;
   status: string;
-  block_time: Date;
+  block_time: Date | string;
   event_count: number;
 }
 
@@ -477,7 +481,7 @@ interface FillRow {
   taker_side: string;
   maker: string;
   taker: string;
-  block_time: Date;
+  block_time: Date | string;
 }
 
 interface PositionRow {
@@ -496,7 +500,7 @@ function toStoredBlock(row: BlockRow): StoredBlock {
     hash: row.hash,
     parentHash: row.parent_hash,
     status: row.status === 'orphaned' ? 'orphaned' : 'canonical',
-    blockTime: row.block_time,
+    blockTime: blockTimeFromRow(row.block_time),
     eventCount: row.event_count,
   };
 }
@@ -512,8 +516,31 @@ function toFill(row: FillRow): FillRecord {
     takerSide: row.taker_side as TakerSide,
     maker: row.maker,
     taker: row.taker,
-    blockTime: row.block_time,
+    blockTime: blockTimeFromRow(row.block_time),
   };
+}
+
+/** Unix seconds from the block, as the ISO string postgres.js would have sent. */
+function blockTimeForWrite(timestampSeconds: number): string {
+  const at = new Date(timestampSeconds * 1000);
+  if (Number.isNaN(at.getTime())) {
+    throw new Error(`indexer.block_time_unreadable: unix seconds ${timestampSeconds}`);
+  }
+  return at.toISOString();
+}
+
+/**
+ * The production client returns timestamptz as text (Drizzle's parser is a
+ * pass-through). The conformance client returns a Date. Callers see a Date.
+ */
+function blockTimeFromRow(value: Date | string): Date {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new Error('indexer.block_time_unreadable');
+    return value;
+  }
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) throw new Error(`indexer.block_time_unreadable: ${value}`);
+  return at;
 }
 
 function toPosition(row: PositionRow): PositionRecord {

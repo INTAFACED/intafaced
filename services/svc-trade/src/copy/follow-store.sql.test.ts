@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import { CopyError } from './errors.js';
 import { SqlCopyFollowStore, type StoredPlacedMirror, type StoredSettledFeeShare } from './follow-store.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import type { CopyFollow } from './follows.js';
 
 /**
@@ -133,7 +134,7 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db!.truncateAll();
+    await truncateTradeExceptOrderEvents(db!.sql);
   });
 
   it('relationship_state round-trips pause without dropping the follow', async () => {

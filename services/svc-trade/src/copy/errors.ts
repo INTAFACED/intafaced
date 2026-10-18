@@ -47,7 +47,21 @@ export type CopyErrorCode =
   | 'trade.copy_trail_window_too_wide'
   | 'trade.copy_trail_limit_unset'
   | 'trade.copy_trail_cursor_invalid'
-  | 'trade.copy_divergence_basis_unset';
+  | 'trade.copy_divergence_basis_unset'
+  | 'trade.copy_leaders_limit_unset'
+  | 'trade.copy_follow_events_limit_unset'
+  | 'trade.copy_leaders_cursor_invalid'
+  | 'trade.copy_leader_suspended'
+  | 'trade.copy_leader_delisted'
+  | 'trade.copy_leader_capacity_full'
+  | 'trade.copy_leader_not_found'
+  | 'trade.copy_leader_identity_unset'
+  | 'trade.copy_leader_evidence_unset'
+  | 'trade.copy_leader_request_unset'
+  | 'trade.copy_leader_request_mismatch'
+  | 'trade.copy_leader_record_blank'
+  | 'trade.copy_leader_state_invalid'
+  | 'trade.copy_leader_state_reason_unset';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

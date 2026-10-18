@@ -228,6 +228,8 @@ export interface CopyFollowStore {
   listFollows(): Promise<CopyFollow[]>;
   /** Caller-scoped list — never loads another follower's envelope. Desk passes a published limit; uniqueness omits it. */
   listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]>;
+  /** ACTIVE follows of one leader. The count only — no follower identity. */
+  countActiveFollowsByLeader(leaderId: string): Promise<number>;
   getExposure(followId: string): Promise<Amount>;
   setExposure(followId: string, amount: Amount): Promise<void>;
   /**
@@ -455,6 +457,14 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   async listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]> {
     const rows = [...this.follows.values()].filter((f) => f.followerId === followerId).map(overlayFollowSessionKey);
     return limit === undefined ? rows : rows.slice(0, limit);
+  }
+
+  async countActiveFollowsByLeader(leaderId: string): Promise<number> {
+    let n = 0;
+    for (const follow of this.follows.values()) {
+      if (follow.leaderId === leaderId && followRelationshipState(follow) === 'ACTIVE') n += 1;
+    }
+    return n;
   }
 
   async getExposure(followId: string): Promise<Amount> {
@@ -934,6 +944,16 @@ export class SqlCopyFollowStore implements CopyFollowStore {
              LIMIT ${limit}
           `;
     return rows.map(followFromRow);
+  }
+
+  async countActiveFollowsByLeader(leaderId: string): Promise<number> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n
+        FROM trade.copy_follows
+       WHERE leader_id = ${leaderId}
+         AND relationship_state = 'ACTIVE'
+    `;
+    return row?.n ?? 0;
   }
 
   async getExposure(followId: string): Promise<Amount> {

@@ -718,7 +718,8 @@ if (!available) {
         `,
       ).rejects.toThrow(/api_keys_no_withdraw_ck/);
 
-      // pay:payout is interactive-only too (§9) — same CHECK must refuse it.
+      // pay:payout is not implied by a normal session. The database allows the
+      // row: a step-up create is the only way the service will write it (D-145).
       await expect(
         auth.createApiKey({
           userId: session.userId,
@@ -726,14 +727,12 @@ if (!available) {
           scopes: ['pay:payout'],
           grantorScopes: SESSION_SCOPES,
         }),
-      ).rejects.toThrow(/interactive/);
+      ).rejects.toThrow(/step-up/);
 
-      await expect(
-        db.sql`
-          INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
-          VALUES (${session.userId}, 'pay_x', ${'hp' + Date.now()}, 'ifc_p', ARRAY['pay:payout'])
-        `,
-      ).rejects.toThrow(/api_keys_no_withdraw_ck/);
+      await db.sql`
+        INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes)
+        VALUES (${session.userId}, 'pay_x', ${'hp' + Date.now()}, 'ifc_p', ARRAY['pay:payout'])
+      `;
 
       // A founder session that holds the desk still cannot mint a key with it,
       // and a row inserted past the service is refused by the same CHECK.

@@ -33,12 +33,16 @@ import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './cop
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
+import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
+import { deskTrpcError } from './desk/errors.js';
+import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
+import { presentAlgoDesk } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -206,6 +210,12 @@ const algoParentOutputSchema = z.object({
   scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
 });
 
+const algoGetOutputSchema = algoParentOutputSchema.extend({
+  children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
+  misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
+  filledQty: decimal,
+});
+
 const marketOutput = z.object({
   id: z.string().uuid(),
   symbol: z.string(),
@@ -333,6 +343,8 @@ function presentFill(fill: FillRecord) {
 function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
+  const desk = deskTrpcError(err);
+  if (desk) return desk;
   if (err instanceof TradingControlError) {
     let code: 'SERVICE_UNAVAILABLE' | 'CONFLICT' | 'FORBIDDEN' = 'FORBIDDEN';
     if (err.code === 'authority.unavailable') code = 'SERVICE_UNAVAILABLE';
@@ -381,6 +393,7 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof CopyError) {
     switch (err.code) {
       case 'trade.copy_not_following':
+      case 'trade.copy_leader_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.copy_jurisdiction_blocked':
       case 'trade.copy_self_follow':
@@ -409,6 +422,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_disclosure_unpublished':
       case 'trade.copy_disclosure_required':
       case 'trade.copy_disclosure_version_stale':
+      case 'trade.copy_leader_suspended':
+      case 'trade.copy_leader_delisted':
+      case 'trade.copy_leader_capacity_full':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -794,6 +810,7 @@ export function createTradeRouter(
      * Size required; desk names the price (no mid on the wire). Not a book fill.
      */
     rfq: router({
+      ...rfqHistoryProcedures(trade),
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
           z
@@ -881,6 +898,7 @@ export function createTradeRouter(
      */
     algo: router({
       policy: publicProcedure.query(() => describeAlgoPolicy()),
+      ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
         .input(
@@ -918,8 +936,14 @@ export function createTradeRouter(
 
       get: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
-        .output(algoParentOutputSchema)
-        .query(({ ctx, input }) => guard(async () => presentAlgo(await trade.getAlgo(ctx.principal, input.algoId)))),
+        .output(algoGetOutputSchema)
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const parent = await trade.getAlgo(ctx.principal, input.algoId);
+            const progress = await trade.algoProgress(ctx.principal, input.algoId);
+            return { ...presentAlgo(parent), ...presentAlgoDesk(parent, progress.filledQty) };
+          }),
+        ),
 
       progress: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
@@ -1004,6 +1028,7 @@ export function createTradeRouter(
      */
     options: router({
       policy: publicProcedure.query(() => describeOptionsPolicy()),
+      ...optionsDeskProcedures(trade),
     }),
 
     /**
@@ -1068,7 +1093,8 @@ export function createTradeRouter(
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(
           z.object({
-            leaderId: z.string().min(1).max(120),
+            leaderId: z.string().min(1).max(120).optional(),
+            leaderRef: z.string().min(1).max(80).optional(),
             region: z.string().min(1).max(16),
             permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
             maxNotionalPerOrder: decimal,
@@ -1197,6 +1223,98 @@ export function createTradeRouter(
             return copy.resume(ctx.principal, input);
           }),
         ),
+
+      /**
+       * Published leader directory. Listed rows only, stable by listed time.
+       * Limit is required. Any sort or order parameter is a ranking refuse.
+       */
+      listLeaders: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z
+            .object({
+              limit: z.number().optional(),
+              cursor: z.string().max(500).optional(),
+              sort: z.string().max(64).optional(),
+              order: z.string().max(64).optional(),
+              orderBy: z.string().max(64).optional(),
+              return: z.string().max(64).optional(),
+              profit: z.string().max(64).optional(),
+              copiers: z.string().max(64).optional(),
+              rank: z.string().max(64).optional(),
+            })
+            .optional(),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            const query = input ?? {};
+            refuseLeaderDirectoryRanking(query);
+            publishedCopyPageLimit(query.limit, 'trade.copy_leaders_limit_unset', 'listLeaders');
+            if (!copy) return { leaders: [], nextCursor: null };
+            return copy.listLeaders(ctx.principal, query);
+          }),
+        ),
+
+      /** Events for the caller's own follow, since the follow began. Limit is required. */
+      followEvents: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            limit: z.number().optional(),
+            cursor: z.string().max(500).optional(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.followEvents(ctx.principal, input);
+          }),
+        ),
+
+      ops: router({
+        /** Operator writes need `admin:write`, the trade operator desk's write scope. */
+        upsertListing: scopedProcedure('admin:write', { module: 'trade' })
+          .input(
+            z.object({
+              clientRequestId: z.string().min(1).max(200),
+              leaderUserId: z.string().min(1).max(120),
+              displayName: z.string().min(1).max(200),
+              recordKind: z.enum(['verified_live', 'paper', 'backtest', 'imported', 'self_reported']),
+              state: z.enum(['unlisted', 'listed', 'suspended', 'delisted']).optional(),
+              tenureStart: z.string().max(40).nullable().optional(),
+              assets: z.array(z.string().min(1).max(32)).max(64).optional(),
+              capacity: z.number().int().nonnegative().nullable().optional(),
+              strategyVersion: z.string().max(120).nullable().optional(),
+              publishedReturn: z.string().max(80).nullable().optional(),
+              maximumDrawdown: z.string().max(80).nullable().optional(),
+              windowStart: z.string().max(40).nullable().optional(),
+              windowEnd: z.string().max(40).nullable().optional(),
+              netOfCosts: z.boolean().nullable().optional(),
+              evidenceRef: z.string().max(500).nullable().optional(),
+            }),
+          )
+          .mutation(({ ctx, input }) =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_law_blank');
+              return copy.upsertListing(ctx.principal, input);
+            }),
+          ),
+
+        setLeaderState: scopedProcedure('admin:write', { module: 'trade' })
+          .input(
+            z.object({
+              leaderRef: z.string().min(1).max(80),
+              state: z.enum(['listed', 'suspended', 'delisted']),
+              reason: z.string().min(1).max(500),
+              clientRequestId: z.string().min(1).max(200),
+            }),
+          )
+          .mutation(({ ctx, input }) =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_law_blank');
+              return copy.setLeaderState(ctx.principal, input);
+            }),
+          ),
+      }),
 
       /** Caller's follows only — product desk list. Omit limit → named refuse, never invent 50. */
       listMyFollows: scopedProcedure('trade:read', { module: 'trade' })
@@ -1339,6 +1457,8 @@ export function createTradeRouter(
           }),
         ),
     }),
+
+    scale: scaleProcedures(trade),
   });
 }
 
