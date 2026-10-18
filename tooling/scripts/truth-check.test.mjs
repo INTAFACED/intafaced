@@ -229,3 +229,63 @@ test('a move into archive passes even with diff.renames=false; archive README is
     env,
   );
 });
+
+test('a markdown link in AGENTS.md or docs/ARCHITECTURE.md to a missing repo path fails; real links, anchors, urls and code samples pass', () => {
+  withRoot(agentsLine('See [the tool doc](docs/tooling/evidence-merge-check.md).'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /dead link in AGENTS.md \(line \d+\): docs\/tooling\/evidence-merge-check.md/);
+  });
+  withRoot(
+    (root) => {
+      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\nSee [ops](../tooling/missing.md#part).\n');
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /dead link in docs\/ARCHITECTURE.md \(line 3\): \.\.\/tooling\/missing.md/);
+    },
+  );
+  withRoot(
+    (root) => {
+      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\n[Docs](README.md#top) and [Agents](../AGENTS.md).\n');
+      writeFileSync(
+        join(root, 'AGENTS.md'),
+        `${CLEAN_AGENTS}\n[site](https://example.com/x.md) [mail](mailto:a@example.com) [here](#top)\n\`[no](docs/none.md)\`\n\`\`\`\n[no](docs/none.md)\n\`\`\`\n`,
+      );
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+  );
+});
+
+test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr, runbooks, refs, archive and ARCHITECTURE pass', () => {
+  const stale = '# Old law\n\nMerge when done. Run pnpm wt:rm.\n';
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/OLD-LAW.md'), stale),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md: Merge when done/);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md: pnpm wt:rm \(line 3\)/);
+    },
+  );
+  withRoot(
+    (root) => {
+      mkdirSync(join(root, 'docs/ops'), { recursive: true });
+      writeFileSync(join(root, 'docs/ops/NESTED.md'), '# Nested\n\nThe front end is Vue.\n');
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/ops\/NESTED.md: Vue as the current front end/);
+    },
+  );
+  withRoot(
+    (root) => {
+      const banner = '> **Not current rules (2026-10-17).** Current rules: [`AGENTS.md`](../AGENTS.md).\n\n';
+      writeFileSync(join(root, 'docs/OLD-LAW.md'), `# Old law\n\n${banner}Merge when done.\n`);
+      for (const dir of ['adr', 'runbooks', 'refs/x', 'archive']) {
+        mkdirSync(join(root, 'docs', dir), { recursive: true });
+        writeFileSync(join(root, 'docs', dir, 'DOC.md'), stale);
+      }
+      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), stale);
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+  );
+});
