@@ -2,7 +2,7 @@
 
 What is on `main` and who owns what. Every line names a path; if a path and this file disagree, the path wins and this file is the bug. Agent rules: [`AGENTS.md`](../AGENTS.md).
 
-Count check: `ls apps` (4), `ls services` (26 directories, 25 run in compose), `ls packages` (24).
+Count check: `ls apps` (4), `ls services` (26 directories), `ls packages` (24). Which services run in compose, their ports and required env: [`SERVICES.md`](SERVICES.md), generated from the code.
 
 ## Apps
 
@@ -19,7 +19,7 @@ The customer container is nginx over the built files. It sends unknown paths to 
 
 ## Services
 
-All 25 run in `docker-compose.apps.yml`. `services/svc-matching-rust-stage1` is a Rust prototype outside compose; the TypeScript engine stays the default (`services/svc-matching-rust-stage1/src/lib.rs`). `services/svc-chain` and `services/svc-bridge` do not exist. Postgres is one database with one schema and one role per service, so in dev a service cannot read another's tables (`tooling/infra/postgres-init/01-service-schemas.sql`).
+Every one except the Rust prototype is in `docker-compose.apps.yml` (`svc-fix` only under its `fix` profile). `services/svc-matching-rust-stage1` is a Rust prototype outside compose; the TypeScript engine stays the default (`services/svc-matching-rust-stage1/src/lib.rs`). `services/svc-chain` and `services/svc-bridge` do not exist. Postgres is one database with one schema and one role per service, so in dev a service cannot read another's tables (`tooling/infra/postgres-init/01-service-schemas.sql`).
 
 | Service           | Owns (extend this folder, do not add a second copy)                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,14 +74,13 @@ Node 20 or newer and pnpm 10 (`package.json`).
 
 ```bash
 pnpm install
-cp .env.example .env     # read its header: EDGE_PRINCIPAL_SECRET, INTERNAL_SERVICE_SECRET and MATCHING_OPERATOR_IDS must be set
-pnpm infra:up            # docker compose up -d: postgres, redis, nats, otel, tempo, prometheus, grafana, two throwaway anvil chains
+cp .env.example .env     # then fill in the REQUIRED blocks (see below); until every one is set the stack does not start
 pnpm platform:up         # docker compose -f docker-compose.apps.yml up -d --build: infra plus every service and both apps
 ```
 
-`platform:up` includes `docker-compose.yml` (`docker-compose.apps.yml`), so it needs no separate `infra:up`. Compose refuses to start without `APP_ENV` (`docker-compose.apps.yml`). Host ports: Postgres 5433, Redis 6380, NATS 4222 and 8222, Grafana 3001, Prometheus 9090, Tempo 3200, anvil 8545 and 8546 (`docker-compose.yml`), edge 4000, ws 4014, customer 8090, admin 3100. Tempo and the customer dev server both want 3200.
+`platform:up` includes `docker-compose.yml` (`docker-compose.apps.yml`), so it starts the infrastructure too (postgres, redis, nats, otel, tempo, prometheus, grafana, two throwaway anvil chains) and needs no `infra:up` first. `pnpm infra:up` (`docker compose up -d`) is infrastructure only, for running tests without the services. Compose refuses to start without `APP_ENV` (`docker-compose.apps.yml`). Host ports: Postgres 5433, Redis 6380, NATS 4222 and 8222, Grafana 3001, Prometheus 9090, Tempo 3200, anvil 8545 and 8546 (`docker-compose.yml`), edge 4000, ws 4014, customer 8090, admin 3100. Tempo and the customer dev server both want 3200.
 
-`MATCHING_OPERATOR_IDS` (`.env`, passed through by `docker-compose.apps.yml`) is a comma-separated list of at least two distinct operator user ids; `.env.example` leaves it blank, so matching refuses to boot until you set it. `svc-matching` refuses to boot with fewer than two (`services/svc-matching/src/env.ts`), so without it the matching engine does not start and no spot order is matched. `pnpm platform:up` does not set it; it only reads it from `.env`.
+Boot is blocked until every blank setting in the REQUIRED blocks of `.env.example` has a value (plus two AI-gateway settings that compose reads even though the gateway is optional). They are owner-published, so they are blank on purpose and nothing in the repo supplies them; a blank one makes compose or that service refuse to start. [`docs/SERVICES.md`](SERVICES.md) lists the required settings of every service.
 
 Tests: `pnpm test` is `turbo run test`; most packages use Vitest. Single package: `pnpm --filter @intafaced/<name> test`. Per-service Definition of Done: `pnpm gate`. Broad local check: `pnpm verify`.
 
