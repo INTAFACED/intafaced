@@ -308,16 +308,19 @@ describe('MKT-0108 taker side', () => {
     const sink = new MemorySink();
     expect(tradeHub.attach(MARKET, sink)).not.toBeNull();
     await settle();
-    tradeHub.ingest({
+    const fill = {
       marketId: MARKET,
       price: '64000.5',
       qty: '0.25',
       sequence: 9,
       ts: '2026-10-17T04:00:00.000Z',
-      takerSide: 'sell',
+      takerSide: 'sell' as const,
+      // Maker-looking residual. Public `side` stays the taker side.
+      side: 'buy' as const,
       makerOrderId: '11111111-1111-4111-8111-111111111111',
       takerOrderId: '22222222-2222-4222-8222-222222222222',
-    });
+    };
+    tradeHub.ingest(fill);
     await settle();
     expect(sink.frames).toHaveLength(1);
     const live = JSON.parse(sink.frames[0]!) as Record<string, unknown>;
@@ -329,6 +332,7 @@ describe('MKT-0108 taker side', () => {
     });
     expect(live).not.toHaveProperty('makerOrderId');
     expect(live).not.toHaveProperty('takerOrderId');
+    expect(live).not.toHaveProperty('makerSide');
 
     const { app } = await httpApp({ depthLimit: 50, source, hub, tradeHub });
     const res = await app.inject({ method: 'GET', url: `/markets/${MARKET}/trades` });
@@ -339,6 +343,51 @@ describe('MKT-0108 taker side', () => {
       quantity: '0.25',
       ts: '2026-10-17T04:00:00.000Z',
     });
+    expect(res.json().trades[0]).not.toHaveProperty('makerSide');
+    await app.close();
+  });
+
+  it('orderFilled with no takerSide is not given an invented side', async () => {
+    const source = new RecordingSource('nobook');
+    const hub = new DepthHub(source, {
+      depthLimit: 50,
+      highWaterBytes: 1_000,
+      maxLagTicks: 3,
+      maxConnections: 100,
+      marketsRefreshMs: 0,
+    });
+    await hub.refreshMarkets();
+    const tradeHub = new TradeHub({
+      highWaterBytes: 1_000,
+      maxLagTicks: 3,
+      maxConnections: 100,
+      recentLimit: 10,
+      ensureKnownMarket: (id) => hub.ensureKnownMarket(id),
+    });
+    const sink = new MemorySink();
+    expect(tradeHub.attach(MARKET, sink)).not.toBeNull();
+    await settle();
+    const fill = {
+      marketId: MARKET,
+      price: '64000.5',
+      qty: '0.25',
+      sequence: 9,
+      ts: '2026-10-17T04:00:00.000Z',
+      side: 'buy' as const,
+      makerOrderId: '11111111-1111-4111-8111-111111111111',
+      takerOrderId: '22222222-2222-4222-8222-222222222222',
+    };
+    tradeHub.ingest(fill);
+    await settle();
+    const live = JSON.parse(sink.frames[0]!) as Record<string, unknown>;
+    expect(live).not.toHaveProperty('side');
+    expect(live).not.toHaveProperty('makerSide');
+
+    const { app } = await httpApp({ depthLimit: 50, source, hub, tradeHub });
+    const res = await app.inject({ method: 'GET', url: `/markets/${MARKET}/trades` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().trades[0]).not.toHaveProperty('side');
+    expect(res.json().trades[0]).not.toHaveProperty('makerSide');
     await app.close();
   });
 });
