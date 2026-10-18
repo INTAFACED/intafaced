@@ -137,6 +137,7 @@ describe('same-person approvals', () => {
     expect(isSamePersonActionType('matching.open')).toBe(false);
     expect(samePersonTargetService('identity.step_up.email_change')).toBe('svc-identity');
     expect(samePersonTargetService('identity.step_up.phone_remove')).toBe('svc-identity');
+    expect(samePersonTargetService('identity.step_up.close_account')).toBe('svc-identity');
     expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
     expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
     expect(
