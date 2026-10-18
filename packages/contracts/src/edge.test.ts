@@ -131,6 +131,23 @@ describe('edge principal — forgery', () => {
   });
 });
 
+describe('edge principal — pay step-up claim', () => {
+  it('forwards stp through encode, sign, and verifyForwardedPrincipal', () => {
+    const p = principal({ stp: ['pay:refund'], scopes: ['pay:refund', 'identity:read'], mfa: true });
+    const raw = encodePrincipal(p);
+    const sig = signPrincipalHeader(raw, SECRET);
+    const { principal: got, rejected } = verifyForwardedPrincipal(raw, sig, SECRET);
+
+    expect(rejected).toBeNull();
+    expect(got?.stp).toEqual(['pay:refund']);
+  });
+
+  it('omits stp from the wire JSON when the principal has none', () => {
+    const raw = encodePrincipal(principal());
+    expect(JSON.parse(raw)).not.toHaveProperty('stp');
+  });
+});
+
 describe('edge principal — expiry', () => {
   it('refuses a signed but expired principal', () => {
     const p = principal({ expiresAt: new Date(Date.now() - 1) });

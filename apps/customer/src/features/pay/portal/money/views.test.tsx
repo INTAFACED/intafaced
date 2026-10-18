@@ -22,7 +22,7 @@ import type { Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
 import { EntityList } from '../ui/EntityList';
 import { chromeCopy } from '../chrome/copy';
-import { withMoneyScopes } from '../access/money-test-kit';
+import { withMoneyAccess } from '../access/money-test-kit';
 import { ApprovalDecision } from './Approvals';
 import { MoneyFailure, NamedBlocker } from './common';
 import { ConversionChip } from './Conversion';
@@ -338,7 +338,7 @@ describe('an approved payout is not a dead end', () => {
   const posted = settlement({ status: 'posted', settledAt: null, sentAt: null, payoutMethod: null, payoutRef: null });
   const render = (role: 'owner' | 'finance' | null, approvals: Approval[] = [approved], usage: typeof noUsage = noUsage, held = true) =>
     renderToString(
-      withMoneyScopes(
+      withMoneyAccess(
         <PayoutDetailView
           portal={portal}
           settlement={ready(posted)}
@@ -355,10 +355,10 @@ describe('an approved payout is not a dead end', () => {
         held,
       ),
     );
-  it('switches "Send this payout" off, with the reason, when the session has no payout scope', () => {
+  it('switches "Send this payout" off, with the reason, when the person cannot begin a payout', () => {
     const out = render('owner', [approved], noUsage, false).replace(/<!-- -->/g, '');
     expect(out).toContain('Send this payout');
-    expect(out).toContain('Paying out needs a confirmed sign-in step that this deployment does not offer.');
+    expect(out).toContain('Only the account owner can send payouts.');
     expect(out).not.toContain('href="/pay/payouts/new');
     expect(out).toMatch(/<button[^>]*disabled[^>]*>Send this payout/);
   });

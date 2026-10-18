@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { MemoryTwapParentStore } from './parent-store.js';
 import type { TwapParent } from './types.js';
@@ -37,6 +37,15 @@ function sampleParent(over: Partial<TwapParent> = {}): TwapParent {
 }
 
 describe('TwapParentStore (durable schedule residual)', () => {
+  const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
+  beforeEach(() => {
+    process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
+  });
+  afterEach(() => {
+    if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+    else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
+  });
+
   it('round-trips parent + plan without inventing fill fields', async () => {
     const store = new MemoryTwapParentStore();
     const parent = sampleParent();

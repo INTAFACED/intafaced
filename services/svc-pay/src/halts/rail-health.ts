@@ -40,6 +40,9 @@ export function isRailHealthFailureCode(code: string | null | undefined): boolea
     normalized === 'rail.unavailable' ||
     normalized === 'rail.timeout' ||
     normalized === 'rail.auth_failed' ||
+    normalized === 'rail.health_stale' ||
+    normalized === 'rail.probe_failed' ||
+    normalized === 'rail.marked_down' ||
     normalized === 'acquirer.unavailable'
   ) {
     return true;

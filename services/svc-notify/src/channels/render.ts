@@ -120,10 +120,15 @@ export function renderNotification(notification: Notification, locale: string): 
 export function renderInboxCopy(notification: Notification, locale: string): { title: string; body: string } {
   const t = createTranslator(normaliseLocale(locale), undefined, { mode: 'prod' });
   const params = toParamValues(notification.params);
-  return {
-    title: resolveInboxString(t, notification.titleKey, params),
-    body: resolveInboxString(t, notification.bodyKey, params),
-  };
+  const title = resolveInboxString(t, notification.titleKey, params);
+  let body = resolveInboxString(t, notification.bodyKey, params);
+  // Stamped at create when the email channel is unconfigured. The title stays
+  // the notice. This sentence is the extra line a merchant can see.
+  if (notification.params.code === 'notify.email_provider_unset') {
+    const extra = resolveInboxString(t, 'notify.merchant.email_provider_unset.body', params);
+    body = `${body}\n${extra}`;
+  }
+  return { title, body };
 }
 
 function resolveInboxString(t: ReturnType<typeof createTranslator>, key: string, params: Record<string, ParamValue>): string {

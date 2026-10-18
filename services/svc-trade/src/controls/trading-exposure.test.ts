@@ -6,6 +6,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes, orderHoldAccount } from '@intafaced/ledger-client';
 import type { IdentityOperationDecision, IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { TradeService } from '../spot/trade-service.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { PositionService } from '../futures/position-service.js';
 import { memoryMarkBook } from '../futures/mark-source.js';
 import { profitSourceFromConfig, recipeProfitFundingAccount, formatAccountRef } from '../futures/profit-source.js';
@@ -70,7 +71,9 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     price: amt('100'),
     clientOrderId,
   });
+  const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
   beforeAll(async () => {
+    process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
     const directory = new URL('../../drizzle/', import.meta.url);
     const migrations = readdirSync(directory)
       .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
@@ -79,10 +82,12 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     db = await createTestDatabase({ service: 'trade', migrations });
   }, 30_000);
   afterAll(async () => {
+    if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+    else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
     await db?.drop();
   }, 30_000);
   beforeEach(async () => {
-    await db.truncateAll();
+    await truncateTradeExceptOrderEvents(db.sql);
     ledger = new MemoryLedger();
     matching = new StubMatching();
     onGrant = undefined;

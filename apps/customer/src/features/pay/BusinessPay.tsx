@@ -365,8 +365,6 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
   const [window, setWindow] = useState('');
   const [selected, setSelected] = useState('');
   const [rail, setRail] = useState('');
-  const [kind, setKind] = useState('');
-  const [destination, setDestination] = useState('');
   const [reason, setReason] = useState('');
   const records = useResource(
     (signal) =>
@@ -548,23 +546,13 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                           <PayCopy k="aHealthySandboxCannotMoveMerchantMoney" />
                         </PayNotice>
                       )}
-                    <Field
-                      label={payCopy.t('destinationKind')}
-                      value={kind}
-                      onChange={(event) => setKind(event.target.value)}
-                      hint={payCopy.t('useTheDestinationKindSuppliedForThe')}
-                    />
-                    <Field
-                      label={payCopy.t('destinationReference')}
-                      value={destination}
-                      onChange={(event) => setDestination(event.target.value)}
-                    />
                     {pay.access('pay:payout') && (
                       <p className="muted" role="note">
                         {moneyReason('payout', pay.authority?.scopes)}
                       </p>
                     )}
                     <ReviewedAction
+                      stepUp="payout"
                       title={payCopy.t('payOutSettlement')}
                       variant="primary"
                       description={payCopy.t('sendThePostedNetAmountThroughThe')}
@@ -574,7 +562,6 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                             [payCopy.t('settlement'), record.id],
                             [payCopy.t('netAmount'), `${displayAmount(record.net)} ${record.assetId}`],
                             [payCopy.t('rail'), rail],
-                            [payCopy.t('destination'), `${kind}: ${destination}`],
                           ]}
                         />
                       }
@@ -582,18 +569,15 @@ function MerchantSettlements({ pay, payouts, feeBps }: { pay: BusinessPayApi; pa
                         validatedMutation(
                           pay,
                           'settlement.payout',
-                          { settlementId: record.id, railId: rail, destination: { kind, ref: destination } },
-                          z.object({
-                            settlementId: s.id,
-                            railId: z.string().min(1),
-                            destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }),
-                          }),
+                          // The payout goes to the destination saved on the account; the service refuses one named here.
+                          { settlementId: record.id, railId: rail },
+                          z.object({ settlementId: s.id, railId: z.string().min(1) }),
                           s.settlementSchema,
                           'pay:payout',
                           `settlement:${record.id}`,
                         )
                       }
-                      disabled={!rail || !kind || !destination || Boolean(pay.access('pay:payout'))}
+                      disabled={!rail || Boolean(pay.access('pay:payout'))}
                       onConfirmed={refresh}
                     />
                   </>

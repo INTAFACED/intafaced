@@ -95,6 +95,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'accountOnHold',
   'notFound',
   'notSetUp',
+  'algoSchedulerOff',
 ]);
 /** Try again belongs to network trouble and to refusals that can clear by themselves, never to a missing setting or permission. */
 export function canTryAgain(result: Extract<ApiResult<unknown>, { ok: false }>): boolean {

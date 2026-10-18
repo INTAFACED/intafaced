@@ -158,16 +158,9 @@ describe('PayFac original credential admission real PostgreSQL', { timeout: 30_0
       settlementId: settlement.id,
       railId: 'card-sandbox',
     };
-    if (apiKey) {
-      // pay:payout is interactive-only, so an API key is refused before MFA and before any payout.
-      await expect(api.settlement.payout(payout)).rejects.toMatchObject({
-        message: 'Scope "pay:payout" requires an interactive session and cannot be used from an API key',
-      });
-      expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture']);
-    } else {
-      expect((await api.settlement.payout(payout)).status).toBe('paid_out');
-      expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture', 'payout']);
-    }
+    // A key that was created with pay:payout explicitly may pay out (D-145). It still cannot name a destination.
+    expect((await api.settlement.payout(payout)).status).toBe('paid_out');
+    expect(kinds).toEqual(['payment.create', 'payment.authorize', 'payment.capture', 'payout']);
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
   async function delegation() {

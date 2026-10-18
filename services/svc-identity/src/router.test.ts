@@ -51,7 +51,7 @@ const kycDual = { approvalId: 'appr-1', operationId: 'op-1' };
 
 async function ctx(
   scopes: string[],
-  opts: { mfa?: boolean; userId?: string; region?: string; service?: string | null; apiKeyId?: string } = {},
+  opts: { mfa?: boolean; userId?: string; region?: string; service?: string | null; apiKeyId?: string; stepUpScopes?: string[] } = {},
 ): Promise<Context> {
   const region = opts.region ?? 'DE';
   if (scopes.length === 0) {
@@ -66,6 +66,7 @@ async function ctx(
       tier: 'none',
       mfa: opts.mfa ?? true,
       ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
+      ...(opts.stepUpScopes ? { stepUpScopes: opts.stepUpScopes } : {}),
     },
     authConfig,
   );
@@ -130,6 +131,12 @@ function stubServices(): Stub {
       accessToken: 'elevated.token.value',
       expiresAt: new Date('2026-07-28T09:05:00.000Z'),
       scopes: ['trade:withdraw'],
+    })),
+    stepUpPay: record('stepUpPay', () => ({
+      accessToken: 'pay.step.token',
+      expiresAt: new Date('2026-07-28T09:10:00.000Z'),
+      scopes: ['identity:read', 'pay:refund'],
+      refreshable: false as const,
     })),
     startWebauthnStepUp: record('startWebauthnStepUp', () => ({
       challenge: 'chal-stepup',
@@ -586,6 +593,48 @@ describe('auth.stepUp is what makes a withdrawal reachable at all', () => {
   });
 });
 
+describe('auth.stepUpPay is the confirm-it-is-you door for pay:refund and pay:payout', () => {
+  const MERCHANT = '55555555-5555-4555-8555-555555555555';
+
+  it('passes the session, the merchant, the scopes, and the factor proof', async () => {
+    const api = await caller(['identity:read']);
+    const minted = await api.auth.stepUpPay({
+      merchantId: MERCHANT,
+      scopes: ['pay:refund'],
+      factorProof: { totpCode: '123456' },
+    });
+    expect(minted.refreshable).toBe(false);
+    expect(minted.accessToken).toBe('pay.step.token');
+    const call = stub.calls.find((c) => c.method === 'stepUpPay');
+    expect(call?.args[0]).toMatchObject({
+      userId: USER,
+      sessionId: SESSION,
+      merchantId: MERCHANT,
+      scopes: ['pay:refund'],
+      factorProof: { totpCode: '123456' },
+    });
+  });
+
+  it('maps a stale factor and a missing role without minting through a 500', async () => {
+    stub.fail(new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired'));
+    const stale = await caller(['identity:read']);
+    const expired = await stale.auth
+      .stepUpPay({ merchantId: MERCHANT, scopes: ['pay:refund'], factorProof: { proofId: '66666666-6666-4666-8666-666666666666' } })
+      .catch((e: unknown) => e);
+    expect(codeOf(expired)).toBe('PRECONDITION_FAILED');
+    expect((expired as Error).message).toMatch(/auth\.step_up_expired/);
+
+    stub.fail(new AuthError('Your role on this merchant does not allow refunds.create', 'pay.role_not_allowed'));
+    const refused = await caller(['identity:read']);
+    const role = await refused.auth
+      .stepUpPay({ merchantId: MERCHANT, scopes: ['pay:refund'], factorProof: { totpCode: '123456' } })
+      .catch((e: unknown) => e);
+    expect(codeOf(role)).toBe('FORBIDDEN');
+    expect((role as Error).message).toMatch(/pay\.role_not_allowed/);
+    expect((role as Error).message).toMatch(/refunds\.create/);
+  });
+});
+
 // ── WebAuthn ─────────────────────────────────────────────────────────────────
 
 describe('webauthn registration requires a live session; auth is public', () => {
@@ -700,6 +749,23 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     expect(codeOf(err)).toBe('FORBIDDEN');
     expect((err as Error).message).toMatch(/cannot grant further/);
     expect(argsOf('createApiKey')).toHaveLength(0);
+  });
+
+  it('refuses pay:refund on a key unless the access token is a pay step-up', async () => {
+    const api = await caller(['identity:write', 'pay:refund']);
+    const err = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'] }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect((err as Error).message).toMatch(/auth\.step_up_required/);
+    expect(argsOf('createApiKey')).toHaveLength(0);
+  });
+
+  it('passes payStepUp when the token stp claim lists the requested pay scope', async () => {
+    const api = await caller(['identity:write', 'pay:refund'], { stepUpScopes: ['pay:refund'] });
+    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'] });
+    const [args] = argsOf('createApiKey');
+    expect(args!.payStepUp).toBe(true);
+    expect(args!.scopes).toEqual(['pay:refund']);
+    expect(created.scopes).toEqual(['pay:refund']);
   });
 
   it('session grantor has no kid on the mint call', async () => {

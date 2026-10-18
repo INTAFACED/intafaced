@@ -73,7 +73,7 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 export const TRADE_ALWAYS_ALLOWED = [
   'Reads (GET), such as open orders and balances',
   'orders.cancel over tRPC, and DELETE /api/v1/orders and /api/v1/orders/:id (cancel)',
-  'DELETE /api/v1/positions/:id (close one futures position)',
+  'POST /api/v1/positions/:id/close and POST /api/v1/futures/positions/close-all (close futures). DELETE /api/v1/positions/:id does not close.',
 ] as const;
 
 // ── Mass cancel: service missing ─────────────────────────────────────────────
