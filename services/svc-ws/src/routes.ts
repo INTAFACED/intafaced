@@ -31,6 +31,7 @@ import {
   windowNativeL3Queue,
   WS_DEPTH_LIMIT_UNSET,
 } from './depth-limit.js';
+import { snapshotIsCrossed } from './depth/crossed.js';
 import { isPublishedTradeRecentLimit, WS_TRADE_RECENT_LIMIT_UNSET } from './trade-recent-limit.js';
 
 /**
@@ -371,6 +372,9 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
           });
         }
         const windowed = windowDepthSnapshot(snap, depthLimit);
+        if (snapshotIsCrossed(windowed)) {
+          return reply.code(404).send({ code: 'NoBook', message: `"${marketId}": crossed book withheld` });
+        }
         if (wantSbe) return sendL2Sbe(reply, sbe, windowed);
         return reply.code(200).send(windowed);
       }
@@ -403,6 +407,9 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
         return reply.code(404).send({ code: 'NoBook', message: `"${marketId}": matching holds no book` });
       }
       const windowed = windowDepthSnapshot(snapshot, depthLimit);
+      if (snapshotIsCrossed(windowed)) {
+        return reply.code(404).send({ code: 'NoBook', message: `"${marketId}": crossed book withheld` });
+      }
       if (wantSbe) return sendL2Sbe(reply, sbe, windowed);
       return reply.code(200).send(windowed);
     } catch (err) {
