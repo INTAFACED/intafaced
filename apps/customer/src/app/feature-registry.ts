@@ -139,8 +139,9 @@ export const features: readonly Feature[] = [
       '/bank/business',
     ],
     status: 'blocked',
-    reason: 'Not part of the new Money tab; earn rate, loans, cards, ramps not set up',
-    unlock: 'product decision per feature',
+    reason:
+      'Every room is reachable and wired to the bank service; each room is confirmed live only after its own proof run (ramps need a provider, cards need an issuer, earn and loan products are set by operators)',
+    unlock: 'split this row per room, or flip it to live once all nine rooms pass a proof run, with the evidence',
     tab: 'money',
   },
   {

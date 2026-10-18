@@ -1,3 +1,5 @@
 # CLAUDE.md
 
-Read [`AGENTS.md`](AGENTS.md). It is the one set of rules.
+@AGENTS.md
+
+The line above imports the one set of rules from `AGENTS.md`.

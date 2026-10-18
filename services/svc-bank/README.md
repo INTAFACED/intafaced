@@ -120,7 +120,9 @@ The occurrences that were written off are in the **response**, not merely in the
 
 Interest **capitalises** (raises debt, posts nothing). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
 
-### `cards` — **the ledger half. There is no card programme.**
+### `cards` — **the ledger half. No live card programme: off by default, simulator only.**
+
+The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default) `cards.issue` and `cards.setStatus` refuse with `bank.no_card_issuer` and `cards.programme` answers "No card programme"; with `card-sim` they run against a simulator. No setting selects a real issuer (`CARD_ISSUER_SETTINGS` in `src/cards/issuer.ts`).
 
 | Procedure              | Scope        | Purpose                                                                       |
 | ---------------------- | ------------ | ----------------------------------------------------------------------------- |

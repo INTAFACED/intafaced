@@ -32,7 +32,7 @@ Agents must **wire and extend those**. Replacing the product UI is allowed under
 
 **Not “platform complete”** — residual craft remains. **Sufficient leverage for residual craft without a second stack** = yes. Replacing the product UI is [`adr/2026-10-02-redesign-may-replace-product-ui.md`](adr/2026-10-02-redesign-may-replace-product-ui.md).
 
-**Exchange backend OSS catalog (2026-08-31):** [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md) is the named take/keep/never list (QuickFIX/J, Real Logic SBE, QuantLib adapter, WebAuthn, OpenAPI-from-Zod 3). North-star §0.3 binds it. **Mega backend v1.25:** [`SPEC-BACKEND-MEGA-PLAN-2026-09-03.md`](SPEC-BACKEND-MEGA-PLAN-2026-09-03.md). Live-wire: [`SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md`](SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md). Phase A audit below is **historical**; do not read “FIX not found” as a ban on a QuickFIX/J **adapter**.
+**Exchange backend OSS catalog (2026-08-31):** [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](archive/BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md) is the named take/keep/never list (QuickFIX/J, Real Logic SBE, QuantLib adapter, WebAuthn, OpenAPI-from-Zod 3). North-star §0.3 binds it. **Mega backend v1.25:** [`SPEC-BACKEND-MEGA-PLAN-2026-09-03.md`](archive/SPEC-BACKEND-MEGA-PLAN-2026-09-03.md). Live-wire: [`SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md`](archive/SPEC-PRO-EXCHANGE-LIVE-AND-DEPTH-2026-09-02.md). Phase A audit below is **historical**; do not read “FIX not found” as a ban on a QuickFIX/J **adapter**.
 
 ### 1.1 · Narrow greenfield exception
 
