@@ -1,5 +1,7 @@
 # Claim — academy.ambassadors refuse IFC pay when rates unset
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Lane id:** `academy.ambassadors-refuse-unset`  
 **Owner session:** Denon · Grok  
 **Tracker:** `academy.ambassadors` (stays `ready` — mountain not done)  

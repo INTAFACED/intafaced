@@ -291,9 +291,19 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
   const { t } = positionsCopy.useCopy();
   const { writer, send, check } = useSend(position, onDone, onRefusal);
   const closing = stateOf(position) === 'closing';
+  const nonce = useRef<{ key: string; nonce: string } | null>(null);
   const submit = () => {
-    // No price field exists on a close: the service closes at the mark it accepts. A retry is the same key.
-    if (position.id !== null) void send({ op: 'close', positionId: position.id, symbol: position.symbol });
+    // No price field exists on a close: the service closes at the mark it accepts.
+    // The same position and size reuse one clientCloseId; a retry replays that close.
+    if (position.id === null) return;
+    nonce.current = pickNonce(nonce.current, `close:${position.id}:${position.contracts}`, newNonce);
+    void send({
+      op: 'close',
+      positionId: position.id,
+      symbol: position.symbol,
+      size: position.contracts,
+      clientCloseId: nonce.current.nonce,
+    });
   };
   return (
     <Frame
@@ -358,6 +368,7 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
   // The list is fixed when the dialog opens, so a position that closes mid-run does not change what was confirmed.
   const [plan] = useState(() => closeAllPlan(positions));
   const [state, setState] = useState<CloseAllState>(() => startCloseAll(plan.map((p) => p.id ?? '')));
+  const closeIds = useRef(new Map<string, string>());
   const [running, setRunning] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -375,7 +386,20 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
       if (!position) continue;
       apply({ type: 'sending', id });
       // One close per position, one at a time. Nothing else is sent while an answer is unknown.
-      const result = resultOf(await writer.run({ op: 'close', positionId: id, symbol: position.symbol }));
+      let clientCloseId = closeIds.current.get(id);
+      if (!clientCloseId) {
+        clientCloseId = newNonce();
+        closeIds.current.set(id, clientCloseId);
+      }
+      const result = resultOf(
+        await writer.run({
+          op: 'close',
+          positionId: id,
+          symbol: position.symbol,
+          size: position.contracts,
+          clientCloseId,
+        }),
+      );
       apply({ type: 'result', id, result });
       if (stopsRun(result)) {
         apply({ type: 'stop' });

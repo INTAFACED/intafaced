@@ -1,5 +1,7 @@
 # Pay lane — harvest findings and build plan
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-08 · **Tip read:** `8519bea5` · **Method:** ten parallel read-only scouts over the fresh tip, every load-bearing claim re-verified by the lead agent directly against the code.
 
 Provenance tags: **RAN-IT** = the lead agent executed the check. **AGENT** = a scout reported it and the lead confirmed by reading the cited code. **DOC** = quoted from a repo document.

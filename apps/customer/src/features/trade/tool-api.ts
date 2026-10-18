@@ -186,7 +186,11 @@ export function createToolApi(api: ApiClient) {
     positionPreview: (input: { symbol: string; side: 'long' | 'short'; size: string; leverage: string; marginMode: 'isolated' }) =>
       api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: input }),
     position: (id: string) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema),
-    positionClose: (id: string) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema, { method: 'DELETE' }),
+    positionClose: (id: string, input: { quantity: string; clientCloseId: string }) =>
+      api.rest(`/positions/${encodeURIComponent(id)}/close`, positionSchema, {
+        method: 'POST',
+        body: { quantity: input.quantity, clientCloseId: input.clientCloseId },
+      }),
     positionHistory: (signal?: AbortSignal) => api.rest('/positions/closed', z.array(positionSchema), { query: { limit: 100 }, signal }),
     disclosure: (signal?: AbortSignal) =>
       api.rest('/futures/adl-disclosure', z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() }), { signal }),

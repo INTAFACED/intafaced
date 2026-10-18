@@ -132,6 +132,16 @@ export const GATES = [
     why: 'a tracker that drifts from the code is worse than no tracker',
   },
   {
+    id: 'services-map',
+    script: 'tooling/scripts/services-map.mjs',
+    args: ['--check'],
+    doctrine: 'agent map honesty',
+    why:
+      'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
+      'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
+      'Generated from the code, so a stale copy fails here, the same way the tracker does.',
+  },
+  {
     id: 'coverage',
     script: 'tooling/ci/coverage-check.mjs',
     doctrine: '§25:740',

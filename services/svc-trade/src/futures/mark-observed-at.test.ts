@@ -208,7 +208,12 @@ describe('the venue mark carries the venue book’s own observation time', () =>
    * through correctly, which is exactly why the hole was easy to miss).
    */
   it('a stale venue book falls through to matching depth rather than going dark', async () => {
-    const depth: EngineDepth = { bids: [['1999', '10']], asks: [['2001', '10']], sequence: 7 };
+    const depth: EngineDepth & { observedAt: Date } = {
+      bids: [['1999', '10']],
+      asks: [['2001', '10']],
+      sequence: 7,
+      observedAt: AT,
+    };
     const src = markSourcePrefer(
       venueSource(venueBook(agoBy(4 * 60 * 60 * 1000))),
       markSourceFromDepth(async () => depth),
@@ -216,7 +221,7 @@ describe('the venue mark carries the venue book’s own observation time', () =>
 
     expect(await src.markPrice({ marketId: 'm1', at: AT })).toBe('2000');
     const q = await src.quote!({ marketId: 'm1', at: AT });
-    // The DEPTH quote, stamped at read time — not the venue's four-hour-old one.
+    // The DEPTH quote, carrying the observation time on the book — not the venue's four-hour-old one.
     expect(q!.asOf.getTime()).toBe(AT.getTime());
     expect(acceptableForLiquidation(q!, null, AT, DEFAULT_FUTURES_MARK_POLICY).ok).toBe(true);
   });
@@ -230,7 +235,12 @@ describe('the venue mark carries the venue book’s own observation time', () =>
    * different book the moment the venue drifted past sixty seconds.
    */
   it('a venue book that clears marking but not liquidation still wins the preference', async () => {
-    const depth: EngineDepth = { bids: [['1999', '10']], asks: [['2001', '10']], sequence: 7 };
+    const depth: EngineDepth & { observedAt: Date } = {
+      bids: [['1999', '10']],
+      asks: [['2001', '10']],
+      sequence: 7,
+      observedAt: AT,
+    };
     const src = markSourcePrefer(
       venueSource(venueBook(agoBy(seconds(120)))),
       markSourceFromDepth(async () => depth),
@@ -284,12 +294,12 @@ describe('markSourceFromBook precedence: the book’s stamp beats every clock', 
     expect(acceptableForLiquidation(q!, null, AT, DEFAULT_FUTURES_MARK_POLICY).ok).toBe(false);
   });
 
-  it('now() is still consulted when the reader has no stamp of its own', async () => {
+  it('a reader with no stamp of its own gets no quote — the injected clock is not stored', async () => {
     const src = markSourceFromBook({
       readBook: async () => ({ bestBid: '100', bestAsk: '102', last: null }),
       now: () => agoBy(seconds(90)),
     });
-    expect((await src.quote({ marketId: 'm1', at: AT }))!.asOf.getTime()).toBe(AT.getTime() - seconds(90));
+    expect(await src.quote({ marketId: 'm1', at: AT })).toBeNull();
   });
 
   it('a reader that hands back an unusable stamp gets no quote at all', async () => {
@@ -314,7 +324,7 @@ describe('markSourceFromBook precedence: the book’s stamp beats every clock', 
 // THE HALF THAT IS DELIBERATELY UNCHANGED
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('the matching-depth path keeps read-time, on purpose', () => {
+describe('matching depth without an observation time is not a quote', () => {
   /**
    * ASSERTING A DECISION, NOT A BEHAVIOUR WE ARE PROUD OF.
    *
@@ -328,11 +338,10 @@ describe('the matching-depth path keeps read-time, on purpose', () => {
    * change, and `readBook` in `mark-from-depth.ts` gains an `observedAt` — the
    * port already accepts one, so no other file moves.
    */
-  it('a depth quote is stamped at the caller’s read instant and says so', async () => {
+  it('a depth book with no observedAt yields no quote', async () => {
     const depth: EngineDepth = { bids: [['1999', '10']], asks: [['2001', '10']], sequence: 1 };
     const q = await markSourceFromDepth(async () => depth).quote({ marketId: 'm1', at: AT });
-    expect(q!.asOf.getTime()).toBe(AT.getTime());
-    expect(q!.quality).toBe('mid');
+    expect(q).toBeNull();
   });
 
   /**
@@ -341,14 +350,14 @@ describe('the matching-depth path keeps read-time, on purpose', () => {
    * both mark at read time. That is a liquidity question, which the size floor
    * answers, not an age one.
    */
-  it('an hour of no sequence movement is invisible to the staleness gate here', async () => {
+  it('an hour of no sequence movement is not stamped fresh by the caller clock', async () => {
     let depth: EngineDepth = { bids: [['1999', '10']], asks: [['2001', '10']], sequence: 42 };
     const src = markSourceFromDepth(async () => depth);
     const first = await src.quote({ marketId: 'm1', at: agoBy(seconds(3600)) });
     depth = { ...depth };
     const later = await src.quote({ marketId: 'm1', at: AT });
 
-    expect(later!.asOf.getTime() - first!.asOf.getTime()).toBe(seconds(3600));
-    expect(acceptableForLiquidation(later!, null, AT, DEFAULT_FUTURES_MARK_POLICY).ok).toBe(true);
+    expect(first).toBeNull();
+    expect(later).toBeNull();
   });
 });

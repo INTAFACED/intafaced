@@ -1164,7 +1164,7 @@ describe('public REST routes', () => {
     });
     const marks = markSourceFromBook({
       async readBook() {
-        return { bestBid: null, bestAsk: null, last: '50000' };
+        return { bestBid: null, bestAsk: null, last: '50000', observedAt: new Date() };
       },
     });
     const app = await build(
@@ -1199,7 +1199,7 @@ describe('public REST routes', () => {
     });
     const marks = markSourceFromBook({
       async readBook() {
-        return { bestBid: '49900', bestAsk: '50100', last: '48000' };
+        return { bestBid: '49900', bestAsk: '50100', last: '48000', observedAt: new Date() };
       },
     });
     const app = await build(

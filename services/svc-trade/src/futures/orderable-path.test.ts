@@ -288,25 +288,20 @@ describe('futures orderable path', () => {
   const profitPot = () => houseFees('trade', 'USDT');
 
   /**
-   * Fund the profit pot the way it really fills — somebody else's realised loss
-   * out of margin they had actually locked. Three real recipes, no fixture poking
-   * a balance into place, so the ceiling asserted against is one the ledger
-   * agrees exists. Lifted from `position-service.test.ts` for exactly that reason.
+   * Fund the profit pot with a posted trade fee into `houseFees('trade')`.
+   * A realised loss debits `futuresLossSink` and leaves the fee pot empty (#5016).
    */
   async function fundProfitSource(amount: string) {
-    const seedPosition = `pot-seed-${randomUUID()}`;
+    const seedId = `pot-seed-${randomUUID()}`;
+    await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
     await ledger.post(
-      recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }),
-    );
-    await ledger.post(recipes.futuresMarginLock({ positionId: seedPosition, userId: CAROL, assetId: 'USDT', amount: amt(amount) }));
-    await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seedPosition,
+      recipes.feeCharge({
+        chargeId: seedId,
         userId: CAROL,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: amt(amount),
-        fromInsurance: 0n,
-        lossId: seedPosition,
+        amount: amt(amount),
       }),
     );
   }
@@ -314,7 +309,11 @@ describe('futures orderable path', () => {
   /** A PositionService whose mark feed IS the book the order path built. */
   function positionsOnOrderBook(marketId: string) {
     return new PositionService(sql, ledger, {
-      marks: markSourceFromDepth(async (id) => (id === marketId ? bookFromOrders(marketId) : null)),
+      marks: markSourceFromDepth(async (id) => {
+        if (id !== marketId) return null;
+        const book = await bookFromOrders(marketId);
+        return { ...book, observedAt: NOW };
+      }),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
       bus,
@@ -328,20 +327,19 @@ describe('futures orderable path', () => {
    */
   async function fundInsurance(amount: string) {
     const seed = amt(amount);
-    const pos = `ins-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: seed, rail: 'test', railRef: `ins-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: pos, userId: CAROL, assetId: 'USDT', amount: seed }));
+    const topupId = `ins-seed-${randomUUID()}`;
+    await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: seed, rail: 'test', railRef: `ins-${topupId}` }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: pos,
+      recipes.feeCharge({
+        chargeId: topupId,
         userId: CAROL,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: seed,
-        fromInsurance: 0n,
-        lossId: pos,
+        amount: seed,
       }),
     );
-    await ledger.post(recipes.futuresInsuranceTopup({ topupId: pos, assetId: 'USDT', amount: seed }));
+    await ledger.post(recipes.futuresInsuranceTopup({ topupId, assetId: 'USDT', amount: seed }));
   }
 
   beforeEach(async () => {

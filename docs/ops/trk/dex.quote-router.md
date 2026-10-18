@@ -1,5 +1,7 @@
 # TRK-dex.quote-router — research / spec pack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker id:** `dex.quote-router`  
 **Title:** Live cross-venue quote — real prices or a typed refusal  
 **Module / phase:** `dex` · protocol plane  

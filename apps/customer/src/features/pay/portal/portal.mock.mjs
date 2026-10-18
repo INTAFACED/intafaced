@@ -15,13 +15,15 @@ import { createMoneyMock } from './money/mock.mjs';
 import { createPaymentsMock } from './payments/mock.mjs';
 import { createSettingsMock } from './settings/mock.mjs';
 import { createSettingsBMock } from './settings/b-mock.mjs';
+import { createStepUpMock, TEST_TOTP_CODE } from './mock/stepup.mjs';
 
-export { USER_ID };
+export { USER_ID, TEST_TOTP_CODE };
 
 /**
  * The scopes an owner session carries. Identity today grants an owner `pay:read`, `pay:write` and `pay:onboard` and never
- * `pay:refund` or `pay:payout` (svc-identity `scopesForNewAccessToken`). `OWNER_SCOPES_WITH_MONEY` is the session a coming
- * confirmed sign-in step would give; the money tests use it to exercise sending, and the others use the plain one.
+ * `pay:refund` or `pay:payout` (svc-identity `scopesForNewAccessToken`): they come only from "Confirm it's you"
+ * (`auth.stepUpPay`, answered by `mock/stepup.mjs` with the TEST code `TEST_TOTP_CODE`), and the token that carries them is
+ * held apart from the session. `OWNER_SCOPES_WITH_MONEY` is kept for a test that wants a session already carrying them.
  */
 export const OWNER_SCOPES = ['pay:read', 'pay:write', 'pay:onboard'];
 export const OWNER_SCOPES_WITH_MONEY = [...OWNER_SCOPES, 'pay:refund', 'pay:payout'];
@@ -35,12 +37,14 @@ export function accessTokenFor(scopes = OWNER_SCOPES) {
  * scenario: 'active' (verified merchant with activity), 'new' (no merchant), 'quiet' (merchant, no activity yet),
  * 'soon' (operations service not switched on), 'down' (service unreachable), 'halted' (as 'active' with payouts paused).
  */
-export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'owner', role = 'owner' } = {}) {
+export function createPortalMock(scenario = 'active', { now = Date.now(), myAccess = 'owner', role = 'owner', stepUp = 'ok' } = {}) {
   const calls = [];
   /** Procedures nothing answered, so the review board can list what a not-live card is waiting for. */
   const unmounted = [];
   const ctx = mockContext(scenario, now, { myAccess, role });
+  const stepUpMock = createStepUpMock(ctx, { mode: stepUp });
   const parts = [
+    stepUpMock,
     createCoreMock(ctx),
     createMoneyMock(ctx),
     createPaymentsMock(ctx),
@@ -65,7 +69,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
   /** Notes the signed-in token on a request (pay and identity both carry it). Returns it, or null, or undefined when headers cannot be read. */
   const noteSignIn = (route) => {
     const held = heldToken(route);
-    if (held) {
+    // A confirmation token is not the sign-in: it never becomes the session the restore answers with.
+    if (held && !stepUpMock.isStepUpToken(held)) {
       signedIn = true;
       token = held;
     }
@@ -77,7 +82,13 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     const procedure = decodeURIComponent(url.pathname.split('/trpc/')[1] ?? '');
     const method = route.request().method();
     const input = method === 'GET' ? (JSON.parse(url.searchParams.get('input') ?? 'null') ?? {}) : (route.request().postDataJSON() ?? {});
-    calls.push({ procedure, method, input });
+    const bearer = heldToken(route);
+    calls.push({ procedure, method, input, bearer: bearer ?? null });
+    // The five money calls must carry a confirmation token that is still good. Where headers cannot be read (the contract test), they pass.
+    if (bearer !== undefined) {
+      const refusal = stepUpMock.refusalFor(procedure, bearer);
+      if (refusal) return refuse(route, refusal.status, refusal.code, refusal.message);
+    }
     if (scenario === 'down') return refuse(route, 503, '', 'Service unavailable');
     if (
       scenario === 'soon' &&
@@ -111,7 +122,7 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     for (const part of parts) {
       const answered = await part.handle(procedure, input, route);
       if (answered !== NOT_MINE) {
-        calls.push({ procedure, method, input });
+        calls.push({ procedure, method, input, bearer: held ?? null });
         return answered;
       }
     }
@@ -121,6 +132,8 @@ export function createPortalMock(scenario = 'active', { now = Date.now(), myAcce
     calls,
     unmounted,
     state: ctx.state,
+    /** The confirmation tokens this stand-in has minted, and a way to run them all out at once. */
+    stepUp: { minted: stepUpMock.minted, expireAll: stepUpMock.expireAll },
     /** The one fixture world, so a test can read the figures a page should show. */
     world: ctx.world,
     /** Answer one request directly. Used by the contract test, which has no browser. */

@@ -12,6 +12,7 @@ import { settingsMessages } from './settings/copy';
 import { accountMessages } from './settings/account/copy';
 import { analyticsMessages } from './settings/analytics/copy';
 import { developersMessages } from './settings/developers/copy';
+import { stepUpMessages } from './access/step-up-copy';
 import { reportsMessages } from './settings/reports/copy';
 import { uiMessages } from './ui/copy';
 import { w3cMessages } from './w3c-copy';
@@ -26,6 +27,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.w3c2': extensionMessages,
   'pay.portal.layouts': layoutMessages,
   'pay.portal.chrome': chromeMessages,
+  'pay.portal.stepup': stepUpMessages,
   'pay.portal.ui': uiMessages,
   'pay.portal.money': moneyMessages,
   'pay.portal.payments': paymentsMessages,

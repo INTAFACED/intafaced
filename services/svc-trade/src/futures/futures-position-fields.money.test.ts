@@ -70,17 +70,16 @@ describe('futures position fields', () => {
   }
 
   async function fundProfitSource(amount: string) {
-    const seedPosition = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: seedPosition, userId: BOB, assetId: 'USDT', amount: amt(amount) }));
+    const seedId = `pot-seed-${randomUUID()}`;
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seedPosition,
+      recipes.feeCharge({
+        chargeId: seedId,
         userId: BOB,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: amt(amount),
-        fromInsurance: 0n,
-        lossId: seedPosition,
+        amount: amt(amount),
       }),
     );
   }
