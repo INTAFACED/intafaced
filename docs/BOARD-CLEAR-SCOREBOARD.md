@@ -5,7 +5,7 @@
 **Campaign:** Board Clear 2026-08-01  
 **Resume after compact:** **`docs/BOARD-CLEAR-NEXT.md` first** (agent self-serve — not Nitro)  
 **AFK scope:** [`BOARD-CLEAR-AFK-CONTRACT.md`](BOARD-CLEAR-AFK-CONTRACT.md) — AGENT-COMPLETE vs BOARD-COMPLETE  
-**Law:** [`BOARD-CLEAR-CONSTITUTION-2026-08-01.md`](BOARD-CLEAR-CONSTITUTION-2026-08-01.md)  
+**Law:** [`BOARD-CLEAR-CONSTITUTION-2026-08-01.md`](archive/BOARD-CLEAR-CONSTITUTION-2026-08-01.md)  
 **Agent residual DAG:** [`BOARD-CLEAR-AGENT-BACKLOG-2026-08-02.md`](BOARD-CLEAR-AGENT-BACKLOG-2026-08-02.md)  
 **Update rule:** same turn as every merge that moves a row.  
 **Tip check:** `git log origin/main -1 --oneline`

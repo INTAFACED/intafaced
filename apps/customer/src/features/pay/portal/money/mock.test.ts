@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPortalMock } from '../portal.mock.mjs';
 import { effectiveRateSchema } from './fee-rate-schema';
 
@@ -9,6 +9,14 @@ import { effectiveRateSchema } from './fee-rate-schema';
 const NOW = Date.parse('2026-10-17T09:00:00.000Z');
 const DAY = 86_400_000;
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
+
+// The stand-in seeds records relative to `now` but checks expiry with the wall clock, so run the wall clock from NOW.
+beforeAll(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'], shouldAdvanceTime: true });
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 type Mock = ReturnType<typeof createPortalMock>;
