@@ -74,13 +74,15 @@ Node 20 or newer and pnpm 10 (`package.json`).
 
 ```bash
 pnpm install
-cp .env.example .env     # read its header: EDGE_PRINCIPAL_SECRET, INTERNAL_SERVICE_SECRET and MATCHING_OPERATOR_IDS must be set
+cp .env.example .env     # read its header: EDGE_PRINCIPAL_SECRET, INTERNAL_SERVICE_SECRET, MATCHING_OPERATOR_IDS and RECONCILE_CRON_MINUTES must be set
 pnpm platform:up         # docker compose -f docker-compose.apps.yml up -d --build: infra plus every service and both apps
 ```
 
 `platform:up` includes `docker-compose.yml` (`docker-compose.apps.yml`), so it starts the infrastructure too (postgres, redis, nats, otel, tempo, prometheus, grafana, two throwaway anvil chains) and needs no `infra:up` first. `pnpm infra:up` (`docker compose up -d`) is infrastructure only, for running tests without the services. Compose refuses to start without `APP_ENV` (`docker-compose.apps.yml`). Host ports: Postgres 5433, Redis 6380, NATS 4222 and 8222, Grafana 3001, Prometheus 9090, Tempo 3200, anvil 8545 and 8546 (`docker-compose.yml`), edge 4000, ws 4014, customer 8090, admin 3100. Tempo and the customer dev server both want 3200.
 
 `MATCHING_OPERATOR_IDS` (`.env`, passed through by `docker-compose.apps.yml`) is a comma-separated list of at least two distinct operator user ids; `.env.example` leaves it blank, so matching refuses to boot until you set it. `svc-matching` refuses to boot with fewer than two (`services/svc-matching/src/env.ts`), so without it the matching engine does not start and no spot order is matched. `pnpm platform:up` does not set it; it only reads it from `.env`.
+
+`RECONCILE_CRON_MINUTES` (`.env`, passed through by `docker-compose.apps.yml` with no default) is the ledger's reconciliation cadence in whole minutes. `.env.example` leaves it blank, and a blank value refuses to boot `svc-ledger` (`services/svc-ledger/src/env.ts`), so nothing posts until you set it.
 
 Tests: `pnpm test` is `turbo run test`; most packages use Vitest. Single package: `pnpm --filter @intafaced/<name> test`. Per-service Definition of Done: `pnpm gate`. Broad local check: `pnpm verify`.
 
