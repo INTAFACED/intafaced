@@ -199,13 +199,13 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
    */
   async function fundProfitSource(amount: string) {
     const seed = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${randomUUID()}` }));
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seed}` }));
     await ledger.post(
       recipes.feeCharge({
-        mode: 'asset',
-        module: 'trade',
         chargeId: seed,
         userId: BOB,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
         amount: amt(amount),
       }),
