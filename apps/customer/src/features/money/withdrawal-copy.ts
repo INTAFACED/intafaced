@@ -85,16 +85,16 @@ const en = {
   fReason: 'This button is off because sending money out of INTAFACED isn’t connected.',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
-  aLead: 'Keep the wallet addresses you send to, so you can pick one when you withdraw.',
+  aLead: 'The withdrawal addresses the bank has on record for your account.',
   aUnavailable: 'Saving addresses is not available',
   aUnavailableNote:
-    'Sending money out of INTAFACED isn’t connected, so new addresses can’t be saved here. Addresses already saved are listed below.',
+    'Saving an address needs a confirmed sign-in step that this app does not offer, so new addresses can’t be saved here. The bank’s saved addresses appear in the list.',
   aTableTitle: 'Saved addresses',
   aColLabel: 'Label',
   aColAddress: 'Address',
   aColDetails: 'Details',
   aColKind: 'Type',
-  aColAdded: 'Added',
+  aColAdded: 'First saved',
   aColCooling: 'Cooling-off',
   aKindCrypto: 'Crypto wallet',
   aKindBank: 'Bank account',
@@ -114,7 +114,7 @@ const en = {
   aNetwork: 'Network',
   aAddress: 'Address',
   aSave: 'Save address',
-  aSaveReason: 'This button is off because saving addresses needs sending money out, which isn’t connected.',
+  aSaveReason: 'This button is off because saving an address needs a confirmed sign-in step that this app does not offer.',
   aBack: 'Back to Withdraw',
 } as const;
 
@@ -203,16 +203,16 @@ const es = {
   fReason: 'Este botón está desactivado porque enviar dinero fuera de INTAFACED no está conectado.',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
-  aLead: 'Guarda las direcciones de cartera a las que envías, para elegir una cuando retires.',
+  aLead: 'Las direcciones de retiro que el banco tiene registradas para tu cuenta.',
   aUnavailable: 'Guardar direcciones no está disponible',
   aUnavailableNote:
-    'Enviar dinero fuera de INTAFACED no está conectado, así que aquí no se pueden guardar direcciones nuevas. Las direcciones ya guardadas aparecen abajo.',
+    'Guardar una dirección requiere un paso de confirmación de inicio de sesión que esta app no ofrece, así que aquí no se pueden guardar direcciones nuevas. Las direcciones guardadas en el banco aparecen en la lista.',
   aTableTitle: 'Direcciones guardadas',
   aColLabel: 'Etiqueta',
   aColAddress: 'Dirección',
   aColDetails: 'Detalles',
   aColKind: 'Tipo',
-  aColAdded: 'Añadida',
+  aColAdded: 'Guardada por primera vez',
   aColCooling: 'Periodo de espera',
   aKindCrypto: 'Cartera cripto',
   aKindBank: 'Cuenta bancaria',
@@ -232,7 +232,8 @@ const es = {
   aNetwork: 'Red',
   aAddress: 'Dirección',
   aSave: 'Guardar dirección',
-  aSaveReason: 'Este botón está desactivado porque guardar direcciones necesita enviar dinero fuera, y eso no está conectado.',
+  aSaveReason:
+    'Este botón está desactivado porque guardar una dirección requiere un paso de confirmación de inicio de sesión que esta app no ofrece.',
   aBack: 'Volver a Retirar',
 } as const;
 
@@ -321,16 +322,16 @@ const fr = {
   fReason: 'Ce bouton est désactivé parce que l’envoi d’argent hors d’INTAFACED n’est pas connecté.',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',
-  aLead: 'Garde les adresses de portefeuille vers lesquelles tu envoies, pour en choisir une lors d’un retrait.',
+  aLead: 'Les adresses de retrait que la banque a enregistrées pour ton compte.',
   aUnavailable: 'L’enregistrement d’adresses n’est pas disponible',
   aUnavailableNote:
-    'L’envoi d’argent hors d’INTAFACED n’est pas connecté : de nouvelles adresses ne peuvent donc pas être enregistrées ici. Les adresses déjà enregistrées sont listées ci-dessous.',
+    'Enregistrer une adresse demande une étape de confirmation de connexion que cette app ne propose pas : de nouvelles adresses ne peuvent donc pas être enregistrées ici. Les adresses enregistrées à la banque apparaissent dans la liste.',
   aTableTitle: 'Adresses enregistrées',
   aColLabel: 'Libellé',
   aColAddress: 'Adresse',
   aColDetails: 'Détails',
   aColKind: 'Type',
-  aColAdded: 'Ajoutée',
+  aColAdded: 'Enregistrée pour la première fois',
   aColCooling: 'Délai de sécurité',
   aKindCrypto: 'Portefeuille crypto',
   aKindBank: 'Compte bancaire',
@@ -350,7 +351,8 @@ const fr = {
   aNetwork: 'Réseau',
   aAddress: 'Adresse',
   aSave: 'Enregistrer l’adresse',
-  aSaveReason: 'Ce bouton est désactivé parce que l’enregistrement d’adresses nécessite l’envoi d’argent, qui n’est pas connecté.',
+  aSaveReason:
+    'Ce bouton est désactivé parce qu’enregistrer une adresse demande une étape de confirmation de connexion que cette app ne propose pas.',
   aBack: 'Retour à Retirer',
 } as const;
 

@@ -81,7 +81,7 @@ const row = (over: Partial<Destination> = {}): Destination => ({
 describe('Withdrawal addresses reads the bank address book; saving stays off for its real reason', () => {
   it('draws the columns and an honest empty state when the book has no addresses', () => {
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
-    for (const column of ['Label', 'Type', 'Address', 'Added', 'Cooling-off', 'Details']) expect(html).toContain(`>${column}</th>`);
+    for (const column of ['Label', 'Type', 'Address', 'First saved', 'Cooling-off', 'Details']) expect(html).toContain(`>${column}</th>`);
     expect(html).toContain('No saved addresses');
     expect(html).toContain('You have no saved withdrawal addresses.');
     expect(html).not.toContain('No saved addresses yet');
