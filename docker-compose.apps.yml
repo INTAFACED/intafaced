@@ -1,13 +1,13 @@
 name: intafaced
 
-# THE WHOLE PLATFORM — eleven services, two apps, on top of the infrastructure.
+# THE WHOLE PLATFORM — the application services (see docs/SERVICES.md), two apps, on top of the infrastructure.
 #
 #   docker compose -f docker-compose.apps.yml up -d --build     (or: pnpm platform:up)
 #
 # ── Why this is a second file and not more of docker-compose.yml ─────────────
 #
 # `docker-compose.yml` is what `pnpm infra:up` starts, and what the integration
-# tests need: a Postgres, a Redis, a NATS. Folding thirteen application
+# tests need: a Postgres, a Redis, a NATS. Folding the application
 # containers into it would mean a developer who wants a database for `vitest`
 # waits for a full monorepo image build first. That is a real cost paid every
 # day by people who did not ask for it.
@@ -28,7 +28,7 @@ include:
 
 x-app: &app
   # One image for every service and both apps — see the Dockerfile header for
-  # why. All thirteen declare the same build so `up` works from a clean clone
+  # why. All of them declare the same build so `up` works from a clean clone
   # with no image present; BuildKit deduplicates them into one build.
   image: intafaced/app:dev
   build:

@@ -2,7 +2,17 @@ import type { Sql, TransactionSql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage, type Page } from './pagination.js';
 import { assertPermission, type MerchantCaller, type MerchantRole, type TeamRole } from './roles.js';
-import { emailInviteToken, isReservedTeamUserId, normaliseTeamInviteEmail, type TeamEmailInviteLimit } from './team-email.js';
+import {
+  emailInviteToken,
+  INVITE_EMAIL_SEPARATOR,
+  isReservedTeamUserId,
+  normaliseTeamInviteEmail,
+  plainTeamLabel,
+  readStashedInviteEmail,
+  stashInviteEmail,
+  teamEventMemberUserId,
+  type TeamEmailInviteLimit,
+} from './team-email.js';
 
 /**
  * Merchant team: members, roles, invitations, and the append-only trail of who
@@ -17,14 +27,15 @@ import { emailInviteToken, isReservedTeamUserId, normaliseTeamInviteEmail, type 
  *   - Nobody changes their own role (self-promotion).
  *   - The owner is never a row, so "cannot remove the last admin" holds by
  *     construction: the owner is always there.
- *   - An invitation only becomes access when the invited person accepts it,
- *     or when a confirmed mailbox claims an email invite that is still inside
- *     the published lifetime and the one-team rule allows it.
+ *   - An invitation only becomes access when the invited person accepts it.
+ *     A confirmed mailbox claim only binds the account onto the invite and
+ *     leaves it invited.
  *   - Someone who owns a merchant, or is on another team, cannot JOIN (one
  *     active team per account). That is checked when they accept, never when
  *     they are invited, so an invite reveals nothing about an outside account.
  *   - An email invite stores `email:<address>` and does not look the address
  *     up. The reply is the same whether or not an account already exists.
+ *     After a claim, the list still shows that token until accept.
  */
 
 export interface TeamMemberView {
@@ -53,18 +64,21 @@ interface MemberRow {
   cursor_ts: string;
 }
 
-const view = (r: MemberRow): TeamMemberView => ({
-  memberId: r.id,
-  userId: r.user_id,
-  role: r.role,
-  status: r.status,
-  label: r.label,
-  invitedBy: r.invited_by,
-  createdAt: r.created_at.toISOString(),
-  activatedAt: r.activated_at?.toISOString() ?? null,
-  removedAt: r.removed_at?.toISOString() ?? null,
-  cursor: encodeCursor(r.cursor_ts, r.id),
-});
+const view = (r: MemberRow): TeamMemberView => {
+  const stashed = readStashedInviteEmail(r.label);
+  return {
+    memberId: r.id,
+    userId: stashed && r.status !== 'active' ? stashed.token : r.user_id,
+    role: r.role,
+    status: r.status,
+    label: stashed ? stashed.label : r.label,
+    invitedBy: r.invited_by,
+    createdAt: r.created_at.toISOString(),
+    activatedAt: r.activated_at?.toISOString() ?? null,
+    removedAt: r.removed_at?.toISOString() ?? null,
+    cursor: encodeCursor(r.cursor_ts, r.id),
+  };
+};
 
 const MEMBER_FIELDS = (sql: Sql | TransactionSql) => sql`
   m.id, m.user_id, m.role, m.status, m.label, m.invited_by, m.created_at, m.activated_at, m.removed_at,
@@ -107,7 +121,23 @@ export class TeamService {
          ${input.status ? sql`AND m.status = ${input.status}` : sql``}
          ${input.role && input.role !== 'owner' ? sql`AND m.role = ${input.role}` : sql``}
          ${input.role === 'owner' ? sql`AND false` : sql``}
-         ${input.search ? sql`AND (m.user_id = ${input.search} OR starts_with(lower(coalesce(m.label, '')), lower(${input.search})))` : sql``}
+         ${
+           input.search
+             ? sql`AND (
+                 (
+                   CASE
+                     WHEN m.status <> 'active' AND strpos(coalesce(m.label, ''), ${INVITE_EMAIL_SEPARATOR}) > 0
+                       THEN split_part(m.label, ${INVITE_EMAIL_SEPARATOR}, 2)
+                     ELSE m.user_id
+                   END
+                 ) = ${input.search}
+                 OR starts_with(
+                   lower(split_part(coalesce(m.label, ''), ${INVITE_EMAIL_SEPARATOR}, 1)),
+                   lower(${input.search})
+                 )
+               )`
+             : sql``
+         }
          ${after ? sql`AND (m.created_at, m.id) < ((${after.ts}::text)::timestamptz, ${after.key}::uuid)` : sql``}
        ORDER BY m.created_at DESC, m.id DESC
        LIMIT ${limit + 1}`;
@@ -201,18 +231,19 @@ export class TeamService {
       const existing = await tx<Array<{ id: string; status: string }>>`
         SELECT id, status FROM pay.merchant_team_members WHERE merchant_id = ${caller.merchantId} AND user_id = ${userId} FOR UPDATE`;
       let id: string;
+      const label = plainTeamLabel(input.label);
       if (existing[0]) {
         if (existing[0].status !== 'removed') throw unavailable;
         id = existing[0].id;
         await tx`
           UPDATE pay.merchant_team_members
-             SET status = 'invited', role = ${input.role}, label = ${input.label ?? null}, invited_by = ${caller.userId},
+             SET status = 'invited', role = ${input.role}, label = ${label}, invited_by = ${caller.userId},
                  removed_at = NULL, activated_at = NULL, updated_at = now()
            WHERE id = ${id}`;
       } else {
         const inserted = await tx<Array<{ id: string }>>`
           INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, label, invited_by)
-          VALUES (${caller.merchantId}, ${userId}, ${input.role}, 'invited', ${input.label ?? null}, ${caller.userId})
+          VALUES (${caller.merchantId}, ${userId}, ${input.role}, 'invited', ${label}, ${caller.userId})
           RETURNING id`;
         id = inserted[0]!.id;
       }
@@ -233,33 +264,50 @@ export class TeamService {
     if (!email) throw new MerchantOpsError('pay.team_email_invalid', 'bad_request');
     this.assertEmailInviteConfigured();
     const token = emailInviteToken(email);
+    const visibleLabel = plainTeamLabel(label);
     return this.sql.begin(async (tx) => {
       await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
-      const existing = await tx<Array<{ id: string; status: string }>>`
-        SELECT id, status FROM pay.merchant_team_members
-         WHERE merchant_id = ${caller.merchantId} AND user_id = ${token}
+      const existing = await tx<Array<{ id: string; status: string; user_id: string }>>`
+        SELECT id, status, user_id FROM pay.merchant_team_members
+         WHERE merchant_id = ${caller.merchantId}
+           AND (
+             user_id = ${token}
+             OR (
+               status = 'invited'
+               AND split_part(coalesce(label, ''), ${INVITE_EMAIL_SEPARATOR}, 2) = ${token}
+             )
+           )
          FOR UPDATE`;
-      let id: string;
-      if (existing[0]?.status === 'invited') {
-        id = existing[0].id;
+      const tokenRow = existing.find((row) => row.user_id === token);
+      const bound = existing.find((row) => row.user_id !== token && row.status === 'invited');
+      if (tokenRow?.status === 'invited') {
         await tx`
           UPDATE pay.merchant_team_members
-             SET role = ${role}, label = ${label ?? null}, invited_by = ${caller.userId}, updated_at = now()
-           WHERE id = ${id}`;
-        return this.memberView(tx, caller.merchantId, id);
+             SET role = ${role}, label = ${visibleLabel}, invited_by = ${caller.userId}, updated_at = now()
+           WHERE id = ${tokenRow.id}`;
+        return this.memberView(tx, caller.merchantId, tokenRow.id);
+      }
+      // Already bound and still invited: refresh the role, keep the account id internal.
+      if (bound) {
+        await tx`
+          UPDATE pay.merchant_team_members
+             SET role = ${role}, label = ${stashInviteEmail(visibleLabel, token)}, invited_by = ${caller.userId}, updated_at = now()
+           WHERE id = ${bound.id}`;
+        return this.memberView(tx, caller.merchantId, bound.id);
       }
       await this.assertEmailInviteBudget(tx, caller.merchantId);
-      if (existing[0]) {
-        id = existing[0].id;
+      let id: string;
+      if (tokenRow) {
+        id = tokenRow.id;
         await tx`
           UPDATE pay.merchant_team_members
-             SET status = 'invited', role = ${role}, label = ${label ?? null}, invited_by = ${caller.userId},
+             SET status = 'invited', role = ${role}, label = ${visibleLabel}, invited_by = ${caller.userId},
                  removed_at = NULL, activated_at = NULL, updated_at = now()
            WHERE id = ${id}`;
       } else {
         const inserted = await tx<Array<{ id: string }>>`
           INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, label, invited_by)
-          VALUES (${caller.merchantId}, ${token}, ${role}, 'invited', ${label ?? null}, ${caller.userId})
+          VALUES (${caller.merchantId}, ${token}, ${role}, 'invited', ${visibleLabel}, ${caller.userId})
           RETURNING id`;
         id = inserted[0]!.id;
       }
@@ -308,9 +356,10 @@ export class TeamService {
       if (target.role === 'admin' && caller.role !== 'owner') throw new MerchantOpsError('pay.team_role_forbidden', 'forbidden');
       if (target.role !== input.role) {
         await tx`UPDATE pay.merchant_team_members SET role = ${input.role}, updated_at = now() WHERE id = ${target.id}`;
+        const shown = teamEventMemberUserId(target.user_id, target.label, target.status);
         await tx`
           INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, from_role, to_role, actor_id)
-          VALUES (${caller.merchantId}, ${target.user_id}, 'role_changed', ${target.role}, ${input.role}, ${caller.userId})`;
+          VALUES (${caller.merchantId}, ${shown}, 'role_changed', ${target.role}, ${input.role}, ${caller.userId})`;
       }
       return this.memberView(tx, caller.merchantId, target.id);
     });
@@ -348,15 +397,22 @@ export class TeamService {
   /** The invited account accepts. This is the only way an invitation becomes access. */
   async acceptInvite(userId: string, memberId: string): Promise<TeamMemberView> {
     return this.sql.begin(async (tx) => {
-      const rows = await tx<Array<{ id: string; merchant_id: string; user_id: string; role: TeamRole; status: string }>>`
-        SELECT id, merchant_id, user_id, role, status FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
+      const rows = await tx<
+        Array<{ id: string; merchant_id: string; user_id: string; role: TeamRole; status: string; label: string | null }>
+      >`
+        SELECT id, merchant_id, user_id, role, status, label FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
       const row = rows[0];
       if (!row || row.status !== 'invited') throw new MerchantOpsError('pay.team_invitation_not_found', 'not_found');
       const owns = await tx`SELECT 1 FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
       const busy = await tx`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${userId} AND status = 'active' LIMIT 1`;
       if (owns[0] || busy[0]) throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
+      const stashed = readStashedInviteEmail(row.label);
+      const label = stashed ? stashed.label : row.label;
       try {
-        await tx`UPDATE pay.merchant_team_members SET status = 'active', activated_at = now(), updated_at = now() WHERE id = ${row.id}`;
+        await tx`
+          UPDATE pay.merchant_team_members
+             SET status = 'active', activated_at = now(), label = ${label}, updated_at = now()
+           WHERE id = ${row.id}`;
       } catch (error) {
         // Two invitations accepted at once: the one-active-team index decides, and the loser gets the same answer as above.
         if ((error as { code?: string }).code === '23505') throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
@@ -371,14 +427,17 @@ export class TeamService {
 
   async declineInvite(userId: string, memberId: string): Promise<{ declined: true }> {
     await this.sql.begin(async (tx) => {
-      const rows = await tx<Array<{ id: string; merchant_id: string; user_id: string; role: TeamRole; status: string }>>`
-        SELECT id, merchant_id, user_id, role, status FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
+      const rows = await tx<
+        Array<{ id: string; merchant_id: string; user_id: string; role: TeamRole; status: string; label: string | null }>
+      >`
+        SELECT id, merchant_id, user_id, role, status, label FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
       const row = rows[0];
       if (!row || row.status !== 'invited') throw new MerchantOpsError('pay.team_invitation_not_found', 'not_found');
       await tx`UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now(), updated_at = now() WHERE id = ${row.id}`;
+      const shown = teamEventMemberUserId(row.user_id, row.label, row.status);
       await tx`
         INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, from_role, actor_id)
-        VALUES (${row.merchant_id}, ${userId}, 'declined', ${row.role}, ${userId})`;
+        VALUES (${row.merchant_id}, ${shown}, 'declined', ${row.role}, ${shown})`;
     });
     return { declined: true };
   }
@@ -391,8 +450,10 @@ export class TeamService {
 
   private async lockMember(tx: TransactionSql, merchantId: string, memberId: string) {
     // Merchant-scoped lookup: another merchant's member id is simply not found.
-    const rows = await tx<Array<{ id: string; user_id: string; role: TeamRole; status: 'active' | 'invited' | 'removed' }>>`
-      SELECT id, user_id, role, status FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND merchant_id = ${merchantId} FOR UPDATE`;
+    const rows = await tx<
+      Array<{ id: string; user_id: string; role: TeamRole; status: 'active' | 'invited' | 'removed'; label: string | null }>
+    >`
+      SELECT id, user_id, role, status, label FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND merchant_id = ${merchantId} FOR UPDATE`;
     if (!rows[0]) throw new MerchantOpsError('pay.team_member_not_found', 'not_found');
     return rows[0];
   }
@@ -400,13 +461,14 @@ export class TeamService {
   private async markRemoved(
     tx: TransactionSql,
     merchantId: string,
-    target: { id: string; user_id: string; role: TeamRole },
+    target: { id: string; user_id: string; role: TeamRole; label?: string | null; status?: string },
     actorId: string,
   ) {
     await tx`UPDATE pay.merchant_team_members SET status = 'removed', removed_at = now(), updated_at = now() WHERE id = ${target.id}`;
+    const shown = teamEventMemberUserId(target.user_id, target.label ?? null, target.status ?? 'active');
     await tx`
       INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, from_role, actor_id)
-      VALUES (${merchantId}, ${target.user_id}, 'removed', ${target.role}, ${actorId})`;
+      VALUES (${merchantId}, ${shown}, 'removed', ${target.role}, ${actorId})`;
   }
 
   private async memberView(sql: Sql | TransactionSql, merchantId: string, id: string): Promise<TeamMemberView> {

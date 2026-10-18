@@ -441,36 +441,45 @@ if (!available) {
       expect(wiped[0]?.require_non_empty_ip_allowlist).toBe(true);
     });
 
-    it('claims only a confirmed stored mailbox, and a pay failure still opens the session', async () => {
+    it('claims only a confirmed stored mailbox, and sign-in does not wait on pay', async () => {
       const seen: Array<{ userId: string; email: string }> = [];
+      let releaseClaim: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseClaim = resolve;
+      });
+      let claimFinished: () => void = () => undefined;
+      const finished = new Promise<void>((resolve) => {
+        claimFinished = resolve;
+      });
       auth.useMerchantEmailInviteClaimer({
         async claim(input) {
           seen.push(input);
+          await gate;
+          claimFinished();
+          throw new Error('pay down');
         },
       });
       try {
         const handle = unique();
         const email = `${handle}@Example.com`;
         const session = await auth.register({ handle, email, password: 'correct horse battery staple', region: 'DE' });
-        expect(seen).toEqual([]);
         await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).resolves.toMatchObject({
           userId: session.userId,
         });
+        await new Promise((resolve) => setTimeout(resolve, 100));
         expect(seen).toEqual([]);
         await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
-        seen.length = 0;
-        auth.useMerchantEmailInviteClaimer({
-          async claim(input) {
-            seen.push(input);
-            throw new Error('pay down');
-          },
-        });
+        const started = Date.now();
         await expect(auth.login({ identifier: email, password: 'correct horse battery staple' })).resolves.toMatchObject({
           userId: session.userId,
         });
+        expect(Date.now() - started).toBeLessThan(1_000);
+        releaseClaim();
+        await finished;
         expect(seen).toEqual([{ userId: session.userId, email }]);
         expect(seen[0]?.email).not.toBe(handle);
       } finally {
+        releaseClaim();
         auth.useMerchantEmailInviteClaimer(undefined);
       }
     });

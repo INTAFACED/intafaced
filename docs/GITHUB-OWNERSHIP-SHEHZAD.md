@@ -1,10 +1,12 @@
 # GitHub ownership lock — `@shehzad002` (Shehzad / “Shizu”)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING on `main` · cold agents must obey  
 **Supersedes:** M1–M7 hard spine lock (2026-08-01) for **who may code**  
 **Historical detail (superseded for scope):** [`SHEHZAD-HARD-OWNERSHIP-2026-08-01.md`](SHEHZAD-HARD-OWNERSHIP-2026-08-01.md)  
 **Task board (sole runway):** [`SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md`](SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md)  
-**Last MVP overlay (2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) — leftover only. **P0 live queue:** [`PROTOCOL-P0-BASE-MEGA-2026-09-06.md`](PROTOCOL-P0-BASE-MEGA-2026-09-06.md). **#2473 merged.** **INTACHAIN P1 implement parked 2026-09-03** ([`adr/2026-09-03-protocol-rails-until-intachain.md`](adr/2026-09-03-protocol-rails-until-intachain.md)) — he still owns the path; he does **not** start `svc-chain` until Nitro GO.  
+**Last MVP overlay (2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) — leftover only. **P0 live queue:** [`PROTOCOL-P0-BASE-MEGA-2026-09-06.md`](PROTOCOL-P0-BASE-MEGA-2026-09-06.md). **#2473 merged.** **INTACHAIN P1 implement parked 2026-09-03** ([`adr/2026-09-03-protocol-rails-until-intachain.md`](adr/2026-09-03-protocol-rails-until-intachain.md)) — he still owns the path; he does **not** start `svc-chain` until Nitro GO.  
 **Three-way split:** [`THREE-WAY-DISTRIBUTION-2026-08-04.md`](THREE-WAY-DISTRIBUTION-2026-08-04.md)  
 **Live claims:** [`LIVE-LANES.md`](LIVE-LANES.md)
 

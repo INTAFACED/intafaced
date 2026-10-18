@@ -1,5 +1,7 @@
 # Owner rulings — Denon affiliate payout handoff (shapes + recommended defaults)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** **Accepted — 2026-08-15 (PAYOUT-01 v1 law).** Table defaults clicked; no owner override. Magnitudes remain D26-P0-02.  
 **Seal ADR:** [`adr/2026-08-15-payout-01-affiliate-handoff-seal.md`](adr/2026-08-15-payout-01-affiliate-handoff-seal.md).  
 **Source:** PR #1505 ship notes · Nitro takeover 2026-08-09.  

@@ -2,7 +2,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { emailInviteToken, isReservedTeamUserId, loadTeamEmailInviteLimit, normaliseTeamInviteEmail } from './team-email.js';
+import {
+  emailInviteToken,
+  isReservedTeamUserId,
+  loadTeamEmailInviteLimit,
+  normaliseTeamInviteEmail,
+  plainTeamLabel,
+  readStashedInviteEmail,
+  stashInviteEmail,
+  teamEventMemberUserId,
+} from './team-email.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -13,6 +22,20 @@ describe('team email invite normalisation and budget', () => {
     for (const raw of ['', 'not-an-email', 'a@b', 'ada@example.com extra', 'email:ada@example.com']) {
       expect(normaliseTeamInviteEmail(raw)).toBeNull();
     }
+    // Kelvin sign and other non-ASCII letters are refused before case folding.
+    expect(normaliseTeamInviteEmail('\u212Aelvin@example.com')).toBeNull();
+    expect(normaliseTeamInviteEmail('\uFF21da@example.com')).toBeNull();
+  });
+
+  it('keeps the invited email on the display side of a bound row', () => {
+    expect(plainTeamLabel(' Ada \u001e')).toBe('Ada');
+    expect(plainTeamLabel(undefined)).toBeNull();
+    const stored = stashInviteEmail('Ada', 'email:ada@example.com');
+    expect(readStashedInviteEmail(stored)).toEqual({ token: 'email:ada@example.com', label: 'Ada' });
+    expect(readStashedInviteEmail('Ada')).toBeNull();
+    expect(teamEventMemberUserId('11111111-1111-4111-8111-111111111111', stored, 'invited')).toBe('email:ada@example.com');
+    expect(teamEventMemberUserId('11111111-1111-4111-8111-111111111111', stored, 'removed')).toBe('email:ada@example.com');
+    expect(teamEventMemberUserId('11111111-1111-4111-8111-111111111111', 'Ada', 'active')).toBe('11111111-1111-4111-8111-111111111111');
   });
 
   it('reserves the email token namespace for account ids', () => {

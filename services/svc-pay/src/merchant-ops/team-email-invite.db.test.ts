@@ -148,17 +148,36 @@ describe('merchant email team invites', () => {
     expect(stored.map((row) => row.user_id)).toEqual(['email:one@example.com', 'email:two@example.com']);
   });
 
-  it('accepts a pending email invite when that mailbox signs in, and not when they already belong somewhere', async () => {
+  it('binds a pending email invite and leaves it invited until acceptInvite', async () => {
     const host = id();
     await sql`INSERT INTO pay.merchants (user_id) VALUES (${host})`;
-    const invited = await as(host).merchantOps.team.invite({ email: 'join@example.com', role: 'developer' });
+    const invited = await as(host).merchantOps.team.invite({ email: 'join@example.com', role: 'developer', label: 'Jo' });
     expect(invited.userId).toBe('email:join@example.com');
     const person = id();
     const first = await claimEmailTeamInvites(sql, { userId: person, email: 'Join@Example.com' }, LIMIT.ttlMs);
-    expect(first).toEqual({ claimed: 1, accepted: 1 });
+    expect(first).toEqual({ claimed: 1, accepted: 0 });
     const row = await sql<Array<{ user_id: string; status: string; role: string }>>`
       SELECT user_id, status, role FROM pay.merchant_team_members WHERE id = ${invited.memberId}`;
-    expect(row[0]).toMatchObject({ user_id: person, status: 'active', role: 'developer' });
+    expect(row[0]).toMatchObject({ user_id: person, status: 'invited', role: 'developer' });
+    const listed = await as(host).merchantOps.team.list({ limit: 20 });
+    expect(listed.items.find((member) => member.memberId === invited.memberId)).toMatchObject({
+      userId: 'email:join@example.com',
+      status: 'invited',
+      label: 'Jo',
+    });
+    expect(JSON.stringify(listed)).not.toContain(person);
+    const byAccount = await as(host).merchantOps.team.list({ limit: 20, search: person });
+    expect(byAccount.items.find((member) => member.memberId === invited.memberId)).toBeUndefined();
+    const byEmail = await as(host).merchantOps.team.list({ limit: 20, search: 'email:join@example.com' });
+    expect(byEmail.items.find((member) => member.memberId === invited.memberId)?.userId).toBe('email:join@example.com');
+    await as(host).merchantOps.team.changeRole({ memberId: invited.memberId!, role: 'viewer' });
+    const trail = await as(host).merchantOps.team.history({ limit: 20 });
+    expect(JSON.stringify(trail)).not.toContain(person);
+    expect(trail.items.some((event) => event.action === 'role_changed' && event.memberUserId === 'email:join@example.com')).toBe(true);
+    const invitations = await as(person).merchantOps.team.myInvitations({});
+    expect(invitations).toEqual([expect.objectContaining({ memberId: invited.memberId, role: 'viewer' })]);
+    const accepted = await as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId! });
+    expect(accepted).toMatchObject({ userId: person, status: 'active', role: 'viewer', label: 'Jo' });
     expect(await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' }, LIMIT.ttlMs)).toEqual({
       claimed: 0,
       accepted: 0,
@@ -166,12 +185,18 @@ describe('merchant email team invites', () => {
 
     const other = id();
     await sql`INSERT INTO pay.merchants (user_id) VALUES (${other})`;
-    await as(other).merchantOps.team.invite({ email: 'join@example.com', role: 'viewer' });
+    const elsewhere = await as(other).merchantOps.team.invite({ email: 'join@example.com', role: 'viewer' });
     const second = await claimEmailTeamInvites(sql, { userId: person, email: 'join@example.com' }, LIMIT.ttlMs);
     expect(second).toEqual({ claimed: 1, accepted: 0 });
     const pending = await sql<Array<{ user_id: string; status: string }>>`
-      SELECT user_id, status FROM pay.merchant_team_members WHERE merchant_id = (SELECT id FROM pay.merchants WHERE user_id = ${other})`;
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${elsewhere.memberId}`;
     expect(pending[0]).toMatchObject({ user_id: person, status: 'invited' });
+    const otherList = await as(other).merchantOps.team.list({ limit: 20 });
+    expect(JSON.stringify(otherList)).not.toContain(person);
+    expect(otherList.items.find((member) => member.memberId === elsewhere.memberId)?.userId).toBe('email:join@example.com');
+    expect(await refusal(() => as(person).merchantOps.team.acceptInvite({ memberId: elsewhere.memberId! }))).toBe(
+      'pay.team_member_unavailable',
+    );
 
     const own = await as(host).merchantOps.team.invite({ email: 'host@example.com', role: 'viewer' });
     const ownerClaim = await claimEmailTeamInvites(sql, { userId: host, email: 'host@example.com' }, LIMIT.ttlMs);
@@ -179,7 +204,73 @@ describe('merchant email team invites', () => {
     const ownerRow = await sql<Array<{ user_id: string; status: string }>>`
       SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${own.memberId}`;
     expect(ownerRow[0]).toMatchObject({ user_id: host, status: 'invited' });
-  });
+    const hostList = await as(host).merchantOps.team.list({ limit: 20 });
+    expect(hostList.items.find((member) => member.memberId === own.memberId)?.userId).toBe('email:host@example.com');
+  }, 20_000);
+
+  it('does not revive a removed member when a later email invite is claimed', async () => {
+    const host = id();
+    await sql`INSERT INTO pay.merchants (user_id) VALUES (${host})`;
+    const person = id();
+    const byAccount = await as(host).merchantOps.team.invite({ userId: person, role: 'viewer' });
+    await as(person).merchantOps.team.acceptInvite({ memberId: byAccount.memberId! });
+    await as(host).merchantOps.team.remove({ memberId: byAccount.memberId! });
+    const emailInvite = await as(host).merchantOps.team.invite({ email: 'former@example.com', role: 'developer' });
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'former@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    const removed = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${byAccount.memberId}`;
+    expect(removed[0]).toMatchObject({ user_id: person, status: 'removed' });
+    const fresh = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${emailInvite.memberId}`;
+    expect(fresh[0]).toMatchObject({ user_id: 'email:former@example.com', status: 'invited' });
+    const invitations = await as(person).merchantOps.team.myInvitations({});
+    expect(invitations.find((invite) => invite.memberId === emailInvite.memberId)).toBeUndefined();
+
+    const rebound = await as(host).merchantOps.team.invite({ email: 'left@example.com', role: 'viewer', label: 'Left' });
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'left@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    const still = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${rebound.memberId}`;
+    expect(still[0]).toMatchObject({ user_id: 'email:left@example.com', status: 'invited' });
+  }, 20_000);
+
+  it('does not revive a declined email invite, and a new one stays pending', async () => {
+    const host = id();
+    await sql`INSERT INTO pay.merchants (user_id) VALUES (${host})`;
+    const person = id();
+    const invited = await as(host).merchantOps.team.invite({ email: 'declined@example.com', role: 'viewer', label: 'Left' });
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'declined@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 1,
+      accepted: 0,
+    });
+    await as(person).merchantOps.team.declineInvite({ memberId: invited.memberId! });
+    const removed = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${invited.memberId}`;
+    expect(removed[0]).toMatchObject({ user_id: person, status: 'removed' });
+    const removedList = await as(host).merchantOps.team.list({ limit: 20, status: 'removed' });
+    expect(removedList.items.find((member) => member.memberId === invited.memberId)?.userId).toBe('email:declined@example.com');
+    expect(JSON.stringify(removedList)).not.toContain(person);
+    const again = await as(host).merchantOps.team.invite({ email: 'declined@example.com', role: 'finance' });
+    expect(again.memberId).not.toBe(invited.memberId);
+    expect(again).toMatchObject({ userId: 'email:declined@example.com', status: 'invited', role: 'finance' });
+    expect(await claimEmailTeamInvites(sql, { userId: person, email: 'declined@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    const stillRemoved = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${invited.memberId}`;
+    expect(stillRemoved[0]).toMatchObject({ user_id: person, status: 'removed' });
+    const fresh = await sql<Array<{ user_id: string; status: string }>>`
+      SELECT user_id, status FROM pay.merchant_team_members WHERE id = ${again.memberId}`;
+    expect(fresh[0]).toMatchObject({ user_id: 'email:declined@example.com', status: 'invited' });
+    const invitations = await as(person).merchantOps.team.myInvitations({});
+    expect(invitations.find((invite) => invite.memberId === again.memberId || invite.memberId === invited.memberId)).toBeUndefined();
+  }, 20_000);
 
   it('refuses a claim that is not a real account id and does not write', async () => {
     await expect(
@@ -211,6 +302,12 @@ describe('merchant email team invites', () => {
 
     await as(host).merchantOps.team.invite({ email: 'later@example.com', role: 'developer' });
     const renewed = await claimEmailTeamInvites(sql, { userId: person, email: 'later@example.com' }, 60_000);
-    expect(renewed).toEqual({ claimed: 1, accepted: 1 });
-  });
+    expect(renewed).toEqual({ claimed: 1, accepted: 0 });
+    const bound = await sql<Array<{ user_id: string; status: string; role: string }>>`
+      SELECT user_id, status, role FROM pay.merchant_team_members WHERE id = ${fresh.memberId}`;
+    expect(bound[0]).toMatchObject({ user_id: person, status: 'invited', role: 'developer' });
+    const shown = await as(host).merchantOps.team.list({ limit: 20 });
+    expect(shown.items.find((member) => member.memberId === fresh.memberId)?.userId).toBe('email:later@example.com');
+    expect(JSON.stringify(shown)).not.toContain(person);
+  }, 20_000);
 });

@@ -4,8 +4,9 @@
  * no-op: confirmation and sign-in still succeed, and a later confirmed
  * session with the URL set claims what is left.
  *
- * The transport ceiling is how long sign-in will wait on pay. It is not an
- * invite lifetime. A refusal or a timeout does not fail the session.
+ * The transport ceiling bounds this pay call. It is not an invite lifetime.
+ * Sign-in does not wait on it. Confirmation may. A refusal or a timeout does
+ * not fail the session.
  */
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 
@@ -18,7 +19,7 @@ export interface MerchantEmailInviteClaimer {
   claim(input: MerchantEmailInviteClaim): Promise<void>;
 }
 
-/** How long confirmation or sign-in waits for pay before leaving the invite pending. */
+/** How long a pay call may run before the invite is left pending. Sign-in does not wait. */
 const CLAIM_TRANSPORT_MS = 5_000;
 const CLAIM_PATH = '/internal/merchant-team/claim-email-invites';
 

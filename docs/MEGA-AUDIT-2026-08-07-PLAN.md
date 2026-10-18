@@ -1,5 +1,7 @@
 # MEGA AUDIT — 2026-08-07 · Plan and scope
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** COMPLETE — findings delivered, and the remediation ledger in §0a of the findings
 document records which fixes have since landed on `main` and which are still open.
 **Findings land in:** [`MEGA-AUDIT-2026-08-07-FINDINGS.md`](MEGA-AUDIT-2026-08-07-FINDINGS.md)
