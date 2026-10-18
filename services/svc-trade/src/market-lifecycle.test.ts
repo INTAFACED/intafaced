@@ -170,6 +170,18 @@ describe('svc-trade PX-S01 lifecycle authority', () => {
     expect(decideMarketAction(snapshot, 'CANCEL').decision).toBe('ELIGIBLE');
   });
 
+  it('lets a pending market with ready admission cancel a resting order and refuses a new place', () => {
+    const market = fakeMarket({ id: 'market-pending', status: 'pending' });
+    const snapshot = deriveMarketLifecycleSnapshot(market, {
+      now: '2026-08-24T12:01:00.000Z',
+      evidence: readyEvidence(market.id),
+    });
+    expect(snapshot.state).toBe('PRELAUNCH');
+    expect(snapshot.allowedActions).toEqual(['CANCEL']);
+    expect(decideMarketAction(snapshot, 'CANCEL')).toMatchObject({ decision: 'ELIGIBLE', reasonCode: null });
+    expect(decideMarketAction(snapshot, 'PLACE')).toMatchObject({ decision: 'REFUSED', state: 'PRELAUNCH' });
+  });
+
   it('does not collapse partial or unknown reopen outcomes to OPEN', () => {
     const market = fakeMarket({ id: 'market-5' });
     const base = {
