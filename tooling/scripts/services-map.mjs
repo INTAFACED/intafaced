@@ -8,10 +8,11 @@
  * Sources: each `services/<name>/README.md` (purpose), `docker-compose.apps.yml` (port, host
  * publishing, profile) and each `src/env.ts` zod schema plus the shared slices in
  * `packages/config/src/env.ts` (required env). The env column is a text scan, not a run of the
- * schema: a field is listed when its schema has no `.default()`, `.optional()` or `z.undefined()`.
+ * schema: a field is listed when neither its own text nor a helper it calls (resolved in the same
+ * file, to any depth) has `.default()`, `.optional()`, `.nullish()`, `.nullable()`, `.catch()` or `z.undefined()`.
  * Conditional rules (`superRefine`) are not seen, so read `src/env.ts` before relying on it.
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,11 +25,58 @@ function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 }
 
+const OPTIONAL_MARK = /\.(default|optional|nullish|nullable|catch)\(|z\.undefined\(/;
+
+/**
+ * Top-level helpers of one env file: `const name = ...` and `function name(...)`, each with its own text.
+ * A field written as `NAME: ownerInt` or `NAME: bool(true)` takes its default or optionality from the helper.
+ */
+export function helpersOf(src) {
+  const helpers = new Map();
+  const chunks = src.split(/^(?=(?:export\s+)?(?:const|let|function|type|interface|class)\b|import\b)/m);
+  for (const chunk of chunks) {
+    const m = /^(?:export\s+)?(?:const|let|function)\s+([a-z]\w*)/.exec(chunk);
+    // Only a helper that builds a schema counts; a plain parser function that mentions `.default(` does not.
+    if (m && m[1] !== 'schema' && /\bz\./.test(chunk)) helpers.set(m[1], chunk);
+  }
+  return helpers;
+}
+
+/** Helpers a file imports from its own folder (`import { x } from './y.js'`), so `NAME: x` resolves through them. */
+function importedHelpers(src, rel) {
+  const out = new Map();
+  for (const m of src.matchAll(/^import\s*\{([^}]*)\}\s*from\s*'(\.\/[^']+)'/gm)) {
+    const file = join(dirname(rel), m[2].replace(/\.js$/, '.ts'));
+    if (!existsSync(join(ROOT, file))) continue;
+    const theirs = helpersOf(stripComments(read(file)));
+    for (const raw of m[1].split(',')) {
+      const name = raw
+        .trim()
+        .split(/\s+as\s+/)
+        .pop();
+      if (name && theirs.has(name)) out.set(name, theirs.get(name));
+    }
+  }
+  return out;
+}
+
+/** True when the expression, or a helper it uses (resolved recursively in the same file), has a default or is optional. */
+function hasOptionalMark(expr, helpers, seen = new Set()) {
+  if (OPTIONAL_MARK.test(expr)) return true;
+  for (const m of expr.matchAll(/(?<![.\w])([a-z]\w*)\b/g)) {
+    const name = m[1];
+    if (seen.has(name) || !helpers.has(name)) continue;
+    seen.add(name);
+    if (hasOptionalMark(helpers.get(name), helpers, seen)) return true;
+  }
+  return false;
+}
+
 /**
  * Fields written as `NAME: <expression>` inside a z.object. The expression runs to the next field at
  * the same or shallower indent. Returns [{ name, required }].
  */
-function fieldsOf(body) {
+export function fieldsOf(body, helpers = new Map()) {
   const lines = body.split('\n');
   const key = /^(\s*)([A-Z][A-Z0-9_]*)\s*:/;
   const out = [];
@@ -45,7 +93,7 @@ function fieldsOf(body) {
     }
     // `.default('')` with a superRefine is a blank the schema then refuses (MATCHING_OPERATOR_IDS), so it counts as required.
     const blankRefused = /\.default\(''\)/.test(expr) && /\.superRefine\(/.test(expr);
-    const optional = !blankRefused && /\.(default|optional|nullish|nullable|catch)\(|z\.undefined\(/.test(expr);
+    const optional = !blankRefused && hasOptionalMark(expr, helpers);
     out.push({ name: m[2], required: !optional });
   }
   return out;
@@ -54,9 +102,10 @@ function fieldsOf(body) {
 /** Shared slices exported from packages/config: { schemaName: fields }. */
 function sharedSlices() {
   const src = stripComments(read('packages/config/src/env.ts'));
+  const helpers = helpersOf(src);
   const slices = new Map();
   const re = /export const (\w+EnvSchema) = z\.object\(\{([\s\S]*?)\n\}\);/g;
-  for (const m of src.matchAll(re)) slices.set(m[1], fieldsOf(m[2]));
+  for (const m of src.matchAll(re)) slices.set(m[1], fieldsOf(m[2], helpers));
   // serviceEnvSchema is baseEnvSchema merged with five more slices.
   const compose = /export const serviceEnvSchema = ([\s\S]*?);/.exec(src);
   if (compose) {
@@ -74,6 +123,7 @@ function requiredEnv(service, slices) {
   const rel = `services/${service}/src/env.ts`;
   if (!existsSync(join(ROOT, rel))) return null;
   const src = stripComments(read(rel));
+  const helpers = new Map([...importedHelpers(src, rel), ...helpersOf(src)]);
   const fields = [];
   const unresolved = [];
   for (const m of src.matchAll(/\.merge\(\s*(\w+)\s*\)|^const schema = (\w+)/gm)) {
@@ -82,7 +132,7 @@ function requiredEnv(service, slices) {
     else if (/EnvSchema$/.test(name)) unresolved.push(name);
   }
   const own = /z\.object\(\{([\s\S]*)\}\)/.exec(src);
-  if (own) fields.push(...fieldsOf(own[1]));
+  if (own) fields.push(...fieldsOf(own[1], helpers));
   const byName = new Map();
   for (const f of fields) byName.set(f.name, f); // later (service-level) definitions win
   const names = [...byName.values()].filter((f) => f.required).map((f) => f.name);
@@ -189,7 +239,7 @@ export function render() {
     .join('\n');
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const next = render();
   if (process.argv.includes('--check')) {
     const current = existsSync(OUTPUT) ? readFileSync(OUTPUT, 'utf8') : '';

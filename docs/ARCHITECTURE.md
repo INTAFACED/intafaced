@@ -74,17 +74,13 @@ Node 20 or newer and pnpm 10 (`package.json`).
 
 ```bash
 pnpm install
-cp .env.example .env     # read its header: EDGE_PRINCIPAL_SECRET, INTERNAL_SERVICE_SECRET, MATCHING_OPERATOR_IDS, MATCHING_SNAPSHOT_EVERY and RECONCILE_CRON_MINUTES must be set
+cp .env.example .env     # then fill in the REQUIRED blocks (see below); until every one is set the stack does not start
 pnpm platform:up         # docker compose -f docker-compose.apps.yml up -d --build: infra plus every service and both apps
 ```
 
 `platform:up` includes `docker-compose.yml` (`docker-compose.apps.yml`), so it starts the infrastructure too (postgres, redis, nats, otel, tempo, prometheus, grafana, two throwaway anvil chains) and needs no `infra:up` first. `pnpm infra:up` (`docker compose up -d`) is infrastructure only, for running tests without the services. Compose refuses to start without `APP_ENV` (`docker-compose.apps.yml`). Host ports: Postgres 5433, Redis 6380, NATS 4222 and 8222, Grafana 3001, Prometheus 9090, Tempo 3200, anvil 8545 and 8546 (`docker-compose.yml`), edge 4000, ws 4014, customer 8090, admin 3100. Tempo and the customer dev server both want 3200.
 
-`MATCHING_OPERATOR_IDS` (`.env`, passed through by `docker-compose.apps.yml`) is a comma-separated list of at least two distinct operator user ids; `.env.example` leaves it blank, so matching refuses to boot until you set it. `svc-matching` refuses to boot with fewer than two (`services/svc-matching/src/env.ts`), so without it the matching engine does not start and no spot order is matched. `pnpm platform:up` does not set it; it only reads it from `.env`.
-
-`RECONCILE_CRON_MINUTES` (`.env`, passed through by `docker-compose.apps.yml` with no default) is the ledger's reconciliation cadence in whole minutes. `.env.example` leaves it blank, and a blank value refuses to boot `svc-ledger` (`services/svc-ledger/src/env.ts`), so nothing posts until you set it.
-
-`MATCHING_SNAPSHOT_EVERY` (`.env`, passed through with no default) is how many matching-engine events go between snapshots (0 disables them). `.env.example` leaves it blank, and a blank value refuses to boot `svc-matching` (`services/svc-matching/src/env.ts`).
+Boot is blocked until every blank setting in the REQUIRED blocks of `.env.example` has a value (plus two AI-gateway settings that compose reads even though the gateway is optional). They are owner-published, so they are blank on purpose and nothing in the repo supplies them; a blank one makes compose or that service refuse to start. [`docs/SERVICES.md`](SERVICES.md) lists the required settings of every service.
 
 Tests: `pnpm test` is `turbo run test`; most packages use Vitest. Single package: `pnpm --filter @intafaced/<name> test`. Per-service Definition of Done: `pnpm gate`. Broad local check: `pnpm verify`.
 

@@ -90,7 +90,7 @@ Everything above is **merchant** money — a third party pays a merchant. These 
 | `withdrawal.mine`    | `trade:read`     | `{ limit? }`                                          | `Withdrawal[]`  |
 | `withdrawal.balance` | `ledger:read`    | `{ assetId }`                                         | `{ available }` |
 
-**Withdrawal limits.** There is no per-customer withdrawal cap yet (planned). The only caps on `withdrawal.create` are the treasury exposure cap, which is platform-wide per asset, and the merchant daily payout cap, which applies only to a user who owns a merchant with a legacy settlement of that asset.
+**Withdrawal limits.** There is no per-customer withdrawal cap yet (planned). The only limits on `withdrawal.create` are the treasury exposure cap (platform-wide per asset, enforced only with `PAY_TREASURY_LIMITS=required`) and, for a user who owns a merchant with a legacy settlement of that asset, that merchant's payout policy: daily payout cap, beneficiary cap and approval threshold (enforced only with `PAY_MERCHANT_CONTROLS=required`).
 
 **Why these live here.** Value entering the book must come from a rail and value leaving goes out through one; the `RailAdapter` interface, the registry and both v1 adapters are in this service. The alternative was a second service learning about rails, or a money path with no rail behind it — which is a money path reconciliation has nothing to check against.
 

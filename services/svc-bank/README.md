@@ -122,7 +122,7 @@ Interest **capitalises** (raises debt, posts nothing). Mark / margin call / liqu
 
 ### `cards` — **the ledger half. No live card programme: off by default, simulator only.**
 
-The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default) every one refuses with `bank.no_card_issuer`; with `card-sim` they run against a simulator. No setting selects a real issuer (`CARD_ISSUER_SETTINGS` in `src/cards/issuer.ts`).
+The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default) `cards.issue` and `cards.setStatus` refuse with `bank.no_card_issuer` and `cards.programme` answers "No card programme"; with `card-sim` they run against a simulator. No setting selects a real issuer (`CARD_ISSUER_SETTINGS` in `src/cards/issuer.ts`).
 
 | Procedure              | Scope        | Purpose                                                                       |
 | ---------------------- | ------------ | ----------------------------------------------------------------------------- |
