@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { registerInternalFundingRate } from './internal-funding-rate.js';
-import type { FundingRateEntry } from './funding-rate-source.js';
+import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 
 const SECRET = 'test-internal-secret-for-trade-funding-rate';
 const PATH = '/internal/futures/funding-rate';
@@ -18,38 +19,66 @@ function signed(payload: unknown): { headers: Record<string, string>; payload: s
   };
 }
 
-async function withTwoOperators(
-  app: {
-    inject: (opts: {
-      method: string;
-      url: string;
-      headers: Record<string, string>;
-      payload: string;
-    }) => Promise<{ statusCode: number; json: () => { periodEndIso?: string } }>;
-  },
-  payload: Record<string, unknown>,
-) {
-  const first = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, operatorId: 'operator-a' }) });
-  const second = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, operatorId: 'operator-b' }) });
-  return { first, second };
+function periodOf(payload: Record<string, unknown>): string {
+  const marketId = String(payload.marketId);
+  const named = typeof payload.periodId === 'string' ? payload.periodId.trim() : '';
+  if (named) return named;
+  const start = String(payload.periodStartIso);
+  return periodIdFor(marketId, new Date(Date.parse(start)).toISOString());
+}
+
+function markOf(payload: Record<string, unknown>): string | null {
+  const raw = typeof payload.markPrice === 'string' ? payload.markPrice.trim() : '';
+  return raw.length > 0 ? raw : null;
+}
+
+let approvalSeq = 0;
+
+/** One bound four-eyes row, then one post that spends it. Replays of the same period send no new approval. */
+async function withBoundApproval(app: FastifyInstance, approvals: MemoryApprovalBook, payload: Record<string, unknown>) {
+  const marketId = String(payload.marketId);
+  const rate = String(payload.rate);
+  const periodId = periodOf(payload);
+  const markPrice = markOf(payload);
+  const approvalId = `apr-funding-${++approvalSeq}`;
+  approvals.put({
+    approvalId,
+    actionType: 'trade.funding_rate.publish',
+    targetService: 'svc-trade',
+    targetId: marketId,
+    expectedVersion: periodId,
+    payloadHash: payloadHash({
+      actionType: 'trade.funding_rate.publish',
+      marketId,
+      periodId,
+      rate,
+      markPrice,
+    }),
+    requesterId: 'requester-1',
+    approverId: 'approver-2',
+  });
+  const second = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, approvalId }) });
+  return { second };
 }
 
 async function build(publish: (e: FundingRateEntry) => void, maxAbsRate: string | null = FIXTURE_FUNDING_MAX_ABS) {
   const app = Fastify();
+  const approvals = new MemoryApprovalBook();
   registerInternalFundingRate(app, {
     internalSecret: SECRET,
     publishFundingRate: publish,
     maxAbsRate,
     now: () => 1_700_000_000_000,
+    approvals,
   });
 
   await app.ready();
-  return app;
+  return { app, approvals };
 }
 
 describe('POST /internal/futures/funding-rate', () => {
   it('401 without service auth', async () => {
-    const app = await build(vi.fn());
+    const { app } = await build(vi.fn());
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -61,7 +90,7 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('requires body-bound HMAC — v1 header-only and tampered payload are 401', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app } = await build((e) => published.push(e));
     const body = JSON.stringify({ marketId: 'm1', rate: '0.0001', periodId: 'm1:p0' });
     const v1 = await app.inject({
       method: 'POST',
@@ -84,8 +113,8 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('canonicalises and preserves a publisher-supplied period end', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((entry) => published.push(entry));
-    const { second: res } = await withTwoOperators(app, {
+    const { app, approvals } = await build((entry) => published.push(entry));
+    const { second: res } = await withBoundApproval(app, approvals, {
       marketId: 'm1',
       rate: '0.0001',
       periodId: 'm1:p0',
@@ -99,7 +128,7 @@ describe('POST /internal/futures/funding-rate', () => {
   });
 
   it('400 when marketId or rate missing (never invent)', async () => {
-    const app = await build(vi.fn());
+    const { app } = await build(vi.fn());
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -121,7 +150,7 @@ describe('POST /internal/futures/funding-rate', () => {
    */
   it('400 when the publisher names no period — the clock must not name it', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app } = await build((e) => published.push(e));
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -137,7 +166,7 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('the same instant in three ISO spellings is ONE period', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app, approvals } = await build((e) => published.push(e));
     const base = { marketId: 'm1', rate: '0.0001' };
 
     // Same moment, three encodings. Concatenated raw these were three distinct
@@ -145,7 +174,7 @@ describe('POST /internal/futures/funding-rate', () => {
     // second publisher with a different one, double-charged with nobody
     // changing a period.
     const spellings = ['2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00Z', '2026-08-08T02:00:00+02:00'];
-    const first = await withTwoOperators(app, { ...base, periodStartIso: spellings[0] });
+    const first = await withBoundApproval(app, approvals, { ...base, periodStartIso: spellings[0] });
     expect(first.second.statusCode).toBe(200);
     for (const iso of spellings.slice(1)) {
       const res = await app.inject({
@@ -164,7 +193,7 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('a periodId belonging to another market is refused', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app } = await build((e) => published.push(e));
 
     // `funding_periods` is keyed on period_id ALONE, so one id copy-pasted
     // across two markets makes the second read as already settled and its
@@ -182,7 +211,7 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('an unparseable periodStartIso is refused, not concatenated', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app } = await build((e) => published.push(e));
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -204,7 +233,7 @@ describe('POST /internal/futures/funding-rate', () => {
    */
   it('an asOfMs in the future is refused', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app, approvals } = await build((e) => published.push(e));
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -214,7 +243,7 @@ describe('POST /internal/futures/funding-rate', () => {
     expect(published).toEqual([]);
 
     // A minute of clock skew is still accepted — publishers are not atomic.
-    const ok = await withTwoOperators(app, {
+    const ok = await withBoundApproval(app, approvals, {
       marketId: 'm1',
       rate: '0.0001',
       periodId: 'm1:p0',
@@ -226,8 +255,8 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('publishes rate when service-auth + body valid', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
-    const { second: res } = await withTwoOperators(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' });
+    const { app, approvals } = await build((e) => published.push(e));
+    const { second: res } = await withBoundApproval(app, approvals, { marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, marketId: 'm1', rate: '0.0001', periodId: 'm1:t0' });
     expect(published).toHaveLength(1);
@@ -241,7 +270,7 @@ describe('POST /internal/futures/funding-rate', () => {
    */
   it('refuses rate 1000000 with trade.funding_rate_exceeds_max — nothing published', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e));
+    const { app } = await build((e) => published.push(e));
     const res = await app.inject({
       method: 'POST',
       url: PATH,
@@ -255,7 +284,7 @@ describe('POST /internal/futures/funding-rate', () => {
 
   it('refuses publish when max abs rate is unset (fail-closed)', async () => {
     const published: FundingRateEntry[] = [];
-    const app = await build((e) => published.push(e), null);
+    const { app } = await build((e) => published.push(e), null);
     const res = await app.inject({
       method: 'POST',
       url: PATH,

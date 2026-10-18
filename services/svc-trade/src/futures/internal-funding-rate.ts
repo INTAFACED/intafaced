@@ -6,6 +6,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { consumeApproval, payloadHash, type ApprovalBook } from '../admin/common.js';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';
 import type { FundingHistoryRow } from './funding-history.js';
@@ -24,10 +25,15 @@ export interface InternalFundingRateDeps {
   /** Optional clock for asOf default. */
   now?: () => number;
   /**
-   * Append-only history. Called once, after two distinct operator approvals,
+   * Append-only history. Called once, after a consumed four-eyes approval,
    * and not on a replay of the same market, period and rate.
    */
   recordFundingHistory?: (row: FundingHistoryRow) => void;
+  /**
+   * Identity approval book. Null refuses: a missing book never allows a publish.
+   * Free-text operator names are not an approval.
+   */
+  approvals: ApprovalBook | null;
   /**
    * Isolated tests install retention. Production index already called
    * `retainRawBody` on the same Fastify instance.
@@ -37,8 +43,8 @@ export interface InternalFundingRateDeps {
 
 /**
  * POST /internal/futures/funding-rate
- * Body: { marketId, rate, periodId?, asOfMs? }
- * Auth: service headers (INTERNAL_SERVICE_SECRET).
+ * Body: { marketId, rate, periodId?, asOfMs?, approvalId? }
+ * Auth: service headers (INTERNAL_SERVICE_SECRET), then a consumed four-eyes approval.
  */
 function publishKey(marketId: string, periodId: string, rate: string): string {
   return `${marketId}\n${periodId}\n${rate}`;
@@ -50,7 +56,6 @@ function positiveDecimal(value: string): boolean {
 
 export function registerInternalFundingRate(app: FastifyInstance, deps: InternalFundingRateDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
-  const firstApproval = new Map<string, string>();
   const published = new Map<string, { entry: FundingRateEntry; markPrice: string | null }>();
 
   app.post<{
@@ -61,7 +66,7 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       asOfMs?: number;
       periodStartIso?: string;
       periodEndIso?: string;
-      operatorId?: string;
+      approvalId?: string;
       markPrice?: string;
     };
   }>('/internal/futures/funding-rate', async (req, reply) => {
@@ -229,31 +234,42 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       });
     }
 
-    // The service secret authenticates the caller. It is not an operator approval.
-    const operatorId = req.body?.operatorId?.trim().toLowerCase() ?? '';
-    if (!operatorId) {
+    // The service secret authenticates the caller. It is not an approval.
+    // A missing book refuses. A blank approval id refuses. consumeApproval throws
+    // for a missing row, a reused row, a payload that does not match, and a
+    // requester who is also the approver.
+    const approvalId = req.body?.approvalId?.trim() ?? '';
+    if (deps.approvals === null || approvalId.length === 0) {
       return reply.code(403).send({
         error: 'trade.funding_rate_publish_invalid',
-        message: 'a service secret is not an operator approval — the rate is not stored',
+        message: 'a service secret is not an approval — funding rate publish needs a consumed four-eyes approval',
       });
     }
-    const prior = firstApproval.get(key);
-    if (!prior) {
-      firstApproval.set(key, operatorId);
-      return reply.code(403).send({
-        error: 'trade.funding_rate_publish_invalid',
-        message: 'funding rate publish is refused until a second distinct operator approval is recorded',
+    let approverId: string;
+    try {
+      const consumed = await consumeApproval(deps.approvals, {
+        approvalId,
+        actionType: 'trade.funding_rate.publish',
+        targetId: marketId,
+        expectedVersion: periodId,
+        payloadHash: payloadHash({
+          actionType: 'trade.funding_rate.publish',
+          marketId,
+          periodId,
+          rate,
+          markPrice,
+        }),
+        operationId: `funding:${marketId}:${periodId}`,
       });
-    }
-    if (prior === operatorId) {
+      approverId = consumed.approverId;
+    } catch {
       return reply.code(403).send({
         error: 'trade.funding_rate_publish_invalid',
-        message: 'the second approval must be a different operator — one operator cannot approve their own publish',
+        message: 'the approval is missing, reused, or does not match this market, period, rate and mark',
       });
     }
 
     published.set(key, { entry, markPrice });
-    firstApproval.delete(key);
     deps.publishFundingRate(entry);
     deps.recordFundingHistory?.({
       marketId,
@@ -262,6 +278,6 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       fundingRate: rate,
       markPrice,
     });
-    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, ...(periodEndIso ? { periodEndIso } : {}) });
+    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, approverId, ...(periodEndIso ? { periodEndIso } : {}) });
   });
 }

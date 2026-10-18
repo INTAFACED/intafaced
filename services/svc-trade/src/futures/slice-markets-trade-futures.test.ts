@@ -13,6 +13,7 @@ import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { markSourceFromBook } from './mark-source.js';
 import { presentFundingHistory, registerFundingHistory, type FundingHistoryListing, type FundingHistoryRow } from './funding-history.js';
 import { exportMarkHistory } from './mark-history.js';
+import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { registerInternalFundingRate } from './internal-funding-rate.js';
 import type { FundingRateEntry } from './funding-rate-source.js';
 
@@ -211,7 +212,9 @@ describe('MKT-0126 mark quote without observedAt', () => {
   });
 });
 
-describe('MKT-0128 funding publish needs two distinct operators', () => {
+describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
+  const PATH = '/internal/futures/funding-rate';
+
   function signed(payload: unknown) {
     const raw = JSON.stringify(payload);
     return {
@@ -220,78 +223,165 @@ describe('MKT-0128 funding publish needs two distinct operators', () => {
     };
   }
 
-  it('a single service secret does not store the rate, and a repeated post does not settle twice', async () => {
-    const published: FundingRateEntry[] = [];
+  function post(app: ReturnType<typeof Fastify>, payload: unknown) {
+    return app.inject({ method: 'POST', url: PATH, ...signed(payload) });
+  }
+
+  function appWith(published: FundingRateEntry[], history: FundingHistoryRow[], approvals: MemoryApprovalBook | null) {
     const app = Fastify();
     registerInternalFundingRate(app, {
       internalSecret: SECRET,
       publishFundingRate: (entry) => published.push(entry),
-      maxAbsRate: '1',
-      now: () => 1_700_000_000_000,
-    });
-    const body = { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0' };
-    const secretOnly = await app.inject({ method: 'POST', url: '/internal/futures/funding-rate', ...signed(body) });
-    expect(secretOnly.statusCode).toBe(403);
-    expect(published).toEqual([]);
-
-    const first = await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-a' }),
-    });
-    expect(first.statusCode).toBe(403);
-    expect(published).toEqual([]);
-
-    const same = await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-a' }),
-    });
-    expect(same.statusCode).toBe(403);
-    expect(published).toEqual([]);
-
-    const second = await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-b' }),
-    });
-    expect(second.statusCode).toBe(200);
-    expect(published).toHaveLength(1);
-
-    const replay = await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-c' }),
-    });
-    expect(replay.statusCode).toBe(200);
-    expect(replay.json().duplicate).toBe(true);
-    expect(published).toHaveLength(1);
-    await app.close();
-  });
-
-  it('records mark_price on the history row and does not invent one', async () => {
-    const history: { markPrice: string | null }[] = [];
-    const app = Fastify();
-    registerInternalFundingRate(app, {
-      internalSecret: SECRET,
-      publishFundingRate: vi.fn(),
       recordFundingHistory: (row) => history.push(row),
       maxAbsRate: '1',
       now: () => 1_700_000_000_000,
+      approvals,
     });
+    return app;
+  }
+
+  function bind(
+    book: MemoryApprovalBook,
+    input: {
+      approvalId: string;
+      marketId: string;
+      periodId: string;
+      rate: string;
+      markPrice: string | null;
+      requesterId: string;
+      approverId: string;
+    },
+  ) {
+    book.put({
+      approvalId: input.approvalId,
+      actionType: 'trade.funding_rate.publish',
+      targetService: 'svc-trade',
+      targetId: input.marketId,
+      expectedVersion: input.periodId,
+      payloadHash: payloadHash({
+        actionType: 'trade.funding_rate.publish',
+        marketId: input.marketId,
+        periodId: input.periodId,
+        rate: input.rate,
+        markPrice: input.markPrice,
+      }),
+      requesterId: input.requesterId,
+      approverId: input.approverId,
+    });
+  }
+
+  it('a service secret alone publishes nothing', async () => {
+    const published: FundingRateEntry[] = [];
+    const app = appWith(published, [], new MemoryApprovalBook());
+    const secretOnly = await post(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0' });
+    expect(secretOnly.statusCode).toBe(403);
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  it('two posts with the same secret and different free-text operator ids publish nothing', async () => {
+    const published: FundingRateEntry[] = [];
+    const app = appWith(published, [], new MemoryApprovalBook());
+    const body = { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0' };
+    const first = await post(app, { ...body, operatorId: 'operator-a' });
+    const second = await post(app, { ...body, operatorId: 'operator-b' });
+    expect(first.statusCode).toBe(403);
+    expect(second.statusCode).toBe(403);
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  it('a missing approval book refuses even when an approval id is sent', async () => {
+    const published: FundingRateEntry[] = [];
+    const app = appWith(published, [], null);
+    const res = await post(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0', approvalId: 'apr-1' });
+    expect(res.statusCode).toBe(403);
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  it('refuses an approval whose requester is the approver', async () => {
+    const published: FundingRateEntry[] = [];
+    const book = new MemoryApprovalBook();
+    const app = appWith(published, [], book);
+    const body = { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0', markPrice: '50000' };
+    bind(book, {
+      approvalId: 'apr-self',
+      marketId: 'm1',
+      periodId: 'm1:p0',
+      rate: '0.0001',
+      markPrice: '50000',
+      requesterId: 'same-person',
+      approverId: 'same-person',
+    });
+    const res = await post(app, { ...body, approvalId: 'apr-self' });
+    expect(res.statusCode).toBe(403);
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  it('refuses an approval bound to a different rate', async () => {
+    const published: FundingRateEntry[] = [];
+    const book = new MemoryApprovalBook();
+    const app = appWith(published, [], book);
+    bind(book, {
+      approvalId: 'apr-other-rate',
+      marketId: 'm1',
+      periodId: 'm1:p0',
+      rate: '0.0002',
+      markPrice: '50000',
+      requesterId: 'requester-1',
+      approverId: 'approver-2',
+    });
+    const res = await post(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p0',
+      markPrice: '50000',
+      approvalId: 'apr-other-rate',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  it('publishes once for a bound approval, replays as a duplicate, and refuses reuse on another period', async () => {
+    const published: FundingRateEntry[] = [];
+    const history: FundingHistoryRow[] = [];
+    const book = new MemoryApprovalBook();
+    const app = appWith(published, history, book);
     const body = { marketId: 'm1', rate: '0.0001', periodId: 'm1:p1', markPrice: '50000' };
-    await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-a' }),
+    bind(book, {
+      approvalId: 'apr-ok',
+      marketId: 'm1',
+      periodId: 'm1:p1',
+      rate: '0.0001',
+      markPrice: '50000',
+      requesterId: 'requester-1',
+      approverId: 'approver-2',
     });
-    const stored = await app.inject({
-      method: 'POST',
-      url: '/internal/futures/funding-rate',
-      ...signed({ ...body, operatorId: 'operator-b' }),
-    });
+    const stored = await post(app, { ...body, approvalId: 'apr-ok' });
     expect(stored.statusCode).toBe(200);
-    expect(history).toEqual([expect.objectContaining({ markPrice: '50000', fundingRate: '0.0001' })]);
+    expect(stored.json().approverId).toBe('approver-2');
+    expect(published).toHaveLength(1);
+    expect(history).toEqual([expect.objectContaining({ markPrice: '50000', fundingRate: '0.0001', periodId: 'm1:p1' })]);
+
+    const replay = await post(app, { ...body, approvalId: 'apr-ok' });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().duplicate).toBe(true);
+    expect(published).toHaveLength(1);
+    expect(history).toHaveLength(1);
+
+    const reused = await post(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p2',
+      markPrice: '50000',
+      approvalId: 'apr-ok',
+    });
+    expect(reused.statusCode).toBe(403);
+    expect(published).toHaveLength(1);
+    expect(history).toHaveLength(1);
     await app.close();
   });
 });
