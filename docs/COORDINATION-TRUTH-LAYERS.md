@@ -122,4 +122,4 @@ pnpm tracker ready   # or read tooling/tracker/features.mjs owners
 - Plan + anti-list: [`TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md`](TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md)
 - Evidence: [`DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md`](DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md)
 - Claim how-to: `CONTRIBUTING.md` §3.5 · `AGENTS.md`
-- CI spend: none — retired 2026-08-07, [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md)
+- CI spend: none — retired 2026-08-07, [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md)
