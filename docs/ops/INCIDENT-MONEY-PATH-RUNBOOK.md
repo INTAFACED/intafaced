@@ -1,5 +1,7 @@
 # Incident runbook — money path (ledger / trade red)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** D26-P3-10 · LIVE-LANES `denon-d26-p3-10-incident`  
 **Class:** N (ops procedure). Does **not** close Class X go-live.  
 **Law:** Doctrine §4.2 (unverifiable book → freeze posting) · §14.6 (operator kill, never trap funds) · [`../INTERNET-LEVERAGE-LAW.md`](../INTERNET-LEVERAGE-LAW.md) Phase A IN (name existing doors; do not rebuild them).  

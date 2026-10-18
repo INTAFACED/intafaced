@@ -1,5 +1,7 @@
 # Spec — Pro Exchange Custody, Reconciliation, and Wind-Down (`PX-S12`)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Authoritative product contract; the one-ledger and transfer workflow foundations have implementation evidence, while live custody models, external rails, solvency attestations, treasury policy, and wind-down arrangements remain owner/external sockets
 
 **Authority:** `PX-S12`; bounded child of [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md)

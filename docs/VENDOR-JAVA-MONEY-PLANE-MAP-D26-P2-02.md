@@ -1,5 +1,7 @@
 # Vendor Java money-plane map — D26-P2-02
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Board:** D26-P2-02 · **Generated:** 2026-08-15 · **Tip:** `1723273b`
 **Proof runner:** `pnpm map:vendor-java-money-plane` → `tooling/scripts/vendor-java-money-plane-map.mjs`
 **Machine proof:** `tooling/vendor-maps/java-money-plane-proof.json`

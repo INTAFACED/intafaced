@@ -1,5 +1,7 @@
 # TRADE lane harvest — all seven mountains, read against tip
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-08 · **Tip when read:** `origin/main` @ `8519bea5` (some sections re-verified at `229bab67`)
 **Method:** seven independent read-only agents, one per mountain, each reporting the Done bar quoted from its own law, what is reachable on tip, and every number it would have to invent. Findings below were re-read by the lead agent before any of them were acted on.
 

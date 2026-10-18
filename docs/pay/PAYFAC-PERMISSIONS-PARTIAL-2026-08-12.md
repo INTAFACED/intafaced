@@ -1,5 +1,7 @@
 # PayFac permissions — honest partial (D26-P1-P2)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** `pay.payfac`  
 **Board:** D26-P1-P2 — sub-merchant permissions real or honest partial + §13  
 **Leverage:** in-repo `svc-pay` trees (`submerchants.ts`) + `assertMerchantAreaAccess` — extend, do not rebuild.

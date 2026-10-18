@@ -1,5 +1,7 @@
 # Color lock — P21 (provisional) → **superseded 2026-08-02**
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** **SUPERSEDED.** Reverted to black + orange on 2026-08-02 on the
 owner's standing direction, exercising exactly the reversibility this document
 promised. Kept rather than deleted because it is the record of why the shell was
