@@ -1,5 +1,7 @@
 # ADMIN-0 inventory — `04_Web_Admin` vs `apps/admin`
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-02  
 **Tip base:** `26289f3` (re-derive at read)  
 **Slice:** LAW / ADMIN inventory only — **no product UI rewrite in this doc**  

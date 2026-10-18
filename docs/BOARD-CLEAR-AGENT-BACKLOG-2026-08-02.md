@@ -1,5 +1,7 @@
 # Board Clear — Agent residual backlog · 2026-08-02
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Owner:** Board Clear orchestrator (agents only)  
 **Human mountains:** out of scope — see `SHEHZAD-HARD-OWNERSHIP-2026-08-01.md`  
 **Rule:** On every GO/CONTINUE, **re-derive** from this file + scoreboard + `gh pr list`. Do not re-ship completed IDs.

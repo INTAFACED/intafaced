@@ -1,5 +1,7 @@
 # Shizu (Shehzad) — board audit + GitHub state
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-07 · **Written for:** Nitro (plain language, no code)
 **Re-derived from:** `origin/main` @ `bfce4c41` (#923), `gh pr list`, `gh issue list`, GitHub API
 **Status:** this is the evidence behind the board delta that ships in the same PR. §13 records exactly what that PR changed.

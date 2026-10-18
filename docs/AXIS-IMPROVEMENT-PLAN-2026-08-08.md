@@ -1,6 +1,8 @@
-> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
+> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
 
 # The plan for all eight axes — 2026-08-08
+
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 Nine axes, as it turns out. Every number below was re-derived against `origin/main` from a worktree at that tip, then a six-lane adversarial audit was run against this document itself. What that audit changed is listed first, because two of the changes reverse a recommendation and one of them corrects a headline that was false.
 
@@ -202,7 +204,7 @@ Evidence: `git ls-files docs/ops | awk -F/ 'NF==3{print "(root)"} NF>3{print $3}
 
 ## A7 · Security
 
-**Where it stands.** Four security documents, newest 5 August. Secret scanning is real and layered — `gitleaks` on every pull request plus `tooling/ci/secret-scan.mjs`, which already knows about roughly forty credentials that arrived inside the vendored tree, and a mutation test that proves the scanner still catches things. But `.gitleaks.toml:12` allowlists `vendor/` and `docs/` by path, dependency scanning covers `npm` and `github-actions` only, and the customer-facing Java platform is Spring Boot 1.5.9 with 32 vendored jars nothing has ever checked. **Threat model (judgment):** [`THREAT-MODEL-CURRENT.md`](THREAT-MODEL-CURRENT.md) (D26-P3-02). Still no penetration test. Session / authentication review remains **D26-P3-06**.
+**Where it stands.** Four security documents, newest 5 August. Secret scanning is real and layered — `gitleaks` on every pull request plus `tooling/ci/secret-scan.mjs`, which already knows about roughly forty credentials that arrived inside the vendored tree, and a mutation test that proves the scanner still catches things. But `.gitleaks.toml:12` allowlists `vendor/` and `docs/` by path, dependency scanning covers `npm` and `github-actions` only, and the customer-facing Java platform is Spring Boot 1.5.9 with 32 vendored jars nothing has ever checked. **Threat model (judgment):** [`THREAT-MODEL-CURRENT.md`](archive/THREAT-MODEL-CURRENT.md) (D26-P3-02). Still no penetration test. Session / authentication review remains **D26-P3-06**.
 
 **What should change.** The dependency half is A2 item 1 — the same four lines fix both, and should be done once. What is left for A7 alone is the review half: one falsification pass over `svc-identity` covering sessions, tokens, step-up and API keys, written the way the money audits are written. That is the authentication review, and it is already on A4's list.
 
