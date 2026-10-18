@@ -1,7 +1,6 @@
 import { EmptyState } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { NotLiveCard } from '../../chrome/NotLiveCard';
-import { reason } from '../../chrome/copy';
 import { PortalFailure, PortalLoading } from '../../components';
 import { EntityList } from '../../ui/EntityList';
 import { EffectiveFeeRates } from '../../ui/FeeRate';
@@ -168,9 +167,7 @@ function FeesBody({ data, state, test }: { data: Loaded; state: AnalyticsState; 
         ) : open ? (
           <EffectiveFeeRates gross={totals.gross} fees={totals.fees} />
         ) : (
-          <NotLiveCard reason={reason('reasonDetail')} title={t('rateOffTitle')} needs="fee rule snapshots aggregated">
-            {t('rateOffBody')}
-          </NotLiveCard>
+          <p className="muted">{t('rateNoneInWindow')}</p>
         )}
       </PaySection>
       <PaySection title={t('feesTableTitle')} description={t('feesTableBody')}>

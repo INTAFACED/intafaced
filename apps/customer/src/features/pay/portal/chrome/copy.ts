@@ -7,7 +7,6 @@ const en = {
   reasonDocuments: 'Document checks are not connected here',
   reasonVerified: 'Available after your business is verified',
   reasonHistory: 'History is not connected here: INTAFACED doesn’t record past changes. Nothing for you to set up.',
-  reasonDetail: 'Detail is not connected here: INTAFACED has no extra information to show. Nothing for you to set up.',
   reasonLists: 'Not connected here: INTAFACED has not built this view. Nothing for you to set up.',
   reasonActions: 'Not connected here: INTAFACED has not built this action. Nothing for you to set up.',
   reasonDeveloper: 'Developer tools are not connected here: INTAFACED has not built this part. Nothing for you to set up.',
