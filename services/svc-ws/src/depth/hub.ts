@@ -21,6 +21,7 @@ import {
   type DepthMatchingTradingCode,
 } from '../matching-trading.js';
 import type { MarketRegistry } from './registry.js';
+import { bookIsCrossed } from './crossed.js';
 import { DepthNoBookError, type DepthSource } from './source.js';
 
 /** True when both sides have the same prices with the same quantities. */
@@ -580,6 +581,12 @@ export class DepthHub {
     if (!this.#hasLiveSubscriber(snapshot.marketId)) return null;
     const previous = this.#books.get(snapshot.marketId);
     const next = bookFromSnapshot(snapshot);
+    if (bookIsCrossed(next)) {
+      // Best bid at or above the best ask is a bad copy. Do not replace a
+      // live book with it and do not fan a snapshot of it.
+      this.#log.warn({ marketId: snapshot.marketId, sequence: snapshot.sequence }, 'ws: crossed book withheld — not offered as live');
+      return null;
+    }
     if (this.isMatchingNotTradable(snapshot.marketId)) {
       // Keep the book current for resume. Do not fan out a tradable ladder.
       if (bookHasRestingDepth(next) || previous) this.#books.set(snapshot.marketId, next);
