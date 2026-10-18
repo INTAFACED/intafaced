@@ -1330,7 +1330,7 @@ function pasteFor(claim) {
     `Note: ${claim.note || '—'}`,
     'Forbidden: Shehzad protocol/INTACHAIN implement; dual-edit Denon open PR files; invent money/depth; apps/web product; main checkout; mid-wave features.mjs thrash.',
     'Proof: if no Docker — NO-FLEET (proof_missing: fleet-blocked). If :8090 listener cwd ≠ your worktree — visual proof invalid.',
-    'PRE-PUSH: format and check the changed files. Review and verify the affected behavior; honor required protection checks. Before merging, run node tooling/scripts/merge-gate.mjs <pr> --head <sha> from an up-to-date origin/main checkout; merge only after it passes.',
+    'PRE-PUSH: format and check the changed files. Review and verify the affected behavior; honor required protection checks. Merge only when the required checks on the main ruleset pass and an independent review passed the same head.',
     'Worktree from current origin/main. One service per PR; parallel PRs stay. Record checkable evidence of the change.',
     'Coord width: 6–8 concurrent path-disjoint writers when free claims allow.',
     '--- end paste ---',

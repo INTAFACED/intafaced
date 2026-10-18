@@ -1,3 +1,0 @@
-Tests (full)	Run pnpm test --continue	2026-10-13T13:47:21.7117992Z  ERROR  run failed: command  exited (1)
-Tests (full)	Run pnpm test --continue	2026-10-13T13:47:21.7252290Z  Tasks:    71 successful, 75 total
-Tests (full)	Run pnpm test --continue	2026-10-13T13:47:21.7253270Z Failed:    @intafaced/svc-notify#test, @intafaced/svc-ops#test

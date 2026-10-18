@@ -19,8 +19,7 @@ on:
   # still skip docs and markdown: tooling/ci/ci-affected.mjs ignores them.
   # INTAFACED_DEFINITIVE_BUILD.md stays listed because coverage-check reads it.
   # Agent-rule markdown stays listed so a rules-only change cannot be treated
-  # as docs-only. tooling/scripts/merge-gate.mjs mirrors this list and its
-  # test fails on drift. The last matching pattern wins.
+  # as docs-only. The last matching pattern wins.
   push:
     branches: [main]
   pull_request:

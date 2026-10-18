@@ -1,7 +1,7 @@
 /**
- * gate-gh.mjs: the one way the merge-gate tools talk to `gh`.
+ * gate-gh.mjs: the one way the gate tools talk to `gh`.
  *
- * Used by merge-gate.mjs, main-auto-revert.mjs and gate-file-guard.mjs. Three rules live here so no caller can forget them:
+ * Used by main-auto-revert.mjs and gate-file-guard.mjs. Three rules live here so no caller can forget them:
  *
  *   1. A 403 or 429 from GitHub is a STOP (AGENTS.md "Ship" rule 2). It throws GitHubRefusalError, which no caller
  *      catches and retries. There is no retry loop anywhere in these tools.

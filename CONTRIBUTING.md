@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and passed, or failed only on checks that AGENTS.md ("Check, then merge", items 2 and 3) accepts, and the independent review passed that same head. The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
+Merge: squash, one commit per PR. GitHub's ruleset on `main` requires `CI merge seal`, `Gitleaks` and `Dependency audit` to pass, and the independent review must pass the same head (AGENTS.md, "Check, then merge").
 
 ---
 
@@ -69,7 +69,7 @@ CI job names, so you can find a failure fast:
 | `Definition of Done`                                                        | the per-service gate (`pnpm gate`)                                       |
 | `Gitleaks` / `Dependency audit`                                             | secrets and known vulnerabilities                                        |
 
-The merge gate blocks on failures your PR introduces; the rules are in AGENTS.md ("Check, then merge"). GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass; a gate PASS does not override them, and you never bypass them.
+GitHub blocks the merge while any required check is red; the rules are in AGENTS.md ("Check, then merge"). You never bypass them.
 
 A 403 or 429 from GitHub means stop: report the response, keep working locally, and follow `tooling/agent-protocol/AGENT_PROTOCOL.md` section 3 before you resume. A merge is not a launch: deploys, live credentials, purchases and real funds need the owner.
 

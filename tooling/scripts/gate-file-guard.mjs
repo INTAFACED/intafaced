@@ -17,7 +17,7 @@
  *
  * #4402 widened the dependency-audit allowlist inside a migration fix. The title said "fix the migration", the diff
  * quietly loosened a gate, and a reviewer reading the title had no reason to look. The rule changes nothing about WHO may
- * change a gate; it makes the change impossible to miss, in the title, on the PR page, and in the merge-gate verdict.
+ * change a gate; it makes the change impossible to miss, in the title, and on the PR page.
  *
  * WHAT IT DOES NOT DO (read this before trusting it)
  *
@@ -28,8 +28,7 @@
  *
  * KNOWN LIMIT: a PR can still edit or delete the workflow file gate-file-guard.yml itself, and GitHub runs the PR's copy of
  * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
- * merge-gate.mjs: it applies this same rule to the PR when the PR is merged, and it refuses to run unless the checkout
- * it runs from matches origin/main (tooling/scripts and tooling/ci), so the rule that judges is always main's.
+ * the independent review every PR needs before it merges (AGENTS.md, "Check, then merge").
  *
  * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
  * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.
