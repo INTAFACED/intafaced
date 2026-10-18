@@ -15,7 +15,7 @@
 [`REDUNDANT-VS-PORT-2026-08-03.md`](REDUNDANT-VS-PORT-2026-08-03.md) ·  
 [`DENON-CALL-EXTRACT-2026-08-03.md`](DENON-CALL-EXTRACT-2026-08-03.md).  
 **Local tip hygiene (agents, not Nitro):** `pnpm wt:gc` is the dry run — it lists every worktree and **why each one is kept**. Never code on the main checkout. After merge, preserve any remaining local work, remove only your own finished worktree with `git worktree remove <path>` (never `--force`), and keep the branch.
-Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md).
+Trust floor history: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](archive/PEACE-OF-MIND-AUDIT-CURRENT.md).
 
 ---
 
@@ -75,12 +75,12 @@ Phase 3+ Pay/P2P/…   ██████░░░░ mounted; rails/sandbox sti
 - **On main:** full fleet + apps. Routers mounted. Purpose-keyed holds **and** purpose-keyed escrow/stake. `pnpm platform:up` exists. Shell deployable on **:8090** (Dockerfile + compose). Major shell rewire waves landed (#412 deploy, #418 OTC/identity, #419 nav, #421 trading edge, #426 promo honesty — re-check `gh` for newer).
 - **Not a live money product:** rails/sandbox, chain feed propped — see trust floor.
 - **Do not rebuild** services already on main. **Do not rebuild vendored exchange kit screens from scratch** — rewire / honesty / i18n / brand only ([`VENDORED-SHELL-PEACE-OF-MIND-MAP-2026-08-03.md`](VENDORED-SHELL-PEACE-OF-MIND-MAP-2026-08-03.md)).
-- **Trust floor (open first):** [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md) · what “proper cleanup” means: [`PROPER-CLEANUP-AFTER-DENON.md`](PROPER-CLEANUP-AFTER-DENON.md)
+- **Trust floor (open first):** [`PEACE-OF-MIND-AUDIT-CURRENT.md`](archive/PEACE-OF-MIND-AUDIT-CURRENT.md) · what “proper cleanup” means: [`PROPER-CLEANUP-AFTER-DENON.md`](PROPER-CLEANUP-AFTER-DENON.md)
 - **Product UI (law):** vendored exchange shell → http://localhost:8090 (`vendor/*/05_Web_Front`). **`apps/web` is not the product** (retire ADR: [`adr/2026-08-03-retire-apps-web-port-to-vue-shell.md`](adr/2026-08-03-retire-apps-web-port-to-vue-shell.md); port map: [`REDUNDANT-VS-PORT-2026-08-03.md`](REDUNDANT-VS-PORT-2026-08-03.md)).
 - **Denon same-day product queue (build this):** [`REGROUP-2026-08-03.md`](REGROUP-2026-08-03.md) — shell money/landing/wire queue + WS integrity blocker.
 - **Insane parallel / swarms (agents):** [`SWARM-ALL-OUT-ORIENT-2026-08-03.md`](SWARM-ALL-OUT-ORIENT-2026-08-03.md) — discovery ritual, free matrix, anti-negatives, GO paste.
-- **Last MVP boards (live 2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) — Phantom integrity/human list · Shehzad P0 venue + #2473 · parked INTACHAIN/sockets · GitHub human blockers. After those lists: stop.
-- **Denon hard board (platform/money — not shell craft):** **live** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) §3 · historical 120-ID [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md) · D-S-\* factory **done** [`SPEC-FACTORY-INDEX-2026-08-04.md`](SPEC-FACTORY-INDEX-2026-08-04.md) · historical mega board [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md). Agents residual only — do not take his invent-risk engines.
+- **Last MVP boards (live 2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) — Phantom integrity/human list · Shehzad P0 venue + #2473 · parked INTACHAIN/sockets · GitHub human blockers. After those lists: stop.
+- **Denon hard board (platform/money — not shell craft):** **live** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) §3 · historical 120-ID [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md) · D-S-\* factory **done** [`SPEC-FACTORY-INDEX-2026-08-04.md`](archive/SPEC-FACTORY-INDEX-2026-08-04.md) · historical mega board [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md). Agents residual only — do not take his invent-risk engines.
 - **Three-way distribution (BINDING):** [`THREE-WAY-DISTRIBUTION-2026-08-04.md`](THREE-WAY-DISTRIBUTION-2026-08-04.md) — Denon hard · Shehzad chain only · Nitro agents rest.
 - **Shehzad Protocol Plane + INTACHAIN board:** [`SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md`](SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md) — sole chain runway; not shell/pay/bank. **P0-on-Base:** [`PROTOCOL-P0-BASE-MEGA-2026-09-06.md`](PROTOCOL-P0-BASE-MEGA-2026-09-06.md). Check: three lines on issue **#4199**. P1 parked ([`adr/2026-09-03-protocol-rails-until-intachain.md`](adr/2026-09-03-protocol-rails-until-intachain.md)).
 - **Custody honesty:** some money screens may be **CustodyNotBuilt** until wallet-RPC security review — do not re-paint fake withdraw/recharge UI over that.
@@ -99,7 +99,7 @@ Phase 3+ Pay/P2P/…   ██████░░░░ mounted; rails/sandbox sti
 - **Residual campaign (older partial-first mode):** [`NITRO-RESIDUAL-CAMPAIGN-2026-07-31.md`](NITRO-RESIDUAL-CAMPAIGN-2026-07-31.md) · lanes [`LIVE-LANES.md`](LIVE-LANES.md) — use only if Board Clear docs missing.
 - **Order-route:** #289 merged under Board Clear A-OR-1; residual Java dual-book = shehzad M7.
 - **Who owns what (durable — not a status board):** [`NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md`](NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md) · also in [`AGENTS.md`](../AGENTS.md) · paste [`NITRO-SESSION-PROMPT.md`](NITRO-SESSION-PROMPT.md). **Denon = direction; Nitro agents = ship + merge when gates pass.** Live tip/PRs: re-derive with git/`gh`, never from memory.
-- **GitHub CI minutes — zero bill:** standard GitHub-hosted runner minutes are free on this public repo; service limits and acceptable-use rules still apply. Parallel pull requests and merge-when-done stay; there is no PR cap. A 403 or 429 from GitHub is a stop. Keep independent local work moving and follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. The old spend throttle was **retired 2026-08-07** and stays deleted; see [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Agents never hold finished work back to save CI minutes.
+- **GitHub CI minutes — zero bill:** standard GitHub-hosted runner minutes are free on this public repo; service limits and acceptable-use rules still apply. Parallel pull requests and merge-when-done stay; there is no PR cap. A 403 or 429 from GitHub is a stop. Keep independent local work moving and follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. The old spend throttle was **retired 2026-08-07** and stays deleted; see [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Agents never hold finished work back to save CI minutes.
 - **#86 landed on main** (shell rebrand + custody locks). **Board Clear** authorizes trade-mountain Done bars (thin/§13, never invent prices) without waiting on new Denon chat — see constitution + ownership precedence.
 
 History only (may lag): [`STATUS-2026-07-27.md`](STATUS-2026-07-27.md)
@@ -135,13 +135,13 @@ History only (may lag): [`STATUS-2026-07-27.md`](STATUS-2026-07-27.md)
 6. **Don’t rebuild services already on main** (or reopen merged Denon work).
 7. Agents run git/PR for Nitro (**operator mode** in [`AGENTS.md`](../AGENTS.md)).
 
-Collab deep dive: [`COLLAB-AUDIT-2026-07-27.md`](COLLAB-AUDIT-2026-07-27.md) · Denon paste: [`MESSAGE-DENON-WORKFLOW.md`](MESSAGE-DENON-WORKFLOW.md)
+Collab deep dive: [`COLLAB-AUDIT-2026-07-27.md`](COLLAB-AUDIT-2026-07-27.md) · Denon paste: [`MESSAGE-DENON-WORKFLOW.md`](archive/MESSAGE-DENON-WORKFLOW.md)
 
 ---
 
 ## Do you need a “big audit” before coding?
 
-**Full A–E program:** done 2026-07-29 — see [`PEACE-OF-MIND-AUDIT-CURRENT.md`](PEACE-OF-MIND-AUDIT-CURRENT.md).  
+**Full A–E program:** done 2026-07-29 — see [`PEACE-OF-MIND-AUDIT-CURRENT.md`](archive/PEACE-OF-MIND-AUDIT-CURRENT.md).  
 **After a Denon merge wave:** run [`WAVE-AUDIT.md`](WAVE-AUDIT.md) (delta), not full archaeology.
 
 Re-run full program only if: main doctrine/money tests go red, law version changes, or peace-of-mind and reality violently disagree.

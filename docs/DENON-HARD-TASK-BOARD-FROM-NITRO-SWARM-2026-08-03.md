@@ -1,14 +1,14 @@
 > **Not current rules (2026-10-18).** Kept as history. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
-> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Historical text below may still _mention_ thrift as what was once believed.
+> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md). Historical text below may still _mention_ thrift as what was once believed.
 
-> **Live task inventory (2026-08-23):** Denon’s **current** mountains are [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md). The 120-ID list [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md) is historical.  
-> **This file stays as historical shape + D-S-\* factory origin.** Spec factory index: [`SPEC-FACTORY-INDEX-2026-08-04.md`](SPEC-FACTORY-INDEX-2026-08-04.md) (**18/18 done** — do not re-write).  
+> **Live task inventory (2026-08-23):** Denon’s **current** mountains are [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md). The 120-ID list [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md) is historical.  
+> **This file stays as historical shape + D-S-\* factory origin.** Spec factory index: [`SPEC-FACTORY-INDEX-2026-08-04.md`](archive/SPEC-FACTORY-INDEX-2026-08-04.md) (**18/18 done** — do not re-write).  
 > Do **not** treat the P0 PR-number examples below as a live open-pile (re-derive `gh pr list`).
 
 # Denon — hard task board (true human judgment only)
 
-**Status:** **HISTORICAL + factory origin** · live inventory → [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) · **Rewritten 2026-08-04**  
+**Status:** **HISTORICAL + factory origin** · live inventory → [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) · **Rewritten 2026-08-04**  
 **Audience:** `@Phantom-X-007` (Denon) + his agents  
 **Tip:** re-derive every session — `git fetch && git log -1 --oneline origin/main` · `gh pr list --author Phantom-X-007 --state open`  
 **Split law:** [`THREE-WAY-DISTRIBUTION-2026-08-04.md`](THREE-WAY-DISTRIBUTION-2026-08-04.md)  
